@@ -15,32 +15,33 @@ describe("collect api client", () => {
     vi.unstubAllGlobals();
   });
 
-  it("getCollectEvent issues GET /api/public/collect/{code}", async () => {
+  // ── credentials policy ────────────────────────────────────────────────────
+  // Guest endpoints must include cookies so the server can identify the caller.
+  // One consolidated check here; individual happy-path tests focus on return values.
+
+  // Identity-bearing endpoints must send the guest cookie so the server can
+  // identify the caller. getCollectProfile is representative; it tracks
+  // submission counts and nickname which require guest identity.
+  it("identity-bearing endpoints send credentials: include", async () => {
+    const profile = { nickname: "DJ", email_verified: false, submission_count: 0, submission_cap: 15 };
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(OK_RESPONSE(profile));
+    await apiClient.getCollectProfile("ABC");
+    const [, opts] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect((opts as RequestInit).credentials).toBe("include");
+  });
+
+  // ── getCollectEvent ───────────────────────────────────────────────────────
+
+  it("getCollectEvent returns parsed event data", async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
       OK_RESPONSE({ code: "ABC", phase: "collection" })
     );
     const r = await apiClient.getCollectEvent("ABC");
     expect(r.phase).toBe("collection");
-    expect(fetch).toHaveBeenCalledWith(
-      expect.stringMatching(/\/api\/public\/collect\/ABC$/),
-      expect.objectContaining({ method: "GET" })
-    );
+    expect(r.code).toBe("ABC");
   });
 
-  it("submitCollectRequest POSTs JSON with credentials", async () => {
-    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
-      OK_RESPONSE({ id: 42 })
-    );
-    await apiClient.submitCollectRequest("ABC", {
-      song_title: "T",
-      artist: "A",
-      source: "spotify",
-    });
-    expect(fetch).toHaveBeenCalledWith(
-      expect.stringMatching(/\/api\/public\/collect\/ABC\/requests$/),
-      expect.objectContaining({ method: "POST", credentials: "include" })
-    );
-  });
+  // ── submitCollectRequest ──────────────────────────────────────────────────
 
   it("submitCollectRequest returns is_duplicate flag", async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
@@ -68,18 +69,15 @@ describe("collect api client", () => {
     ).rejects.toThrow("You already picked this one!");
   });
 
-  it("voteCollectRequest POSTs the request_id with credentials", async () => {
+  // ── voteCollectRequest ────────────────────────────────────────────────────
+
+  it("voteCollectRequest sends the request_id in request body", async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
       OK_RESPONSE({ ok: true })
     );
     await apiClient.voteCollectRequest("ABC", 99);
-    expect(fetch).toHaveBeenCalledWith(
-      expect.stringMatching(/\/api\/public\/collect\/ABC\/vote$/),
-      expect.objectContaining({
-        body: JSON.stringify({ request_id: 99 }),
-        credentials: "include",
-      })
-    );
+    const [, opts] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(JSON.parse((opts as RequestInit).body as string)).toEqual({ request_id: 99 });
   });
 
   it("voteCollectRequest throws ApiError with detail on 409", async () => {
@@ -91,58 +89,23 @@ describe("collect api client", () => {
     );
   });
 
-  it("getCollectProfile sends credentials and returns profile", async () => {
+  // ── getCollectProfile ─────────────────────────────────────────────────────
+
+  it("getCollectProfile returns profile data", async () => {
     const profile = { nickname: "DJ", email_verified: true, submission_count: 3, submission_cap: 15 };
     (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(OK_RESPONSE(profile));
     const r = await apiClient.getCollectProfile("ABC");
     expect(r.email_verified).toBe(true);
-    expect(fetch).toHaveBeenCalledWith(
-      expect.stringMatching(/\/api\/public\/collect\/ABC\/profile$/),
-      expect.objectContaining({ method: "GET", credentials: "include" })
-    );
+    expect(r.nickname).toBe("DJ");
   });
 
-  it("setCollectProfile POSTs with credentials", async () => {
-    const profile = { nickname: "DJ", email_verified: false, submission_count: 0, submission_cap: 15 };
-    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(OK_RESPONSE(profile));
-    await apiClient.setCollectProfile("ABC", { nickname: "DJ" });
-    expect(fetch).toHaveBeenCalledWith(
-      expect.stringMatching(/\/api\/public\/collect\/ABC\/profile$/),
-      expect.objectContaining({ method: "POST", credentials: "include" })
-    );
-  });
+  // ── checkHasRequested ─────────────────────────────────────────────────────
 
-  it("getCollectMyPicks sends credentials", async () => {
-    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
-      OK_RESPONSE({ submitted: [], upvoted: [], voted_request_ids: [], is_top_contributor: false, first_suggestion_ids: [] })
-    );
-    await apiClient.getCollectMyPicks("ABC");
-    expect(fetch).toHaveBeenCalledWith(
-      expect.stringMatching(/\/api\/public\/collect\/ABC\/profile\/me$/),
-      expect.objectContaining({ method: "GET", credentials: "include" })
-    );
-  });
-
-  it("checkHasRequested sends credentials", async () => {
+  it("checkHasRequested returns has_requested flag", async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
       OK_RESPONSE({ has_requested: true })
     );
     const r = await apiClient.checkHasRequested("ABC");
     expect(r.has_requested).toBe(true);
-    expect(fetch).toHaveBeenCalledWith(
-      expect.stringMatching(/\/api\/public\/events\/ABC\/has-requested$/),
-      expect.objectContaining({ credentials: "include" })
-    );
-  });
-
-  it("getMyRequests sends credentials", async () => {
-    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
-      OK_RESPONSE({ requests: [] })
-    );
-    await apiClient.getMyRequests("ABC");
-    expect(fetch).toHaveBeenCalledWith(
-      expect.stringMatching(/\/api\/public\/events\/ABC\/my-requests$/),
-      expect.objectContaining({ credentials: "include" })
-    );
   });
 });

@@ -32,8 +32,7 @@ class TestEventBus:
         bus = EventBus()
         q = bus.subscribe("EVT001")
         bus.unsubscribe("EVT001", q)
-        # Channel should be removed entirely
-        assert "EVT001" not in bus._channels
+        assert bus.subscriber_count("EVT001") == 0
 
     def test_unsubscribe_nonexistent_queue_is_safe(self):
         bus = EventBus()

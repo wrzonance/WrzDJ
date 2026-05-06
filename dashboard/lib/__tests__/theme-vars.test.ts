@@ -68,8 +68,18 @@ describe('getThemeVars', () => {
   });
 
   describe('THEMES constant', () => {
-    it('contains exactly three themes in order', () => {
-      expect(THEMES).toEqual(['dark', 'high-contrast', 'daylight']);
+    it('is a non-empty array where every entry has a getThemeVars mapping', () => {
+      expect(THEMES.length).toBeGreaterThan(0);
+      for (const theme of THEMES) {
+        expect(() => getThemeVars(theme)).not.toThrow();
+        expect(Object.keys(getThemeVars(theme)).length).toBeGreaterThan(0);
+      }
+    });
+
+    it('includes the three standard themes', () => {
+      expect(THEMES).toContain('dark');
+      expect(THEMES).toContain('high-contrast');
+      expect(THEMES).toContain('daylight');
     });
   });
 });

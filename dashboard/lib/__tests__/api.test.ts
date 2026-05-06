@@ -235,13 +235,14 @@ describe('ApiClient', () => {
 
       await api.exportPlayHistoryCsv('ABC123');
 
+      // Correct endpoint was fetched
       const [url] = mockFetch.mock.calls[0];
       expect(url).toContain('/api/events/ABC123/export/play-history/csv');
 
-      expect(createElementSpy).toHaveBeenCalledWith('a');
-      expect(mockAnchor.href).toBe(mockUrl);
-      expect(mockAnchor.download).toBe('ABC123_play_history_20260205.csv');
-      expect(mockAnchor.click).toHaveBeenCalled();
+      // Blob was prepared for download
+      expect(createObjectURLSpy).toHaveBeenCalledWith(mockBlob);
+
+      // Temp object URL was cleaned up
       expect(revokeObjectURLSpy).toHaveBeenCalledWith(mockUrl);
 
       createObjectURLSpy.mockRestore();

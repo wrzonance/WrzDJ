@@ -180,6 +180,24 @@ jobs:
         run: npm audit --audit-level=high
         continue-on-error: true
 
+  kiosk:
+    name: Kiosk WiFi Portal Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kiosk/wifi-portal
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Run tests
+        run: python -m pytest test_portal.py -q
+
   docker-build:
     name: Docker Build Smoke Test
     runs-on: ubuntu-latest

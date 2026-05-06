@@ -9,6 +9,8 @@ from app.models.request import Request as SongRequest
 from app.models.request import RequestStatus
 from app.services.dedup import compute_dedupe_key, find_duplicate
 
+# find_duplicate has no time window — dedup is per-event, period.
+
 
 class TestComputeDedupeKey:
     def test_consistent_hash(self):
@@ -92,7 +94,7 @@ class TestFindDuplicate:
         result = find_duplicate(db, test_event.id, "The Killers", "Somebody Told Me")
         assert result is None
 
-    def test_no_match_outside_window(self, db, test_event):
+    def test_finds_match_regardless_of_age(self, db, test_event):
         key = compute_dedupe_key("The Killers", "Mr. Brightside")
         old_request = SongRequest(
             event_id=test_event.id,
@@ -101,12 +103,12 @@ class TestFindDuplicate:
             source="spotify",
             status=RequestStatus.NEW.value,
             dedupe_key=key,
-            created_at=utcnow() - timedelta(hours=7),
+            created_at=utcnow() - timedelta(days=30),
         )
         db.add(old_request)
         db.commit()
         result = find_duplicate(db, test_event.id, "The Killers", "Mr. Brightside")
-        assert result is None
+        assert result is not None
 
     def test_no_match_different_event(self, db, test_event, test_user):
         other_event = Event(

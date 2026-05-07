@@ -60,7 +60,9 @@ jobs:
         #                  affects pip the build tool, not runtime deps. Our CI installs from
         #                  pinned requirements only; no untrusted-source install path. Fix is
         #                  in pip PR #13870; revisit when GitHub Actions ships a patched pip.
-        run: pip-audit --ignore-vuln CVE-2024-23342 --ignore-vuln CVE-2026-3219
+        #   CVE-2026-6357  (pip 26.x: PATH handling) - same class as above; affects pip the
+        #                  build tool only, not runtime deps. Revisit when GHA upgrades pip.
+        run: pip-audit --ignore-vuln CVE-2024-23342 --ignore-vuln CVE-2026-3219 --ignore-vuln CVE-2026-6357
 
       - name: Run tests with coverage
         env:

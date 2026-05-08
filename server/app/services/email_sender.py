@@ -46,11 +46,6 @@ def send_verification_email(to_address: str, code: str) -> None:
     _logger.info("email.sent to_hash=%s", to_address[:3] + "***")
 
 
-def send_email_confirmation(
-    to_address: str, confirmation_token: str, confirmation_url: str
-) -> None:
-    """Send email change confirmation link via Resend.
-
-    Stub for Task 5 (Email Sender Extension).
-    """
-    raise NotImplementedError("send_email_confirmation — implemented in Task 5")
+def send_email_confirmation(to_address: str, confirmation_url: str) -> None:
+    """Send an email address confirmation link via Resend. Implemented in Task 5."""
+    raise NotImplementedError

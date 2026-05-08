@@ -58,6 +58,7 @@ USER_OUT_KEYS = {
     "id",
     "username",
     "is_active",
+    "email",
     "role",
     "created_at",
     "help_pages_seen",

@@ -40,7 +40,11 @@ export default function AccountPage() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      api.getMe().then(user => setEmailPending(user.pending_email ?? null)).catch(() => {});
+      let isActive = true;
+      api.getMe()
+        .then(user => { if (isActive) setEmailPending(prev => prev ?? (user.pending_email ?? null)); })
+        .catch(() => {});
+      return () => { isActive = false; };
     }
   }, [isAuthenticated]);
 

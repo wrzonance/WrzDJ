@@ -382,7 +382,14 @@ class ApiClient {
     return response.json();
   }
 
-  async getMe(): Promise<{ id: number; username: string; role: string; help_pages_seen: string[] }> {
+  async getMe(): Promise<{
+    id: number;
+    username: string;
+    role: string;
+    help_pages_seen: string[];
+    pending_email: string | null;
+    email: string | null;
+  }> {
     return this.fetch('/api/auth/me');
   }
 

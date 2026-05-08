@@ -12,6 +12,7 @@ class UserOut(BaseSchema):
     id: int
     username: str
     is_active: bool
+    email: str | None = None
     role: str
     created_at: datetime
     help_pages_seen: list[str] = []

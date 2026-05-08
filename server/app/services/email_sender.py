@@ -47,5 +47,34 @@ def send_verification_email(to_address: str, code: str) -> None:
 
 
 def send_email_confirmation(to_address: str, confirmation_url: str) -> None:
-    """Send an email address confirmation link via Resend. Implemented in Task 5."""
-    raise NotImplementedError
+    """Send an email address confirmation link via Resend."""
+    settings = get_settings()
+
+    if not settings.resend_api_key or not settings.email_from_address:
+        raise EmailNotConfiguredError("Resend API key or from address is not configured")
+
+    resend.api_key = settings.resend_api_key
+
+    try:
+        resend.Emails.send(
+            {
+                "from": settings.email_from_address,
+                "to": [to_address],
+                "subject": "Confirm your new WrzDJ email address",
+                "text": (
+                    "Click the link below to confirm your new email address:\n\n"
+                    f"{confirmation_url}\n\n"
+                    "This link expires in 24 hours.\n\n"
+                    "If you didn't request this change, you can safely ignore this email.\n"
+                ),
+            }
+        )
+    except Exception as exc:
+        _logger.error(
+            "email.confirmation_send_failed to_hash=%s error=%s",
+            to_address[:3] + "***",
+            exc,
+        )
+        raise EmailSendError(str(exc)) from exc
+
+    _logger.info("email.confirmation_sent to_hash=%s", to_address[:3] + "***")

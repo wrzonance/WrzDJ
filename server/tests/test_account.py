@@ -227,3 +227,42 @@ def test_get_active_pending_ignores_used(db: Session, test_user: User) -> None:
     _make_pending(db, test_user, "used@example.com", "j" * 64, used=True)
     result = get_active_pending_email_change(db, test_user.id)
     assert result is None
+
+
+# ── send_email_confirmation ────────────────────────────────────────────────────
+
+
+def test_send_email_confirmation_raises_when_not_configured() -> None:
+    from unittest.mock import patch
+
+    from app.services.email_sender import EmailNotConfiguredError, send_email_confirmation
+
+    with patch("app.services.email_sender.get_settings") as mock_settings:
+        mock_settings.return_value.resend_api_key = ""
+        mock_settings.return_value.email_from_address = "noreply@wrzdj.com"
+        with pytest.raises(EmailNotConfiguredError):
+            send_email_confirmation(
+                "test@example.com",
+                "https://example.com/account/confirm-email?token=abc",
+            )
+
+
+def test_send_email_confirmation_calls_resend() -> None:
+    from unittest.mock import patch
+
+    from app.services.email_sender import send_email_confirmation
+
+    with (
+        patch("app.services.email_sender.get_settings") as mock_settings,
+        patch("app.services.email_sender.resend.Emails.send") as mock_send,
+    ):
+        mock_settings.return_value.resend_api_key = "re_test_key"
+        mock_settings.return_value.email_from_address = "noreply@wrzdj.com"
+        send_email_confirmation(
+            "user@example.com",
+            "https://app.wrzdj.com/account/confirm-email?token=abc123",
+        )
+        mock_send.assert_called_once()
+        payload = mock_send.call_args[0][0]
+        assert payload["to"] == ["user@example.com"]
+        assert "confirm-email" in payload["text"]

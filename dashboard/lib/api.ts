@@ -400,6 +400,33 @@ class ApiClient {
     });
   }
 
+  async changePassword(data: {
+    current_password: string;
+    new_password: string;
+    confirm_new_password: string;
+  }): Promise<{ status: string; message: string }> {
+    return this.fetch('/api/auth/me/password', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async requestEmailChange(data: {
+    current_password: string;
+    new_email: string;
+  }): Promise<{ status: string; message: string }> {
+    return this.fetch('/api/auth/me/email/request', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async confirmEmailChange(token: string): Promise<{ status: string; message: string }> {
+    return this.publicFetch(
+      `${getApiUrl()}/api/auth/email/confirm?token=${encodeURIComponent(token)}`
+    );
+  }
+
   async getPublicSettings(): Promise<{ registration_enabled: boolean; turnstile_site_key: string }> {
     return this.publicFetch(`${getApiUrl()}/api/auth/settings`);
   }

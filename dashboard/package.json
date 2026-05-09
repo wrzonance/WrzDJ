@@ -15,12 +15,12 @@
     "types:generate": "openapi-typescript ../server/openapi.json -o lib/api-types.generated.ts"
   },
   "dependencies": {
-    "@thumbmarkjs/thumbmarkjs": "^1.8.1",
-    "next": "^16.2.4",
+    "@thumbmarkjs/thumbmarkjs": "^1.9.0",
+    "next": "^16.2.6",
     "qrcode.react": "^4.2.0",
-    "react": "^19.2.5",
-    "react-dom": "^19.2.5",
-    "simple-keyboard": "^3.8.138"
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "simple-keyboard": "^3.8.139"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",

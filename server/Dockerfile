@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy requirements and install dependencies
 COPY pyproject.toml .
+RUN pip install --upgrade "pip>=26.1"
 RUN pip install --no-cache-dir -e .
 
 # Copy application code

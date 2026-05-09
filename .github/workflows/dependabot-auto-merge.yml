@@ -17,16 +17,20 @@ jobs:
       pull-requests: write
 
     steps:
-      - uses: dependabot/fetch-metadata@v2
+      # Pinned to commit SHA — floating tags are unsafe on pull_request_target
+      # with write permissions (supply chain attack surface). v2 = 21025c7
+      - uses: dependabot/fetch-metadata@21025c705c08248db411dc16f3619e6b5f9ea21a
         id: meta
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       # patch + minor: always auto-merge — backward-compatible by semver contract
+      # Excludes github-actions (handled by dedicated step below to avoid duplicate calls)
       - name: Auto-merge patch and minor updates
         if: |
-          steps.meta.outputs.update-type == 'version-update:semver-patch' ||
-          steps.meta.outputs.update-type == 'version-update:semver-minor'
+          (steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+           steps.meta.outputs.update-type == 'version-update:semver-minor') &&
+          steps.meta.outputs.package-ecosystem != 'github-actions'
         run: |
           gh pr review --approve "$PR_URL" -b "Automated: patch/minor dependency update"
           gh pr merge --auto --squash "$PR_URL"
@@ -35,10 +39,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # major dev deps: auto-merge — no production runtime impact
+      # Excludes github-actions (handled by dedicated step below to avoid duplicate calls)
       - name: Auto-merge major dev dependency updates
         if: |
           steps.meta.outputs.update-type == 'version-update:semver-major' &&
-          steps.meta.outputs.dependency-type == 'direct:development'
+          steps.meta.outputs.dependency-type == 'direct:development' &&
+          steps.meta.outputs.package-ecosystem != 'github-actions'
         run: |
           gh pr review --approve "$PR_URL" -b "Automated: major dev dependency update"
           gh pr merge --auto --squash "$PR_URL"
@@ -59,6 +65,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # GitHub Actions updates: auto-merge — CI workflow changes, no runtime impact
+      # Handles all semver tiers for actions (patch/minor/major all safe to auto-merge)
       - name: Auto-merge GitHub Actions updates
         if: steps.meta.outputs.package-ecosystem == 'github-actions'
         run: |
@@ -69,11 +76,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # major prod deps: label for awareness, require manual merge
-      # (Docker and Actions are handled above and will not reach this step)
+      # Excludes github-actions (already handled above, never reaches this step)
       - name: Label major production dependency updates for manual review
         if: |
           steps.meta.outputs.update-type == 'version-update:semver-major' &&
-          steps.meta.outputs.dependency-type != 'direct:development'
+          steps.meta.outputs.dependency-type != 'direct:development' &&
+          steps.meta.outputs.package-ecosystem != 'github-actions'
         run: gh pr edit "$PR_URL" --add-label "major-update"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}

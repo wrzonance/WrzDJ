@@ -163,6 +163,12 @@ export interface CollectionSettingsResponse {
   submission_cap_per_guest: number;
   collection_phase_override: 'force_collection' | 'force_live' | null;
   phase: 'pre_announce' | 'collection' | 'live' | 'closed';
+  tidal_sync_enabled: boolean;
+  tidal_playlist_id: string | null;
+}
+
+export interface CollectionSyncResponse {
+  queued: number;
 }
 
 export interface PendingReviewRow {
@@ -1321,12 +1327,17 @@ class ApiClient {
       live_starts_at?: string | null;
       submission_cap_per_guest?: number;
       collection_phase_override?: 'force_collection' | 'force_live' | null;
+      tidal_sync_enabled?: boolean;
     },
   ): Promise<CollectionSettingsResponse> {
     return this.fetch(`/api/events/${code}/collection`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
+  }
+
+  async syncCollectionToTidal(code: string): Promise<CollectionSyncResponse> {
+    return this.fetch(`/api/events/${code}/collection/sync-tidal`, { method: 'POST' });
   }
 
   async getPendingReview(code: string): Promise<PendingReviewResponse> {

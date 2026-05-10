@@ -1121,7 +1121,11 @@ export default function EventQueuePage() {
                 submission_cap_per_guest: collectionSettings.submission_cap_per_guest,
                 collection_phase_override: collectionSettings.collection_phase_override,
                 phase: collectionSettings.phase,
+                tidal_sync_enabled: collectionSettings.tidal_sync_enabled,
+                tidal_playlist_id: collectionSettings.tidal_playlist_id,
               }}
+              tidalConnected={!!tidalStatus?.linked}
+              tidalIntegrationEnabled={!!tidalStatus?.integration_enabled}
               onEventChange={(next) => setCollectionSettings((prev) => prev ? { ...prev, ...next } : prev)}
             />
           )}

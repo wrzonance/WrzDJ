@@ -36,6 +36,8 @@ def collection_settings_payload(event: Event) -> dict:
         "submission_cap_per_guest": event.submission_cap_per_guest,
         "collection_phase_override": event.collection_phase_override,
         "phase": event.phase,
+        "tidal_sync_enabled": event.tidal_sync_enabled,
+        "tidal_playlist_id": event.tidal_playlist_id,
     }
 
 
@@ -56,6 +58,8 @@ def update_collection_settings(
         event.submission_cap_per_guest = payload.submission_cap_per_guest
     if "collection_phase_override" in payload.model_fields_set:
         event.collection_phase_override = payload.collection_phase_override
+    if payload.tidal_sync_enabled is not None:
+        event.tidal_sync_enabled = payload.tidal_sync_enabled
 
     opens = event.collection_opens_at
     live = event.live_starts_at

@@ -307,7 +307,7 @@ def create_event_playlist(
         return None
 
     try:
-        playlist_name = f"WrzDJ: {event.name}"
+        playlist_name = f"WrzDJ: {event.code} – {event.name}"
         description = f"Song requests for {event.name}"
 
         playlist = session.user.create_playlist(playlist_name, description)

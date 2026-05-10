@@ -1027,6 +1027,52 @@ def update_collection_settings_endpoint(
     return collection_settings_payload(event)
 
 
+@router.post("/{code}/collection/sync-tidal")
+@limiter.limit("5/minute")
+def sync_collection_to_tidal(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    event: Event = Depends(get_event_for_dj_or_admin),
+    db: Session = Depends(get_db),
+):
+    """Sync all non-rejected collection-phase requests to the DJ's Tidal playlist.
+
+    Includes pending (new) and accepted requests so the DJ can listen to guest
+    suggestions on Tidal before the review step.  Already-synced tracks are
+    silently skipped inside sync_requests_batch.
+    """
+    from app.services.system_settings import get_system_settings
+
+    sys_settings = get_system_settings(db)
+    if not sys_settings.tidal_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Tidal integration is currently unavailable",
+        )
+
+    user = event.created_by
+    if not user.tidal_access_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tidal account not linked",
+        )
+
+    if not event.tidal_sync_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tidal sync not enabled for this event",
+        )
+
+    eligible = [
+        r for r in event.requests if r.submitted_during_collection and r.status != "rejected"
+    ]
+
+    if eligible:
+        background_tasks.add_task(sync_requests_batch, db, eligible)
+
+    return {"queued": len(eligible)}
+
+
 @router.get("/{code}/pending-review", response_model=PendingReviewResponse)
 def pending_review(
     event: Event = Depends(get_event_for_dj_or_admin),

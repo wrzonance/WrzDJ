@@ -12,10 +12,14 @@ interface EventShape {
   submission_cap_per_guest: number;
   collection_phase_override: 'force_collection' | 'force_live' | null;
   phase: 'pre_announce' | 'collection' | 'live' | 'closed';
+  tidal_sync_enabled: boolean;
+  tidal_playlist_id: string | null;
 }
 
 interface Props {
   event: EventShape;
+  tidalConnected: boolean;
+  tidalIntegrationEnabled: boolean;
   onEventChange: (next: Partial<EventShape>) => void;
 }
 
@@ -70,7 +74,12 @@ function toIso(local: string): string | null {
   return new Date(local).toISOString();
 }
 
-export default function PreEventVotingTab({ event, onEventChange }: Props) {
+export default function PreEventVotingTab({
+  event,
+  tidalConnected,
+  tidalIntegrationEnabled,
+  onEventChange,
+}: Props) {
   const [pending, setPending] = useState<PendingReviewRow[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [confirming, setConfirming] = useState<ConfirmAction | null>(null);
@@ -86,9 +95,14 @@ export default function PreEventVotingTab({ event, onEventChange }: Props) {
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSaved, setSettingsSaved] = useState(false);
 
+  const [togglingTidal, setTogglingTidal] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ queued: number } | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+
   useEffect(() => {
     refresh();
-     
+
   }, [event.code]);
 
   async function refresh() {
@@ -146,6 +160,34 @@ export default function PreEventVotingTab({ event, onEventChange }: Props) {
     }
   }
 
+  async function handleToggleTidalSync(enabled: boolean) {
+    setTogglingTidal(true);
+    try {
+      const resp = await apiClient.patchCollectionSettings(event.code, {
+        tidal_sync_enabled: enabled,
+      });
+      onEventChange(resp);
+    } finally {
+      setTogglingTidal(false);
+    }
+  }
+
+  async function handleSyncToTidal() {
+    setSyncing(true);
+    setSyncResult(null);
+    setSyncError(null);
+    try {
+      const result = await apiClient.syncCollectionToTidal(event.code);
+      setSyncResult(result);
+      setTimeout(() => setSyncResult(null), 5000);
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : 'Sync failed');
+      setTimeout(() => setSyncError(null), 5000);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   const shareUrl =
     typeof window !== 'undefined'
       ? `${window.location.origin}/collect/${event.code}`
@@ -160,6 +202,8 @@ export default function PreEventVotingTab({ event, onEventChange }: Props) {
     }
     setSelected(next);
   }
+
+  const showTidalSection = tidalConnected && tidalIntegrationEnabled;
 
   return (
     <div style={{ padding: '1rem' }}>
@@ -259,6 +303,55 @@ export default function PreEventVotingTab({ event, onEventChange }: Props) {
           </button>
         </form>
       </div>
+
+      {showTidalSection && (
+        <div className="card" style={{ marginBottom: '1.25rem' }}>
+          <h3 style={{ marginBottom: '0.75rem', fontSize: '1rem' }}>Tidal Collection Sync</h3>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '0.875rem' }}>
+            Sync guest suggestions to a Tidal playlist so you can listen while you plan your set.
+            Playlist name: <strong>{event.code} – {event.name}</strong>
+          </p>
+
+          <label className="collection-fieldset-toggle" style={{ marginBottom: '0.875rem' }}>
+            <input
+              type="checkbox"
+              checked={event.tidal_sync_enabled}
+              disabled={togglingTidal}
+              onChange={(e) => handleToggleTidalSync(e.target.checked)}
+            />
+            Enable Tidal sync for this collection
+          </label>
+
+          {event.tidal_sync_enabled && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{ background: '#1db954', color: '#fff' }}
+                disabled={syncing}
+                onClick={handleSyncToTidal}
+              >
+                {syncing ? 'Syncing…' : 'Sync collection to Tidal'}
+              </button>
+              {event.tidal_playlist_id && (
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  Playlist linked ✓
+                </span>
+              )}
+              {syncResult !== null && (
+                <span style={{ fontSize: '0.875rem', color: '#4ade80' }}>
+                  {syncResult.queued === 0
+                    ? 'All tracks already synced.'
+                    : `Queued ${syncResult.queued} track${syncResult.queued === 1 ? '' : 's'} for sync.`}
+                </span>
+              )}
+              {syncError && (
+                <span style={{ fontSize: '0.875rem', color: '#f87171' }}>{syncError}</span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="card" style={{ marginBottom: '1.25rem' }}>
         <h3 style={{ marginBottom: '0.75rem', fontSize: '1rem' }}>Phase controls</h3>

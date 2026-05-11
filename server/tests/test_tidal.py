@@ -726,3 +726,56 @@ class TestCascadeTidalFlow:
         mock_session_fn.return_value = None
         result = search_track(db, tidal_user, "deadmau5", "Strobe")
         assert result is None
+
+
+class TestCollectionSync:
+    """Tests for pre-event collection playlist sync."""
+
+    @patch("app.services.tidal.add_tracks_to_playlist")
+    @patch("app.services.tidal.ensure_collection_playlist")
+    @patch("app.services.tidal.search_tidal_tracks")
+    def test_sync_collection_stores_track_id(
+        self,
+        mock_search: MagicMock,
+        mock_ensure_playlist: MagicMock,
+        mock_add: MagicMock,
+        db: Session,
+        test_event,
+        test_user,
+    ):
+        """Test that sync_collection_requests_batch stores tidal_collection_track_id."""
+        from app.models.request import Request as SongRequest
+        from app.services.tidal import sync_collection_requests_batch
+
+        # Create a test request with collection flag
+        row = SongRequest(
+            event_id=test_event.id,
+            song_title="Acid Rain",
+            artist="Objekt",
+            status=RequestStatus.NEW.value,
+            dedupe_key="objekt-acid-rain",
+            submitted_during_collection=True,
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+
+        # Mock search result
+        mock_result = TidalSearchResult(
+            track_id="99887766",
+            title="Acid Rain",
+            artist="Objekt",
+            tidal_url="https://tidal.com/browse/track/99887766",
+        )
+
+        # Setup mock returns
+        mock_search.return_value = [mock_result]
+        mock_ensure_playlist.return_value = "playlist-abc"
+        mock_add.return_value = True
+
+        # Call the function
+        sync_collection_requests_batch(db, test_user, test_event, [row])
+
+        # Refresh and verify
+        db.refresh(row)
+        assert row.tidal_collection_track_id == "99887766"

@@ -365,7 +365,8 @@ def sync_collection_requests_batch(
 ) -> None:
     """Batch-sync pre-event collection requests to the collection playlist.
 
-    Searches tracks sequentially, then adds all found IDs in one API call.
+    Searches tracks sequentially, adds all found IDs in one API call, and
+    stores the matched Tidal track ID on each request for bidirectional sync.
     Tidal's allow_duplicates=False deduplicates silently at the API layer.
     """
     if not requests:
@@ -376,16 +377,22 @@ def sync_collection_requests_batch(
         return
 
     track_ids: list[str] = []
+    matched: list[tuple] = []  # (request, track_id)
     for req in requests:
         try:
             results = search_tidal_tracks(db, user, f"{req.song_title} {req.artist}")
             if results:
-                track_ids.append(results[0].track_id)
+                track_id = results[0].track_id
+                track_ids.append(track_id)
+                matched.append((req, track_id))
         except Exception as e:
             logger.error(f"Collection sync search failed for '{req.song_title}': {e}")
 
     if track_ids:
-        add_tracks_to_playlist(db, user, playlist_id, track_ids)
+        if add_tracks_to_playlist(db, user, playlist_id, track_ids):
+            for req, track_id in matched:
+                req.tidal_collection_track_id = track_id
+            db.commit()
 
 
 def add_track_to_playlist(

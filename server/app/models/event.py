@@ -36,6 +36,9 @@ class Event(Base):
     tidal_playlist_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     tidal_collection_playlist_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     tidal_sync_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    tidal_collection_bidirectional: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
 
     # Beatport sync
     beatport_sync_enabled: Mapped[bool] = mapped_column(Boolean, default=False)

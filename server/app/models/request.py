@@ -64,6 +64,9 @@ class Request(Base):
     # Voting
     vote_count: Mapped[int] = mapped_column(Integer, default=0)
 
+    # Tidal collection playlist tracking — set when a request is successfully synced
+    tidal_collection_track_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     # Pre-event collection flag — set on insert when event.phase == "collection"
     submitted_during_collection: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, server_default="0", index=True

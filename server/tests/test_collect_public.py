@@ -997,3 +997,43 @@ def test_collect_preview_404_nonexistent_request(client, db, test_event):
 
     r = client.get(f"/api/public/collect/{test_event.code}/requests/99999/preview")
     assert r.status_code == 404
+
+
+def test_collect_submit_triggers_tidal_sync_when_enabled(client, db, test_event: Event):
+    """Submitting when tidal_sync_enabled queues sync_collection_requests_batch."""
+    from unittest.mock import patch
+
+    from app.services.system_settings import get_system_settings
+
+    _enable_collection(db, test_event)
+    test_event.tidal_sync_enabled = True
+    test_event.created_by.tidal_access_token = "fake_token"
+    sys = get_system_settings(db)
+    sys.tidal_enabled = True
+    db.commit()
+
+    with patch("app.api.collect.sync_collection_requests_batch") as mock_sync:
+        r = client.post(
+            f"/api/public/collect/{test_event.code}/requests",
+            json={"song_title": "Auto Sync Song", "artist": "DJ Test", "source": "spotify"},
+        )
+
+    assert r.status_code == 201
+    mock_sync.assert_called_once()
+
+
+def test_collect_submit_skips_tidal_sync_when_disabled(client, db, test_event: Event):
+    """Submitting when tidal_sync_enabled=False does not queue sync_collection_requests_batch."""
+    from unittest.mock import patch
+
+    _enable_collection(db, test_event)
+    # tidal_sync_enabled defaults to False
+
+    with patch("app.api.collect.sync_collection_requests_batch") as mock_sync:
+        r = client.post(
+            f"/api/public/collect/{test_event.code}/requests",
+            json={"song_title": "No Sync Song", "artist": "DJ Test", "source": "spotify"},
+        )
+
+    assert r.status_code == 201
+    mock_sync.assert_not_called()

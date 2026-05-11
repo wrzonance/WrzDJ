@@ -307,7 +307,7 @@ def create_event_playlist(
         return None
 
     try:
-        playlist_name = f"WrzDJ: {event.name}"
+        playlist_name = f"WrzDJ: {event.code} – {event.name}"
         description = f"Song requests for {event.name}"
 
         playlist = session.user.create_playlist(playlist_name, description)
@@ -321,6 +321,71 @@ def create_event_playlist(
     except Exception as e:
         logger.error(f"Failed to create Tidal playlist: {e}")
         return None
+
+
+def ensure_collection_playlist(
+    db: Session,
+    user: User,
+    event: Event,
+) -> str | None:
+    """Create (or reuse) the pre-event collection Tidal playlist for an event.
+
+    Kept separate from create_event_playlist so collection suggestions and
+    live-event accepted requests land in two distinct Tidal playlists.
+    """
+    if event.tidal_collection_playlist_id:
+        return event.tidal_collection_playlist_id
+
+    session = get_tidal_session(db, user)
+    if not session:
+        return None
+
+    try:
+        playlist_name = f"WrzDJ: {event.code} – {event.name} (pre-event)"
+        description = f"Pre-event song suggestions for {event.name}"
+
+        playlist = session.user.create_playlist(playlist_name, description)
+
+        event.tidal_collection_playlist_id = str(playlist.id)
+        db.commit()
+
+        logger.info(f"Created Tidal collection playlist {playlist.id} for event {event.code}")
+        return event.tidal_collection_playlist_id
+
+    except Exception as e:
+        logger.error(f"Failed to create Tidal collection playlist: {e}")
+        return None
+
+
+def sync_collection_requests_batch(
+    db: Session,
+    user: User,
+    event: Event,
+    requests: list,
+) -> None:
+    """Batch-sync pre-event collection requests to the collection playlist.
+
+    Searches tracks sequentially, then adds all found IDs in one API call.
+    Tidal's allow_duplicates=False deduplicates silently at the API layer.
+    """
+    if not requests:
+        return
+
+    playlist_id = ensure_collection_playlist(db, user, event)
+    if not playlist_id:
+        return
+
+    track_ids: list[str] = []
+    for req in requests:
+        try:
+            results = search_tidal_tracks(db, user, f"{req.song_title} {req.artist}")
+            if results:
+                track_ids.append(results[0].track_id)
+        except Exception as e:
+            logger.error(f"Collection sync search failed for '{req.song_title}': {e}")
+
+    if track_ids:
+        add_tracks_to_playlist(db, user, playlist_id, track_ids)
 
 
 def add_track_to_playlist(

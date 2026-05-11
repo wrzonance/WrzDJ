@@ -96,6 +96,7 @@ from app.services.request import (
 )
 from app.services.sync.orchestrator import enrich_request_metadata, sync_requests_batch
 from app.services.sync.registry import get_connected_adapters
+from app.services.tidal import sync_collection_requests_batch
 
 router = APIRouter()
 
@@ -1027,6 +1028,52 @@ def update_collection_settings_endpoint(
     return collection_settings_payload(event)
 
 
+@router.post("/{code}/collection/sync-tidal")
+@limiter.limit("5/minute")
+def sync_collection_to_tidal(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    event: Event = Depends(get_event_for_dj_or_admin),
+    db: Session = Depends(get_db),
+):
+    """Sync all non-rejected collection-phase requests to the DJ's Tidal playlist.
+
+    Includes pending (new) and accepted requests so the DJ can listen to guest
+    suggestions on Tidal before the review step.  Already-synced tracks are
+    silently skipped inside sync_requests_batch.
+    """
+    from app.services.system_settings import get_system_settings
+
+    sys_settings = get_system_settings(db)
+    if not sys_settings.tidal_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Tidal integration is currently unavailable",
+        )
+
+    user = event.created_by
+    if not user.tidal_access_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tidal account not linked",
+        )
+
+    if not event.tidal_sync_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tidal sync not enabled for this event",
+        )
+
+    eligible = [
+        r for r in event.requests if r.submitted_during_collection and r.status != "rejected"
+    ]
+
+    if eligible:
+        background_tasks.add_task(sync_collection_requests_batch, db, user, event, eligible)
+
+    return {"queued": len(eligible)}
+
+
 @router.get("/{code}/pending-review", response_model=PendingReviewResponse)
 def pending_review(
     event: Event = Depends(get_event_for_dj_or_admin),
@@ -1088,6 +1135,26 @@ def _enrich_with_fresh_session(request_id: int) -> None:
     session = SessionLocal()
     try:
         enrich_request_metadata(session, request_id)
+    finally:
+        session.close()
+
+
+def _sync_requests_with_fresh_session(request_ids: list[int]) -> None:
+    """Run sync_requests_batch in its own DB session.
+
+    Same rationale as _enrich_with_fresh_session: the request-scoped `db` stays
+    open until all background tasks complete; for large collections this exhausts
+    the SQLAlchemy connection pool.  Re-querying by ID inside a fresh session
+    releases the connection as soon as the batch finishes.
+    """
+    from app.db.session import SessionLocal
+    from app.models.request import Request as SongRequest
+
+    session = SessionLocal()
+    try:
+        rows = session.query(SongRequest).filter(SongRequest.id.in_(request_ids)).all()
+        if rows:
+            sync_requests_batch(session, rows)
     finally:
         session.close()
 

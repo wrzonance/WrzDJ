@@ -246,3 +246,109 @@ def test_patch_collection_auto_extends_expires_at(client, db, auth_headers, test
     assert test_event.live_starts_at is not None
     # expires_at should now be > live_starts_at (the auto-extend applied)
     assert test_event.expires_at > test_event.live_starts_at
+
+
+def test_patch_collection_tidal_sync_enabled(client, db, auth_headers, test_event):
+    r = client.patch(
+        f"/api/events/{test_event.code}/collection",
+        json={"tidal_sync_enabled": True},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["tidal_sync_enabled"] is True
+    db.refresh(test_event)
+    assert test_event.tidal_sync_enabled is True
+
+
+def test_collection_settings_includes_tidal_fields(client, db, auth_headers, test_event):
+    test_event.tidal_sync_enabled = True
+    db.commit()
+    r = client.get(f"/api/events/{test_event.code}/collection", headers=auth_headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert "tidal_sync_enabled" in body
+    assert "tidal_collection_playlist_id" in body
+    assert body["tidal_sync_enabled"] is True
+
+
+def test_sync_collection_to_tidal_integration_disabled(
+    client, db, auth_headers, test_event, collection_requests
+):
+    from app.services.system_settings import get_system_settings
+
+    sys = get_system_settings(db)
+    sys.tidal_enabled = False
+    test_event.created_by.tidal_access_token = "fake_tidal_token"
+    test_event.tidal_sync_enabled = True
+    db.commit()
+
+    r = client.post(
+        f"/api/events/{test_event.code}/collection/sync-tidal",
+        headers=auth_headers,
+    )
+    assert r.status_code == 503
+    assert "unavailable" in r.json()["detail"]
+
+
+def test_sync_collection_to_tidal_no_tidal_linked(
+    client, db, auth_headers, test_event, collection_requests
+):
+    test_event.tidal_sync_enabled = True
+    db.commit()
+    r = client.post(
+        f"/api/events/{test_event.code}/collection/sync-tidal",
+        headers=auth_headers,
+    )
+    assert r.status_code == 400
+    assert "not linked" in r.json()["detail"]
+
+
+def test_sync_collection_to_tidal_sync_disabled(
+    client, db, auth_headers, test_event, collection_requests
+):
+    test_event.created_by.tidal_access_token = "fake_tidal_token"
+    # tidal_sync_enabled defaults to False — leave it
+    db.commit()
+    r = client.post(
+        f"/api/events/{test_event.code}/collection/sync-tidal",
+        headers=auth_headers,
+    )
+    assert r.status_code == 400
+    assert "not enabled" in r.json()["detail"]
+
+
+def test_sync_collection_to_tidal_queues_eligible(
+    client, db, auth_headers, test_event, collection_requests
+):
+    test_event.created_by.tidal_access_token = "fake_tidal_token"
+    test_event.tidal_sync_enabled = True
+    # Mark one request as rejected — it should be excluded from the queued count
+    collection_requests[2].status = "rejected"
+    db.commit()
+
+    r = client.post(
+        f"/api/events/{test_event.code}/collection/sync-tidal",
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    body = r.json()
+    # 3 total collection requests, 1 rejected → 2 eligible
+    assert body["queued"] == 2
+
+
+def test_sync_collection_to_tidal_empty_queued_when_all_rejected(
+    client, db, auth_headers, test_event, collection_requests
+):
+    test_event.created_by.tidal_access_token = "fake_tidal_token"
+    test_event.tidal_sync_enabled = True
+    for req in collection_requests:
+        req.status = "rejected"
+    db.commit()
+
+    r = client.post(
+        f"/api/events/{test_event.code}/collection/sync-tidal",
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    assert r.json()["queued"] == 0

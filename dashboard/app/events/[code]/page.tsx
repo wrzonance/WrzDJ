@@ -1123,6 +1123,7 @@ export default function EventQueuePage() {
                 phase: collectionSettings.phase,
                 tidal_sync_enabled: collectionSettings.tidal_sync_enabled,
                 tidal_collection_playlist_id: collectionSettings.tidal_collection_playlist_id,
+                tidal_collection_bidirectional: collectionSettings.tidal_collection_bidirectional,
               }}
               tidalConnected={!!tidalStatus?.linked}
               tidalIntegrationEnabled={!!tidalStatus?.integration_enabled}

@@ -38,6 +38,7 @@ def collection_settings_payload(event: Event) -> dict:
         "phase": event.phase,
         "tidal_sync_enabled": event.tidal_sync_enabled,
         "tidal_collection_playlist_id": event.tidal_collection_playlist_id,
+        "tidal_collection_bidirectional": event.tidal_collection_bidirectional,
     }
 
 
@@ -60,6 +61,8 @@ def update_collection_settings(
         event.collection_phase_override = payload.collection_phase_override
     if payload.tidal_sync_enabled is not None:
         event.tidal_sync_enabled = payload.tidal_sync_enabled
+    if payload.tidal_collection_bidirectional is not None:
+        event.tidal_collection_bidirectional = payload.tidal_collection_bidirectional
 
     opens = event.collection_opens_at
     live = event.live_starts_at

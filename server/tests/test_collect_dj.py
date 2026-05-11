@@ -433,3 +433,26 @@ def test_sync_collection_to_tidal_empty_queued_when_all_rejected(
     )
     assert r.status_code == 200
     assert r.json()["queued"] == 0
+
+
+def test_collection_settings_response_includes_bidirectional(client, auth_headers, test_event):
+    resp = client.get(
+        f"/api/events/{test_event.code}/collection",
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    assert "tidal_collection_bidirectional" in resp.json()
+    assert resp.json()["tidal_collection_bidirectional"] is False  # default
+
+
+def test_patch_collection_settings_sets_bidirectional(client, db, auth_headers, test_event):
+    resp = client.patch(
+        f"/api/events/{test_event.code}/collection",
+        json={"tidal_collection_bidirectional": True},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["tidal_collection_bidirectional"] is True
+
+    db.refresh(test_event)
+    assert test_event.tidal_collection_bidirectional is True

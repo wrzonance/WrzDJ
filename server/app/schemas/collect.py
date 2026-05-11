@@ -136,6 +136,7 @@ class UpdateCollectionSettings(BaseModel):
     submission_cap_per_guest: int | None = Field(default=None, ge=0, le=100)
     collection_phase_override: Literal["force_collection", "force_live"] | None = None
     tidal_sync_enabled: bool | None = None
+    tidal_collection_bidirectional: bool | None = None
 
 
 class PendingReviewRow(BaseModel):

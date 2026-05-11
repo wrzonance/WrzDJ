@@ -15,7 +15,7 @@ import tidalapi
 from sqlalchemy.orm import Session
 
 from app.models.event import Event
-from app.models.request import Request, TidalSyncStatus  # TidalSyncStatus used in TidalSyncResult
+from app.models.request import Request, RequestStatus, TidalSyncStatus
 from app.models.user import User
 from app.schemas.tidal import TidalSearchResult, TidalSyncResult
 from app.services.track_normalizer import artist_match_score, primary_artist
@@ -472,6 +472,46 @@ def remove_collection_tracks_batch(
     """
     for track_id in track_ids:
         remove_track_from_collection_playlist(db, user, event, track_id)
+
+
+def poll_tidal_collection_removals(db: Session, event: Event) -> int:
+    """Detect tracks removed from the Tidal collection playlist and reject them in WrzDJ.
+
+    Fetches current playlist contents, finds collection requests whose
+    tidal_collection_track_id is no longer present, and marks them rejected.
+    Only runs when the event has a collection playlist configured.
+
+    Returns the count of newly rejected requests.
+    """
+    if not event.tidal_collection_playlist_id:
+        return 0
+
+    user = event.created_by
+    playlist_tracks = get_playlist_tracks(db, user, event.tidal_collection_playlist_id)
+    current_ids = {str(t.id) for t in playlist_tracks}
+
+    synced = (
+        db.query(Request)
+        .filter(
+            Request.event_id == event.id,
+            Request.submitted_during_collection == True,  # noqa: E712
+            Request.tidal_collection_track_id.isnot(None),
+            Request.status != RequestStatus.REJECTED.value,
+        )
+        .all()
+    )
+
+    count = 0
+    for req in synced:
+        if req.tidal_collection_track_id not in current_ids:
+            req.status = RequestStatus.REJECTED.value
+            count += 1
+
+    if count > 0:
+        db.commit()
+        logger.info("Tidal poll: rejected %d removed track(s) for event %s", count, event.code)
+
+    return count
 
 
 def sync_request_to_tidal(

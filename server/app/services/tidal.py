@@ -375,16 +375,12 @@ def sync_collection_requests_batch(
     if not playlist_id:
         return
 
-    session = get_tidal_session(db, user)
-    if not session:
-        return
-
     track_ids: list[str] = []
     for req in requests:
         try:
-            result = search_tidal_tracks(session, req.song_title, req.artist)
-            if result:
-                track_ids.append(result.track_id)
+            results = search_tidal_tracks(db, user, f"{req.song_title} {req.artist}")
+            if results:
+                track_ids.append(results[0].track_id)
         except Exception as e:
             logger.error(f"Collection sync search failed for '{req.song_title}': {e}")
 

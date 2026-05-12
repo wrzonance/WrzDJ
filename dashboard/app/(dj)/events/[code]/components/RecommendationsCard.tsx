@@ -275,7 +275,7 @@ export function RecommendationsCard({
             <>
               <button
                 className="btn btn-sm"
-                style={{ background: 'var(--color-success)' }}
+                style={{ background: 'var(--color-success)', color: 'white' }}
                 onClick={handleAcceptAll}
                 disabled={acceptingAll || loading}
               >
@@ -283,7 +283,7 @@ export function RecommendationsCard({
               </button>
               <button
                 className="btn btn-sm"
-                style={{ background: 'var(--text-tertiary)' }}
+                style={{ background: 'var(--text-tertiary)', color: 'white' }}
                 onClick={handleClear}
                 disabled={loading}
               >
@@ -629,7 +629,7 @@ export function RecommendationsCard({
                 </div>
                 <button
                   className="btn btn-sm"
-                  style={{ background: 'var(--color-success)', flexShrink: 0 }}
+                  style={{ background: 'var(--color-success)', color: 'white', flexShrink: 0 }}
                   onClick={() => handleAccept(track)}
                   disabled={isAccepting || acceptingAll}
                 >

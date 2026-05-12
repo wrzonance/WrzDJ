@@ -99,7 +99,7 @@ function TidalBadge({
     return (
       <button
         className="btn btn-sm"
-        style={{ background: 'var(--color-warning)', padding: '0.125rem 0.375rem', fontSize: '0.7rem', lineHeight: 1.2 }}
+        style={{ background: 'var(--color-warning)', color: 'white', padding: '0.125rem 0.375rem', fontSize: '0.7rem', lineHeight: 1.2 }}
         onClick={onLink}
         title="Missing from Tidal - click to link manually"
       >
@@ -112,7 +112,7 @@ function TidalBadge({
     return (
       <button
         className="btn btn-sm"
-        style={{ background: 'var(--color-danger)', padding: '0.125rem 0.375rem', fontSize: '0.7rem', lineHeight: 1.2 }}
+        style={{ background: 'var(--color-danger)', color: 'white', padding: '0.125rem 0.375rem', fontSize: '0.7rem', lineHeight: 1.2 }}
         onClick={onSync}
         disabled={syncing}
         title="Sync failed - click to retry"
@@ -173,7 +173,7 @@ function BeatportBadge({
     return (
       <button
         className="btn btn-sm"
-        style={{ background: 'var(--color-warning)', padding: '0.125rem 0.375rem', fontSize: '0.7rem', lineHeight: 1.2 }}
+        style={{ background: 'var(--color-warning)', color: 'white', padding: '0.125rem 0.375rem', fontSize: '0.7rem', lineHeight: 1.2 }}
         onClick={onNotFound}
         title="Missing from Beatport - click for details"
       >

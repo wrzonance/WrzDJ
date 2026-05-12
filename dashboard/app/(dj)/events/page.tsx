@@ -191,7 +191,7 @@ export default function EventsPage() {
             {role === 'admin' && (
               <HelpSpot spotId="events-admin" page={PAGE_ID} order={3} title="Admin Panel" description="Access the admin panel to manage users, view all events, and configure integrations.">
                 <Link href="/admin">
-                  <button className="btn" style={{ background: 'var(--color-admin)' }}>Admin</button>
+                  <button className="btn" style={{ background: 'var(--color-admin)', color: 'white' }}>Admin</button>
                 </Link>
               </HelpSpot>
             )}

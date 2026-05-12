@@ -99,7 +99,7 @@ export function CloudProvidersCard({
               <Tooltip description="Disconnect Tidal account and remove saved tokens">
                 <button
                   className="btn btn-sm"
-                  style={{ background: 'var(--text-tertiary)', minWidth: '90px' }}
+                  style={{ background: 'var(--text-tertiary)', color: 'white', minWidth: '90px' }}
                   onClick={onDisconnectTidal}
                 >
                   Disconnect
@@ -163,7 +163,7 @@ export function CloudProvidersCard({
               <Tooltip description="Disconnect Beatport account and remove saved tokens">
                 <button
                   className="btn btn-sm"
-                  style={{ background: 'var(--text-tertiary)', minWidth: '90px' }}
+                  style={{ background: 'var(--text-tertiary)', color: 'white', minWidth: '90px' }}
                   onClick={onDisconnectBeatport}
                 >
                   Disconnect

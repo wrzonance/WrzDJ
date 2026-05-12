@@ -45,6 +45,7 @@ export function StreamOverlayCard({ code }: StreamOverlayCardProps) {
               className="btn btn-sm"
               style={{
                 background: copied ? 'var(--color-success)' : 'var(--surface-raised)',
+                color: copied ? 'white' : undefined,
                 transition: 'background 0.2s',
               }}
               onClick={handleCopy}

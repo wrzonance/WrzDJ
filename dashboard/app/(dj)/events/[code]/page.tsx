@@ -879,7 +879,7 @@ export default function EventQueuePage() {
                 </span>
                 <button
                   className="btn btn-sm"
-                  style={{ background: 'var(--color-primary)' }}
+                  style={{ background: 'var(--color-primary)', color: 'white' }}
                   onClick={handleExportCsv}
                   disabled={exporting}
                 >

@@ -671,13 +671,13 @@ a {
 }
 
 @keyframes btn-glow {
-  0%, 100% { box-shadow: 0 0 15px var(--color-primary), 0 0 30px var(--color-primary-subtle); }
-  50% { box-shadow: 0 0 20px var(--color-primary), 0 0 40px var(--color-primary); }
+  0%, 100% { box-shadow: 0 0 15px var(--color-focus-ring), 0 0 30px var(--color-primary-subtle); }
+  50% { box-shadow: 0 0 20px var(--color-focus-ring), 0 0 40px var(--color-primary-subtle); }
 }
 
 @keyframes generate-pulse {
   0%, 100% { box-shadow: 0 0 8px var(--color-primary-subtle), 0 0 16px var(--color-primary-subtle); opacity: 0.9; }
-  50% { box-shadow: 0 0 14px var(--color-primary), 0 0 28px var(--color-primary-subtle); opacity: 1; }
+  50% { box-shadow: 0 0 14px var(--color-focus-ring), 0 0 28px var(--color-primary-subtle); opacity: 1; }
 }
 
 .btn-generating {

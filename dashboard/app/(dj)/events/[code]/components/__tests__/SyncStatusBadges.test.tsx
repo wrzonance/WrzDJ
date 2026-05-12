@@ -78,7 +78,7 @@ describe('SyncStatusBadges', () => {
     render(<SyncStatusBadges {...defaultProps} request={request} />);
     const badge = screen.getByTitle('Synced to Tidal');
     expect(badge.textContent).toBe('T');
-    expect(badge.style.color).toBe('rgb(16, 185, 129)'); // #10b981
+    expect(badge.style.color).toBe('var(--color-success)'); // was #10b981
   });
 
   it('renders green B for Beatport matched status', () => {

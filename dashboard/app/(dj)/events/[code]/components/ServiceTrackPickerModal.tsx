@@ -93,7 +93,7 @@ export function ServiceTrackPickerModal({
         <div style={{ marginTop: '1rem' }}>
           <button
             className="btn"
-            style={{ background: '#333', width: '100%' }}
+            style={{ background: 'var(--surface-raised)', width: '100%' }}
             onClick={onCancel}
             disabled={linking}
           >
@@ -119,7 +119,7 @@ function TidalResultsList({
 }) {
   if (results.length === 0) {
     return (
-      <p style={{ color: '#9ca3af', textAlign: 'center' }}>
+      <p style={{ color: 'var(--text-secondary)', textAlign: 'center' }}>
         {searching ? 'Searching...' : 'Search for a track to link'}
       </p>
     );
@@ -135,7 +135,7 @@ function TidalResultsList({
             alignItems: 'center',
             gap: '0.75rem',
             padding: '0.75rem',
-            borderBottom: '1px solid #333',
+            borderBottom: '1px solid var(--border)',
             cursor: 'pointer',
           }}
           onClick={() => onSelect(requestId, track.track_id)}
@@ -151,12 +151,12 @@ function TidalResultsList({
           )}
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 500 }}>{track.title}</div>
-            <div style={{ color: '#9ca3af', fontSize: '0.875rem' }}>{track.artist}</div>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>{track.artist}</div>
             {track.album && (
-              <div style={{ color: '#6b7280', fontSize: '0.75rem' }}>{track.album}</div>
+              <div style={{ color: 'var(--text-tertiary)', fontSize: '0.75rem' }}>{track.album}</div>
             )}
           </div>
-          {linking && <span style={{ color: '#9ca3af' }}>...</span>}
+          {linking && <span style={{ color: 'var(--text-secondary)' }}>...</span>}
         </div>
       ))}
     </>
@@ -178,7 +178,7 @@ function BeatportResultsList({
 }) {
   if (results.length === 0) {
     return (
-      <p style={{ color: '#9ca3af', textAlign: 'center' }}>
+      <p style={{ color: 'var(--text-secondary)', textAlign: 'center' }}>
         {searching ? 'Searching...' : 'Search for a track to link'}
       </p>
     );
@@ -194,7 +194,7 @@ function BeatportResultsList({
             alignItems: 'center',
             gap: '0.75rem',
             padding: '0.75rem',
-            borderBottom: '1px solid #333',
+            borderBottom: '1px solid var(--border)',
             cursor: 'pointer',
           }}
           onClick={() => onSelect(requestId, track.track_id)}
@@ -212,23 +212,23 @@ function BeatportResultsList({
             <div style={{ fontWeight: 500 }}>
               {track.title}
               {track.mix_name && (
-                <span style={{ color: '#9ca3af', fontWeight: 400 }}> ({track.mix_name})</span>
+                <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}> ({track.mix_name})</span>
               )}
             </div>
-            <div style={{ color: '#9ca3af', fontSize: '0.875rem' }}>{track.artist}</div>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>{track.artist}</div>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.125rem' }}>
               {track.label && (
-                <span style={{ color: '#6b7280', fontSize: '0.7rem' }}>{track.label}</span>
+                <span style={{ color: 'var(--text-tertiary)', fontSize: '0.7rem' }}>{track.label}</span>
               )}
               {track.bpm && (
-                <span style={{ color: '#6b7280', fontSize: '0.7rem' }}>{track.bpm} BPM</span>
+                <span style={{ color: 'var(--text-tertiary)', fontSize: '0.7rem' }}>{track.bpm} BPM</span>
               )}
               {track.key && (
-                <span style={{ color: '#6b7280', fontSize: '0.7rem' }}>{track.key}</span>
+                <span style={{ color: 'var(--text-tertiary)', fontSize: '0.7rem' }}>{track.key}</span>
               )}
             </div>
           </div>
-          {linking && <span style={{ color: '#9ca3af' }}>...</span>}
+          {linking && <span style={{ color: 'var(--text-secondary)' }}>...</span>}
         </div>
       ))}
     </>
@@ -242,11 +242,11 @@ function TrackPlaceholder({ label }: { label: string }) {
         width: '48px',
         height: '48px',
         borderRadius: '4px',
-        background: '#333',
+        background: 'var(--surface-raised)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        color: '#9ca3af',
+        color: 'var(--text-secondary)',
       }}
     >
       <span style={{ fontSize: '1.5rem' }}>{label}</span>

@@ -19,7 +19,7 @@ export function TidalLoginModal({
   return (
     <ModalOverlay onClose={onCancel} card cardStyle={{ textAlign: 'center' }}>
         <h2 style={{ marginBottom: '1rem' }}>Connect Tidal</h2>
-        <p style={{ color: '#9ca3af', marginBottom: '1.5rem' }}>
+        <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
           Visit the link below and enter the code to connect your Tidal account:
         </p>
         <a
@@ -42,12 +42,12 @@ export function TidalLoginModal({
         <div
           style={{
             padding: '1rem',
-            background: '#1a1a1a',
+            background: 'var(--card)',
             borderRadius: '0.5rem',
             marginBottom: '1.5rem',
           }}
         >
-          <p style={{ color: '#9ca3af', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
             Your code:
           </p>
           <p style={{ fontSize: '1.5rem', fontWeight: 'bold', letterSpacing: '0.25rem' }}>
@@ -55,13 +55,13 @@ export function TidalLoginModal({
           </p>
         </div>
         {polling && (
-          <p style={{ color: '#9ca3af', fontSize: '0.875rem', marginBottom: '1rem' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '1rem' }}>
             Waiting for authorization...
           </p>
         )}
         <button
           className="btn"
-          style={{ background: '#333' }}
+          style={{ background: 'var(--surface-raised)' }}
           onClick={onCancel}
         >
           Cancel

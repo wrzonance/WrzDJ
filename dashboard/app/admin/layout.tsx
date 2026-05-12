@@ -59,7 +59,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </Link>
           <button
             className="btn btn-sm"
-            style={{ background: '#333', width: '100%' }}
+            style={{ background: 'var(--surface-raised)', width: '100%' }}
             onClick={logout}
           >
             Logout

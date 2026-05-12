@@ -74,7 +74,7 @@ export function TidalTrackPickerModal({
         </div>
         <div style={{ overflowY: 'auto', flex: 1 }}>
           {searchResults.length === 0 ? (
-            <p style={{ color: '#9ca3af', textAlign: 'center' }}>
+            <p style={{ color: 'var(--text-secondary)', textAlign: 'center' }}>
               {searching ? 'Searching...' : 'Search for a track to link'}
             </p>
           ) : (
@@ -86,7 +86,7 @@ export function TidalTrackPickerModal({
                   alignItems: 'center',
                   gap: '0.75rem',
                   padding: '0.75rem',
-                  borderBottom: '1px solid #333',
+                  borderBottom: '1px solid var(--border)',
                   cursor: 'pointer',
                 }}
                 onClick={() => onSelectTrack(requestId, track.track_id)}
@@ -103,11 +103,11 @@ export function TidalTrackPickerModal({
                       width: '48px',
                       height: '48px',
                       borderRadius: '4px',
-                      background: '#333',
+                      background: 'var(--surface-raised)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      color: '#9ca3af',
+                      color: 'var(--text-secondary)',
                     }}
                   >
                     <span style={{ fontSize: '1.5rem' }}>T</span>
@@ -115,13 +115,13 @@ export function TidalTrackPickerModal({
                 )}
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 500 }}>{track.title}</div>
-                  <div style={{ color: '#9ca3af', fontSize: '0.875rem' }}>{track.artist}</div>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>{track.artist}</div>
                   {track.album && (
-                    <div style={{ color: '#6b7280', fontSize: '0.75rem' }}>{track.album}</div>
+                    <div style={{ color: 'var(--text-tertiary)', fontSize: '0.75rem' }}>{track.album}</div>
                   )}
                 </div>
                 {linking && (
-                  <span style={{ color: '#9ca3af' }}>...</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>...</span>
                 )}
               </div>
             ))
@@ -130,7 +130,7 @@ export function TidalTrackPickerModal({
         <div style={{ marginTop: '1rem' }}>
           <button
             className="btn"
-            style={{ background: '#333', width: '100%' }}
+            style={{ background: 'var(--surface-raised)', width: '100%' }}
             onClick={onCancel}
             disabled={linking}
           >

@@ -235,10 +235,10 @@ export default function PreEventVotingTab({
         <div
           style={{
             padding: '0.875rem 1rem',
-            background: 'rgba(59, 130, 246, 0.12)',
-            border: '1px solid rgba(59, 130, 246, 0.25)',
+            background: 'var(--color-primary-subtle)',
+            border: '1px solid var(--color-primary-subtle)',
             borderRadius: 8,
-            color: '#60a5fa',
+            color: 'var(--color-link)',
             marginBottom: '1.25rem',
             fontSize: '0.9rem',
           }}
@@ -316,7 +316,7 @@ export default function PreEventVotingTab({
           </div>
           {settingsError && <p className="collection-fieldset-error">{settingsError}</p>}
           {settingsSaved && (
-            <p style={{ color: '#4ade80', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
+            <p style={{ color: 'var(--color-success)', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
               Settings saved.
             </p>
           )}
@@ -362,14 +362,14 @@ export default function PreEventVotingTab({
                   </span>
                 )}
                 {syncResult !== null && (
-                  <span style={{ fontSize: '0.875rem', color: '#4ade80' }}>
+                  <span style={{ fontSize: '0.875rem', color: 'var(--color-success)' }}>
                     {syncResult.queued === 0
                       ? 'All tracks already synced.'
                       : `Queued ${syncResult.queued} track${syncResult.queued === 1 ? '' : 's'} for sync.`}
                   </span>
                 )}
                 {syncError && (
-                  <span style={{ fontSize: '0.875rem', color: '#f87171' }}>{syncError}</span>
+                  <span style={{ fontSize: '0.875rem', color: 'var(--color-danger)' }}>{syncError}</span>
                 )}
               </div>
               <label className="collection-fieldset-toggle">

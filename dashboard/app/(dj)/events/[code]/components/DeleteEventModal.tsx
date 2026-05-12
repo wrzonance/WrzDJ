@@ -20,7 +20,7 @@ export function DeleteEventModal({
   return (
     <ModalOverlay onClose={deleting ? undefined : onCancel} card>
       <h2 style={{ marginBottom: '1rem' }}>Delete Event?</h2>
-      <p style={{ color: '#9ca3af', marginBottom: '1.5rem' }}>
+      <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
         This will permanently delete &quot;{eventName}&quot; and all {requestCount} song requests.
         This action cannot be undone.
       </p>
@@ -35,7 +35,7 @@ export function DeleteEventModal({
         </button>
         <button
           className="btn"
-          style={{ background: '#333' }}
+          style={{ background: 'var(--surface-raised)' }}
           onClick={onCancel}
           disabled={deleting}
         >

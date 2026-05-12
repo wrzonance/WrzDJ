@@ -48,7 +48,7 @@ export default function AdminSettingsPage() {
   if (!settings) {
     return (
       <div className="container">
-        <div className="card" style={{ color: '#ef4444' }}>{error || loadError || 'Failed to load'}</div>
+        <div className="card" style={{ color: 'var(--color-danger)' }}>{error || loadError || 'Failed to load'}</div>
       </div>
     );
   }
@@ -60,10 +60,10 @@ export default function AdminSettingsPage() {
       <h1 style={{ marginBottom: '2rem' }}>System Settings</h1>
 
       {(error || loadError) && (
-        <div style={{ color: '#ef4444', marginBottom: '1rem' }}>{error || loadError}</div>
+        <div style={{ color: 'var(--color-danger)', marginBottom: '1rem' }}>{error || loadError}</div>
       )}
       {success && (
-        <div style={{ color: '#22c55e', marginBottom: '1rem' }}>{success}</div>
+        <div style={{ color: 'var(--color-success)', marginBottom: '1rem' }}>{success}</div>
       )}
 
       <div className="card">
@@ -78,7 +78,7 @@ export default function AdminSettingsPage() {
               />
               <div>
                 <div style={{ fontWeight: 500 }}>Self-Registration</div>
-                <div style={{ color: '#9ca3af', fontSize: '0.875rem' }}>
+                <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
                   Allow new users to register. They start as &quot;pending&quot; until approved.
                 </div>
               </div>
@@ -97,7 +97,7 @@ export default function AdminSettingsPage() {
               />
               <div>
                 <div style={{ fontWeight: 500 }}>Enforce human verification on guest pages</div>
-                <div style={{ color: '#9ca3af', fontSize: '0.875rem' }}>
+                <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
                   When ON, guests must complete a Cloudflare Turnstile check before submitting requests, voting, or searching. Default OFF (soft mode logs warnings only).
                 </div>
               </div>
@@ -108,7 +108,7 @@ export default function AdminSettingsPage() {
         <HelpSpot spotId="admin-rate-limit" page={PAGE_ID} order={3} title="Search Rate Limit" description="Throttle music search queries per IP to prevent API abuse.">
           <div className="form-group" style={{ marginTop: '1.5rem' }}>
             <label htmlFor="rate-limit">Search Rate Limit (per minute per IP)</label>
-            <div style={{ color: '#9ca3af', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
               Controls how many Spotify/Tidal search queries each IP can make per minute.
             </div>
             <input

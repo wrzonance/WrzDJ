@@ -29,16 +29,16 @@ function formatUptime(seconds: number | null): string {
 }
 
 function circuitBreakerColor(state: string | null): string {
-  if (!state) return '#6b7280';
+  if (!state) return 'var(--text-tertiary)';
   switch (state.toUpperCase()) {
     case 'CLOSED':
-      return '#10b981';
+      return 'var(--color-success)';
     case 'OPEN':
-      return '#ef4444';
+      return 'var(--color-danger)';
     case 'HALF_OPEN':
-      return '#f59e0b';
+      return 'var(--color-warning)';
     default:
-      return '#6b7280';
+      return 'var(--text-tertiary)';
   }
 }
 
@@ -81,8 +81,8 @@ export function BridgeStatusCard({ eventCode, bridgeConnected, bridgeDetails }: 
 
   const buttonStyle = (disabled: boolean): React.CSSProperties => ({
     background: 'transparent',
-    border: `1px solid ${disabled ? '#333' : '#555'}`,
-    color: disabled ? '#555' : '#9ca3af',
+    border: `1px solid ${disabled ? 'var(--border)' : 'var(--border)'}`,
+    color: disabled ? 'var(--text-tertiary)' : 'var(--text-secondary)',
     padding: '0.25rem 0.625rem',
     borderRadius: '0.25rem',
     fontSize: '0.75rem',
@@ -95,12 +95,12 @@ export function BridgeStatusCard({ eventCode, bridgeConnected, bridgeDetails }: 
   });
 
   const detailLabelStyle: React.CSSProperties = {
-    color: '#6b7280',
+    color: 'var(--text-tertiary)',
     fontSize: '0.75rem',
   };
 
   const detailValueStyle: React.CSSProperties = {
-    color: '#9ca3af',
+    color: 'var(--text-secondary)',
     fontSize: '0.75rem',
     fontWeight: 500,
   };
@@ -113,7 +113,7 @@ export function BridgeStatusCard({ eventCode, bridgeConnected, bridgeDetails }: 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
           <span style={{ fontWeight: 600 }}>Bridge Status</span>
-          <p style={{ color: '#b0b0b0', fontSize: '0.875rem', margin: '0.25rem 0 0' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0.25rem 0 0' }}>
             Live track detection for compatible controllers and software
           </p>
         </div>
@@ -123,11 +123,11 @@ export function BridgeStatusCard({ eventCode, bridgeConnected, bridgeDetails }: 
               width: '8px',
               height: '8px',
               borderRadius: '50%',
-              background: bridgeConnected ? '#10b981' : '#6b7280',
+              background: bridgeConnected ? 'var(--color-success)' : 'var(--text-tertiary)',
               display: 'inline-block',
             }}
           />
-          <span style={{ color: bridgeConnected ? '#10b981' : '#9ca3af', fontSize: '0.875rem' }}>
+          <span style={{ color: bridgeConnected ? 'var(--color-success)' : 'var(--text-secondary)', fontSize: '0.875rem' }}>
             {bridgeConnected ? 'Bridge Connected' : 'Bridge Not Connected'}
           </span>
         </div>
@@ -142,7 +142,7 @@ export function BridgeStatusCard({ eventCode, bridgeConnected, bridgeDetails }: 
             gap: '0.5rem 1rem',
             marginTop: '0.75rem',
             paddingTop: '0.625rem',
-            borderTop: '1px solid #2a2a2a',
+            borderTop: '1px solid var(--border-subtle)',
           }}
         >
           {bridgeDetails.pluginId && (
@@ -188,7 +188,7 @@ export function BridgeStatusCard({ eventCode, bridgeConnected, bridgeDetails }: 
           gap: '0.5rem',
           marginTop: '0.75rem',
           paddingTop: '0.625rem',
-          borderTop: '1px solid #2a2a2a',
+          borderTop: '1px solid var(--border-subtle)',
           flexWrap: 'wrap',
         }}
       >
@@ -202,7 +202,7 @@ export function BridgeStatusCard({ eventCode, bridgeConnected, bridgeDetails }: 
             Ping
           </button>
         </Tooltip>
-        <span style={{ width: '1px', height: '16px', background: '#333', display: 'inline-block' }} />
+        <span style={{ width: '1px', height: '16px', background: 'var(--border)', display: 'inline-block' }} />
         <Tooltip title="Reset Decks" description="Clears all tracked deck state. Use when the bridge shows phantom tracks that aren't actually on the decks. Lowest impact — doesn't touch the equipment connection.">
           <button
             style={buttonStyle(!bridgeConnected || loadingCommand !== null)}
@@ -235,7 +235,7 @@ export function BridgeStatusCard({ eventCode, bridgeConnected, bridgeDetails }: 
         </Tooltip>
 
         {commandError && (
-          <span style={{ color: '#ef4444', fontSize: '0.75rem', marginLeft: '0.25rem' }}>
+          <span style={{ color: 'var(--color-danger)', fontSize: '0.75rem', marginLeft: '0.25rem' }}>
             {commandError}
           </span>
         )}
@@ -247,9 +247,9 @@ export function BridgeStatusCard({ eventCode, bridgeConnected, bridgeDetails }: 
           style={{
             marginTop: '0.5rem',
             padding: '0.625rem 0.75rem',
-            background: '#1f1f1f',
+            background: 'var(--card)',
             borderRadius: '0.375rem',
-            border: '1px solid #333',
+            border: '1px solid var(--border)',
             fontSize: '0.8125rem',
             display: 'flex',
             alignItems: 'center',
@@ -257,13 +257,13 @@ export function BridgeStatusCard({ eventCode, bridgeConnected, bridgeDetails }: 
             flexWrap: 'wrap',
           }}
         >
-          <span style={{ color: '#f59e0b' }}>
+          <span style={{ color: 'var(--color-warning)' }}>
             This will briefly disconnect from your equipment. Continue?
           </span>
           <div style={{ display: 'flex', gap: '0.375rem' }}>
             <button
               style={{
-                background: '#ef4444',
+                background: 'var(--color-danger)',
                 color: '#fff',
                 border: 'none',
                 padding: '0.25rem 0.625rem',
@@ -277,8 +277,8 @@ export function BridgeStatusCard({ eventCode, bridgeConnected, bridgeDetails }: 
             </button>
             <button
               style={{
-                background: '#333',
-                color: '#9ca3af',
+                background: 'var(--surface-raised)',
+                color: 'var(--text-secondary)',
                 border: 'none',
                 padding: '0.25rem 0.625rem',
                 borderRadius: '0.25rem',
@@ -303,8 +303,8 @@ function Spinner() {
         display: 'inline-block',
         width: '10px',
         height: '10px',
-        border: '1.5px solid #555',
-        borderTopColor: '#9ca3af',
+        border: '1.5px solid var(--text-tertiary)',
+        borderTopColor: 'var(--text-secondary)',
         borderRadius: '50%',
         animation: 'spin 0.6s linear infinite',
       }}

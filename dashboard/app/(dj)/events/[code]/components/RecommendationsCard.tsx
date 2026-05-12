@@ -259,8 +259,8 @@ export function RecommendationsCard({
     border: 'none',
     borderRadius: '0.25rem',
     cursor: 'pointer' as const,
-    background: active ? '#3b82f6' : '#374151',
-    color: active ? '#fff' : '#9ca3af',
+    background: active ? 'var(--color-primary)' : 'var(--surface-raised)',
+    color: active ? '#fff' : 'var(--text-secondary)',
   });
 
   return (
@@ -275,7 +275,7 @@ export function RecommendationsCard({
             <>
               <button
                 className="btn btn-sm"
-                style={{ background: '#10b981' }}
+                style={{ background: 'var(--color-success)' }}
                 onClick={handleAcceptAll}
                 disabled={acceptingAll || loading}
               >
@@ -283,7 +283,7 @@ export function RecommendationsCard({
               </button>
               <button
                 className="btn btn-sm"
-                style={{ background: '#6b7280' }}
+                style={{ background: 'var(--text-tertiary)' }}
                 onClick={handleClear}
                 disabled={loading}
               >
@@ -364,9 +364,9 @@ export function RecommendationsCard({
               width: '100%',
               padding: '0.5rem',
               borderRadius: '0.375rem',
-              background: '#1a1a1a',
-              color: '#ededed',
-              border: '1px solid #374151',
+              background: 'var(--card)',
+              color: 'var(--text)',
+              border: '1px solid var(--border)',
               fontSize: '0.875rem',
               boxSizing: 'border-box',
             }}
@@ -378,7 +378,7 @@ export function RecommendationsCard({
       {mode === 'template' && hasConnectedServices && (
         <div style={{ marginBottom: '0.75rem' }}>
           {loadingPlaylists ? (
-            <p style={{ color: '#9ca3af', fontSize: '0.875rem', margin: 0 }}>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: 0 }}>
               Loading playlists...
             </p>
           ) : playlists.length > 0 ? (
@@ -389,9 +389,9 @@ export function RecommendationsCard({
                 width: '100%',
                 padding: '0.5rem',
                 borderRadius: '0.375rem',
-                background: '#1a1a1a',
-                color: '#ededed',
-                border: '1px solid #374151',
+                background: 'var(--card)',
+                color: 'var(--text)',
+                border: '1px solid var(--border)',
                 fontSize: '0.875rem',
               }}
             >
@@ -403,7 +403,7 @@ export function RecommendationsCard({
               ))}
             </select>
           ) : playlistsLoaded ? (
-            <p style={{ color: '#9ca3af', fontSize: '0.875rem', margin: 0 }}>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: 0 }}>
               No playlists found on connected services.
             </p>
           ) : null}
@@ -411,20 +411,20 @@ export function RecommendationsCard({
       )}
 
       {!hasConnectedServices && (
-        <p style={{ color: '#9ca3af', fontSize: '0.875rem', margin: 0 }}>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: 0 }}>
           Link Tidal or Beatport to get song suggestions.
         </p>
       )}
 
       {hasConnectedServices && mode === 'requests' && !hasAcceptedRequests
         && suggestions.length === 0 && (
-        <p style={{ color: '#9ca3af', fontSize: '0.875rem', margin: 0 }}>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: 0 }}>
           Accept some requests first to build a music profile.
         </p>
       )}
 
       {error && (
-        <div style={{ color: '#fca5a5', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
+        <div style={{ color: 'var(--color-danger)', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
           {error}
         </div>
       )}
@@ -437,7 +437,7 @@ export function RecommendationsCard({
             style={{
               background: 'none',
               border: 'none',
-              color: '#9ca3af',
+              color: 'var(--text-secondary)',
               fontSize: '0.8rem',
               cursor: 'pointer',
               padding: 0,
@@ -451,17 +451,17 @@ export function RecommendationsCard({
               marginTop: '0.5rem',
               padding: '0.5rem',
               borderRadius: '0.375rem',
-              background: '#111',
+              background: 'var(--surface-raised)',
               fontSize: '0.8rem',
-              color: '#9ca3af',
+              color: 'var(--text-secondary)',
             }}>
               {llmQueries.map((q, i) => (
                 <div key={i} style={{ marginBottom: i < llmQueries.length - 1 ? '0.5rem' : 0 }}>
-                  <div style={{ color: '#ededed', fontWeight: 500 }}>
+                  <div style={{ color: 'var(--text)', fontWeight: 500 }}>
                     {q.search_query}
-                    {q.target_bpm && <span style={{ color: '#9ca3af', fontWeight: 400 }}> {q.target_bpm} BPM</span>}
-                    {q.target_key && <span style={{ color: '#9ca3af', fontWeight: 400 }}> {q.target_key}</span>}
-                    {q.target_genre && <span style={{ color: '#9ca3af', fontWeight: 400 }}> {q.target_genre}</span>}
+                    {q.target_bpm && <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}> {q.target_bpm} BPM</span>}
+                    {q.target_key && <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}> {q.target_key}</span>}
+                    {q.target_genre && <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}> {q.target_genre}</span>}
                   </div>
                   {q.reasoning && (
                     <div style={{ fontStyle: 'italic', marginTop: '0.125rem' }}>{q.reasoning}</div>
@@ -475,7 +475,7 @@ export function RecommendationsCard({
 
       {profile && (
         <div style={{
-          fontSize: '0.8rem', color: '#9ca3af', marginBottom: '0.75rem',
+          fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.75rem',
           display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center',
         }}>
           {profile.avg_bpm && (
@@ -518,7 +518,7 @@ export function RecommendationsCard({
                   gap: '0.75rem',
                   padding: '0.5rem',
                   borderRadius: '0.375rem',
-                  background: '#1a1a1a',
+                  background: 'var(--card)',
                 }}
               >
                 {track.cover_url && (
@@ -585,8 +585,8 @@ export function RecommendationsCard({
                     >
                       <span
                         style={{
-                          background: track.score >= 0.8 ? '#10b98133' : track.score >= 0.6 ? '#f59e0b33' : '#6b728033',
-                          color: track.score >= 0.8 ? '#10b981' : track.score >= 0.6 ? '#f59e0b' : '#9ca3af',
+                          background: track.score >= 0.8 ? 'var(--color-success-subtle)' : track.score >= 0.6 ? 'var(--color-warning-subtle)' : 'var(--surface-raised)',
+                          color: track.score >= 0.8 ? 'var(--color-success)' : track.score >= 0.6 ? 'var(--color-warning)' : 'var(--text-secondary)',
                           padding: '0.0625rem 0.375rem',
                           borderRadius: '0.25rem',
                           fontSize: '0.625rem',
@@ -599,7 +599,7 @@ export function RecommendationsCard({
                     </Tooltip>
                     {track.mb_verified && (
                       <span style={{
-                        background: '#10b981',
+                        background: 'var(--color-success)',
                         color: '#fff',
                         padding: '0.0625rem 0.375rem',
                         borderRadius: '0.25rem',
@@ -611,7 +611,7 @@ export function RecommendationsCard({
                     )}
                     {mode === 'llm' && llmModel && (
                       <span style={{
-                        background: '#7c3aed',
+                        background: 'var(--color-status-accepted)',
                         color: '#fff',
                         padding: '0.0625rem 0.375rem',
                         borderRadius: '0.25rem',
@@ -629,7 +629,7 @@ export function RecommendationsCard({
                 </div>
                 <button
                   className="btn btn-sm"
-                  style={{ background: '#10b981', flexShrink: 0 }}
+                  style={{ background: 'var(--color-success)', flexShrink: 0 }}
                   onClick={() => handleAccept(track)}
                   disabled={isAccepting || acceptingAll}
                 >

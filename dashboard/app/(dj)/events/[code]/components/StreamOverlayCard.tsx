@@ -26,7 +26,7 @@ export function StreamOverlayCard({ code }: StreamOverlayCardProps) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
           <span style={{ fontWeight: 600 }}>Stream Overlay</span>
-          <p style={{ color: '#b0b0b0', fontSize: '0.875rem', margin: '0.25rem 0 0' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0.25rem 0 0' }}>
             OBS browser source for streaming the now-playing track
           </p>
         </div>
@@ -36,7 +36,7 @@ export function StreamOverlayCard({ code }: StreamOverlayCardProps) {
             target="_blank"
             rel="noopener noreferrer"
             className="btn btn-sm"
-            style={{ background: '#333', textDecoration: 'none', color: '#ededed' }}
+            style={{ background: 'var(--surface-raised)', textDecoration: 'none', color: 'var(--text)' }}
           >
             Stream Overlay
           </a>
@@ -44,7 +44,7 @@ export function StreamOverlayCard({ code }: StreamOverlayCardProps) {
             <button
               className="btn btn-sm"
               style={{
-                background: copied ? '#22c55e' : '#333',
+                background: copied ? 'var(--color-success)' : 'var(--surface-raised)',
                 transition: 'background 0.2s',
               }}
               onClick={handleCopy}

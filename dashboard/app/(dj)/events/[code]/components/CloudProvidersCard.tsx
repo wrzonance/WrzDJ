@@ -42,7 +42,7 @@ export function CloudProvidersCard({
     <div className="card" style={{ marginBottom: '1rem', padding: '1rem' }}>
       <div style={{ marginBottom: '1rem' }}>
         <span style={{ fontWeight: 600 }}>Cloud Providers</span>
-        <p style={{ color: '#b0b0b0', fontSize: '0.875rem', margin: '0.25rem 0 0' }}>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0.25rem 0 0' }}>
           Sync accepted requests to streaming service playlists
         </p>
       </div>
@@ -57,10 +57,10 @@ export function CloudProvidersCard({
           paddingRight: '0.75rem',
         }}
       >
-        <span style={{ fontSize: '0.7rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', minWidth: '100px', textAlign: 'center' }}>
+        <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', minWidth: '100px', textAlign: 'center' }}>
           Playlist Sync
         </span>
-        <span style={{ fontSize: '0.7rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', minWidth: '90px', textAlign: 'center' }}>
+        <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', minWidth: '90px', textAlign: 'center' }}>
           Account
         </span>
       </div>
@@ -72,7 +72,7 @@ export function CloudProvidersCard({
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '0.75rem',
-          background: '#111',
+          background: 'var(--surface-raised)',
           borderRadius: '6px',
           marginBottom: '0.5rem',
           opacity: tidalStatus?.integration_enabled === false ? 0.5 : 1,
@@ -80,17 +80,17 @@ export function CloudProvidersCard({
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>Tidal</span>
-          <span style={{ color: '#9ca3af', fontSize: '0.75rem' }}></span>
+          <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}></span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           {tidalStatus?.integration_enabled === false ? (
-            <span style={{ color: '#6b7280', fontSize: '0.875rem' }}>Unavailable</span>
+            <span style={{ color: 'var(--text-tertiary)', fontSize: '0.875rem' }}>Unavailable</span>
           ) : tidalStatus?.linked ? (
             <>
-              <span style={{ color: '#10b981', fontSize: '0.875rem' }}>Connected</span>
+              <span style={{ color: 'var(--color-success)', fontSize: '0.875rem' }}>Connected</span>
               <button
                 className={`btn btn-sm ${tidalSyncEnabled ? 'btn-success' : ''}`}
-                style={{ minWidth: '100px', background: tidalSyncEnabled ? undefined : '#333' }}
+                style={{ minWidth: '100px', background: tidalSyncEnabled ? undefined : 'var(--surface-raised)' }}
                 onClick={onToggleTidalSync}
                 disabled={togglingTidalSync}
               >
@@ -99,7 +99,7 @@ export function CloudProvidersCard({
               <Tooltip description="Disconnect Tidal account and remove saved tokens">
                 <button
                   className="btn btn-sm"
-                  style={{ background: '#666', minWidth: '90px' }}
+                  style={{ background: 'var(--text-tertiary)', minWidth: '90px' }}
                   onClick={onDisconnectTidal}
                 >
                   Disconnect
@@ -125,7 +125,7 @@ export function CloudProvidersCard({
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '0.75rem',
-          background: '#111',
+          background: 'var(--surface-raised)',
           borderRadius: '6px',
           marginBottom: '0.5rem',
           opacity: beatportStatus?.integration_enabled === false ? 0.5 : 1,
@@ -133,28 +133,28 @@ export function CloudProvidersCard({
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>Beatport</span>
-          <span style={{ color: '#9ca3af', fontSize: '0.75rem' }}></span>
+          <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}></span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           {beatportStatus?.integration_enabled === false ? (
-            <span style={{ color: '#6b7280', fontSize: '0.875rem' }}>Unavailable</span>
+            <span style={{ color: 'var(--text-tertiary)', fontSize: '0.875rem' }}>Unavailable</span>
           ) : beatportStatus?.linked ? (
             <>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.25rem' }}>
                 <span style={{ color: '#01ff28', fontSize: '0.875rem' }}>Connected</span>
                 {beatportStatus.subscription && ['bp_link', 'bp_pro', 'streaming'].includes(beatportStatus.subscription) ? (
-                  <span style={{ fontSize: '0.65rem', color: '#22c55e', background: '#052e16', padding: '0.125rem 0.375rem', borderRadius: '9999px' }}>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--color-success)', background: 'var(--color-success-subtle)', padding: '0.125rem 0.375rem', borderRadius: '9999px' }}>
                     Full Streaming Access
                   </span>
                 ) : (
-                  <span style={{ fontSize: '0.65rem', color: '#f59e0b', background: '#451a03', padding: '0.125rem 0.375rem', borderRadius: '9999px' }}>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--color-warning)', background: 'var(--color-warning-subtle)', padding: '0.125rem 0.375rem', borderRadius: '9999px' }}>
                     Purchased Library Only
                   </span>
                 )}
               </div>
               <button
                 className={`btn btn-sm ${beatportSyncEnabled ? 'btn-success' : ''}`}
-                style={{ minWidth: '100px', background: beatportSyncEnabled ? undefined : '#333' }}
+                style={{ minWidth: '100px', background: beatportSyncEnabled ? undefined : 'var(--surface-raised)' }}
                 onClick={onToggleBeatportSync}
                 disabled={togglingBeatportSync}
               >
@@ -163,7 +163,7 @@ export function CloudProvidersCard({
               <Tooltip description="Disconnect Beatport account and remove saved tokens">
                 <button
                   className="btn btn-sm"
-                  style={{ background: '#666', minWidth: '90px' }}
+                  style={{ background: 'var(--text-tertiary)', minWidth: '90px' }}
                   onClick={onDisconnectBeatport}
                 >
                   Disconnect
@@ -191,7 +191,7 @@ export function CloudProvidersCard({
             alignItems: 'center',
             justifyContent: 'space-between',
             padding: '0.75rem',
-            background: '#111',
+            background: 'var(--surface-raised)',
             borderRadius: '6px',
             marginBottom: '0.5rem',
             opacity: 0.5,
@@ -202,7 +202,7 @@ export function CloudProvidersCard({
           </div>
           <button
             className="btn btn-sm"
-            style={{ background: '#333' }}
+            style={{ background: 'var(--surface-raised)' }}
             disabled
           >
             Coming Soon

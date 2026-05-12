@@ -17,7 +17,7 @@ export function NowPlayingBadge({ nowPlaying }: NowPlayingBadgeProps) {
         display: 'flex',
         alignItems: 'center',
         gap: '0.75rem',
-        background: '#1a1a1a',
+        background: 'var(--card)',
         borderRadius: '8px',
         padding: '0.5rem 0.75rem',
         maxWidth: '320px',
@@ -43,12 +43,12 @@ export function NowPlayingBadge({ nowPlaying }: NowPlayingBadgeProps) {
             width: 40,
             height: 40,
             borderRadius: 6,
-            background: '#333',
+            background: 'var(--surface-raised)',
             flexShrink: 0,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: '#666',
+            color: 'var(--text-tertiary)',
             fontSize: '1.25rem',
           }}
         >
@@ -62,7 +62,7 @@ export function NowPlayingBadge({ nowPlaying }: NowPlayingBadgeProps) {
           <div style={{
             fontSize: '0.875rem',
             fontWeight: 500,
-            color: '#ededed',
+            color: 'var(--text)',
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -72,7 +72,7 @@ export function NowPlayingBadge({ nowPlaying }: NowPlayingBadgeProps) {
         </div>
         <div style={{
           fontSize: '0.75rem',
-          color: '#9ca3af',
+          color: 'var(--text-secondary)',
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',

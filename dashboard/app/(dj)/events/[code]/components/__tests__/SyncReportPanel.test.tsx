@@ -257,8 +257,8 @@ describe('SyncReportPanel', () => {
         requests={requests}
       />
     );
-    // The focused row should have a distinct background color
-    const row = container.querySelector('[style*="rgb(30, 58, 95)"]');
+    // The focused row should have a distinct background color (CSS var)
+    const row = container.querySelector('[style*="var(--color-primary-subtle)"]');
     expect(row).not.toBeNull();
   });
 

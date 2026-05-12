@@ -101,7 +101,7 @@ export default function AdminUsersPage() {
       </div>
 
       {(error || loadError) && (
-        <div style={{ color: '#ef4444', marginBottom: '1rem' }}>{error || loadError}</div>
+        <div style={{ color: 'var(--color-danger)', marginBottom: '1rem' }}>{error || loadError}</div>
       )}
 
       <HelpSpot spotId="admin-role-filters" page={PAGE_ID} order={2} title="Role Filters" description="Filter by role: All, Admins, DJs, or Pending.">
@@ -161,7 +161,7 @@ export default function AdminUsersPage() {
               </div>
               <div style={{ display: 'flex', gap: '1rem' }}>
                 <button type="submit" className="btn btn-primary">Create</button>
-                <button type="button" className="btn" style={{ background: '#333' }} onClick={() => setShowCreate(false)}>
+                <button type="button" className="btn" style={{ background: 'var(--surface-raised)' }} onClick={() => setShowCreate(false)}>
                   Cancel
                 </button>
               </div>
@@ -212,7 +212,7 @@ export default function AdminUsersPage() {
               </div>
               <div style={{ display: 'flex', gap: '1rem' }}>
                 <button type="submit" className="btn btn-primary">Save</button>
-                <button type="button" className="btn" style={{ background: '#333' }} onClick={() => setEditUser(null)}>
+                <button type="button" className="btn" style={{ background: 'var(--surface-raised)' }} onClick={() => setEditUser(null)}>
                   Cancel
                 </button>
               </div>
@@ -273,18 +273,18 @@ export default function AdminUsersPage() {
             <div className="pagination">
               <button
                 className="btn btn-sm"
-                style={{ background: '#333' }}
+                style={{ background: 'var(--surface-raised)' }}
                 disabled={page <= 1}
                 onClick={() => setPage(page - 1)}
               >
                 Previous
               </button>
-              <span style={{ color: '#9ca3af' }}>
+              <span style={{ color: 'var(--text-secondary)' }}>
                 Page {page} of {totalPages}
               </span>
               <button
                 className="btn btn-sm"
-                style={{ background: '#333' }}
+                style={{ background: 'var(--surface-raised)' }}
                 disabled={page >= totalPages}
                 onClick={() => setPage(page + 1)}
               >

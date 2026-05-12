@@ -113,7 +113,7 @@ export function SyncReportPanel({
           padding: '0.75rem 1rem',
           background: 'transparent',
           border: 'none',
-          color: '#ededed',
+          color: 'var(--text)',
           cursor: 'pointer',
           textAlign: 'left',
         }}
@@ -122,8 +122,8 @@ export function SyncReportPanel({
           <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>Sync Report</span>
           <span
             style={{
-              background: errorCount > 0 ? '#7f1d1d' : '#78350f',
-              color: errorCount > 0 ? '#fca5a5' : '#fde68a',
+              background: errorCount > 0 ? 'var(--color-danger-subtle)' : 'var(--color-warning-subtle)',
+              color: errorCount > 0 ? 'var(--color-danger)' : 'var(--color-warning)',
               padding: '0.125rem 0.5rem',
               borderRadius: '1rem',
               fontSize: '0.7rem',
@@ -133,7 +133,7 @@ export function SyncReportPanel({
             {summaryText}
           </span>
         </div>
-        <span style={{ color: '#9ca3af', fontSize: '0.875rem' }}>
+        <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
           {expanded ? '\u25B2' : '\u25BC'}
         </span>
       </button>
@@ -152,7 +152,7 @@ export function SyncReportPanel({
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   padding: '0.5rem 0.75rem',
-                  background: isFocused ? '#1e3a5f' : '#111',
+                  background: isFocused ? 'var(--color-primary-subtle)' : 'var(--surface-raised)',
                   borderRadius: '6px',
                   marginBottom: '0.375rem',
                   transition: 'background 0.3s ease',
@@ -171,7 +171,7 @@ export function SyncReportPanel({
                   >
                     {request.song_title}
                   </div>
-                  <div style={{ color: '#9ca3af', fontSize: '0.75rem' }}>{request.artist}</div>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>{request.artist}</div>
                 </div>
 
                 {/* Per-service status columns */}
@@ -216,7 +216,7 @@ function ServiceStatusCell({
 
   if (!entry) {
     return (
-      <span style={{ color: '#6b7280', fontSize: '0.75rem', minWidth: '80px', textAlign: 'center' }}>
+      <span style={{ color: 'var(--text-tertiary)', fontSize: '0.75rem', minWidth: '80px', textAlign: 'center' }}>
         {label}: --
       </span>
     );
@@ -231,7 +231,7 @@ function ServiceStatusCell({
             href={safeExternalUrl(entry.url) ?? '#'}
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: '#10b981', fontSize: '0.75rem', minWidth: '80px', textAlign: 'center', textDecoration: 'none' }}
+            style={{ color: 'var(--color-success)', fontSize: '0.75rem', minWidth: '80px', textAlign: 'center', textDecoration: 'none' }}
           >
             {label}: Synced{confidence}
           </a>
@@ -239,7 +239,7 @@ function ServiceStatusCell({
       );
     }
     return (
-      <span style={{ color: '#10b981', fontSize: '0.75rem', minWidth: '80px', textAlign: 'center' }}>
+      <span style={{ color: 'var(--color-success)', fontSize: '0.75rem', minWidth: '80px', textAlign: 'center' }}>
         {label}: Synced{confidence}
       </span>
     );
@@ -251,8 +251,8 @@ function ServiceStatusCell({
         <button
           onClick={() => onLink(requestId)}
           style={{
-            background: '#78350f',
-            color: '#fde68a',
+            background: 'var(--color-warning-subtle)',
+            color: 'var(--color-warning)',
             border: 'none',
             padding: '0.125rem 0.5rem',
             borderRadius: '4px',
@@ -274,8 +274,8 @@ function ServiceStatusCell({
         <button
           onClick={() => onRetry(requestId)}
           style={{
-            background: '#7f1d1d',
-            color: '#fca5a5',
+            background: 'var(--color-danger-subtle)',
+            color: 'var(--color-danger)',
             border: 'none',
             padding: '0.125rem 0.5rem',
             borderRadius: '4px',

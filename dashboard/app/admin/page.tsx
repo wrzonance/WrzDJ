@@ -31,7 +31,7 @@ export default function AdminOverviewPage() {
   if (error) {
     return (
       <div className="container">
-        <div className="card" style={{ color: '#ef4444' }}>{error}</div>
+        <div className="card" style={{ color: 'var(--color-danger)' }}>{error}</div>
       </div>
     );
   }
@@ -62,7 +62,7 @@ export default function AdminOverviewPage() {
           </div>
           <HelpSpot spotId="admin-pending" page={PAGE_ID} order={2} title="Pending Approval" description="Orange when users are waiting. Click Manage Users to review them.">
             <div className="stat-card">
-              <div className="stat-value" style={{ color: stats.pending_users > 0 ? '#f59e0b' : undefined }}>
+              <div className="stat-value" style={{ color: stats.pending_users > 0 ? 'var(--color-warning)' : undefined }}>
                 {stats.pending_users}
               </div>
               <div className="stat-label">Pending Approval</div>
@@ -89,7 +89,7 @@ export default function AdminOverviewPage() {
             <button className="btn btn-primary">
               Manage Users
               {stats.pending_users > 0 && (
-                <span className="badge" style={{ background: '#f59e0b', marginLeft: '0.5rem' }}>
+                <span className="badge" style={{ background: 'var(--color-warning)', marginLeft: '0.5rem' }}>
                   {stats.pending_users}
                 </span>
               )}

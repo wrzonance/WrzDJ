@@ -31,15 +31,15 @@ export function BeatportLoginModal({ onSubmit, onCancel }: BeatportLoginModalPro
   return (
     <ModalOverlay onClose={submitting ? undefined : onCancel} card cardStyle={{ width: '100%' }}>
         <h2 style={{ marginBottom: '0.5rem' }}>Connect Beatport</h2>
-        <p style={{ color: '#9ca3af', fontSize: '0.875rem', marginBottom: '1.5rem' }}>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '1.5rem' }}>
           Enter your Beatport account credentials to link your account.
         </p>
 
         {error && (
           <div
             style={{
-              background: '#7f1d1d',
-              color: '#fca5a5',
+              background: 'var(--color-danger-subtle)',
+              color: 'var(--color-danger)',
               padding: '0.5rem 0.75rem',
               borderRadius: '0.375rem',
               marginBottom: '1rem',
@@ -54,7 +54,7 @@ export function BeatportLoginModal({ onSubmit, onCancel }: BeatportLoginModalPro
           <div style={{ marginBottom: '1rem' }}>
             <label
               htmlFor="bp-username"
-              style={{ display: 'block', fontSize: '0.875rem', color: '#9ca3af', marginBottom: '0.25rem' }}
+              style={{ display: 'block', fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}
             >
               Username or Email
             </label>
@@ -72,7 +72,7 @@ export function BeatportLoginModal({ onSubmit, onCancel }: BeatportLoginModalPro
           <div style={{ marginBottom: '1.5rem' }}>
             <label
               htmlFor="bp-password"
-              style={{ display: 'block', fontSize: '0.875rem', color: '#9ca3af', marginBottom: '0.25rem' }}
+              style={{ display: 'block', fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}
             >
               Password
             </label>
@@ -98,7 +98,7 @@ export function BeatportLoginModal({ onSubmit, onCancel }: BeatportLoginModalPro
             <button
               type="button"
               className="btn"
-              style={{ background: '#333' }}
+              style={{ background: 'var(--surface-raised)' }}
               onClick={onCancel}
               disabled={submitting}
             >

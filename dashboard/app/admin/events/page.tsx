@@ -105,7 +105,7 @@ export default function AdminEventsPage() {
       </HelpSpot>
 
       {(error || loadError) && (
-        <div style={{ color: '#ef4444', marginBottom: '1rem' }}>{error || loadError}</div>
+        <div style={{ color: 'var(--color-danger)', marginBottom: '1rem' }}>{error || loadError}</div>
       )}
 
       {/* Edit Modal */}
@@ -129,7 +129,7 @@ export default function AdminEventsPage() {
                 <button
                   type="button"
                   className="btn"
-                  style={{ background: '#333' }}
+                  style={{ background: 'var(--surface-raised)' }}
                   onClick={() => setEditEvent(null)}
                 >
                   Cancel
@@ -145,7 +145,7 @@ export default function AdminEventsPage() {
       ) : (
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: '#9ca3af', cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
               <input
                 type="checkbox"
                 checked={selectionMode}
@@ -153,7 +153,7 @@ export default function AdminEventsPage() {
                   setSelectionMode(e.target.checked);
                   if (!e.target.checked) setSelectedEvents(new Set());
                 }}
-                style={{ accentColor: '#3b82f6' }}
+                style={{ accentColor: 'var(--color-accent-checkbox)' }}
                 aria-label="Advanced"
               />
               Advanced
@@ -179,7 +179,7 @@ export default function AdminEventsPage() {
                         type="checkbox"
                         checked={selectedEvents.size === events.length && events.length > 0}
                         onChange={toggleSelectAll}
-                        style={{ accentColor: '#3b82f6' }}
+                        style={{ accentColor: 'var(--color-accent-checkbox)' }}
                         aria-label="Select All"
                       />
                     </th>
@@ -206,12 +206,12 @@ export default function AdminEventsPage() {
                           type="checkbox"
                           checked={selectedEvents.has(event.code)}
                           onChange={() => toggleSelection(event.code)}
-                          style={{ accentColor: '#3b82f6' }}
+                          style={{ accentColor: 'var(--color-accent-checkbox)' }}
                           aria-label={`Select event ${event.code}`}
                         />
                       </td>
                     )}
-                    <td style={{ fontFamily: 'monospace', color: '#3b82f6' }}>{event.code}</td>
+                    <td style={{ fontFamily: 'monospace', color: 'var(--color-primary)' }}>{event.code}</td>
                     <td>{event.name}</td>
                     <td>{event.owner_username}</td>
                     <td>{event.request_count}</td>
@@ -254,18 +254,18 @@ export default function AdminEventsPage() {
             <div className="pagination">
               <button
                 className="btn btn-sm"
-                style={{ background: '#333' }}
+                style={{ background: 'var(--surface-raised)' }}
                 disabled={page <= 1}
                 onClick={() => setPage(page - 1)}
               >
                 Previous
               </button>
-              <span style={{ color: '#9ca3af' }}>
+              <span style={{ color: 'var(--text-secondary)' }}>
                 Page {page} of {totalPages}
               </span>
               <button
                 className="btn btn-sm"
-                style={{ background: '#333' }}
+                style={{ background: 'var(--surface-raised)' }}
                 disabled={page >= totalPages}
                 onClick={() => setPage(page + 1)}
               >

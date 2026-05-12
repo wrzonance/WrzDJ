@@ -143,21 +143,21 @@ export function RequestQueueSection({
         </div>
         {!isExpiredOrArchived && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginLeft: 'auto' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: sortMode === 'priority' ? '#4ade80' : '#9ca3af', cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: sortMode === 'priority' ? 'var(--color-success)' : 'var(--text-secondary)', cursor: 'pointer' }}>
               <input
                 type="checkbox"
                 checked={sortMode === 'priority'}
                 onChange={(e) => onSortModeChange(e.target.checked ? 'priority' : 'chronological')}
-                style={{ accentColor: '#4ade80' }}
+                style={{ accentColor: 'var(--color-success)' }}
               />
               Best Match
             </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: '#9ca3af', cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
               <input
                 type="checkbox"
                 checked={advancedMode}
                 onChange={(e) => setAdvancedMode(e.target.checked)}
-                style={{ accentColor: '#3b82f6' }}
+                style={{ accentColor: 'var(--color-accent-checkbox)' }}
               />
               Advanced
             </label>
@@ -188,7 +188,7 @@ export function RequestQueueSection({
                 {onEnrichAll && (
                   <button
                     className="btn btn-sm"
-                    style={{ background: '#1e3a5f', fontSize: '0.7rem' }}
+                    style={{ background: 'var(--color-log-info-bg)', fontSize: '0.7rem' }}
                     onClick={async () => {
                       setEnrichingAll(true);
                       try {
@@ -211,7 +211,7 @@ export function RequestQueueSection({
                 )}
                 <button
                   className="btn btn-sm"
-                  style={{ background: '#374151', fontSize: '0.7rem' }}
+                  style={{ background: 'var(--surface-raised)', fontSize: '0.7rem' }}
                   onClick={handleRefreshAll}
                   disabled={refreshingAll || filteredRequests.length === 0}
                 >
@@ -219,7 +219,7 @@ export function RequestQueueSection({
                 </button>
                 <button
                   className="btn btn-sm"
-                  style={{ background: '#991b1b', fontSize: '0.7rem' }}
+                  style={{ background: 'var(--color-danger-subtle)', fontSize: '0.7rem' }}
                   onClick={handleDeleteAll}
                   disabled={deletingAll || filteredRequests.length === 0}
                 >
@@ -233,7 +233,7 @@ export function RequestQueueSection({
 
       {filteredRequests.length === 0 ? (
         <div className="card" style={{ textAlign: 'center' }}>
-          <p style={{ color: '#9ca3af' }}>
+          <p style={{ color: 'var(--text-secondary)' }}>
             {filter === 'all'
               ? 'No requests yet. Share the QR code with your guests!'
               : `No ${filter} requests.`}
@@ -278,14 +278,14 @@ export function RequestQueueSection({
                     width: 40,
                     height: 40,
                     borderRadius: '0.25rem',
-                    background: '#2a2a2a',
+                    background: 'var(--border-subtle)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     flexShrink: 0,
                     marginRight: '0.625rem',
                     fontSize: '1rem',
-                    color: '#555',
+                    color: 'var(--text-tertiary)',
                   }}
                 >
                   ♪
@@ -339,7 +339,7 @@ export function RequestQueueSection({
                   {request.vote_count > 0 && (
                     <span
                       style={{
-                        background: request.vote_count >= 5 ? '#f59e0b' : '#3b82f6',
+                        background: request.vote_count >= 5 ? 'var(--color-warning)' : 'var(--color-primary)',
                         color: '#fff',
                         padding: '0.125rem 0.5rem',
                         borderRadius: '1rem',
@@ -433,7 +433,7 @@ export function RequestQueueSection({
                         <Tooltip description="Re-fetch BPM, key, and genre from external services">
                           <button
                             className="btn btn-sm"
-                            style={{ background: '#374151', fontSize: '0.7rem' }}
+                            style={{ background: 'var(--surface-raised)', fontSize: '0.7rem' }}
                             onClick={() => onRefreshMetadata?.(request.id)}
                             disabled={refreshingRequest === request.id}
                           >
@@ -442,7 +442,7 @@ export function RequestQueueSection({
                         </Tooltip>
                         <button
                           className="btn btn-sm"
-                          style={{ background: '#991b1b', fontSize: '0.7rem' }}
+                          style={{ background: 'var(--color-danger-subtle)', fontSize: '0.7rem' }}
                           onClick={() => {
                             if (window.confirm(`Delete "${request.song_title}" by ${request.artist}?`)) {
                               onDeleteRequest?.(request.id);

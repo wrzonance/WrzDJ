@@ -95,19 +95,19 @@ export default function AccountPage() {
   return (
     <main style={{ maxWidth: '480px', margin: '0 auto', padding: '2rem 1rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem' }}>
-        <Link href="/events" style={{ color: '#888', textDecoration: 'none', fontSize: '0.875rem' }}>
+        <Link href="/events" style={{ color: 'var(--text-secondary)', textDecoration: 'none', fontSize: '0.875rem' }}>
           ← Events
         </Link>
         <h1 style={{ margin: 0, fontSize: '1.5rem' }}>Account Settings</h1>
       </div>
 
-      <div style={{ background: '#1a1a1a', borderRadius: '0.75rem', padding: '1.5rem', marginBottom: '1.5rem' }}>
+      <div style={{ background: 'var(--card)', borderRadius: '0.75rem', padding: '1.5rem', marginBottom: '1.5rem' }}>
         <h2 style={{ marginTop: 0, marginBottom: '1.25rem', fontSize: '1.1rem' }}>Change Password</h2>
         {passwordSuccess ? (
-          <p style={{ color: '#4ade80', margin: 0 }}>Password updated. Redirecting to login…</p>
+          <p style={{ color: 'var(--color-success)', margin: 0 }}>Password updated. Redirecting to login…</p>
         ) : (
           <form onSubmit={handlePasswordChange}>
-            <label htmlFor="current-password" style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.875rem', color: '#aaa' }}>
+            <label htmlFor="current-password" style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
               Current Password
             </label>
             <input
@@ -118,7 +118,7 @@ export default function AccountPage() {
               className="input"
               style={{ width: '100%', marginBottom: '1rem', boxSizing: 'border-box' }}
             />
-            <label htmlFor="new-password" style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.875rem', color: '#aaa' }}>
+            <label htmlFor="new-password" style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
               New Password
             </label>
             <input
@@ -130,7 +130,7 @@ export default function AccountPage() {
               className="input"
               style={{ width: '100%', marginBottom: '1rem', boxSizing: 'border-box' }}
             />
-            <label htmlFor="confirm-password" style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.875rem', color: '#aaa' }}>
+            <label htmlFor="confirm-password" style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
               Confirm New Password
             </label>
             <input
@@ -142,7 +142,7 @@ export default function AccountPage() {
               style={{ width: '100%', marginBottom: '1rem', boxSizing: 'border-box' }}
             />
             {passwordError && (
-              <p style={{ color: '#f87171', fontSize: '0.875rem', marginBottom: '0.75rem' }}>
+              <p style={{ color: 'var(--color-danger)', fontSize: '0.875rem', marginBottom: '0.75rem' }}>
                 {passwordError}
               </p>
             )}
@@ -153,21 +153,21 @@ export default function AccountPage() {
         )}
       </div>
 
-      <div style={{ background: '#1a1a1a', borderRadius: '0.75rem', padding: '1.5rem' }}>
+      <div style={{ background: 'var(--card)', borderRadius: '0.75rem', padding: '1.5rem' }}>
         <h2 style={{ marginTop: 0, marginBottom: '1.25rem', fontSize: '1.1rem' }}>Change Email</h2>
         {emailPending ? (
           <div>
-            <p style={{ color: '#aaa', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
               Confirmation sent to:
             </p>
-            <p style={{ color: '#ededed', fontWeight: 500, marginBottom: '1rem' }}>{emailPending}</p>
-            <p style={{ color: '#888', fontSize: '0.8rem', margin: 0 }}>
+            <p style={{ color: 'var(--text)', fontWeight: 500, marginBottom: '1rem' }}>{emailPending}</p>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', margin: 0 }}>
               Check your inbox and click the confirmation link. The link expires in 24 hours.
             </p>
           </div>
         ) : (
           <form onSubmit={handleEmailRequest}>
-            <label htmlFor="email-current-password" style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.875rem', color: '#aaa' }}>
+            <label htmlFor="email-current-password" style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
               Password
             </label>
             <input
@@ -178,7 +178,7 @@ export default function AccountPage() {
               className="input"
               style={{ width: '100%', marginBottom: '1rem', boxSizing: 'border-box' }}
             />
-            <label htmlFor="new-email" style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.875rem', color: '#aaa' }}>
+            <label htmlFor="new-email" style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
               New Email Address
             </label>
             <input
@@ -190,7 +190,7 @@ export default function AccountPage() {
               style={{ width: '100%', marginBottom: '1rem', boxSizing: 'border-box' }}
             />
             {emailError && (
-              <p style={{ color: '#f87171', fontSize: '0.875rem', marginBottom: '0.75rem' }}>
+              <p style={{ color: 'var(--color-danger)', fontSize: '0.875rem', marginBottom: '0.75rem' }}>
                 {emailError}
               </p>
             )}

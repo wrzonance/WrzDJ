@@ -846,7 +846,7 @@ export default function EventQueuePage() {
       <OnboardingOverlay page={helpPageId} />
 
       {actionError && (
-        <div style={{ background: '#7f1d1d', color: '#fca5a5', padding: '0.75rem 1rem', borderRadius: '0.5rem', marginBottom: '1rem', fontSize: '0.875rem' }}>
+        <div style={{ background: 'var(--color-danger-subtle)', color: 'var(--color-danger)', padding: '0.75rem 1rem', borderRadius: '0.5rem', marginBottom: '1rem', fontSize: '0.875rem' }}>
           {actionError}
         </div>
       )}
@@ -864,7 +864,7 @@ export default function EventQueuePage() {
                 <span
                   className="badge"
                   style={{
-                    background: eventStatus === 'archived' ? '#6b7280' : '#ef4444',
+                    background: eventStatus === 'archived' ? 'var(--text-tertiary)' : 'var(--color-danger)',
                     color: '#fff',
                     padding: '0.25rem 0.5rem',
                     borderRadius: '0.25rem',
@@ -879,7 +879,7 @@ export default function EventQueuePage() {
                 </span>
                 <button
                   className="btn btn-sm"
-                  style={{ background: '#3b82f6' }}
+                  style={{ background: 'var(--color-primary)' }}
                   onClick={handleExportCsv}
                   disabled={exporting}
                 >
@@ -911,7 +911,7 @@ export default function EventQueuePage() {
                 </button>
                 <button
                   className="btn btn-sm"
-                  style={{ background: '#333' }}
+                  style={{ background: 'var(--surface-raised)' }}
                   onClick={() => setEditingExpiry(false)}
                 >
                   Cancel
@@ -924,7 +924,7 @@ export default function EventQueuePage() {
                 </span>
                 <button
                   className="btn btn-sm"
-                  style={{ background: '#333' }}
+                  style={{ background: 'var(--surface-raised)' }}
                   onClick={handleEditExpiry}
                 >
                   Edit
@@ -943,7 +943,7 @@ export default function EventQueuePage() {
           <NowPlayingBadge nowPlaying={nowPlaying} />
         )}
         <div style={{ textAlign: 'center' }}>
-          <div className="code" style={{ fontSize: '2rem', color: isExpiredOrArchived ? '#6b7280' : '#3b82f6' }}>
+          <div className="code" style={{ fontSize: '2rem', color: isExpiredOrArchived ? 'var(--text-tertiary)' : 'var(--color-primary)' }}>
             {event.code}
           </div>
           {!isExpiredOrArchived && (

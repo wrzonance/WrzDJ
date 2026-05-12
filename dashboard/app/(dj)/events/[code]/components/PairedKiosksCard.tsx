@@ -78,28 +78,28 @@ export function PairedKiosksCard({ eventCode }: PairedKiosksCardProps) {
     <div className="card" style={{ marginBottom: '1rem', padding: '1rem' }}>
       <div style={{ marginBottom: '1rem' }}>
         <span style={{ fontWeight: 600 }}>Paired Kiosks</span>
-        <p style={{ color: '#b0b0b0', fontSize: '0.875rem', margin: '0.25rem 0 0' }}>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0.25rem 0 0' }}>
           Kiosk displays linked to this event
         </p>
       </div>
 
       {loading ? (
-        <p style={{ color: '#9ca3af', fontSize: '0.875rem' }}>Loading...</p>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Loading...</p>
       ) : kiosks.length === 0 ? (
         <div>
-          <p style={{ color: '#9ca3af', fontSize: '0.875rem', marginBottom: '0.75rem' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '0.75rem' }}>
             No kiosks paired to this event.
           </p>
           <div style={{
-            background: '#111',
-            border: '1px solid #333',
+            background: 'var(--surface-raised)',
+            border: '1px solid var(--border)',
             borderRadius: '8px',
             padding: '0.75rem 1rem',
             fontSize: '0.813rem',
-            color: '#9ca3af',
+            color: 'var(--text-secondary)',
           }}>
-            <strong style={{ color: '#ededed' }}>How to pair a kiosk:</strong> Open{' '}
-            <code style={{ background: '#222', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>
+            <strong style={{ color: 'var(--text)' }}>How to pair a kiosk:</strong> Open{' '}
+            <code style={{ background: 'var(--border-subtle)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>
               /kiosk-pair
             </code>{' '}
             on the kiosk device, then scan the QR code with your phone to link it to this event.
@@ -114,8 +114,8 @@ export function PairedKiosksCard({ eventCode }: PairedKiosksCardProps) {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                background: '#111',
-                border: '1px solid #333',
+                background: 'var(--surface-raised)',
+                border: '1px solid var(--border)',
                 borderRadius: '8px',
                 padding: '0.75rem 1rem',
               }}
@@ -126,7 +126,7 @@ export function PairedKiosksCard({ eventCode }: PairedKiosksCardProps) {
                     width: '8px',
                     height: '8px',
                     borderRadius: '50%',
-                    background: kiosk.status === 'active' ? '#10b981' : '#6b7280',
+                    background: kiosk.status === 'active' ? 'var(--color-success)' : 'var(--text-tertiary)',
                     flexShrink: 0,
                   }}
                 />
@@ -140,10 +140,10 @@ export function PairedKiosksCard({ eventCode }: PairedKiosksCardProps) {
                       onBlur={() => handleSubmitRename(kiosk.id)}
                       autoFocus
                       style={{
-                        background: '#1a1a1a',
-                        border: '1px solid #555',
+                        background: 'var(--card)',
+                        border: '1px solid var(--border)',
                         borderRadius: '4px',
-                        color: '#ededed',
+                        color: 'var(--text)',
                         padding: '0.2rem 0.4rem',
                         fontSize: '0.875rem',
                         width: '100%',
@@ -157,7 +157,7 @@ export function PairedKiosksCard({ eventCode }: PairedKiosksCardProps) {
                       <span style={{
                         display: 'block',
                         fontSize: '0.75rem',
-                        color: '#6b7280',
+                        color: 'var(--text-tertiary)',
                       }}>
                         Last seen: {formatLastSeen(kiosk.last_seen_at)}
                       </span>
@@ -168,7 +168,7 @@ export function PairedKiosksCard({ eventCode }: PairedKiosksCardProps) {
               <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
                 <button
                   className="btn btn-sm"
-                  style={{ background: '#333', fontSize: '0.75rem' }}
+                  style={{ background: 'var(--surface-raised)', fontSize: '0.75rem' }}
                   onClick={() => handleStartRename(kiosk)}
                   aria-label="Rename"
                 >
@@ -176,7 +176,7 @@ export function PairedKiosksCard({ eventCode }: PairedKiosksCardProps) {
                 </button>
                 <button
                   className="btn btn-sm"
-                  style={{ background: '#7f1d1d', fontSize: '0.75rem' }}
+                  style={{ background: 'var(--color-danger-subtle)', fontSize: '0.75rem' }}
                   onClick={() => handleUnpair(kiosk.id)}
                   aria-label="Unpair"
                 >

@@ -45,11 +45,11 @@ export function PlayHistorySection({ items, total, exporting, onExport }: PlayHi
       >
         <h2 style={{ margin: 0, fontSize: '1.25rem' }}>
           Play History
-          <span style={{ color: '#9ca3af', fontWeight: 'normal', marginLeft: '0.5rem' }}>
+          <span style={{ color: 'var(--text-secondary)', fontWeight: 'normal', marginLeft: '0.5rem' }}>
             ({total} {total === 1 ? 'track' : 'tracks'})
           </span>
         </h2>
-        <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>
+        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
           {open ? '\u25BC' : '\u25B6'}
         </span>
       </div>
@@ -58,7 +58,7 @@ export function PlayHistorySection({ items, total, exporting, onExport }: PlayHi
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.75rem' }}>
             <button
               className="btn btn-sm"
-              style={{ background: '#8b5cf6', padding: '0.25rem 0.75rem' }}
+              style={{ background: 'var(--color-status-accepted)', padding: '0.25rem 0.75rem' }}
               onClick={onExport}
               disabled={exporting}
             >
@@ -86,11 +86,11 @@ export function PlayHistorySection({ items, total, exporting, onExport }: PlayHi
                         width: '36px',
                         height: '36px',
                         borderRadius: '4px',
-                        background: '#333',
+                        background: 'var(--surface-raised)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        color: '#9ca3af',
+                        color: 'var(--text-secondary)',
                       }}
                     >
                       <MusicIcon />
@@ -98,10 +98,10 @@ export function PlayHistorySection({ items, total, exporting, onExport }: PlayHi
                   )}
                   <div className="request-info" style={{ flex: 1 }}>
                     <h3 style={{ margin: 0, fontSize: '0.875rem' }}>{item.title}</h3>
-                    <p style={{ margin: '0.125rem 0 0', color: '#9ca3af', fontSize: '0.8rem' }}>
+                    <p style={{ margin: '0.125rem 0 0', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
                       {item.artist}
                     </p>
-                    <p style={{ margin: '0.125rem 0 0', fontSize: '0.7rem', color: '#6b7280' }}>
+                    <p style={{ margin: '0.125rem 0 0', fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>
                       {new Date(item.started_at).toLocaleTimeString()}
                     </p>
                   </div>
@@ -110,7 +110,7 @@ export function PlayHistorySection({ items, total, exporting, onExport }: PlayHi
                   <span
                     className="badge"
                     style={{
-                      background: item.source !== 'manual' ? '#8b5cf6' : '#3b82f6',
+                      background: item.source !== 'manual' ? 'var(--color-status-accepted)' : 'var(--color-primary)',
                       color: '#fff',
                       padding: '0.125rem 0.375rem',
                       borderRadius: '0.25rem',
@@ -123,7 +123,7 @@ export function PlayHistorySection({ items, total, exporting, onExport }: PlayHi
                     <span
                       className="badge"
                       style={{
-                        background: '#10b981',
+                        background: 'var(--color-success)',
                         color: '#fff',
                         padding: '0.125rem 0.375rem',
                         borderRadius: '0.25rem',

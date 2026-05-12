@@ -95,7 +95,7 @@ export default function AdminIntegrationsPage() {
       <HelpButton page={PAGE_ID} />
       <OnboardingOverlay page={PAGE_ID} />
       <h1 style={{ marginBottom: '0.5rem' }}>Integrations</h1>
-      <p style={{ color: '#9ca3af', marginBottom: '2rem' }}>
+      <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>
         Monitor and control external service integrations. Disabled services
         show &quot;currently unavailable&quot; to DJs.
       </p>
@@ -103,7 +103,7 @@ export default function AdminIntegrationsPage() {
       {(error || loadError) && (
         <div
           style={{
-            color: '#ef4444',
+            color: 'var(--color-danger)',
             marginBottom: '1rem',
             padding: '0.75rem',
             background: 'rgba(239, 68, 68, 0.1)',
@@ -139,7 +139,7 @@ export default function AdminIntegrationsPage() {
                     {svc.last_check_error && (
                       <div
                         style={{
-                          color: '#ef4444',
+                          color: 'var(--color-danger)',
                           fontSize: '0.75rem',
                           marginTop: '0.25rem',
                         }}
@@ -184,9 +184,9 @@ export default function AdminIntegrationsPage() {
       <HelpSpot spotId="admin-badge-legend" page={PAGE_ID} order={3} title="Badge Legend" description="What each badge means: YES, CONFIGURED, NO, NOT CONFIGURED, N/A.">
         <div
           className="card"
-          style={{ marginTop: '1rem', color: '#9ca3af', fontSize: '0.875rem' }}
+          style={{ marginTop: '1rem', color: 'var(--text-secondary)', fontSize: '0.875rem' }}
         >
-          <strong style={{ color: '#ededed' }}>Badge Legend</strong>
+          <strong style={{ color: 'var(--text)' }}>Badge Legend</strong>
           <div
             style={{
               display: 'flex',

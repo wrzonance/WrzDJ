@@ -180,7 +180,7 @@ export default function EventsPage() {
       <OnboardingOverlay page={PAGE_ID} />
 
       {errorMsg && (
-        <div style={{ background: '#7f1d1d', color: '#fca5a5', padding: '0.75rem 1rem', borderRadius: '0.5rem', marginBottom: '1rem', fontSize: '0.875rem' }}>
+        <div style={{ background: 'var(--color-danger-subtle)', color: 'var(--color-danger)', padding: '0.75rem 1rem', borderRadius: '0.5rem', marginBottom: '1rem', fontSize: '0.875rem' }}>
           {errorMsg}
         </div>
       )}
@@ -191,7 +191,7 @@ export default function EventsPage() {
             {role === 'admin' && (
               <HelpSpot spotId="events-admin" page={PAGE_ID} order={3} title="Admin Panel" description="Access the admin panel to manage users, view all events, and configure integrations.">
                 <Link href="/admin">
-                  <button className="btn" style={{ background: '#6b21a8' }}>Admin</button>
+                  <button className="btn" style={{ background: 'var(--color-admin)' }}>Admin</button>
                 </Link>
               </HelpSpot>
             )}
@@ -205,14 +205,14 @@ export default function EventsPage() {
               target="_blank"
               rel="noopener noreferrer"
               className="btn btn-sm"
-              style={{ background: '#333', textDecoration: 'none', color: '#ededed' }}
+              style={{ background: 'var(--surface-raised)', textDecoration: 'none', color: 'var(--text)' }}
             >
               Bridge App
             </a>
-            <Link href="/account" className="btn" style={{ background: '#333', textDecoration: 'none', color: '#ededed' }}>
+            <Link href="/account" className="btn" style={{ background: 'var(--surface-raised)', textDecoration: 'none', color: 'var(--text)' }}>
               Account
             </Link>
-            <button className="btn" style={{ background: '#333' }} onClick={logout}>
+            <button className="btn" style={{ background: 'var(--surface-raised)' }} onClick={logout}>
               Logout
             </button>
           </div>
@@ -255,7 +255,7 @@ export default function EventsPage() {
               <button
                 type="button"
                 className="btn"
-                style={{ background: '#333' }}
+                style={{ background: 'var(--surface-raised)' }}
                 onClick={() => setShowCreate(false)}
               >
                 Cancel
@@ -269,13 +269,13 @@ export default function EventsPage() {
         <div className="loading">Loading events...</div>
       ) : events.length === 0 ? (
         <div className="card" style={{ textAlign: 'center' }}>
-          <p style={{ color: '#9ca3af' }}>No events yet. Create your first event!</p>
+          <p style={{ color: 'var(--text-secondary)' }}>No events yet. Create your first event!</p>
         </div>
       ) : (
         <>
           {events.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: '#9ca3af', cursor: 'pointer' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
                 <input
                   type="checkbox"
                   checked={selectionMode}
@@ -283,19 +283,19 @@ export default function EventsPage() {
                     setSelectionMode(e.target.checked);
                     if (!e.target.checked) setSelectedEvents(new Set());
                   }}
-                  style={{ accentColor: '#3b82f6' }}
+                  style={{ accentColor: 'var(--color-accent-checkbox)' }}
                   aria-label="Advanced"
                 />
                 Advanced
               </label>
               {selectionMode && (
                 <>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: '#9ca3af', cursor: 'pointer' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
                     <input
                       type="checkbox"
                       checked={selectedEvents.size === events.length && events.length > 0}
                       onChange={toggleSelectAll}
-                      style={{ accentColor: '#3b82f6' }}
+                      style={{ accentColor: 'var(--color-accent-checkbox)' }}
                       aria-label="Select All"
                     />
                     Select All
@@ -334,13 +334,13 @@ export default function EventsPage() {
                       checked={selectedEvents.has(event.code)}
                       onChange={() => toggleSelection(event.code)}
                       onClick={(e) => e.stopPropagation()}
-                      style={{ accentColor: '#3b82f6', width: '1rem', height: '1rem', marginTop: '0.25rem', flexShrink: 0 }}
+                      style={{ accentColor: 'var(--color-accent-checkbox)', width: '1rem', height: '1rem', marginTop: '0.25rem', flexShrink: 0 }}
                       aria-label={`Select event ${event.code}`}
                     />
                     <div>
                       <h3>{event.name}</h3>
                       <div className="code">{event.code}</div>
-                      <p style={{ color: '#9ca3af', fontSize: '0.875rem' }}>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
                         Expires: {new Date(event.expires_at).toLocaleString()}
                       </p>
                       {!event.is_active && (
@@ -355,7 +355,7 @@ export default function EventsPage() {
                     <div className="event-card" style={{ cursor: 'pointer' }}>
                       <h3>{event.name}</h3>
                       <div className="code">{event.code}</div>
-                      <p style={{ color: '#9ca3af', fontSize: '0.875rem' }}>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
                         Expires: {new Date(event.expires_at).toLocaleString()}
                       </p>
                       {!event.is_active && (

@@ -100,12 +100,12 @@ export function DjSongSearchModal({ code, onSongAdded, onClose }: DjSongSearchMo
 
         <div style={{ overflowY: 'auto', flex: 1 }}>
           {results.length === 0 && !searching && (
-            <p style={{ color: '#9ca3af', textAlign: 'center' }}>
+            <p style={{ color: 'var(--text-secondary)', textAlign: 'center' }}>
               Search for a song to add to your queue
             </p>
           )}
           {searching && (
-            <p style={{ color: '#9ca3af', textAlign: 'center' }}>Searching...</p>
+            <p style={{ color: 'var(--text-secondary)', textAlign: 'center' }}>Searching...</p>
           )}
           {results.map((result) => {
             const trackKey = result.spotify_id || result.url || `${result.artist}-${result.title}`;
@@ -120,7 +120,7 @@ export function DjSongSearchModal({ code, onSongAdded, onClose }: DjSongSearchMo
                   alignItems: 'center',
                   gap: '0.75rem',
                   padding: '0.75rem',
-                  borderBottom: '1px solid #333',
+                  borderBottom: '1px solid var(--border)',
                   opacity: isAdded ? 0.5 : 1,
                 }}
               >
@@ -136,11 +136,11 @@ export function DjSongSearchModal({ code, onSongAdded, onClose }: DjSongSearchMo
                       width: '48px',
                       height: '48px',
                       borderRadius: '4px',
-                      background: '#333',
+                      background: 'var(--surface-raised)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      color: '#9ca3af',
+                      color: 'var(--text-secondary)',
                       flexShrink: 0,
                     }}
                   >
@@ -153,7 +153,7 @@ export function DjSongSearchModal({ code, onSongAdded, onClose }: DjSongSearchMo
                   <div style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {result.title}
                   </div>
-                  <div style={{ color: '#9ca3af', fontSize: '0.875rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {result.artist}
                   </div>
                   <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', marginTop: '0.25rem', alignItems: 'center' }}>
@@ -166,7 +166,7 @@ export function DjSongSearchModal({ code, onSongAdded, onClose }: DjSongSearchMo
                 <button
                   className="btn btn-sm"
                   style={{
-                    background: isAdded ? '#22c55e' : '#6366f1',
+                    background: isAdded ? 'var(--color-success)' : 'var(--color-status-accepted)',
                     color: '#fff',
                     flexShrink: 0,
                     minWidth: '60px',
@@ -184,7 +184,7 @@ export function DjSongSearchModal({ code, onSongAdded, onClose }: DjSongSearchMo
         <div style={{ marginTop: '1rem' }}>
           <button
             className="btn"
-            style={{ background: '#333', width: '100%' }}
+            style={{ background: 'var(--surface-raised)', width: '100%' }}
             onClick={onClose}
           >
             Close

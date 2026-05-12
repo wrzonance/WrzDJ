@@ -61,7 +61,7 @@ export default function AdminAISettingsPage() {
   if (!settings) {
     return (
       <div className="container">
-        <div className="card" style={{ color: '#ef4444' }}>{error || loadError || 'Failed to load'}</div>
+        <div className="card" style={{ color: 'var(--color-danger)' }}>{error || loadError || 'Failed to load'}</div>
       </div>
     );
   }
@@ -73,10 +73,10 @@ export default function AdminAISettingsPage() {
       <h1 style={{ marginBottom: '2rem' }}>AI / LLM Settings</h1>
 
       {(error || loadError) && (
-        <div style={{ color: '#ef4444', marginBottom: '1rem' }}>{error || loadError}</div>
+        <div style={{ color: 'var(--color-danger)', marginBottom: '1rem' }}>{error || loadError}</div>
       )}
       {success && (
-        <div style={{ color: '#22c55e', marginBottom: '1rem' }}>{success}</div>
+        <div style={{ color: 'var(--color-success)', marginBottom: '1rem' }}>{success}</div>
       )}
 
       <div className="card">
@@ -92,18 +92,18 @@ export default function AdminAISettingsPage() {
                   borderRadius: '9999px',
                   fontSize: '0.75rem',
                   fontWeight: 600,
-                  background: settings.api_key_configured ? '#065f46' : '#7f1d1d',
-                  color: settings.api_key_configured ? '#6ee7b7' : '#fca5a5',
+                  background: settings.api_key_configured ? 'var(--color-success-subtle)' : 'var(--color-danger-subtle)',
+                  color: settings.api_key_configured ? 'var(--color-success)' : 'var(--color-danger)',
                 }}
               >
                 {settings.api_key_configured ? 'Configured' : 'Not Configured'}
               </span>
-              <span style={{ color: '#9ca3af', fontSize: '0.875rem' }}>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
                 {settings.api_key_masked}
               </span>
             </div>
             {!settings.api_key_configured && (
-              <p style={{ color: '#9ca3af', fontSize: '0.875rem', marginTop: '0.5rem' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: '0.5rem' }}>
                 Set ANTHROPIC_API_KEY in your environment to enable AI features.
               </p>
             )}
@@ -122,7 +122,7 @@ export default function AdminAISettingsPage() {
               />
               <div>
                 <div style={{ fontWeight: 500 }}>Enable AI Recommendations</div>
-                <div style={{ color: '#9ca3af', fontSize: '0.875rem' }}>
+                <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
                   When enabled, DJs can use AI Assist to get intelligent song suggestions.
                 </div>
               </div>
@@ -134,7 +134,7 @@ export default function AdminAISettingsPage() {
         <HelpSpot spotId="admin-ai-model" page={PAGE_ID} order={3} title="Model Selection" description="Choose which Claude model powers recommendations.">
           <div className="form-group" style={{ marginTop: '1.5rem' }}>
             <label htmlFor="ai-model">Model</label>
-            <div style={{ color: '#9ca3af', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
               Select which Claude model to use for recommendations.
             </div>
             <select
@@ -159,7 +159,7 @@ export default function AdminAISettingsPage() {
         <HelpSpot spotId="admin-ai-rate" page={PAGE_ID} order={4} title="Rate Limit" description="Cap AI requests per DJ per minute to control costs.">
           <div className="form-group" style={{ marginTop: '1.5rem' }}>
             <label htmlFor="ai-rate-limit">Rate Limit (requests per minute per DJ)</label>
-            <div style={{ color: '#9ca3af', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
               Controls how many AI recommendation requests each DJ can make per minute. Range: 1-30.
             </div>
             <input

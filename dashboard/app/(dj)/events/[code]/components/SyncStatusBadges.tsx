@@ -82,14 +82,14 @@ function TidalBadge({
           target="_blank"
           rel="noopener noreferrer"
           title="Synced to Tidal - click to view"
-          style={{ color: '#10b981', fontSize: '1rem', fontWeight: 600, textDecoration: 'none', cursor: 'pointer' }}
+          style={{ color: 'var(--color-success)', fontSize: '1rem', fontWeight: 600, textDecoration: 'none', cursor: 'pointer' }}
         >
           T
         </a>
       );
     }
     return (
-      <span title="Synced to Tidal" style={{ color: '#10b981', fontSize: '1rem', cursor: 'default', fontWeight: 600 }}>
+      <span title="Synced to Tidal" style={{ color: 'var(--color-success)', fontSize: '1rem', cursor: 'default', fontWeight: 600 }}>
         T
       </span>
     );
@@ -99,7 +99,7 @@ function TidalBadge({
     return (
       <button
         className="btn btn-sm"
-        style={{ background: '#f59e0b', padding: '0.125rem 0.375rem', fontSize: '0.7rem', lineHeight: 1.2 }}
+        style={{ background: 'var(--color-warning)', padding: '0.125rem 0.375rem', fontSize: '0.7rem', lineHeight: 1.2 }}
         onClick={onLink}
         title="Missing from Tidal - click to link manually"
       >
@@ -112,7 +112,7 @@ function TidalBadge({
     return (
       <button
         className="btn btn-sm"
-        style={{ background: '#ef4444', padding: '0.125rem 0.375rem', fontSize: '0.7rem', lineHeight: 1.2 }}
+        style={{ background: 'var(--color-danger)', padding: '0.125rem 0.375rem', fontSize: '0.7rem', lineHeight: 1.2 }}
         onClick={onSync}
         disabled={syncing}
         title="Sync failed - click to retry"
@@ -173,7 +173,7 @@ function BeatportBadge({
     return (
       <button
         className="btn btn-sm"
-        style={{ background: '#f59e0b', padding: '0.125rem 0.375rem', fontSize: '0.7rem', lineHeight: 1.2 }}
+        style={{ background: 'var(--color-warning)', padding: '0.125rem 0.375rem', fontSize: '0.7rem', lineHeight: 1.2 }}
         onClick={onNotFound}
         title="Missing from Beatport - click for details"
       >
@@ -186,7 +186,7 @@ function BeatportBadge({
     return (
       <span
         title={`Beatport error: ${syncResult?.error || 'unknown'}`}
-        style={{ color: '#ef4444', fontSize: '0.875rem', cursor: 'default' }}
+        style={{ color: 'var(--color-danger)', fontSize: '0.875rem', cursor: 'default' }}
       >
         B!
       </span>

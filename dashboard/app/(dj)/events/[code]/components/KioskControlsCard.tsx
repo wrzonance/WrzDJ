@@ -40,7 +40,7 @@ export function KioskControlsCard({
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
         <div>
           <span style={{ fontWeight: 600 }}>Kiosk Controls</span>
-          <p style={{ color: '#b0b0b0', fontSize: '0.875rem', margin: '0.25rem 0 0' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0.25rem 0 0' }}>
             Control what guests see on the kiosk display
           </p>
         </div>
@@ -49,14 +49,14 @@ export function KioskControlsCard({
           target="_blank"
           rel="noopener noreferrer"
           className="btn btn-sm"
-          style={{ background: '#333', textDecoration: 'none', color: '#ededed' }}
+          style={{ background: 'var(--surface-raised)', textDecoration: 'none', color: 'var(--text)' }}
         >
           Preview Kiosk
         </a>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-        <span style={{ color: '#9ca3af', fontSize: '0.875rem' }}>Requests:</span>
+        <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Requests:</span>
         <button
           className={`btn btn-sm ${requestsOpen ? 'btn-success' : 'btn-danger'}`}
           style={{ minWidth: '100px' }}
@@ -65,7 +65,7 @@ export function KioskControlsCard({
         >
           {togglingRequests ? '...' : requestsOpen ? 'Open' : 'Closed'}
         </button>
-        <span style={{ color: '#9ca3af', fontSize: '0.875rem' }}>Now Playing:</span>
+        <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Now Playing:</span>
         <button
           className={`btn btn-sm ${nowPlayingHidden ? 'btn-danger' : 'btn-success'}`}
           style={{ minWidth: '100px' }}
@@ -74,10 +74,10 @@ export function KioskControlsCard({
         >
           {togglingNowPlaying ? '...' : nowPlayingHidden ? 'Hidden' : 'Visible'}
         </button>
-        <span style={{ color: '#9ca3af', fontSize: '0.875rem' }}>Display Only:</span>
+        <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Display Only:</span>
         <button
           className={`btn btn-sm ${kioskDisplayOnly ? 'btn-primary' : ''}`}
-          style={{ minWidth: '100px', background: kioskDisplayOnly ? undefined : '#374151' }}
+          style={{ minWidth: '100px', background: kioskDisplayOnly ? undefined : 'var(--surface-raised)' }}
           onClick={onToggleDisplayOnly}
           disabled={togglingDisplayOnly}
         >
@@ -86,9 +86,9 @@ export function KioskControlsCard({
       </div>
 
       {/* Auto-hide timeout */}
-      <div style={{ borderTop: '1px solid #333', paddingTop: '1rem' }}>
+      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '0.875rem', color: '#9ca3af' }}>Auto-hide Now Playing after</span>
+          <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Auto-hide Now Playing after</span>
           <input
             type="number"
             min={1}
@@ -98,15 +98,15 @@ export function KioskControlsCard({
             style={{
               width: '70px',
               padding: '0.25rem 0.5rem',
-              background: '#2a2a2a',
-              border: '1px solid #444',
+              background: 'var(--border-subtle)',
+              border: '1px solid var(--border)',
               borderRadius: '4px',
-              color: '#ededed',
+              color: 'var(--text)',
               fontSize: '0.875rem',
               textAlign: 'center',
             }}
           />
-          <span style={{ fontSize: '0.875rem', color: '#9ca3af' }}>minutes of inactivity</span>
+          <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>minutes of inactivity</span>
           {parseInt(autoHideInput, 10) !== autoHideMinutes && (
             <button
               className="btn btn-sm btn-primary"

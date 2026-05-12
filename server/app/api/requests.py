@@ -78,12 +78,14 @@ def update_request(
         if get_connected_adapters(request.event.created_by):
             background_tasks.add_task(sync_request_to_services, db, request)
 
-    # Remove from Tidal collection playlist when a synced collection request is rejected
+    # Remove from Tidal collection playlist when a synced collection request is rejected.
+    # Requires bidirectional sync to be enabled — tidal_sync_enabled alone is not enough.
     if (
         update_data.status == RequestStatus.REJECTED
         and request.submitted_during_collection
         and request.tidal_collection_track_id
         and request.event.tidal_sync_enabled
+        and request.event.tidal_collection_bidirectional
     ):
         background_tasks.add_task(
             remove_track_from_collection_playlist,

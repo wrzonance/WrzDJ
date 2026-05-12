@@ -1121,8 +1121,9 @@ def bulk_review(
             background_tasks.add_task(enrich_request_metadata, db, row.id)
         background_tasks.add_task(sync_requests_batch, db, accepted_rows)
 
-    # Direction 1: remove rejected+synced tracks from the Tidal collection playlist
-    if event.tidal_sync_enabled:
+    # Direction 1: remove rejected+synced tracks from the Tidal collection playlist.
+    # Requires bidirectional sync to be enabled — tidal_sync_enabled alone is not enough.
+    if event.tidal_sync_enabled and event.tidal_collection_bidirectional:
         track_ids_to_remove = [
             r.tidal_collection_track_id for r in rejected_rows if r.tidal_collection_track_id
         ]

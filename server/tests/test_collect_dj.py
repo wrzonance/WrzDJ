@@ -357,6 +357,7 @@ def test_bulk_reject_queues_tidal_removal_for_synced_requests(
     db.refresh(req)
 
     test_event.tidal_sync_enabled = True
+    test_event.tidal_collection_bidirectional = True
     db.commit()
 
     calls = []
@@ -398,6 +399,7 @@ def test_bulk_reject_skips_tidal_removal_when_no_track_id(
     db.commit()
 
     test_event.tidal_sync_enabled = True
+    test_event.tidal_collection_bidirectional = True
     db.commit()
 
     calls = []
@@ -416,6 +418,48 @@ def test_bulk_reject_skips_tidal_removal_when_no_track_id(
     )
     assert resp.status_code == 200
     assert len(calls) == 0
+
+
+def test_bulk_reject_skips_tidal_removal_when_bidirectional_disabled(
+    client, db, auth_headers, test_event, monkeypatch
+):
+    """Bulk rejection must NOT remove from Tidal when bidirectional sync is off (the default)."""
+    from app.models.request import Request as SongRequest
+    from app.models.request import RequestStatus
+
+    req = SongRequest(
+        event_id=test_event.id,
+        song_title="Guarded Bulk Track",
+        artist="DJ BulkGuard",
+        status=RequestStatus.NEW.value,
+        dedupe_key="guarded-bulk-track",
+        submitted_during_collection=True,
+        tidal_collection_track_id="tid-888",
+    )
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+
+    test_event.tidal_sync_enabled = True
+    test_event.tidal_collection_bidirectional = False  # the guard being tested
+    db.commit()
+
+    calls = []
+
+    def fake_remove(db, user, event, track_ids):
+        calls.append((db, user, event, track_ids))
+
+    import app.api.events as events_module
+
+    monkeypatch.setattr(events_module, "remove_collection_tracks_batch", fake_remove)
+
+    resp = client.post(
+        f"/api/events/{test_event.code}/bulk-review",
+        json={"action": "reject_ids", "request_ids": [req.id]},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    assert len(calls) == 0, "Tidal batch removal must not fire when bidirectional sync is disabled"
 
 
 def test_sync_collection_to_tidal_empty_queued_when_all_rejected(

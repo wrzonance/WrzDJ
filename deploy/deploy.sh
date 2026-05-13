@@ -62,6 +62,9 @@ else
   echo "    Volume ${UPLOADS_VOLUME} will be created by Docker Compose"
 fi
 
+echo "==> Ensuring log directories exist..."
+mkdir -p "$SCRIPT_DIR/logs/api"
+
 echo "==> Rebuilding and starting stack..."
 docker compose -f "$COMPOSE_FILE" up -d --build
 

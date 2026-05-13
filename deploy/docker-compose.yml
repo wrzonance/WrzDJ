@@ -33,6 +33,7 @@ services:
       dockerfile: Dockerfile
     volumes:
       - api_uploads:/app/uploads
+      - ./logs/api:/app/logs
     environment:
       ENV: production
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-wrzdj}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-wrzdj}
@@ -60,6 +61,7 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-}
       UPLOADS_DIR: /app/uploads
+      LOG_DIR: /app/logs
     ports:
       - "127.0.0.1:${PORT_API:-8000}:8000"
     depends_on:

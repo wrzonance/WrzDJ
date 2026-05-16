@@ -13,7 +13,7 @@ import { OnboardingOverlay } from '@/components/help/OnboardingOverlay';
 import { ActivityLogPanel } from './components/ActivityLogPanel';
 import { CollectionFieldset, collectionSchema } from '@/components/CollectionFieldset';
 
-const PAGE_ID = 'events';
+const PAGE_ID = 'dashboard';
 
 export default function DashboardPage() {
   const { isAuthenticated, isLoading, role, logout } = useAuth();

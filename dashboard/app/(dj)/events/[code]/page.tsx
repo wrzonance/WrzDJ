@@ -405,7 +405,7 @@ export default function EventQueuePage() {
     setDeleting(true);
     try {
       await api.deleteEvent(code);
-      router.push('/events');
+      router.push('/dashboard');
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Failed to delete event');
       setDeleting(false);

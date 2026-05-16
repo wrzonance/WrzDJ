@@ -14,7 +14,7 @@ export default function PendingPage() {
     if (!isLoading && !isAuthenticated) {
       router.push('/login');
     } else if (!isLoading && role && role !== 'pending') {
-      router.push('/events');
+      router.push('/dashboard');
     }
   }, [isAuthenticated, isLoading, role, router]);
 
@@ -26,7 +26,7 @@ export default function PendingPage() {
       try {
         const user = await api.getMe();
         if (user.role !== 'pending') {
-          router.push('/events');
+          router.push('/dashboard');
         }
       } catch {
         // Ignore — user might be logged out or network down

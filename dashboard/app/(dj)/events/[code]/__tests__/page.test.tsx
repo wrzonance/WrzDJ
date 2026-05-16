@@ -672,7 +672,7 @@ describe('EventQueuePage', () => {
       });
 
       expect(api.deleteEvent).toHaveBeenCalledWith('TEST');
-      expect(mockPush).toHaveBeenCalledWith('/events');
+      expect(mockPush).toHaveBeenCalledWith('/dashboard');
     });
 
     it('shows error on failure', async () => {

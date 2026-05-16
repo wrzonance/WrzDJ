@@ -128,7 +128,7 @@ export default function KioskLinkPage() {
               The kiosk will automatically show the event display.
             </p>
             <a
-              href="/events"
+              href="/dashboard"
               className="btn btn-primary"
               style={{ textDecoration: 'none' }}
             >

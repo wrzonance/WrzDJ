@@ -214,7 +214,7 @@ This section exists because a previous OAuth token implementation stored tokens 
 - Events (`/admin/events`): View/edit/delete any event regardless of owner
 - Settings (`/admin/settings`): Toggle registration, adjust search rate limit
 - Integrations (`/admin/integrations`): Service health dashboard — toggle Spotify/Tidal/Beatport/Bridge on/off, manual health checks, status indicators
-- Auth guard: non-admin users redirected to `/events`
+- Auth guard: non-admin users redirected to `/dashboard`
 
 ### Self-Registration
 - `POST /api/auth/register` — rate limited (3/min), creates `pending` user

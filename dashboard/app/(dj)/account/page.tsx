@@ -95,8 +95,8 @@ export default function AccountPage() {
   return (
     <main style={{ maxWidth: '480px', margin: '0 auto', padding: '2rem 1rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem' }}>
-        <Link href="/events" style={{ color: 'var(--text-secondary)', textDecoration: 'none', fontSize: '0.875rem' }}>
-          ← Events
+        <Link href="/dashboard" style={{ color: 'var(--text-secondary)', textDecoration: 'none', fontSize: '0.875rem' }}>
+          ← Dashboard
         </Link>
         <h1 style={{ margin: 0, fontSize: '1.5rem' }}>Account Settings</h1>
       </div>

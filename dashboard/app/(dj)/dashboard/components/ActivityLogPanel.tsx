@@ -34,15 +34,15 @@ export function ActivityLogPanel({ entries }: ActivityLogPanelProps) {
                 fontSize: '0.75rem',
                 padding: '0.125rem 0.5rem',
                 borderRadius: '4px',
-                background: '#78350f',
-                color: '#fbbf24',
+                background: 'var(--color-warning-subtle, rgba(120,53,15,0.2))',
+                color: 'var(--color-warning, #fbbf24)',
               }}
             >
               {warningCount} warning{warningCount !== 1 ? 's' : ''}
             </span>
           )}
         </h3>
-        <span style={{ color: '#9ca3af', fontSize: '0.875rem' }}>
+        <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
           {expanded ? 'Collapse' : 'Expand'}
         </span>
       </div>
@@ -50,7 +50,7 @@ export function ActivityLogPanel({ entries }: ActivityLogPanelProps) {
       {expanded && (
         <div className="activity-log" style={{ marginTop: '1rem' }}>
           {entries.length === 0 ? (
-            <p style={{ color: '#9ca3af', fontSize: '0.875rem' }}>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
               No recent activity
             </p>
           ) : (
@@ -58,7 +58,7 @@ export function ActivityLogPanel({ entries }: ActivityLogPanelProps) {
               <div key={entry.id} className="log-entry">
                 <span
                   style={{
-                    color: '#6b7280',
+                    color: 'var(--text-secondary)',
                     fontSize: '0.75rem',
                     whiteSpace: 'nowrap',
                     minWidth: '140px',
@@ -70,7 +70,7 @@ export function ActivityLogPanel({ entries }: ActivityLogPanelProps) {
                   {entry.level}
                 </span>
                 <span className="log-source">{entry.source}</span>
-                <span style={{ color: '#d1d5db' }}>{entry.message}</span>
+                <span style={{ color: 'var(--text)' }}>{entry.message}</span>
               </div>
             ))
           )}

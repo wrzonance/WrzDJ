@@ -361,5 +361,66 @@ describe('DashboardPage', () => {
         expect(screen.queryByText(/Delete Selected/)).not.toBeInTheDocument();
       });
     });
+
+    it('shows error when bulk delete fails', async () => {
+      vi.mocked(api.getEvents).mockResolvedValue(twoEvents);
+      vi.mocked(api.bulkDeleteEvents).mockRejectedValue(new Error('Server error'));
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      render(<DashboardPage />);
+      await waitFor(() => expect(screen.getByText('Friday Night')).toBeInTheDocument());
+      fireEvent.click(screen.getByLabelText('Advanced'));
+      const checkboxes = screen.getAllByRole('checkbox', { name: /Select event/ });
+      fireEvent.click(checkboxes[0]);
+      await act(async () => {
+        fireEvent.click(screen.getByText('Delete Selected (1)'));
+      });
+      await waitFor(() => {
+        expect(screen.getByText('Server error')).toBeInTheDocument();
+      });
+    });
+
+    it('shows fallback error when bulk delete throws non-Error', async () => {
+      vi.mocked(api.getEvents).mockResolvedValue(twoEvents);
+      vi.mocked(api.bulkDeleteEvents).mockRejectedValue('unexpected');
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      render(<DashboardPage />);
+      await waitFor(() => expect(screen.getByText('Friday Night')).toBeInTheDocument());
+      fireEvent.click(screen.getByLabelText('Advanced'));
+      const checkboxes = screen.getAllByRole('checkbox', { name: /Select event/ });
+      fireEvent.click(checkboxes[0]);
+      await act(async () => {
+        fireEvent.click(screen.getByText('Delete Selected (1)'));
+      });
+      await waitFor(() => {
+        expect(screen.getByText('Failed to delete events')).toBeInTheDocument();
+      });
+    });
+
+    it('deselects event when clicked again in selection mode', async () => {
+      vi.mocked(api.getEvents).mockResolvedValue(twoEvents);
+      render(<DashboardPage />);
+      await waitFor(() => expect(screen.getByText('Friday Night')).toBeInTheDocument());
+      fireEvent.click(screen.getByLabelText('Advanced'));
+      const checkboxes = screen.getAllByRole('checkbox', { name: /Select event/ });
+      fireEvent.click(checkboxes[0]);
+      expect(screen.getByText('Delete Selected (1)')).toBeInTheDocument();
+      fireEvent.click(checkboxes[0]);
+      expect(screen.queryByText(/Delete Selected/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Secondary API failures', () => {
+    it('renders page when tidal/beatport/log APIs fail', async () => {
+      vi.mocked(api.getEvents).mockResolvedValue([]);
+      vi.mocked(api.getTidalStatus).mockRejectedValue(new Error('Tidal down'));
+      vi.mocked(api.getBeatportStatus).mockRejectedValue(new Error('Beatport down'));
+      vi.mocked(api.getActivityLog).mockRejectedValue(new Error('Log down'));
+      render(<DashboardPage />);
+      await waitFor(() => {
+        expect(screen.getByText(/No events yet/)).toBeInTheDocument();
+      });
+      expect(screen.getByText('Tidal')).toBeInTheDocument();
+      expect(screen.getByText('Beatport')).toBeInTheDocument();
+    });
   });
 });

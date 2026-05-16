@@ -1,6 +1,7 @@
 'use client';
 
 import { useTheme, type Theme } from '@/lib/theme';
+import { useHelp } from '@/lib/help/HelpContext';
 
 const THEME_LABELS: Record<Theme, string> = {
   dark: 'Dark',
@@ -10,6 +11,9 @@ const THEME_LABELS: Record<Theme, string> = {
 
 export function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
+  const { onboardingActive } = useHelp();
+
+  if (onboardingActive) return null;
 
   return (
     <button

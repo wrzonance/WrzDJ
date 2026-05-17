@@ -1,18 +1,13 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
+  "minimumReleaseAge": "7 days",
+  "automerge": false,
   "packageRules": [
     {
       "description": "DJ protocol libs - manual review only",
       "matchPackageNames": ["alphatheta-connect", "stagelinq"],
-      "automerge": false,
       "labels": ["dependency", "protocol-critical"]
-    },
-    {
-      "description": "Auto-merge dev dependency patches",
-      "matchDepTypes": ["devDependencies"],
-      "matchUpdateTypes": ["patch"],
-      "automerge": true
     },
     {
       "description": "Group electron-forge updates",

@@ -1,5 +1,29 @@
 # WrzDJ VPS Deployment Guide
 
+## Quick Start (Pre-built Images)
+
+Pull and run without building from source — no compiler, no git, no Node.js needed on the server:
+
+```bash
+# 1. Get the deploy files (from a release tarball or by cloning)
+cp deploy/.env.example deploy/.env
+
+# 2. Fill in required vars: POSTGRES_PASSWORD, JWT_SECRET, TOKEN_ENCRYPTION_KEY,
+#    HUMAN_COOKIE_SECRET, CORS_ORIGINS, PUBLIC_URL, NEXT_PUBLIC_API_URL
+
+# 3. Deploy
+./deploy/deploy-ghcr.sh              # pulls latest
+./deploy/deploy-ghcr.sh v2026.05.16 # or pin a specific release
+```
+
+Images are published automatically on every push to `main` and on every `v*` tag:
+- [ghcr.io/wrzonance/wrzdj-api](https://github.com/wrzonance/WrzDJ/pkgs/container/wrzdj-api)
+- [ghcr.io/wrzonance/wrzdj-web](https://github.com/wrzonance/WrzDJ/pkgs/container/wrzdj-web)
+
+---
+
+## Build-from-Source Deployment
+
 This guide covers deploying WrzDJ on a VPS using Docker Compose with the subdomain model:
 - **Frontend**: `https://app.yourdomain.com`
 - **Backend**: `https://api.yourdomain.com`

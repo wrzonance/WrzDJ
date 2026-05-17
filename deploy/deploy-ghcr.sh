@@ -76,9 +76,10 @@ done
 
 if [ $ELAPSED -ge 60 ]; then
   echo ""
-  echo "WARNING: API did not become healthy within 60s"
+  echo "ERROR: API did not become healthy within 60s"
   echo "==> API logs:"
   docker compose -f "$COMPOSE_FILE" logs --tail=20 api
+  exit 1
 fi
 
 echo ""

@@ -10,7 +10,7 @@ if [ -n "${NEXT_PUBLIC_API_URL:-}" ]; then
   # Escape sed replacement metacharacters in the URL: backslash and ampersand
   # (& = "matched text" in sed replacement). The delimiter @ does not need
   # escaping because it's illegal in URL authority components.
-  ESCAPED_URL=$(printf '%s' "${NEXT_PUBLIC_API_URL}" | sed -e 's/[\&]/\\&/g')
+  ESCAPED_URL=$(printf '%s' "${NEXT_PUBLIC_API_URL}" | sed -e 's/[&\\]/\\&/g')
   find /app/.next -type f \( -name "*.js" -o -name "*.json" \) \
     -exec sed -i "s@__WRZDJ_API_URL__@${ESCAPED_URL}@g" {} +
 else

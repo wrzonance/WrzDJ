@@ -1,5 +1,58 @@
 # WrzDJ VPS Deployment Guide
 
+## Quick Start (Pre-built Images)
+
+Pull and run without building from source — no compiler, no git, no Node.js needed on the server.
+
+### Prerequisites
+
+- **Docker Engine 24+** and **`docker compose` v2** (`docker compose version` should print `v2.x`)
+- **~2 GB RAM**, ~5 GB disk for images + Postgres data volume
+- Outbound HTTPS access to `ghcr.io` for image pulls
+- Ports `8000` (API) and `3000` (web) free, or override via `PORT_API` / `PORT_FRONTEND` in `.env`
+
+### Steps
+
+```bash
+# 1a. Option A — Clone the repo (always latest)
+git clone https://github.com/wrzonance/WrzDJ.git
+cd WrzDJ
+
+# 1b. Option B — Or grab the deploy bundle from a release (no source code)
+#     curl -L -o wrzdj-deploy.tar.gz \
+#       https://github.com/wrzonance/WrzDJ/releases/latest/download/wrzdj-deploy-scripts.tar.gz
+#     mkdir wrzdj && tar -xzf wrzdj-deploy.tar.gz -C wrzdj && cd wrzdj
+
+# 2. Copy the env template and fill in REQUIRED values
+cp deploy/.env.example deploy/.env
+# Edit deploy/.env — required:
+#   POSTGRES_PASSWORD, JWT_SECRET, TOKEN_ENCRYPTION_KEY, HUMAN_COOKIE_SECRET,
+#   CORS_ORIGINS, PUBLIC_URL, NEXT_PUBLIC_API_URL
+# Optional integrations (leave blank if unused):
+#   SPOTIFY_*, TIDAL_*, BEATPORT_*, TURNSTILE_*, ANTHROPIC_API_KEY, RESEND_*, BRIDGE_API_KEY
+
+# 3. Deploy
+./deploy/deploy-ghcr.sh              # pulls latest, restarts stack, waits for /health
+./deploy/deploy-ghcr.sh v2026.05.16  # or pin a specific release
+```
+
+### Verify the deploy
+
+```bash
+curl -sf http://127.0.0.1:8000/health   # expect: {"status":"ok"}
+docker compose -f deploy/docker-compose.ghcr.yml ps  # all "Up (healthy)"
+```
+
+Images are published automatically on every push to `main` and on every `v*` tag:
+- [ghcr.io/wrzonance/wrzdj-api](https://github.com/wrzonance/WrzDJ/pkgs/container/wrzdj-api)
+- [ghcr.io/wrzonance/wrzdj-web](https://github.com/wrzonance/WrzDJ/pkgs/container/wrzdj-web)
+
+> **Authentication errors on first pull?** New GHCR packages default to **private**, even on a public repo. If `docker pull` returns `401 Unauthorized`, the package owner needs to toggle visibility to public (one-time, in the package settings on the link above). If the package is public and you still see 401, open an issue.
+
+---
+
+## Build-from-Source Deployment
+
 This guide covers deploying WrzDJ on a VPS using Docker Compose with the subdomain model:
 - **Frontend**: `https://app.yourdomain.com`
 - **Backend**: `https://api.yourdomain.com`

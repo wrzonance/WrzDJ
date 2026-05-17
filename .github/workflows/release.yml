@@ -141,7 +141,9 @@ jobs:
         run: |
           tar -czf wrzdj-deploy-scripts.tar.gz \
             deploy/docker-compose.yml \
+            deploy/docker-compose.ghcr.yml \
             deploy/deploy.sh \
+            deploy/deploy-ghcr.sh \
             deploy/DEPLOYMENT.md \
             deploy/.env.example \
             deploy/nginx/ \

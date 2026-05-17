@@ -203,14 +203,3 @@ jobs:
       - name: Run tests
         run: python -m pytest test_portal.py -q
 
-  docker-build:
-    name: Docker Build Smoke Test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Build backend image
-        run: docker build -t wrzdj-api-test server/
-
-      - name: Build frontend image
-        run: docker build --build-arg NEXT_PUBLIC_API_URL=http://localhost:8000 -t wrzdj-web-test dashboard/

@@ -1,0 +1,114 @@
+# WrzDJ Production Docker Compose — Pre-built GHCR Images
+#
+# Pull pre-built images from GHCR instead of building from source.
+# For build-from-source, use deploy/docker-compose.yml.
+#
+# Usage:
+#   1. Copy deploy/.env.example to deploy/.env and fill in values
+#   2. Run: ./deploy/deploy-ghcr.sh [VERSION]
+#      Or:  WRZDJ_VERSION=v2026.05.16 docker compose -f deploy/docker-compose.ghcr.yml up -d
+#
+# Domain model (subdomain):
+#   - Frontend: https://app.yourdomain.com -> web:3000
+#   - Backend:  https://api.yourdomain.com -> api:8000
+
+services:
+  db:
+    image: postgres:16-alpine@sha256:20edbde7749f822887a1a022ad526fde0a47d6b2be9a8364433605cf65099416
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-wrzdj}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-wrzdj}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wrzdj}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Not exposed externally - only accessible from other containers
+
+  api:
+    image: ghcr.io/wrzonance/wrzdj-api:${WRZDJ_VERSION:-latest}
+    volumes:
+      - api_uploads:/app/uploads
+      - ./logs/api:/app/logs
+    environment:
+      ENV: production
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-wrzdj}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-wrzdj}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}
+      SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:-}
+      TIDAL_CLIENT_ID: ${TIDAL_CLIENT_ID:-}
+      TIDAL_CLIENT_SECRET: ${TIDAL_CLIENT_SECRET:-}
+      TIDAL_REDIRECT_URI: ${TIDAL_REDIRECT_URI:-}
+      BEATPORT_CLIENT_ID: ${BEATPORT_CLIENT_ID:-}
+      BEATPORT_CLIENT_SECRET: ${BEATPORT_CLIENT_SECRET:-}
+      BEATPORT_REDIRECT_URI: ${BEATPORT_REDIRECT_URI:-}
+      BEATPORT_AUTH_BASE_URL: ${BEATPORT_AUTH_BASE_URL:-}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:?TOKEN_ENCRYPTION_KEY is required}
+      HUMAN_COOKIE_SECRET: ${HUMAN_COOKIE_SECRET:?HUMAN_COOKIE_SECRET is required (32-byte base64 HMAC key)}
+      CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required (e.g. https://app.yourdomain.com)}
+      PUBLIC_URL: ${PUBLIC_URL:?PUBLIC_URL is required (e.g. https://app.yourdomain.com)}
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      BRIDGE_API_KEY: ${BRIDGE_API_KEY:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-127.0.0.1,::1,172.16.0.0/12}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-}
+      UPLOADS_DIR: /app/uploads
+      LOG_DIR: /app/logs
+    ports:
+      - "127.0.0.1:${PORT_API:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    # SECURITY (H-I4): container hardening
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 200
+    mem_limit: 1g
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  web:
+    image: ghcr.io/wrzonance/wrzdj-web:${WRZDJ_VERSION:-latest}
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?NEXT_PUBLIC_API_URL is required (e.g. https://api.yourdomain.com)}
+    ports:
+      - "127.0.0.1:${PORT_FRONTEND:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    # SECURITY (H-I4): container hardening
+    # NOTE: read_only intentionally omitted — docker-entrypoint.sh sed-patches
+    # .next/**/*.js at startup (replaces __WRZDJ_API_URL__ placeholder with the
+    # runtime NEXT_PUBLIC_API_URL value). The web container holds no DB access or
+    # encryption keys, making a writable filesystem an acceptable trade-off.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 100
+    mem_limit: 512m
+    tmpfs:
+      - /tmp
+
+volumes:
+  postgres_data:
+  api_uploads:

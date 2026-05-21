@@ -67,9 +67,19 @@ def compute_event_status(event: Event) -> EventStatus:
 
 
 def create_event(db: Session, name: str, user: User, expires_hours: int = 6) -> Event:
-    """Create a new event with distinct, globally-unique collection and join codes."""
+    """Create a new event with distinct, globally-unique collection and join codes.
+
+    The second code is checked against the first in-memory candidate so both
+    columns receive distinct values even before the first row is committed.
+    """
     code = generate_unique_event_code(db)
-    join_code = generate_unique_event_code(db)
+    # Generate join_code separately, retrying if it collides with `code` (the
+    # in-memory candidate not yet committed) — generate_unique_event_code only
+    # consults persisted rows.
+    while True:
+        join_code = generate_unique_event_code(db)
+        if join_code != code:
+            break
 
     expires_at = utcnow() + timedelta(hours=expires_hours)
     event = Event(

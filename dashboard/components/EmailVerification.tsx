@@ -220,7 +220,7 @@ export default function EmailVerification({ isVerified, onVerified, onSkip }: Pr
           type="button"
           className="btn-link"
           onClick={sendCode}
-          disabled={sending || secondsLeft > 14 * 60}
+          disabled={sending || secondsLeft > 0}
           style={{ fontSize: '0.8rem', marginTop: '0.25rem' }}
         >
           {sending ? 'Sending...' : "Didn't get it? Resend"}

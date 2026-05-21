@@ -43,15 +43,44 @@ UPDATE requests
 SET status = 'new', updated_at = NOW()
 WHERE id IN (SELECT id FROM elz2g2_recovery);
 
--- Drop the lone surviving pumped vote on request #169 "Uptown Funk"
--- (vote_id 362 was cast by guest 128, the cookie-cycling iPhone; see
--- 2026-05-20 production audit notes).
-DELETE FROM request_votes WHERE id = 362;
-UPDATE requests SET vote_count = GREATEST(vote_count - 1, 0) WHERE id = 169;
+-- Drop the lone surviving pumped vote on request #169 "Uptown Funk".
+-- vote_id 362 was cast by guest 128, the cookie-cycling iPhone; see
+-- 2026-05-20 production audit notes.
+--
+-- Decrement vote_count only when the DELETE actually removed the row, so
+-- re-running this script (e.g. after a partial recovery) doesn't undercount.
+WITH deleted_vote AS (
+  DELETE FROM request_votes
+  WHERE id = 362
+  RETURNING request_id
+)
+UPDATE requests r
+SET vote_count = GREATEST(r.vote_count - 1, 0)
+FROM deleted_vote dv
+WHERE r.id = dv.request_id;
 
--- Sanity check before commit
+-- Sanity check the resulting state.
 \echo 'Post-recovery status distribution:'
 SELECT status, COUNT(*) FROM requests WHERE event_id = 15 GROUP BY status ORDER BY 2 DESC;
 
-\echo 'If counts look right (rejected should be ~0-2, new ~140+), type COMMIT; otherwise ROLLBACK;'
+-- Hard-guard the commit: abort if counts drift from the expected recovery shape.
+DO $$
+DECLARE
+  recovery_count integer;
+  rejected_count integer;
+BEGIN
+  SELECT COUNT(*) INTO recovery_count FROM elz2g2_recovery;
+  SELECT COUNT(*) INTO rejected_count
+  FROM requests WHERE event_id = 15 AND status = 'rejected';
+
+  IF recovery_count BETWEEN 130 AND 150 AND rejected_count <= 5 THEN
+    RAISE NOTICE 'Recovery looks correct (% rows restored, % still rejected). Committing.',
+      recovery_count, rejected_count;
+  ELSE
+    RAISE EXCEPTION 'Recovery counts out of expected range (restored=%, still-rejected=%). Aborting.',
+      recovery_count, rejected_count;
+  END IF;
+END
+$$;
+
 COMMIT;

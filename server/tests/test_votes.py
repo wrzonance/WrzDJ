@@ -27,7 +27,7 @@ def votable_event_and_request(db: Session) -> tuple[Event, SongRequest]:
 
     event = Event(
         code="F3VOTE",
-        join_code="F3VOTEJ",
+        join_code="G3VOTE",
         name="NAT Vote Test",
         created_by_user_id=user.id,
         expires_at=utcnow() + timedelta(hours=6),

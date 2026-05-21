@@ -136,7 +136,7 @@ class TestPersistSyncResultIncludesUrlAndDuration:
 
         event = Event(
             code="ENRICH",
-            join_code="ENRICHJ",
+            join_code="FNRICH",
             name="Enrich Test",
             created_by_user_id=1,
             expires_at=datetime.now(UTC) + timedelta(hours=6),
@@ -183,7 +183,7 @@ class TestPersistSyncResultIncludesUrlAndDuration:
 
         event = Event(
             code="ENRICH2",
-            join_code="ENRICH2J",
+            join_code="ENRICH",
             name="Enrich Test 2",
             created_by_user_id=1,
             expires_at=datetime.now(UTC) + timedelta(hours=6),

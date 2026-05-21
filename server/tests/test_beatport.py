@@ -604,7 +604,7 @@ def beatport_event(db: Session, beatport_user: User) -> Event:
 
     event = Event(
         code="BPTEST",
-        join_code="BPTESTJ",
+        join_code="CPTEST",
         name="BP Playlist Test",
         created_by_user_id=beatport_user.id,
         expires_at=datetime.now(UTC) + timedelta(hours=6),

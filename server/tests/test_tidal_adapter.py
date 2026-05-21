@@ -42,7 +42,7 @@ def tidal_user(db: Session) -> User:
 def tidal_event(db: Session, tidal_user: User) -> Event:
     event = Event(
         code="ADAPT1",
-        join_code="ADAPT1J",
+        join_code="BDAPT1",
         name="Adapter Test Event",
         created_by_user_id=tidal_user.id,
         expires_at=datetime.now(UTC) + timedelta(hours=6),

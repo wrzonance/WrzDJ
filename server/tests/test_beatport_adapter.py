@@ -40,7 +40,7 @@ def bp_user(db: Session) -> User:
 def bp_event(db: Session, bp_user: User) -> Event:
     event = Event(
         code="BPADPT",
-        join_code="BPADPTJ",
+        join_code="CPADPT",
         name="BP Adapter Test",
         created_by_user_id=bp_user.id,
         expires_at=datetime.now(UTC) + timedelta(hours=6),

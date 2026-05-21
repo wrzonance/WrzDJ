@@ -228,7 +228,7 @@ def _create_event(db: Session, user: User, code: str, name: str = "Test Event") 
     """Helper to create an event for bulk delete tests."""
     event = Event(
         code=code,
-        join_code=f"{code}J"[:10],
+        join_code=f"{code}J"[:6],
         name=name,
         created_by_user_id=user.id,
         expires_at=utcnow() + timedelta(hours=6),

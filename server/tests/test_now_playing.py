@@ -60,7 +60,7 @@ def test_event(db: Session, test_user: User) -> Event:
     """Create a test event."""
     event = Event(
         code="TEST01",
-        join_code="TEST01J",
+        join_code="UEST01",
         name="Test Event",
         created_by_user_id=test_user.id,
         expires_at=utcnow() + timedelta(hours=6),

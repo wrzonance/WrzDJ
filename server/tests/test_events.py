@@ -157,7 +157,7 @@ class TestDeleteEvent:
         # Create event
         event = Event(
             code="DELME1",
-            join_code="DELME1J",
+            join_code="EELME1",
             name="Event With Data",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -257,7 +257,7 @@ class TestExpiredEvents:
         # Create an expired event
         expired_event = Event(
             code="EXPIR1",
-            join_code="EXPIR1J",
+            join_code="FXPIR1",
             name="Expired Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() - timedelta(hours=1),
@@ -275,7 +275,7 @@ class TestExpiredEvents:
         """Test that submitting a request to expired event returns 410."""
         expired_event = Event(
             code="EXPIR2",
-            join_code="EXPIR2J",
+            join_code="FXPIR2",
             name="Expired Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() - timedelta(hours=1),
@@ -296,7 +296,7 @@ class TestExpiredEvents:
         """Test that owner can still view requests for expired events."""
         expired_event = Event(
             code="EXPIR3",
-            join_code="EXPIR3J",
+            join_code="FXPIR3",
             name="Expired Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() - timedelta(hours=1),
@@ -316,7 +316,7 @@ class TestExpiredEvents:
         """Test that kiosk display for expired event returns 410."""
         expired_event = Event(
             code="EXPIR4",
-            join_code="EXPIR4J",
+            join_code="FXPIR4",
             name="Expired Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() - timedelta(hours=1),
@@ -338,7 +338,7 @@ class TestExpiredEvents:
         # Expired event should be 410
         expired_event = Event(
             code="EXPIR5",
-            join_code="EXPIR5J",
+            join_code="FXPIR5",
             name="Expired Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() - timedelta(hours=1),
@@ -443,7 +443,7 @@ class TestArchiveEvents:
         # Create an archived event
         archived_event = Event(
             code="ARCHV1",
-            join_code="ARCHV1J",
+            join_code="BRCHV1",
             name="Archived Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -454,7 +454,7 @@ class TestArchiveEvents:
         # Create an expired event
         expired_event = Event(
             code="EXPRD1",
-            join_code="EXPRD1J",
+            join_code="FXPRD1",
             name="Expired Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() - timedelta(hours=1),
@@ -484,7 +484,7 @@ class TestArchiveEvents:
         # Create an archived event with requests
         archived_event = Event(
             code="ARCHV2",
-            join_code="ARCHV2J",
+            join_code="BRCHV2",
             name="Archived With Requests",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -571,7 +571,7 @@ class TestCsvExport:
 
         other_event = Event(
             code="OTHER1",
-            join_code="OTHER1J",
+            join_code="PTHER1",
             name="Other User Event",
             created_by_user_id=other_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -591,7 +591,7 @@ class TestCsvExport:
         """Test that owner can export CSV for expired events."""
         expired_event = Event(
             code="EXPCSV",
-            join_code="EXPCSVJ",
+            join_code="FXPCSV",
             name="Expired CSV Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() - timedelta(hours=1),
@@ -611,7 +611,7 @@ class TestCsvExport:
         """Test that owner can export CSV for archived events."""
         archived_event = Event(
             code="ARCSV1",
-            join_code="ARCSV1J",
+            join_code="BRCSV1",
             name="Archived CSV Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -996,7 +996,7 @@ class TestDisplaySettings:
 
         other_event = Event(
             code="OTHER3",
-            join_code="OTHER3J",
+            join_code="PTHER3",
             name="Other User Event",
             created_by_user_id=other_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -1266,7 +1266,7 @@ class TestPlayHistoryCsvExport:
 
         other_event = Event(
             code="OTHER2",
-            join_code="OTHER2J",
+            join_code="PTHER2",
             name="Other User Event",
             created_by_user_id=other_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -1393,7 +1393,7 @@ class TestPlayHistoryCsvExport:
         """Test that owner can export play history CSV for expired events."""
         expired_event = Event(
             code="EXPHIS",
-            join_code="EXPHISJ",
+            join_code="FXPHIS",
             name="Expired Play History Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() - timedelta(hours=1),
@@ -1413,7 +1413,7 @@ class TestPlayHistoryCsvExport:
         """Test that owner can export play history CSV for archived events."""
         archived_event = Event(
             code="ARCHIS",
-            join_code="ARCHISJ",
+            join_code="BRCHIS",
             name="Archived Play History Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -1469,7 +1469,7 @@ class TestEventSearch:
 
         event = Event(
             code="BPSRCH",
-            join_code="BPSRCHJ",
+            join_code="CPSRCH",
             name="BP Search Test",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -1531,7 +1531,7 @@ class TestEventSearch:
         """Expired event returns 410 for search."""
         expired_event = Event(
             code="EXPSRC",
-            join_code="EXPSRCJ",
+            join_code="FXPSRC",
             name="Expired Search Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() - timedelta(hours=1),
@@ -1570,7 +1570,7 @@ class TestEventSearch:
 
         event = Event(
             code="TDSRCH",
-            join_code="TDSRCHJ",
+            join_code="UDSRCH",
             name="Tidal Search Test",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -1608,7 +1608,7 @@ class TestEventSearch:
 
         event = Event(
             code="FBSRCH",
-            join_code="FBSRCHJ",
+            join_code="GBSRCH",
             name="Fallback Search Test",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),

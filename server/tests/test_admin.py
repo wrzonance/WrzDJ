@@ -187,7 +187,7 @@ class TestAdminUserManagement:
 
         event = Event(
             code="DOOM01",
-            join_code="DOOM01J",
+            join_code="EOOM01",
             name="Doomed Event",
             created_by_user_id=user.id,
             expires_at=utcnow() + timedelta(hours=6),

@@ -210,13 +210,13 @@ export default function CollectPage() {
           return;
         }
         if (ev.phase === 'collection') {
-          const [lb, picks] = await Promise.all([
-            apiClient.getCollectLeaderboard(code, tab),
-            apiClient.getCollectMyPicks(code),
-          ]);
-          if (!cancelled) {
-            setLeaderboard(lb);
-            setMyPicks(picks);
+          // Leaderboard is ungated; my-picks requires email verification, so skip
+          // it until the guest verifies to avoid surfacing a sticky 403 error.
+          const lb = await apiClient.getCollectLeaderboard(code, tab);
+          if (!cancelled) setLeaderboard(lb);
+          if (emailVerified) {
+            const picks = await apiClient.getCollectMyPicks(code);
+            if (!cancelled) setMyPicks(picks);
           }
         }
       } catch (e) {
@@ -238,7 +238,7 @@ export default function CollectPage() {
       if (timer) clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [code, tab, gateComplete]);
+  }, [code, tab, gateComplete, emailVerified]);
 
   const leaderboardAvgBpm = useMemo(() => {
     const withBpm = (leaderboard?.requests ?? []).filter((r) => r.bpm != null);

@@ -216,13 +216,16 @@ class TestKioskDisplay:
 
     def test_kiosk_display_qr_url_format(self, client: TestClient, test_event: Event):
         """Test QR join URL is properly formatted and uses the join_code (not collection code)."""
+        from urllib.parse import urlparse
+
         response = client.get(f"/api/public/events/{test_event.join_code}/display")
         assert response.status_code == 200
         data = response.json()
-        # QR target is the frictionless live URL — must use join_code.
-        assert test_event.join_code in data["qr_join_url"]
-        assert "/join/" in data["qr_join_url"]
-        assert test_event.code not in data["qr_join_url"]
+        # QR target is the frictionless live URL — must use join_code on the
+        # /join/ path segment exactly (avoid loose substring checks that can
+        # pass when code is a substring of join_code or vice versa).
+        path = urlparse(data["qr_join_url"]).path
+        assert path == f"/join/{test_event.join_code}"
 
     def test_kiosk_display_nickname_in_queue(
         self, client: TestClient, test_event: Event, db: Session

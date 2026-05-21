@@ -41,7 +41,7 @@ class TestSseExistenceCheck:
         """Archived events must not be streamable."""
         evt = Event(
             code="ARCHIV",
-            join_code="ARCHIVJ",
+            join_code="BRCHIV",
             name="Archived",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -65,7 +65,7 @@ class TestSseExistenceCheck:
         """Expired events must not be streamable."""
         evt = Event(
             code="EXPIRD",
-            join_code="EXPIRDJ",
+            join_code="FXPIRD",
             name="Expired",
             created_by_user_id=test_user.id,
             expires_at=utcnow() - timedelta(hours=1),

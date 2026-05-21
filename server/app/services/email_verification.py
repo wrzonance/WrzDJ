@@ -20,8 +20,8 @@ from app.services.email_sender import send_verification_email
 _logger = logging.getLogger("app.guest.verify")
 
 MAX_CODES_PER_EMAIL_PER_HOUR = 5
-CODE_VALIDITY_MINUTES = 15
-MAX_ATTEMPTS = 3
+CODE_VALIDITY_MINUTES = 5
+MAX_ATTEMPTS = 5
 
 
 class RateLimitExceededError(Exception):

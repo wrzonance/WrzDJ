@@ -227,6 +227,13 @@ export class HumanVerificationRequiredError extends ApiError {
  * `detail.code === 'human_verification_required'`, the wrapper calls
  * `reverify()` and retries the fetch once.
  */
+export class EmailVerificationRequiredError extends Error {
+  constructor() {
+    super('email_verification_required');
+    this.name = 'EmailVerificationRequiredError';
+  }
+}
+
 export async function withHumanRetry<T>(
   doFetch: () => Promise<Response>,
   reverify: () => Promise<void>,
@@ -237,6 +244,8 @@ export async function withHumanRetry<T>(
     if (body?.detail?.code === 'human_verification_required') {
       await reverify();
       res = await doFetch();
+    } else if (body?.detail?.code === 'email_verification_required') {
+      throw new EmailVerificationRequiredError();
     }
   }
   if (!res.ok) {

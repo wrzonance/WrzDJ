@@ -55,6 +55,7 @@ class DisplaySettingsResponse(BaseModel):
 class EventOut(BaseSchema):
     id: int
     code: str
+    join_code: str
     name: str
     created_at: IsoDatetime
     expires_at: IsoDatetime
@@ -62,6 +63,7 @@ class EventOut(BaseSchema):
     archived_at: OptionalIsoDatetime = None
     status: EventStatus | None = None
     join_url: str | None = None
+    collect_url: str | None = None
     request_count: int | None = None
     # Tidal sync settings
     tidal_sync_enabled: bool = False

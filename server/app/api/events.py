@@ -243,9 +243,10 @@ def _event_to_out(
     request_count: int | None = None,
     include_status: bool = False,
 ) -> EventOut:
-    """Convert Event model to EventOut schema with join_url."""
+    """Convert Event model to EventOut schema with join_url and collect_url."""
     base_url = _get_base_url(request)
-    join_url = f"{base_url}/join/{event.code}" if base_url else None
+    join_url = f"{base_url}/join/{event.join_code}" if base_url else None
+    collect_url = f"{base_url}/collect/{event.code}" if base_url else None
 
     event_status = compute_event_status(event) if include_status else None
 
@@ -258,6 +259,7 @@ def _event_to_out(
     return EventOut(
         id=event.id,
         code=event.code,
+        join_code=event.join_code,
         name=event.name,
         created_at=event.created_at,
         expires_at=event.expires_at,
@@ -265,6 +267,7 @@ def _event_to_out(
         archived_at=event.archived_at,
         status=event_status,
         join_url=join_url,
+        collect_url=collect_url,
         request_count=request_count,
         tidal_sync_enabled=event.tidal_sync_enabled,
         tidal_playlist_id=event.tidal_playlist_id,

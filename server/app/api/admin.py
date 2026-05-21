@@ -211,6 +211,7 @@ def admin_update_event(
     return AdminEventOut(
         id=updated.id,
         code=updated.code,
+        join_code=updated.join_code,
         name=updated.name,
         owner_username=owner.username if owner else "unknown",
         owner_id=updated.created_by_user_id,

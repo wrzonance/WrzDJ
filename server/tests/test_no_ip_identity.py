@@ -31,9 +31,16 @@ def _enable_collection(db: Session, event: Event) -> None:
 
 
 def _make_guest(db: Session, suffix: str) -> Guest:
+    """Build a fully gate-clearing guest (verified email + human cookie issued by _set_cookie)."""
+    import hashlib
+
+    email = f"{suffix}@example.com"
     g = Guest(
         token=suffix.ljust(64, "0"),
         fingerprint_hash=f"fp_{suffix}",
+        verified_email=email,
+        email_hash=hashlib.sha256(email.encode()).hexdigest(),
+        email_verified_at=utcnow(),
         created_at=utcnow(),
         last_seen_at=utcnow(),
     )
@@ -44,8 +51,20 @@ def _make_guest(db: Session, suffix: str) -> Guest:
 
 
 def _set_cookie(client: TestClient, guest: Guest) -> None:
+    from fastapi import Response
+
+    from app.services.human_verification import COOKIE_NAME as HUMAN_COOKIE_NAME
+    from app.services.human_verification import issue_human_cookie
+
+    resp = Response()
+    issue_human_cookie(resp, guest.id)
+    raw = resp.headers.get("set-cookie", "")
+    human_value = raw.split("=", 1)[1].split(";", 1)[0] if "=" in raw else ""
+
     client.cookies.clear()
     client.cookies.set("wrzdj_guest", guest.token)
+    if human_value:
+        client.cookies.set(HUMAN_COOKIE_NAME, human_value)
 
 
 def test_get_profile_returns_none_without_guest_id(db: Session, test_event: Event):
@@ -98,10 +117,11 @@ def test_my_picks_empty_without_guest_id(client: TestClient, db: Session, test_e
 
     client.cookies.clear()
     r = client.get(f"/api/public/collect/{test_event.code}/profile/me")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["submitted"] == []
-    assert body["upvoted"] == []
+    # /profile/me is now hard-gated (require_email_verified). Anonymous calls
+    # 403 instead of returning empty — stricter than the prior empty fallback,
+    # which is the desired behavior post-2026-05-20 collection hardening.
+    assert r.status_code == 403
+    assert r.json()["detail"]["code"] == "human_verification_required"
 
 
 def test_has_requested_false_without_guest_id(client: TestClient, db: Session, test_event: Event):
@@ -123,7 +143,7 @@ def test_has_requested_false_without_guest_id(client: TestClient, db: Session, t
     db.commit()
 
     client.cookies.clear()
-    r = client.get(f"/api/public/events/{test_event.code}/has-requested")
+    r = client.get(f"/api/public/events/{test_event.join_code}/has-requested")
     assert r.status_code == 200
     assert r.json()["has_requested"] is False
 

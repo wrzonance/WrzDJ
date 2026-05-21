@@ -18,6 +18,7 @@ class KioskPairStatusResponse(BaseModel):
 
     status: str
     event_code: str | None = None
+    event_join_code: str | None = None
     event_name: str | None = None
 
 
@@ -26,6 +27,7 @@ class KioskSessionResponse(BaseModel):
 
     status: str
     event_code: str | None = None
+    event_join_code: str | None = None
     event_name: str | None = None
 
 
@@ -53,6 +55,7 @@ class KioskOut(BaseModel):
     id: int
     name: str | None
     event_code: str | None
+    event_join_code: str | None = None
     event_name: str | None = None
     status: str
     paired_at: datetime | None

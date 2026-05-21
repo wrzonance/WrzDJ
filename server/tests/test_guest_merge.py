@@ -128,6 +128,7 @@ def test_merge_moves_profile_different_event(db: Session, test_event: Event, tes
     target = _make_guest(db, "tgt_pe")
     other_event = Event(
         code="OTHER1",
+        join_code="OTHER1J",
         name="Other Event",
         created_by_user_id=test_user.id,
         expires_at=utcnow() + timedelta(hours=6),

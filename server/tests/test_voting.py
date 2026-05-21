@@ -303,7 +303,7 @@ class TestVoteCountInResponses:
         db.add(request)
         db.commit()
 
-        response = client.get(f"/api/public/events/{test_event.code}/display")
+        response = client.get(f"/api/public/events/{test_event.join_code}/display")
         assert response.status_code == 200
         data = response.json()
         assert len(data["accepted_queue"]) == 1
@@ -326,7 +326,7 @@ class TestVoteCountInResponses:
             db.add(request)
         db.commit()
 
-        response = client.get(f"/api/public/events/{test_event.code}/display")
+        response = client.get(f"/api/public/events/{test_event.join_code}/display")
         assert response.status_code == 200
         queue = response.json()["accepted_queue"]
         assert len(queue) == 3

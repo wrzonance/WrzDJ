@@ -157,6 +157,7 @@ class TestDeleteEvent:
         # Create event
         event = Event(
             code="DELME1",
+            join_code="DELME1J",
             name="Event With Data",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -256,6 +257,7 @@ class TestExpiredEvents:
         # Create an expired event
         expired_event = Event(
             code="EXPIR1",
+            join_code="EXPIR1J",
             name="Expired Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() - timedelta(hours=1),
@@ -273,6 +275,7 @@ class TestExpiredEvents:
         """Test that submitting a request to expired event returns 410."""
         expired_event = Event(
             code="EXPIR2",
+            join_code="EXPIR2J",
             name="Expired Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() - timedelta(hours=1),
@@ -293,6 +296,7 @@ class TestExpiredEvents:
         """Test that owner can still view requests for expired events."""
         expired_event = Event(
             code="EXPIR3",
+            join_code="EXPIR3J",
             name="Expired Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() - timedelta(hours=1),
@@ -312,6 +316,7 @@ class TestExpiredEvents:
         """Test that kiosk display for expired event returns 410."""
         expired_event = Event(
             code="EXPIR4",
+            join_code="EXPIR4J",
             name="Expired Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() - timedelta(hours=1),
@@ -319,7 +324,7 @@ class TestExpiredEvents:
         db.add(expired_event)
         db.commit()
 
-        response = client.get(f"/api/public/events/{expired_event.code}/display")
+        response = client.get(f"/api/public/events/{expired_event.join_code}/display")
         assert response.status_code == 410
         assert response.json()["detail"]
 
@@ -333,6 +338,7 @@ class TestExpiredEvents:
         # Expired event should be 410
         expired_event = Event(
             code="EXPIR5",
+            join_code="EXPIR5J",
             name="Expired Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() - timedelta(hours=1),
@@ -437,6 +443,7 @@ class TestArchiveEvents:
         # Create an archived event
         archived_event = Event(
             code="ARCHV1",
+            join_code="ARCHV1J",
             name="Archived Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -447,6 +454,7 @@ class TestArchiveEvents:
         # Create an expired event
         expired_event = Event(
             code="EXPRD1",
+            join_code="EXPRD1J",
             name="Expired Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() - timedelta(hours=1),
@@ -476,6 +484,7 @@ class TestArchiveEvents:
         # Create an archived event with requests
         archived_event = Event(
             code="ARCHV2",
+            join_code="ARCHV2J",
             name="Archived With Requests",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -562,6 +571,7 @@ class TestCsvExport:
 
         other_event = Event(
             code="OTHER1",
+            join_code="OTHER1J",
             name="Other User Event",
             created_by_user_id=other_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -581,6 +591,7 @@ class TestCsvExport:
         """Test that owner can export CSV for expired events."""
         expired_event = Event(
             code="EXPCSV",
+            join_code="EXPCSVJ",
             name="Expired CSV Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() - timedelta(hours=1),
@@ -600,6 +611,7 @@ class TestCsvExport:
         """Test that owner can export CSV for archived events."""
         archived_event = Event(
             code="ARCSV1",
+            join_code="ARCSV1J",
             name="Archived CSV Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -984,6 +996,7 @@ class TestDisplaySettings:
 
         other_event = Event(
             code="OTHER3",
+            join_code="OTHER3J",
             name="Other User Event",
             created_by_user_id=other_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -1077,7 +1090,7 @@ class TestRequestsOpen:
         )
 
         # Kiosk should still work (not 410)
-        response = client.get(f"/api/public/events/{test_event.code}/display")
+        response = client.get(f"/api/public/events/{test_event.join_code}/display")
         assert response.status_code == 200
         data = response.json()
         assert data["requests_open"] is False
@@ -1104,7 +1117,7 @@ class TestKioskDisplayNowPlayingHidden:
 
     def test_kiosk_display_includes_now_playing_hidden(self, client: TestClient, test_event: Event):
         """Test that kiosk display includes now_playing_hidden field."""
-        response = client.get(f"/api/public/events/{test_event.code}/display")
+        response = client.get(f"/api/public/events/{test_event.join_code}/display")
         assert response.status_code == 200
         data = response.json()
         assert "now_playing_hidden" in data
@@ -1124,7 +1137,7 @@ class TestKioskDisplayNowPlayingHidden:
         db.add(now_playing)
         db.commit()
 
-        response = client.get(f"/api/public/events/{test_event.code}/display")
+        response = client.get(f"/api/public/events/{test_event.join_code}/display")
         assert response.status_code == 200
         data = response.json()
         assert data["now_playing_hidden"] is True
@@ -1145,7 +1158,7 @@ class TestKioskDisplayNowPlayingHidden:
         db.add(now_playing)
         db.commit()
 
-        response = client.get(f"/api/public/events/{test_event.code}/display")
+        response = client.get(f"/api/public/events/{test_event.join_code}/display")
         assert response.status_code == 200
         data = response.json()
         assert data["now_playing_hidden"] is False
@@ -1156,7 +1169,7 @@ class TestKioskDisplayOnly:
 
     def test_kiosk_display_includes_display_only_field(self, client: TestClient, test_event: Event):
         """Test that kiosk display response includes kiosk_display_only."""
-        response = client.get(f"/api/public/events/{test_event.code}/display")
+        response = client.get(f"/api/public/events/{test_event.join_code}/display")
         assert response.status_code == 200
         data = response.json()
         assert "kiosk_display_only" in data
@@ -1174,7 +1187,7 @@ class TestKioskDisplayOnly:
         )
 
         # Check public kiosk endpoint
-        response = client.get(f"/api/public/events/{test_event.code}/display")
+        response = client.get(f"/api/public/events/{test_event.join_code}/display")
         assert response.status_code == 200
         assert response.json()["kiosk_display_only"] is True
 
@@ -1253,6 +1266,7 @@ class TestPlayHistoryCsvExport:
 
         other_event = Event(
             code="OTHER2",
+            join_code="OTHER2J",
             name="Other User Event",
             created_by_user_id=other_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -1379,6 +1393,7 @@ class TestPlayHistoryCsvExport:
         """Test that owner can export play history CSV for expired events."""
         expired_event = Event(
             code="EXPHIS",
+            join_code="EXPHISJ",
             name="Expired Play History Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() - timedelta(hours=1),
@@ -1398,6 +1413,7 @@ class TestPlayHistoryCsvExport:
         """Test that owner can export play history CSV for archived events."""
         archived_event = Event(
             code="ARCHIS",
+            join_code="ARCHISJ",
             name="Archived Play History Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -1453,6 +1469,7 @@ class TestEventSearch:
 
         event = Event(
             code="BPSRCH",
+            join_code="BPSRCHJ",
             name="BP Search Test",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -1514,6 +1531,7 @@ class TestEventSearch:
         """Expired event returns 410 for search."""
         expired_event = Event(
             code="EXPSRC",
+            join_code="EXPSRCJ",
             name="Expired Search Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() - timedelta(hours=1),
@@ -1552,6 +1570,7 @@ class TestEventSearch:
 
         event = Event(
             code="TDSRCH",
+            join_code="TDSRCHJ",
             name="Tidal Search Test",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -1589,6 +1608,7 @@ class TestEventSearch:
 
         event = Event(
             code="FBSRCH",
+            join_code="FBSRCHJ",
             name="Fallback Search Test",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),

@@ -79,7 +79,7 @@ export default function EmailVerification({ isVerified, onVerified, onSkip }: Pr
     try {
       await apiClient.requestVerificationCode(email.trim(), otpTurnstileToken);
       setState('code_sent');
-      setExpiresAt(Date.now() + 15 * 60 * 1000);
+      setExpiresAt(Date.now() + 5 * 60 * 1000);
       setDigits(['', '', '', '', '', '']);
       // Reset widget for next attempt (fresh token per send)
       if (otpWidgetIdRef.current && window.turnstile) {

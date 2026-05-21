@@ -194,6 +194,7 @@ class TestSaveBannerToEvent:
 
         event = Event(
             code="BNR01",
+            join_code="BNR01J",
             name="Banner Test",
             created_by_user_id=user.id,
             expires_at=utcnow() + timedelta(hours=6),

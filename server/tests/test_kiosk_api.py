@@ -291,6 +291,7 @@ class TestAssignKiosk:
         complete_pairing(db, kiosk, test_event.code, test_user.id)
         event2 = Event(
             code="EVT002",
+            join_code="EVT002J",
             name="Second Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -445,6 +446,7 @@ class TestKioskIdor:
     def _make_victim_event(db: Session, owner: User, code: str = "VICTIM") -> Event:
         evt = Event(
             code=code,
+            join_code=f"{code}J"[:10],
             name="Victim Event",
             created_by_user_id=owner.id,
             expires_at=utcnow() + timedelta(hours=6),

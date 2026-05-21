@@ -116,6 +116,7 @@ def get_all_events_admin(db: Session, page: int = 1, limit: int = 20) -> tuple[l
             {
                 "id": event.id,
                 "code": event.code,
+                "join_code": event.join_code,
                 "name": event.name,
                 "owner_username": owner_username,
                 "owner_id": event.created_by_user_id,

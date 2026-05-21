@@ -56,7 +56,7 @@ def test_app_fingerprint_logger_does_not_emit(
         f"/api/public/collect/{test_event.code}/profile",
         json={"nickname": "Tester"},
     )
-    client.get(f"/api/public/events/{test_event.code}/has-requested")
+    client.get(f"/api/public/events/{test_event.join_code}/has-requested")
 
     fp_records = [r for r in caplog.records if r.name == "app.fingerprint"]
     assert fp_records == [], (

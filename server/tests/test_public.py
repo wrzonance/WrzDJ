@@ -55,7 +55,7 @@ class TestMyRequests:
         db.add_all([req1, req2])
         db.commit()
 
-        response = client.get(f"/api/public/events/{test_event.code}/my-requests")
+        response = client.get(f"/api/public/events/{test_event.join_code}/my-requests")
         assert response.status_code == 200
         data = response.json()
         assert len(data["requests"]) == 1
@@ -86,7 +86,7 @@ class TestMyRequests:
             db.add(req)
         db.commit()
 
-        response = client.get(f"/api/public/events/{test_event.code}/my-requests")
+        response = client.get(f"/api/public/events/{test_event.join_code}/my-requests")
         assert response.status_code == 200
         data = response.json()
         assert len(data["requests"]) == 5
@@ -95,7 +95,7 @@ class TestMyRequests:
 
     def test_my_requests_empty(self, client: TestClient, test_event: Event):
         """my-requests returns empty list when no requests match."""
-        response = client.get(f"/api/public/events/{test_event.code}/my-requests")
+        response = client.get(f"/api/public/events/{test_event.join_code}/my-requests")
         assert response.status_code == 200
         data = response.json()
         assert data["requests"] == []
@@ -124,7 +124,7 @@ class TestMyRequests:
         db.add(req)
         db.commit()
 
-        response = client.get(f"/api/public/events/{test_event.code}/my-requests")
+        response = client.get(f"/api/public/events/{test_event.join_code}/my-requests")
         assert response.status_code == 200
         data = response.json()
         r = data["requests"][0]
@@ -141,10 +141,10 @@ class TestKioskDisplay:
 
     def test_kiosk_display_success(self, client: TestClient, test_event: Event):
         """Test getting kiosk display data."""
-        response = client.get(f"/api/public/events/{test_event.code}/display")
+        response = client.get(f"/api/public/events/{test_event.join_code}/display")
         assert response.status_code == 200
         data = response.json()
-        assert data["event"]["code"] == test_event.code
+        assert data["event"]["code"] == test_event.join_code
         assert data["event"]["name"] == test_event.name
         assert "qr_join_url" in data
         assert "accepted_queue" in data
@@ -169,7 +169,7 @@ class TestKioskDisplay:
         db.add(request)
         db.commit()
 
-        response = client.get(f"/api/public/events/{test_event.code}/display")
+        response = client.get(f"/api/public/events/{test_event.join_code}/display")
         assert response.status_code == 200
         data = response.json()
         assert len(data["accepted_queue"]) == 1
@@ -200,7 +200,7 @@ class TestKioskDisplay:
         db.add(np)
         db.commit()
 
-        response = client.get(f"/api/public/events/{test_event.code}/display")
+        response = client.get(f"/api/public/events/{test_event.join_code}/display")
         assert response.status_code == 200
         data = response.json()
         assert data["now_playing"] is not None
@@ -209,18 +209,20 @@ class TestKioskDisplay:
 
     def test_kiosk_display_no_now_playing(self, client: TestClient, test_event: Event):
         """Test kiosk display when nothing is playing."""
-        response = client.get(f"/api/public/events/{test_event.code}/display")
+        response = client.get(f"/api/public/events/{test_event.join_code}/display")
         assert response.status_code == 200
         data = response.json()
         assert data["now_playing"] is None
 
     def test_kiosk_display_qr_url_format(self, client: TestClient, test_event: Event):
-        """Test QR join URL is properly formatted."""
-        response = client.get(f"/api/public/events/{test_event.code}/display")
+        """Test QR join URL is properly formatted and uses the join_code (not collection code)."""
+        response = client.get(f"/api/public/events/{test_event.join_code}/display")
         assert response.status_code == 200
         data = response.json()
-        assert test_event.code in data["qr_join_url"]
+        # QR target is the frictionless live URL — must use join_code.
+        assert test_event.join_code in data["qr_join_url"]
         assert "/join/" in data["qr_join_url"]
+        assert test_event.code not in data["qr_join_url"]
 
     def test_kiosk_display_nickname_in_queue(
         self, client: TestClient, test_event: Event, db: Session
@@ -238,7 +240,7 @@ class TestKioskDisplay:
         db.add(request)
         db.commit()
 
-        response = client.get(f"/api/public/events/{test_event.code}/display")
+        response = client.get(f"/api/public/events/{test_event.join_code}/display")
         assert response.status_code == 200
         data = response.json()
         assert len(data["accepted_queue"]) == 1
@@ -257,7 +259,7 @@ class TestKioskDisplay:
         db.add(request)
         db.commit()
 
-        response = client.get(f"/api/public/events/{test_event.code}/display")
+        response = client.get(f"/api/public/events/{test_event.join_code}/display")
         assert response.status_code == 200
         data = response.json()
         assert data["accepted_queue"][0]["nickname"] is None
@@ -280,7 +282,7 @@ class TestGuestRequestList:
         db.add(request)
         db.commit()
 
-        response = client.get(f"/api/public/events/{test_event.code}/requests")
+        response = client.get(f"/api/public/events/{test_event.join_code}/requests")
         assert response.status_code == 200
         data = response.json()
         assert len(data["requests"]) == 1
@@ -299,7 +301,7 @@ class TestGuestRequestList:
         db.add(request)
         db.commit()
 
-        response = client.get(f"/api/public/events/{test_event.code}/requests")
+        response = client.get(f"/api/public/events/{test_event.join_code}/requests")
         assert response.status_code == 200
         data = response.json()
         assert data["requests"][0]["nickname"] is None
@@ -327,7 +329,7 @@ class TestPublicRequestsEnrichmentFields:
         db.add(req)
         db.commit()
 
-        response = client.get(f"/api/public/events/{test_event.code}/requests")
+        response = client.get(f"/api/public/events/{test_event.join_code}/requests")
         assert response.status_code == 200
         requests = response.json()["requests"]
         assert len(requests) == 1
@@ -351,7 +353,7 @@ class TestPublicRequestsEnrichmentFields:
         db.add(req)
         db.commit()
 
-        response = client.get(f"/api/public/events/{test_event.code}/requests")
+        response = client.get(f"/api/public/events/{test_event.join_code}/requests")
         assert response.status_code == 200
         requests = response.json()["requests"]
         assert len(requests) == 1
@@ -460,7 +462,7 @@ class TestRequesterVerifiedField:
         db.add(req)
         db.commit()
 
-        response = client.get(f"/api/public/events/{test_event.code}/requests")
+        response = client.get(f"/api/public/events/{test_event.join_code}/requests")
         assert response.status_code == 200
         data = response.json()
         assert data["requests"][0]["requester_verified"] is True
@@ -477,7 +479,7 @@ class TestRequesterVerifiedField:
         db.add(req)
         db.commit()
 
-        response = client.get(f"/api/public/events/{test_event.code}/requests")
+        response = client.get(f"/api/public/events/{test_event.join_code}/requests")
         assert response.status_code == 200
         data = response.json()
         assert data["requests"][0]["requester_verified"] is False
@@ -500,7 +502,7 @@ class TestRequesterVerifiedField:
         db.add(req)
         db.commit()
 
-        response = client.get(f"/api/public/events/{test_event.code}/requests")
+        response = client.get(f"/api/public/events/{test_event.join_code}/requests")
         assert response.status_code == 200
         data = response.json()
         assert data["requests"][0]["requester_verified"] is False

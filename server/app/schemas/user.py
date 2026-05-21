@@ -52,6 +52,7 @@ class AdminUserOut(BaseSchema):
 class AdminEventOut(BaseSchema):
     id: int
     code: str
+    join_code: str
     name: str
     owner_username: str
     owner_id: int

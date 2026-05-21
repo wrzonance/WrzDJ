@@ -184,6 +184,7 @@ class TestAssignKioskEvent:
         # Create second event
         event2 = Event(
             code="EVT002",
+            join_code="EVT002J",
             name="Second Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),

@@ -481,13 +481,36 @@ def poll_tidal_collection_removals(db: Session, event: Event) -> int:
     tidal_collection_track_id is no longer present, and marks them rejected.
     Only runs when the event has a collection playlist configured.
 
-    Returns the count of newly rejected requests.
+    Three safety guards prevent the mass-rejection bug from recurring:
+    1. Abort on TidalFetchError (API failure is NOT 'playlist is empty').
+    2. Abort if the playlist returns 0 tracks while synced rows exist.
+    3. Abort if a single sweep would reject >50% of synced rows.
+
+    Returns the count of newly rejected requests (0 on any safety abort).
     """
+    from app.services.activity_log import log_activity
+
     if not event.tidal_collection_playlist_id:
         return 0
 
     user = event.created_by
-    playlist_tracks = get_playlist_tracks(db, user, event.tidal_collection_playlist_id)
+    try:
+        playlist_tracks = get_playlist_tracks(db, user, event.tidal_collection_playlist_id)
+    except TidalFetchError as e:
+        logger.warning(
+            "Tidal collection poll aborted for event %s: %s. NOT marking any requests rejected.",
+            event.code,
+            e,
+        )
+        log_activity(
+            db,
+            level="warn",
+            source="tidal_poll",
+            message=f"Poll aborted: {e}",
+            event_code=event.code,
+        )
+        return 0
+
     current_ids = {str(t.id) for t in playlist_tracks}
 
     synced = (
@@ -501,15 +524,61 @@ def poll_tidal_collection_removals(db: Session, event: Event) -> int:
         .all()
     )
 
-    count = 0
-    for req in synced:
-        if req.tidal_collection_track_id not in current_ids:
-            req.status = RequestStatus.REJECTED.value
-            count += 1
+    # Guard 2: suspicious-empty playlist
+    if not current_ids and synced:
+        logger.error(
+            "Tidal collection poll: playlist returned 0 tracks but %d synced requests exist "
+            "for event %s. Suspecting API issue, NOT rejecting.",
+            len(synced),
+            event.code,
+        )
+        log_activity(
+            db,
+            level="warn",
+            source="tidal_poll",
+            message=(f"Empty playlist with {len(synced)} synced rows; rejection sweep skipped"),
+            event_code=event.code,
+        )
+        return 0
 
+    candidate_rejections = [
+        req for req in synced if req.tidal_collection_track_id not in current_ids
+    ]
+
+    # Guard 3: mass-rejection cap (>50% of synced rows in one sweep)
+    if len(candidate_rejections) > len(synced) * 0.50 and len(candidate_rejections) > 5:
+        logger.error(
+            "Tidal collection poll: refused to reject %d/%d for event %s (>50%% threshold)",
+            len(candidate_rejections),
+            len(synced),
+            event.code,
+        )
+        log_activity(
+            db,
+            level="error",
+            source="tidal_poll",
+            message=(
+                f"Aborted mass rejection: would reject {len(candidate_rejections)}/{len(synced)}"
+            ),
+            event_code=event.code,
+        )
+        return 0
+
+    for req in candidate_rejections:
+        req.status = RequestStatus.REJECTED.value
+
+    count = len(candidate_rejections)
     if count > 0:
         db.commit()
+        rejected_ids = [r.id for r in candidate_rejections]
         logger.info("Tidal poll: rejected %d removed track(s) for event %s", count, event.code)
+        log_activity(
+            db,
+            level="info",
+            source="tidal_poll",
+            message=f"Auto-rejected {count} requests (IDs: {rejected_ids[:20]})",
+            event_code=event.code,
+        )
 
     return count
 
@@ -650,18 +719,43 @@ def list_user_playlists(db: Session, user: User) -> list[TidalPlaylistInfo]:
         return []
 
 
+class TidalFetchError(Exception):
+    """Raised when Tidal playlist tracks can't be fetched (vs. genuinely empty).
+
+    Callers that auto-reject based on track membership MUST distinguish "API
+    failed" from "playlist is empty" — silently returning [] on failure leads
+    to mass false-positive rejections (see ELZ2G2 incident 2026-05-19/20).
+    """
+
+
 def get_playlist_tracks(db: Session, user: User, playlist_id: str) -> list:
-    """Get tracks from a Tidal playlist. Returns raw tidalapi.Track objects."""
+    """Get tracks from a Tidal playlist. Returns raw tidalapi.Track objects.
+
+    Paginates through all results — tidalapi's playlist.tracks() truncates
+    at 100 by default which would partially-reject longer playlists.
+    Raises TidalFetchError on any failure (no silent []).
+    """
     session = get_tidal_session(db, user)
     if not session:
-        return []
+        raise TidalFetchError("No active Tidal session for user")
 
     try:
         playlist = session.playlist(playlist_id)
-        return playlist.tracks() or []
+        all_tracks = []
+        offset = 0
+        page_size = 100
+        while True:
+            page = playlist.tracks(limit=page_size, offset=offset)
+            if not page:
+                break
+            all_tracks.extend(page)
+            if len(page) < page_size:
+                break
+            offset += page_size
+        return all_tracks
     except Exception as e:
-        logger.error(f"Failed to get Tidal playlist tracks: {e}")
-        return []
+        logger.error("Tidal playlist fetch failed: %s: %s", type(e).__name__, e)
+        raise TidalFetchError(str(e)) from e
 
 
 def search_tidal_by_isrc(

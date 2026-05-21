@@ -92,6 +92,7 @@ def tidal_event(db: Session, tidal_user: User) -> Event:
     """Create an event with Tidal sync enabled."""
     event = Event(
         code="TIDAL1",
+        join_code="4MF78Z",
         name="Tidal Test Event",
         created_by_user_id=tidal_user.id,
         expires_at=datetime.now(UTC) + timedelta(hours=6),

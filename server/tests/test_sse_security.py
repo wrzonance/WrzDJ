@@ -41,6 +41,7 @@ class TestSseExistenceCheck:
         """Archived events must not be streamable."""
         evt = Event(
             code="ARCHIV",
+            join_code="8MWM4Y",
             name="Archived",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -50,7 +51,7 @@ class TestSseExistenceCheck:
         db.commit()
 
         resp = client.get(
-            f"/api/public/events/{evt.code}/stream",
+            f"/api/public/events/{evt.join_code}/stream",
             headers={"Accept": "text/event-stream"},
         )
         assert resp.status_code in (404, 410)
@@ -64,6 +65,7 @@ class TestSseExistenceCheck:
         """Expired events must not be streamable."""
         evt = Event(
             code="EXPIRD",
+            join_code="UNZC4W",
             name="Expired",
             created_by_user_id=test_user.id,
             expires_at=utcnow() - timedelta(hours=1),
@@ -72,7 +74,7 @@ class TestSseExistenceCheck:
         db.commit()
 
         resp = client.get(
-            f"/api/public/events/{evt.code}/stream",
+            f"/api/public/events/{evt.join_code}/stream",
             headers={"Accept": "text/event-stream"},
         )
         assert resp.status_code in (404, 410)

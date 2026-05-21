@@ -138,9 +138,10 @@ def auth_headers(client: TestClient, test_user: User) -> dict[str, str]:
 
 @pytest.fixture
 def test_event(db: Session, test_user: User) -> Event:
-    """Create a test event."""
+    """Create a test event with distinct collection and join codes."""
     event = Event(
         code="TEST01",
+        join_code="UG4BHD",
         name="Test Event",
         created_by_user_id=test_user.id,
         expires_at=utcnow() + timedelta(hours=6),

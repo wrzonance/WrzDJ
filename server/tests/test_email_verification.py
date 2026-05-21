@@ -65,12 +65,14 @@ def test_verify_wrong_code_increments_attempts(db: Session, test_guest: Guest):
 
 
 def test_verify_three_strikes_invalidates(db: Session, test_guest: Guest):
-    """3 wrong attempts -> code no longer accepted."""
+    """MAX_ATTEMPTS wrong attempts -> code no longer accepted (now 5 per OTP best practice)."""
+    from app.services.email_verification import MAX_ATTEMPTS
+
     with patch("app.services.email_verification.send_verification_email"):
         code_row = create_verification_code(db, guest_id=test_guest.id, email="fan@test.com")
     real_code = code_row.code
 
-    for _ in range(3):
+    for _ in range(MAX_ATTEMPTS):
         with pytest.raises(CodeInvalidError):
             confirm_verification_code(
                 db, guest_id=test_guest.id, email="fan@test.com", code="000000"

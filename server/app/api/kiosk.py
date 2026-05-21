@@ -55,11 +55,19 @@ auth_router = APIRouter()
 
 
 def _resolve_event_name(db: Session, event_code: str | None) -> str | None:
-    """Look up the event name for a given code, or return None."""
+    """Look up the event name for a given collection code, or return None."""
     if not event_code:
         return None
     event = db.query(Event).filter(Event.code == event_code).first()
     return event.name if event else None
+
+
+def _resolve_event_join_code(db: Session, event_code: str | None) -> str | None:
+    """Look up the join_code for an event identified by its collection code."""
+    if not event_code:
+        return None
+    event = db.query(Event).filter(Event.code == event_code).first()
+    return event.join_code if event else None
 
 
 def _assert_caller_owns_event(event: Event, user: User) -> None:
@@ -136,9 +144,11 @@ def get_pair_status(pair_code: str, request: Request, db: Session = Depends(get_
         return KioskPairStatusResponse(status="expired")
 
     event_name = _resolve_event_name(db, kiosk.event_code)
+    event_join_code = _resolve_event_join_code(db, kiosk.event_code)
     return KioskPairStatusResponse(
         status=kiosk.status,
         event_code=kiosk.event_code,
+        event_join_code=event_join_code,
         event_name=event_name,
     )
 
@@ -168,9 +178,11 @@ def get_session_assignment(request: Request, db: Session = Depends(get_db)):
         update_kiosk_last_seen(db, kiosk)
 
     event_name = _resolve_event_name(db, kiosk.event_code)
+    event_join_code = _resolve_event_join_code(db, kiosk.event_code)
     return KioskSessionResponse(
         status=kiosk.status,
         event_code=kiosk.event_code,
+        event_join_code=event_join_code,
         event_name=event_name,
     )
 
@@ -214,6 +226,7 @@ def complete_kiosk_pairing(
         id=kiosk.id,
         name=kiosk.name,
         event_code=kiosk.event_code,
+        event_join_code=event.join_code,
         event_name=event.name,
         status=kiosk.status,
         paired_at=kiosk.paired_at,
@@ -235,6 +248,7 @@ def list_my_kiosks(
             id=k.id,
             name=k.name,
             event_code=k.event_code,
+            event_join_code=_resolve_event_join_code(db, k.event_code),
             event_name=_resolve_event_name(db, k.event_code),
             status=k.status,
             paired_at=k.paired_at,
@@ -278,6 +292,7 @@ def assign_kiosk(
         id=kiosk.id,
         name=kiosk.name,
         event_code=kiosk.event_code,
+        event_join_code=event.join_code,
         event_name=event.name,
         status=kiosk.status,
         paired_at=kiosk.paired_at,
@@ -301,6 +316,7 @@ def rename_kiosk_endpoint(
         id=kiosk.id,
         name=kiosk.name,
         event_code=kiosk.event_code,
+        event_join_code=_resolve_event_join_code(db, kiosk.event_code),
         event_name=_resolve_event_name(db, kiosk.event_code),
         status=kiosk.status,
         paired_at=kiosk.paired_at,

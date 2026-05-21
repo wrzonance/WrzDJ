@@ -21,19 +21,45 @@ def _enable_collection(db, event: Event):
 def _default_guest_cookie(client, db):
     """Most collect endpoints require a wrzdj_guest cookie (identity is guest_id only).
 
-    See docs/RECOVERY-IP-IDENTITY.md.
+    After the 2026-05-20 collection-hardening change, the collect mutating
+    endpoints also require a verified email and a valid wrzdj_human cookie.
+    The default test guest is therefore pre-verified, and we issue a
+    matching wrzdj_human cookie so the gate passes without an OTP roundtrip.
+
+    See docs/RECOVERY-IP-IDENTITY.md and
+    docs/superpowers/specs/2026-05-20-collection-vs-live-event-codes-design.md.
     """
+    import hashlib
+
+    from fastapi import Response
+
+    from app.services.human_verification import COOKIE_NAME as HUMAN_COOKIE_NAME
+    from app.services.human_verification import issue_human_cookie
+
+    email = "default-test@example.com"
     guest = Guest(
         token="defaultguest" + "0" * 52,
         fingerprint_hash="fp_default",
+        verified_email=email,
+        email_hash=hashlib.sha256(email.encode()).hexdigest(),
+        email_verified_at=utcnow(),
         created_at=utcnow(),
         last_seen_at=utcnow(),
     )
     db.add(guest)
     db.commit()
     db.refresh(guest)
+
+    # Mint a valid wrzdj_human cookie tied to this guest_id.
+    helper_resp = Response()
+    issue_human_cookie(helper_resp, guest.id)
+    raw = helper_resp.headers.get("set-cookie", "")
+    human_value = raw.split("=", 1)[1].split(";", 1)[0] if "=" in raw else ""
+
     client.cookies.clear()
     client.cookies.set("wrzdj_guest", guest.token)
+    if human_value:
+        client.cookies.set(HUMAN_COOKIE_NAME, human_value)
     return guest
 
 
@@ -91,7 +117,7 @@ def test_collect_profile_set_nickname(client, db, test_event):
     assert r.status_code == 200
     body = r.json()
     assert body["nickname"] == "DancingQueen"
-    assert body["email_verified"] is False
+    assert body["email_verified"] is True
     assert body["submission_count"] == 0
     assert body["submission_cap"] == 15
 
@@ -113,7 +139,7 @@ def test_collect_profile_email_field_ignored(client, db, test_event):
         json={"nickname": "AJ"},
     )
     assert r.status_code == 200
-    assert r.json()["email_verified"] is False
+    assert r.json()["email_verified"] is True
 
 
 def test_collect_profile_me_empty_when_no_interactions(client, db, test_event):
@@ -359,7 +385,7 @@ def test_collect_get_profile_does_not_create_row(client, db, test_event):
     body = r.json()
     assert body == {
         "nickname": None,
-        "email_verified": False,
+        "email_verified": True,
         "submission_count": 0,
         "submission_cap": test_event.submission_cap_per_guest,
     }
@@ -386,7 +412,7 @@ def test_collect_get_profile_returns_existing_state(client, db, test_event):
     assert r.status_code == 200
     body = r.json()
     assert body["nickname"] == "Reader"
-    assert body["email_verified"] is False
+    assert body["email_verified"] is True
     assert body["submission_cap"] == test_event.submission_cap_per_guest
 
 
@@ -563,20 +589,40 @@ class TestNicknameUniqueness:
     """Tests for per-event nickname collision detection."""
 
     def _make_guest(self, db, token_suffix: str, verified: bool = False):
+        """Build a guest. Always email-verified so the require_email_verified
+        gate on collect endpoints lets them through — nickname uniqueness is
+        an independent concern from email verification. The `verified` arg
+        controls whether email_verified_at is set so 'claimed' detection works.
+        """
+        import hashlib
+
         from app.core.time import utcnow
 
+        email = f"{token_suffix}@example.com"
         g = Guest(
             token="guest" + token_suffix.ljust(59, "0"),
             fingerprint_hash=f"fp_{token_suffix}",
+            verified_email=email,
+            email_hash=hashlib.sha256(email.encode()).hexdigest(),
+            email_verified_at=utcnow() if verified else None,
             created_at=utcnow(),
             last_seen_at=utcnow(),
         )
-        if verified:
-            g.email_verified_at = utcnow()
         db.add(g)
         db.commit()
         db.refresh(g)
         return g
+
+    def _human_cookie_for(self, guest_id: int) -> str:
+        """Mint a wrzdj_human cookie value for the given guest_id."""
+        from fastapi import Response
+
+        from app.services.human_verification import issue_human_cookie
+
+        resp = Response()
+        issue_human_cookie(resp, guest_id)
+        raw = resp.headers.get("set-cookie", "")
+        return raw.split("=", 1)[1].split(";", 1)[0] if "=" in raw else ""
 
     def test_available_nickname_succeeds(self, client, db, test_event):
         r = client.post(
@@ -586,18 +632,28 @@ class TestNicknameUniqueness:
         assert r.status_code == 200
         assert r.json()["nickname"] == "UniqueNick"
 
-    def test_collision_unclaimed_returns_409_claimed_false(self, client, db, test_event):
+    def test_collision_unclaimed_returns_409_claimed_false(
+        self, client, db, test_event, _default_guest_cookie
+    ):
         # default guest (autouse) claims "Alex"
         client.post(
             f"/api/public/collect/{test_event.code}/profile",
             json={"nickname": "Alex"},
         )
+        # Mark default guest unverified-after-claim so "claimed" returns False.
+        # The autouse fixture pre-verifies for gate-pass; this test specifically
+        # exercises the post-claim unverified state.
+        _default_guest_cookie.email_verified_at = None
+        db.commit()
         # second guest tries "Alex"
         guest2 = self._make_guest(db, "two")
         r = client.post(
             f"/api/public/collect/{test_event.code}/profile",
             json={"nickname": "Alex"},
-            cookies={"wrzdj_guest": guest2.token},
+            cookies={
+                "wrzdj_guest": guest2.token,
+                "wrzdj_human": self._human_cookie_for(guest2.id),
+            },
         )
         assert r.status_code == 409
         body = r.json()["detail"]
@@ -610,14 +666,20 @@ class TestNicknameUniqueness:
         client.post(
             f"/api/public/collect/{test_event.code}/profile",
             json={"nickname": "Alex"},
-            cookies={"wrzdj_guest": verified_guest.token},
+            cookies={
+                "wrzdj_guest": verified_guest.token,
+                "wrzdj_human": self._human_cookie_for(verified_guest.id),
+            },
         )
         # second guest tries same name
         guest2 = self._make_guest(db, "two")
         r = client.post(
             f"/api/public/collect/{test_event.code}/profile",
             json={"nickname": "Alex"},
-            cookies={"wrzdj_guest": guest2.token},
+            cookies={
+                "wrzdj_guest": guest2.token,
+                "wrzdj_human": self._human_cookie_for(guest2.id),
+            },
         )
         assert r.status_code == 409
         body = r.json()["detail"]
@@ -645,7 +707,10 @@ class TestNicknameUniqueness:
             r = client.post(
                 f"/api/public/collect/{test_event.code}/profile",
                 json={"nickname": variant},
-                cookies={"wrzdj_guest": g.token},
+                cookies={
+                    "wrzdj_guest": g.token,
+                    "wrzdj_human": self._human_cookie_for(g.id),
+                },
             )
             assert r.status_code == 409, f"Expected 409 for variant '{variant}'"
 

@@ -13,8 +13,8 @@ from sqlalchemy import desc, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_verified_human_soft
-from app.core.rate_limit import get_guest_id, limiter
+from app.api.deps import get_db, require_email_verified, require_verified_human
+from app.core.rate_limit import limiter
 from app.models.event import Event
 from app.models.guest import Guest
 from app.models.request import Request as SongRequest
@@ -154,26 +154,25 @@ def leaderboard(
 
 @router.get("/{code}/profile", response_model=CollectProfileResponse)
 @limiter.limit("60/minute")
-def get_profile(code: str, request: Request, db: Session = Depends(get_db)):
-    """Read the calling guest's profile for this event. Anonymous callers
-    (no cookie) get the default empty profile — there is no IP fallback.
-    """
+def get_profile(
+    code: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    guest_id: int = Depends(require_verified_human),
+):
     event = _get_event_or_404(db, code)
-    guest_id = get_guest_id(request, db)
     profile = collect_service.get_profile(db, event_id=event.id, guest_id=guest_id)
+    from app.models.guest import Guest
+
+    guest_row = db.query(Guest).filter(Guest.id == guest_id).first()
+    is_verified = guest_row is not None and guest_row.email_verified_at is not None
     if profile is None:
         return CollectProfileResponse(
             nickname=None,
-            email_verified=False,
+            email_verified=is_verified,
             submission_count=0,
             submission_cap=event.submission_cap_per_guest,
         )
-    is_verified = False
-    if guest_id:
-        from app.models.guest import Guest
-
-        guest_row = db.query(Guest).filter(Guest.id == guest_id).first()
-        is_verified = guest_row is not None and guest_row.email_verified_at is not None
     return CollectProfileResponse(
         nickname=profile.nickname,
         email_verified=is_verified,
@@ -189,12 +188,9 @@ def set_profile(
     payload: CollectProfileRequest,
     request: Request,
     db: Session = Depends(get_db),
-    _human: int | None = Depends(require_verified_human_soft),
+    guest_id: int = Depends(require_email_verified),
 ):
     event = _get_event_or_404(db, code)
-    guest_id = get_guest_id(request, db)
-    if guest_id is None:
-        raise HTTPException(status_code=401, detail="Guest identity required")
     try:
         profile = upsert_profile(
             db,
@@ -236,18 +232,13 @@ def set_profile(
 
 @router.get("/{code}/profile/me", response_model=CollectMyPicksResponse)
 @limiter.limit("60/minute")
-def my_picks(code: str, request: Request, db: Session = Depends(get_db)):
+def my_picks(
+    code: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    guest_id: int = Depends(require_email_verified),
+):
     event = _get_event_or_404(db, code)
-    guest_id = get_guest_id(request, db)
-
-    if guest_id is None:
-        return CollectMyPicksResponse(
-            submitted=[],
-            upvoted=[],
-            is_top_contributor=False,
-            first_suggestion_ids=[],
-            voted_request_ids=[],
-        )
 
     submitted = (
         db.query(SongRequest)
@@ -338,15 +329,11 @@ def submit(
     request: Request,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    _human: int | None = Depends(require_verified_human_soft),
+    guest_id: int = Depends(require_email_verified),
 ):
     event = _get_event_or_404(db, code)
     if event.phase != "collection":
         raise HTTPException(status_code=409, detail="Collection has ended")
-
-    guest_id = get_guest_id(request, db)
-    if guest_id is None:
-        raise HTTPException(status_code=401, detail="Guest identity required")
 
     existing = find_duplicate(db, event.id, payload.artist, payload.song_title)
     if existing:
@@ -420,14 +407,11 @@ def vote(
     payload: CollectVoteRequest,
     request: Request,
     db: Session = Depends(get_db),
-    _human: int | None = Depends(require_verified_human_soft),
+    guest_id: int = Depends(require_email_verified),
 ):
     event = _get_event_or_404(db, code)
     if event.phase not in ("collection", "live"):
         raise HTTPException(status_code=409, detail="Voting is closed")
-    guest_id = get_guest_id(request, db)
-    if guest_id is None:
-        raise HTTPException(status_code=401, detail="Guest identity required")
     row = (
         db.query(SongRequest)
         .filter(SongRequest.id == payload.request_id)
@@ -457,7 +441,7 @@ def enrich_preview(
     payload: EnrichPreviewRequest,
     request: Request,
     db: Session = Depends(get_db),
-    _human: int | None = Depends(require_verified_human_soft),
+    _verified: int = Depends(require_email_verified),
 ) -> EnrichPreviewResponse:
     """Lightweight Beatport BPM/key lookup for search-time vibes — no DB writes."""
     event = _get_event_or_404(db, code)
@@ -509,7 +493,7 @@ def request_preview(
     code: str,
     request_id: int,
     request: Request,
-    _human: int | None = Depends(require_verified_human_soft),
+    _verified: int = Depends(require_email_verified),
     db: Session = Depends(get_db),
 ):
     event = _get_event_or_404(db, code)

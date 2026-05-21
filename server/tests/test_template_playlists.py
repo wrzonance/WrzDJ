@@ -350,6 +350,7 @@ class TestGenerateRecommendationsFromTemplate:
 
         event = Event(
             code="TMPL01",
+            join_code="HGY9C7",
             name="Template Test",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -408,6 +409,7 @@ class TestGenerateRecommendationsFromTemplate:
 
         event = Event(
             code="TMPL02",
+            join_code="BFFZXF",
             name="Dedup Test",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -467,6 +469,7 @@ class TestGenerateRecommendationsFromTemplate:
 
         event = Event(
             code="TMPL03",
+            join_code="SCJRSB",
             name="Empty Template",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -491,6 +494,7 @@ class TestGenerateRecommendationsFromTemplate:
 
         event = Event(
             code="TMPL04",
+            join_code="ACR5FZ",
             name="Invalid Source",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),

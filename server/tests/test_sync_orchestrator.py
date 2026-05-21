@@ -47,6 +47,7 @@ def tidal_user(db: Session) -> User:
 def tidal_event(db: Session, tidal_user: User) -> Event:
     event = Event(
         code="ORCH01",
+        join_code="8BBQQG",
         name="Orchestrator Test Event",
         created_by_user_id=tidal_user.id,
         expires_at=datetime.now(UTC) + timedelta(hours=6),

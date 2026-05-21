@@ -24,7 +24,7 @@ class TestGuestNowPlaying:
         db.add(np)
         db.commit()
 
-        response = client.get(f"/api/public/events/{test_event.code}/requests")
+        response = client.get(f"/api/public/events/{test_event.join_code}/requests")
         assert response.status_code == 200
         data = response.json()
         assert data["now_playing"] is not None
@@ -34,7 +34,7 @@ class TestGuestNowPlaying:
         assert data["now_playing"]["source"] == "stagelinq"
 
     def test_returns_null_when_nothing_playing(self, client: TestClient, test_event: Event):
-        response = client.get(f"/api/public/events/{test_event.code}/requests")
+        response = client.get(f"/api/public/events/{test_event.join_code}/requests")
         assert response.status_code == 200
         data = response.json()
         assert data["now_playing"] is None
@@ -55,7 +55,7 @@ class TestGuestNowPlaying:
         db.add(np)
         db.commit()
 
-        response = client.get(f"/api/public/events/{test_event.code}/requests")
+        response = client.get(f"/api/public/events/{test_event.join_code}/requests")
         assert response.status_code == 200
         # Endpoint should still return valid response regardless of hide state
         assert "now_playing" in response.json()
@@ -83,7 +83,7 @@ class TestGuestNowPlaying:
         db.add(np)
         db.commit()
 
-        response = client.get(f"/api/public/events/{test_event.code}/requests")
+        response = client.get(f"/api/public/events/{test_event.join_code}/requests")
         assert response.status_code == 200
         data = response.json()
         assert len(data["requests"]) == 1
@@ -92,10 +92,10 @@ class TestGuestNowPlaying:
         assert data["now_playing"]["source"] == "pioneer"
 
     def test_event_info_present(self, client: TestClient, test_event: Event):
-        response = client.get(f"/api/public/events/{test_event.code}/requests")
+        response = client.get(f"/api/public/events/{test_event.join_code}/requests")
         assert response.status_code == 200
         data = response.json()
-        assert data["event"]["code"] == test_event.code
+        assert data["event"]["code"] == test_event.join_code
         assert data["event"]["name"] == test_event.name
 
     def test_expired_event_returns_410(self, client: TestClient, db: Session, test_user):
@@ -105,6 +105,7 @@ class TestGuestNowPlaying:
 
         expired = Event(
             code="EXPRD1",
+            join_code="KGQ35Q",
             name="Expired Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() - timedelta(hours=1),
@@ -112,7 +113,7 @@ class TestGuestNowPlaying:
         db.add(expired)
         db.commit()
 
-        response = client.get("/api/public/events/EXPRD1/requests")
+        response = client.get("/api/public/events/KGQ35Q/requests")
         assert response.status_code == 410
 
     def test_nonexistent_event_returns_404(self, client: TestClient):

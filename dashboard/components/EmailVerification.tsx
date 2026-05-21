@@ -79,7 +79,7 @@ export default function EmailVerification({ isVerified, onVerified, onSkip }: Pr
     try {
       await apiClient.requestVerificationCode(email.trim(), otpTurnstileToken);
       setState('code_sent');
-      setExpiresAt(Date.now() + 15 * 60 * 1000);
+      setExpiresAt(Date.now() + 5 * 60 * 1000);
       setDigits(['', '', '', '', '', '']);
       // Reset widget for next attempt (fresh token per send)
       if (otpWidgetIdRef.current && window.turnstile) {
@@ -220,7 +220,7 @@ export default function EmailVerification({ isVerified, onVerified, onSkip }: Pr
           type="button"
           className="btn-link"
           onClick={sendCode}
-          disabled={sending || secondsLeft > 14 * 60}
+          disabled={sending || secondsLeft > 0}
           style={{ fontSize: '0.8rem', marginTop: '0.25rem' }}
         >
           {sending ? 'Sending...' : "Didn't get it? Resend"}

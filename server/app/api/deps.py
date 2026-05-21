@@ -197,3 +197,24 @@ def require_verified_human_soft(
         guest_id_db,
     )
     return guest_id_db
+
+
+def require_email_verified(
+    db: Session = Depends(get_db),
+    guest_id: int = Depends(require_verified_human),
+) -> int:
+    """Require an email-verified guest. Chains require_verified_human (hard mode).
+
+    Apply to every mutating collection-phase endpoint AND personal-data GETs.
+    Returns 403 with structured detail {"code": "email_verification_required"}
+    so the frontend can render the EmailGate component.
+    """
+    from app.models.guest import Guest
+
+    guest = db.get(Guest, guest_id)
+    if guest is None or guest.verified_email is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "email_verification_required"},
+        )
+    return guest_id

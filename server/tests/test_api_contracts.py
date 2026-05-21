@@ -68,6 +68,7 @@ USER_OUT_KEYS = {
 EVENT_OUT_KEYS = {
     "id",
     "code",
+    "join_code",
     "name",
     "created_at",
     "expires_at",
@@ -75,6 +76,7 @@ EVENT_OUT_KEYS = {
     "archived_at",
     "status",
     "join_url",
+    "collect_url",
     "request_count",
     "tidal_sync_enabled",
     "tidal_playlist_id",
@@ -118,6 +120,7 @@ ADMIN_USER_OUT_KEYS = {"id", "username", "is_active", "role", "created_at", "eve
 ADMIN_EVENT_OUT_KEYS = {
     "id",
     "code",
+    "join_code",
     "name",
     "owner_username",
     "owner_id",
@@ -336,14 +339,14 @@ class TestVoteContracts:
 
 class TestPublicContracts:
     def test_kiosk_display_shape(self, client: TestClient, test_event: Event):
-        resp = client.get(f"/api/public/events/{test_event.code}/display")
+        resp = client.get(f"/api/public/events/{test_event.join_code}/display")
         assert resp.status_code == 200
         data = resp.json()
         _assert_keys(data, KIOSK_DISPLAY_KEYS, "GET /api/public/events/{code}/display")
         _assert_keys(data["event"], PUBLIC_EVENT_INFO_KEYS, "kiosk.event")
 
     def test_guest_requests_shape(self, client: TestClient, test_event: Event, test_request):
-        resp = client.get(f"/api/public/events/{test_event.code}/requests")
+        resp = client.get(f"/api/public/events/{test_event.join_code}/requests")
         assert resp.status_code == 200
         data = resp.json()
         assert "event" in data
@@ -353,7 +356,7 @@ class TestPublicContracts:
             _assert_keys(data["requests"][0], GUEST_REQUEST_INFO_KEYS, "guest.requests[0]")
 
     def test_has_requested_shape(self, client: TestClient, test_event: Event):
-        resp = client.get(f"/api/public/events/{test_event.code}/has-requested")
+        resp = client.get(f"/api/public/events/{test_event.join_code}/has-requested")
         assert resp.status_code == 200
         _assert_keys(resp.json(), {"has_requested"}, "GET /api/public/events/{code}/has-requested")
 

@@ -224,10 +224,22 @@ class TestBulkDeleteEndpoint:
         assert response.json()["count"] == 0
 
 
+def _derive_join_code(code: str) -> str:
+    """Build a deterministic 6-char join_code that's guaranteed != code.
+
+    Replaces the first character with a different letter so the result always
+    differs from `code` while staying within the safe-alphabet length contract.
+    """
+    head = code[0].upper()
+    swap = "Z" if head != "Z" else "Y"
+    return (swap + code[1:])[:6].ljust(6, "X")[:6]
+
+
 def _create_event(db: Session, user: User, code: str, name: str = "Test Event") -> Event:
     """Helper to create an event for bulk delete tests."""
     event = Event(
         code=code,
+        join_code=_derive_join_code(code),
         name=name,
         created_by_user_id=user.id,
         expires_at=utcnow() + timedelta(hours=6),

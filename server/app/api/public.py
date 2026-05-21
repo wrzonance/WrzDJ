@@ -15,7 +15,7 @@ from app.core.time import utcnow
 from app.models.guest import Guest
 from app.models.request import Request as SongRequest
 from app.models.request import RequestStatus
-from app.services.event import EventLookupResult, get_event_by_code_with_status
+from app.services.event import EventLookupResult, get_event_by_join_code_with_status
 from app.services.now_playing import get_now_playing, is_now_playing_hidden
 from app.services.request import get_requests_by_guest
 
@@ -98,7 +98,7 @@ def get_kiosk_display(
     db: Session = Depends(get_db),
 ) -> KioskDisplayResponse:
     """Get public kiosk display data for an event."""
-    event, lookup_result = get_event_by_code_with_status(db, code)
+    event, lookup_result = get_event_by_join_code_with_status(db, code)
 
     if lookup_result == EventLookupResult.NOT_FOUND:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -114,7 +114,7 @@ def get_kiosk_display(
         base_url = settings.public_url.rstrip("/")
     else:
         base_url = str(request.base_url).rstrip("/")
-    qr_join_url = f"{base_url}/join/{event.code}"
+    qr_join_url = f"{base_url}/join/{event.join_code}"
 
     # Get accepted requests (status = 'accepted') sorted by vote_count desc, then updated_at asc
     accepted_requests = [r for r in event.requests if r.status == RequestStatus.ACCEPTED.value]
@@ -166,7 +166,7 @@ def get_kiosk_display(
             banner_colors = json.loads(event.banner_colors)
 
     return KioskDisplayResponse(
-        event=PublicEventInfo(code=event.code, name=event.name),
+        event=PublicEventInfo(code=event.join_code, name=event.name),
         qr_join_url=qr_join_url,
         accepted_queue=accepted_queue,
         now_playing=now_playing,
@@ -188,7 +188,7 @@ def get_public_requests(
     db: Session = Depends(get_db),
 ) -> GuestRequestListResponse:
     """Get publicly visible requests for an event (NEW and ACCEPTED only)."""
-    event, lookup_result = get_event_by_code_with_status(db, code)
+    event, lookup_result = get_event_by_join_code_with_status(db, code)
 
     if lookup_result == EventLookupResult.NOT_FOUND:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -226,7 +226,7 @@ def get_public_requests(
             )
 
     return GuestRequestListResponse(
-        event=PublicEventInfo(code=event.code, name=event.name),
+        event=PublicEventInfo(code=event.join_code, name=event.name),
         requests=[
             GuestRequestInfo(
                 id=r.id,
@@ -255,7 +255,7 @@ def check_has_requested(
     db: Session = Depends(get_db),
 ) -> HasRequestedResponse:
     """Check if the current client has submitted any requests for this event."""
-    event, lookup_result = get_event_by_code_with_status(db, code)
+    event, lookup_result = get_event_by_join_code_with_status(db, code)
 
     if lookup_result == EventLookupResult.NOT_FOUND:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -288,7 +288,7 @@ def get_my_requests(
     db: Session = Depends(get_db),
 ) -> MyRequestsResponse:
     """Get all requests submitted by the current client for this event."""
-    event, lookup_result = get_event_by_code_with_status(db, code)
+    event, lookup_result = get_event_by_join_code_with_status(db, code)
 
     if lookup_result == EventLookupResult.NOT_FOUND:
         raise HTTPException(status_code=404, detail="Event not found")

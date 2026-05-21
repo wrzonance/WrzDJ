@@ -227,6 +227,13 @@ export class HumanVerificationRequiredError extends ApiError {
  * `detail.code === 'human_verification_required'`, the wrapper calls
  * `reverify()` and retries the fetch once.
  */
+export class EmailVerificationRequiredError extends Error {
+  constructor() {
+    super('email_verification_required');
+    this.name = 'EmailVerificationRequiredError';
+  }
+}
+
 export async function withHumanRetry<T>(
   doFetch: () => Promise<Response>,
   reverify: () => Promise<void>,
@@ -237,6 +244,8 @@ export async function withHumanRetry<T>(
     if (body?.detail?.code === 'human_verification_required') {
       await reverify();
       res = await doFetch();
+    } else if (body?.detail?.code === 'email_verification_required') {
+      throw new EmailVerificationRequiredError();
     }
   }
   if (!res.ok) {
@@ -1274,6 +1283,10 @@ class ApiClient {
 
   // Note: returns `key` (not `musical_key`) to match EnrichPreviewResult schema —
   // callers merging results into SearchResult use `.key`; leaderboard fields use `.musical_key`.
+  //
+  // Sends credentials because the endpoint is now gated by require_email_verified
+  // (post-2026-05-20 collection hardening). On any failure (403, network, etc.),
+  // we fall back to the unenriched items so search UX degrades gracefully.
   async enrichPreview(
     code: string,
     items: Array<{ title: string; artist: string; source_url?: string }>,
@@ -1284,7 +1297,7 @@ class ApiClient {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          // No credentials: endpoint is stateless (best-effort BPM lookup, no guest cookie needed)
+          credentials: 'include',
           body: JSON.stringify({ items }),
         },
       );

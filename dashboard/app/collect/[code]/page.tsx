@@ -15,6 +15,7 @@ import { useGuestIdentity } from '../../../lib/use-guest-identity';
 import { useHumanVerification } from '@/lib/useHumanVerification';
 import { IdentityBar } from '../../../components/IdentityBar';
 import { NicknameGate, GateResult } from '../../../components/NicknameGate';
+import EmailGate from '../../../components/EmailGate';
 import EmailRecoveryButton from '../../../components/EmailRecoveryButton';
 import EmailRecoveryModal from '../../../components/EmailRecoveryModal';
 import CollectDetailSheet from './components/CollectDetailSheet';
@@ -209,13 +210,13 @@ export default function CollectPage() {
           return;
         }
         if (ev.phase === 'collection') {
-          const [lb, picks] = await Promise.all([
-            apiClient.getCollectLeaderboard(code, tab),
-            apiClient.getCollectMyPicks(code),
-          ]);
-          if (!cancelled) {
-            setLeaderboard(lb);
-            setMyPicks(picks);
+          // Leaderboard is ungated; my-picks requires email verification, so skip
+          // it until the guest verifies to avoid surfacing a sticky 403 error.
+          const lb = await apiClient.getCollectLeaderboard(code, tab);
+          if (!cancelled) setLeaderboard(lb);
+          if (emailVerified) {
+            const picks = await apiClient.getCollectMyPicks(code);
+            if (!cancelled) setMyPicks(picks);
           }
         }
       } catch (e) {
@@ -237,7 +238,7 @@ export default function CollectPage() {
       if (timer) clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [code, tab, gateComplete]);
+  }, [code, tab, gateComplete, emailVerified]);
 
   const leaderboardAvgBpm = useMemo(() => {
     const withBpm = (leaderboard?.requests ?? []).filter((r) => r.bpm != null);
@@ -320,6 +321,7 @@ export default function CollectPage() {
   const subFg = 'rgba(255,255,255,0.5)';
 
   return (
+    <EmailGate verified={emailVerified} onVerified={() => setEmailVerified(true)}>
     <main className="collect-page tower">
       {/* Ambient glows */}
       <div style={{ position: 'fixed', top: 40, left: -80, width: 280, height: 280, borderRadius: '50%', background: `radial-gradient(circle, ${accent2}28, transparent 70%)`, filter: 'blur(40px)', pointerEvents: 'none', zIndex: 0 }} />
@@ -639,6 +641,7 @@ export default function CollectPage() {
         </div>
       )}
     </main>
+    </EmailGate>
   );
 }
 

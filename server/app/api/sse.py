@@ -11,7 +11,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.api.deps import get_db
 from app.core.rate_limit import limiter
-from app.services.event import EventLookupResult, get_event_by_code_with_status
+from app.services.event import EventLookupResult, get_event_by_join_code_with_status
 from app.services.event_bus import get_event_bus
 
 logger = logging.getLogger(__name__)
@@ -70,7 +70,7 @@ async def event_stream(
     - requests_bulk_update: Batch accept/reject
     - bridge_status_changed: Bridge connect/disconnect
     """
-    event, result = get_event_by_code_with_status(db, code)
+    event, result = get_event_by_join_code_with_status(db, code)
     if result == EventLookupResult.NOT_FOUND:
         raise HTTPException(status_code=404, detail="Event not found")
     if result == EventLookupResult.ARCHIVED:

@@ -25,6 +25,9 @@ class Event(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     code: Mapped[str] = mapped_column(String(10), unique=True, index=True)
+    # Frictionless live-event code (QR target). Distinct from `code` (collection code).
+    # See docs/superpowers/specs/2026-05-20-collection-vs-live-event-codes-design.md.
+    join_code: Mapped[str] = mapped_column(String(10), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(100))
     created_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

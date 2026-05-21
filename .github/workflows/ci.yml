@@ -62,7 +62,10 @@ jobs:
         #                  in pip PR #13870; revisit when GitHub Actions ships a patched pip.
         #   CVE-2026-6357  (pip 26.x: PATH handling) - same class as above; affects pip the
         #                  build tool only, not runtime deps. Revisit when GHA upgrades pip.
-        run: pip-audit --ignore-vuln CVE-2024-23342 --ignore-vuln CVE-2026-3219 --ignore-vuln CVE-2026-6357
+        #   PYSEC-2025-183 (pyjwt 2.10.1+ weak encryption, DISPUTED) - no fix released, the
+        #                  pyjwt maintainers contest the advisory. We already pin pyjwt to the
+        #                  latest available (2.12.1). Revisit when an upstream fix lands.
+        run: pip-audit --ignore-vuln CVE-2024-23342 --ignore-vuln CVE-2026-3219 --ignore-vuln CVE-2026-6357 --ignore-vuln PYSEC-2025-183
 
       - name: Run tests with coverage
         env:

@@ -1,10 +1,19 @@
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { useEffect } from "react";
+import type React from "react";
 import CollectPage from "./page";
 
 vi.mock("./components/EmailVerification", () => ({
   default: () => <div data-testid="email-verification-stub" />,
+}));
+
+// EmailGate wraps the page; stub as passthrough so tests don't render the
+// Turnstile-driven EmailVerification subtree (which spins up effects against
+// a non-existent window.turnstile in jsdom). The real gate is exercised in
+// dedicated EmailGate tests.
+vi.mock("../../../components/EmailGate", () => ({
+  default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 vi.mock("@/lib/useHumanVerification", () => ({

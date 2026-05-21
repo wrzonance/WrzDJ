@@ -113,7 +113,7 @@ class TestFindDuplicate:
     def test_no_match_different_event(self, db, test_event, test_user):
         other_event = Event(
             code="OTHER1",
-            join_code="PTHER1",
+            join_code="WX8XQG",
             name="Other Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),

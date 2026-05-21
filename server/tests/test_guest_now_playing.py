@@ -105,7 +105,7 @@ class TestGuestNowPlaying:
 
         expired = Event(
             code="EXPRD1",
-            join_code="FXPRD1",
+            join_code="KGQ35Q",
             name="Expired Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() - timedelta(hours=1),
@@ -113,7 +113,7 @@ class TestGuestNowPlaying:
         db.add(expired)
         db.commit()
 
-        response = client.get("/api/public/events/FXPRD1/requests")
+        response = client.get("/api/public/events/KGQ35Q/requests")
         assert response.status_code == 410
 
     def test_nonexistent_event_returns_404(self, client: TestClient):

@@ -291,7 +291,7 @@ class TestAssignKiosk:
         complete_pairing(db, kiosk, test_event.code, test_user.id)
         event2 = Event(
             code="EVT002",
-            join_code="FVT002",
+            join_code="WHHQ8B",
             name="Second Event",
             created_by_user_id=test_user.id,
             expires_at=utcnow() + timedelta(hours=6),
@@ -444,9 +444,14 @@ class TestKioskIdor:
 
     @staticmethod
     def _make_victim_event(db: Session, owner: User, code: str = "VICTIM") -> Event:
+        # Deterministic 6-char join_code that's always distinct from `code`:
+        # swap first character (avoids the f"{code}J"[:6] collision when code is 6 chars).
+        head = code[0].upper()
+        swap = "Z" if head != "Z" else "Y"
+        join_code = (swap + code[1:])[:6].ljust(6, "X")[:6]
         evt = Event(
             code=code,
-            join_code=f"{code}J"[:6],
+            join_code=join_code,
             name="Victim Event",
             created_by_user_id=owner.id,
             expires_at=utcnow() + timedelta(hours=6),

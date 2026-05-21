@@ -43,7 +43,7 @@ def bp_api_headers(client: TestClient, bp_api_user: User) -> dict[str, str]:
 def bp_api_event(db: Session, bp_api_user: User) -> Event:
     event = Event(
         code="BPAPI1",
-        join_code="CPAPI1",
+        join_code="GRWQLD",
         name="BP API Test Event",
         created_by_user_id=bp_api_user.id,
         expires_at=datetime.now(UTC) + timedelta(hours=6),

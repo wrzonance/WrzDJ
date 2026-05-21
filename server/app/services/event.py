@@ -69,30 +69,43 @@ def compute_event_status(event: Event) -> EventStatus:
 def create_event(db: Session, name: str, user: User, expires_hours: int = 6) -> Event:
     """Create a new event with distinct, globally-unique collection and join codes.
 
-    The second code is checked against the first in-memory candidate so both
-    columns receive distinct values even before the first row is committed.
+    Concurrency safety: in-memory generation is best-effort; the database
+    UNIQUE constraints on `code` and `join_code` are the actual guarantee.
+    If two concurrent transactions race and pick overlapping values, the
+    INSERT raises IntegrityError and we retry with fresh codes.
     """
-    code = generate_unique_event_code(db)
-    # Generate join_code separately, retrying if it collides with `code` (the
-    # in-memory candidate not yet committed) — generate_unique_event_code only
-    # consults persisted rows.
-    while True:
-        join_code = generate_unique_event_code(db)
-        if join_code != code:
-            break
+    from sqlalchemy.exc import IntegrityError
 
     expires_at = utcnow() + timedelta(hours=expires_hours)
-    event = Event(
-        code=code,
-        join_code=join_code,
-        name=name,
-        created_by_user_id=user.id,
-        expires_at=expires_at,
-    )
-    db.add(event)
-    db.commit()
-    db.refresh(event)
-    return event
+    max_attempts = 8
+    for attempt in range(max_attempts):
+        code = generate_unique_event_code(db)
+        # Ensure the second code is distinct from the first in-memory candidate;
+        # generate_unique_event_code only consults persisted rows.
+        while True:
+            join_code = generate_unique_event_code(db)
+            if join_code != code:
+                break
+
+        event = Event(
+            code=code,
+            join_code=join_code,
+            name=name,
+            created_by_user_id=user.id,
+            expires_at=expires_at,
+        )
+        db.add(event)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            if attempt == max_attempts - 1:
+                raise
+            continue
+        db.refresh(event)
+        return event
+    # Unreachable: loop either returns or raises on the final iteration.
+    raise RuntimeError("create_event: exhausted retries without resolution")
 
 
 def get_event_by_code_with_status(db: Session, code: str) -> tuple[Event | None, EventLookupResult]:

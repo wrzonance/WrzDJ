@@ -22,6 +22,7 @@ export interface UseHumanVerification {
 export function useHumanVerification(): UseHumanVerification {
   const [state, setState] = useState<HumanVerificationState>('idle');
   const widgetContainerRef = useRef<HTMLDivElement | null>(null);
+  const fallbackContainerRef = useRef<HTMLDivElement | null>(null);
   const widgetIdRef = useRef<string | null>(null);
   const verifiedResolversRef = useRef<Array<() => void>>([]);
   const stateRef = useRef(state);
@@ -55,12 +56,39 @@ export function useHumanVerification(): UseHumanVerification {
     await loadTurnstileScript();
     if (!window.turnstile) return;
 
-    // Use ref container if attached; otherwise create a hidden fallback container
+    // Use the page-supplied ref container if it's attached; otherwise create a
+    // visible fallback positioned at center-screen. Cloudflare can escalate
+    // from invisible to visible challenge on suspicious sessions, so the
+    // fallback container MUST be reachable to the user — a display:none
+    // fallback would trap visible-challenge escalations and lock the guest
+    // out of any page that hasn't rendered its widget container yet (e.g.
+    // collect pages where the page-level container sits behind a gate
+    // early-return that hasn't mounted yet).
     let container = widgetContainerRef.current;
+    let fallbackOwned = false;
     if (!container) {
       container = document.createElement('div');
-      container.style.display = 'none';
+      container.setAttribute('data-testid', 'human-verify-fallback');
+      Object.assign(container.style, {
+        position: 'fixed',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        zIndex: '10000',
+        // Cloudflare hides the widget itself during invisible mode and
+        // expands it during escalation; the container only needs to be
+        // mounted and reachable. Use min-width/height so the iframe
+        // injected by Turnstile has room to expand for the visible
+        // challenge.
+        minWidth: '300px',
+        minHeight: '65px',
+      });
       document.body.appendChild(container);
+      fallbackOwned = true;
+    }
+    // Track for cleanup so we can remove the fallback on unmount
+    if (fallbackOwned) {
+      fallbackContainerRef.current = container;
     }
 
     if (widgetIdRef.current) {
@@ -91,6 +119,10 @@ export function useHumanVerification(): UseHumanVerification {
       if (widgetIdRef.current && window.turnstile) {
         window.turnstile.remove(widgetIdRef.current);
         widgetIdRef.current = null;
+      }
+      if (fallbackContainerRef.current) {
+        fallbackContainerRef.current.remove();
+        fallbackContainerRef.current = null;
       }
     };
   }, []);

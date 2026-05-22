@@ -69,20 +69,30 @@ export function useHumanVerification(): UseHumanVerification {
     if (!container) {
       container = document.createElement('div');
       container.setAttribute('data-testid', 'human-verify-fallback');
+      // Zero-size, pointer-events:none container. Cloudflare's injected
+      // iframe sizes itself for invisible vs visible challenge mode and
+      // overflows the container naturally; the wrapper just provides a
+      // stable, centered anchor point in the DOM. Pointer-events:none
+      // ensures the container doesn't intercept clicks on underlying gate
+      // UI when no challenge is being shown.
       Object.assign(container.style, {
         position: 'fixed',
         top: '50%',
         left: '50%',
         transform: 'translate(-50%, -50%)',
         zIndex: '10000',
-        // Cloudflare hides the widget itself during invisible mode and
-        // expands it during escalation; the container only needs to be
-        // mounted and reachable. Use min-width/height so the iframe
-        // injected by Turnstile has room to expand for the visible
-        // challenge.
-        minWidth: '300px',
-        minHeight: '65px',
+        width: '0',
+        height: '0',
+        overflow: 'visible',
+        pointerEvents: 'none',
       });
+      // Re-enable pointer events on the injected iframe so the user can
+      // interact with a visible challenge widget when Cloudflare escalates.
+      const styleEl = document.createElement('style');
+      styleEl.textContent = `
+        [data-testid="human-verify-fallback"] iframe { pointer-events: auto; }
+      `;
+      document.head.appendChild(styleEl);
       document.body.appendChild(container);
       fallbackOwned = true;
     }

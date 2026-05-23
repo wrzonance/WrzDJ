@@ -184,3 +184,86 @@ class TestVerifyHumanCookie:
         for bad in ["", "no-dot", "only.one.dot.too.many", "...", "abc.def"]:
             request = _make_request_with_cookie(bad)
             assert verify_human_cookie(request) is None
+
+
+def test_issued_cookie_payload_contains_version_2():
+    """issue_human_cookie() must embed v=2 in the JSON payload."""
+    import base64 as _b64
+    import json as _json
+
+    from fastapi import Response
+
+    from app.services.human_verification import COOKIE_NAME, issue_human_cookie
+
+    resp = Response()
+    issue_human_cookie(resp, guest_id=42)
+    raw = resp.headers["set-cookie"]
+    cookie_value = raw.split(f"{COOKIE_NAME}=", 1)[1].split(";", 1)[0]
+    payload_part, _sig = cookie_value.rsplit(".", 1)
+
+    pad = "=" * (-len(payload_part) % 4)
+    payload = _json.loads(_b64.urlsafe_b64decode(payload_part + pad))
+
+    assert payload["v"] == 2
+    assert payload["guest_id"] == 42
+    assert "exp" in payload
+
+
+def test_verify_rejects_unversioned_cookie():
+    """A v=1 (versionless) cookie returned by the old infrastructure must be rejected."""
+    import base64 as _base64
+    import hashlib
+    import hmac as _hmac
+    import json as _json
+
+    from fastapi import Request
+
+    from app.core.config import get_settings
+    from app.services.human_verification import COOKIE_NAME, verify_human_cookie
+
+    key = get_settings().effective_human_cookie_secret
+    payload = _json.dumps({"guest_id": 7, "exp": 9999999999}, separators=(",", ":")).encode()
+    sig = _hmac.new(key, payload, hashlib.sha256).digest()
+
+    def _b64(b: bytes) -> str:
+        return _base64.urlsafe_b64encode(b).decode().rstrip("=")
+
+    cookie_value = f"{_b64(payload)}.{_b64(sig)}"
+
+    scope = {
+        "type": "http",
+        "headers": [(b"cookie", f"{COOKIE_NAME}={cookie_value}".encode())],
+    }
+    req = Request(scope)
+    assert verify_human_cookie(req) is None
+
+
+def test_verify_rejects_wrong_version_cookie():
+    """A cookie with v=99 must be rejected even if signed correctly."""
+    import base64 as _base64
+    import hashlib
+    import hmac as _hmac
+    import json as _json
+
+    from fastapi import Request
+
+    from app.core.config import get_settings
+    from app.services.human_verification import COOKIE_NAME, verify_human_cookie
+
+    key = get_settings().effective_human_cookie_secret
+    payload = _json.dumps(
+        {"v": 99, "guest_id": 7, "exp": 9999999999}, separators=(",", ":")
+    ).encode()
+    sig = _hmac.new(key, payload, hashlib.sha256).digest()
+
+    def _b64(b: bytes) -> str:
+        return _base64.urlsafe_b64encode(b).decode().rstrip("=")
+
+    cookie_value = f"{_b64(payload)}.{_b64(sig)}"
+
+    scope = {
+        "type": "http",
+        "headers": [(b"cookie", f"{COOKIE_NAME}={cookie_value}".encode())],
+    }
+    req = Request(scope)
+    assert verify_human_cookie(req) is None

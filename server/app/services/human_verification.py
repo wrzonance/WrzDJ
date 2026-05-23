@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 COOKIE_NAME = "wrzdj_human"
+HUMAN_COOKIE_VERSION = 2  # Bump on any breaking schema or policy change.
 
 
 def _b64encode(data: bytes) -> str:
@@ -43,6 +44,10 @@ def _sign(payload_bytes: bytes, key: bytes) -> bytes:
 def issue_human_cookie(response: Response, guest_id: int) -> None:
     """Sign payload with HMAC-SHA256 and set the wrzdj_human cookie.
 
+    The payload carries an integer `v` discriminator so a future invalidation
+    can reject all prior cookies by bumping the constant. Older payloads
+    without the field are silently rejected in verify_human_cookie().
+
     Sliding window: caller invokes this on every successful gated request to
     reset the cookie's exp to now + ttl.
     """
@@ -51,7 +56,7 @@ def issue_human_cookie(response: Response, guest_id: int) -> None:
     ttl = settings.human_cookie_ttl_seconds
     exp = int(utcnow().timestamp()) + ttl
 
-    payload = {"guest_id": int(guest_id), "exp": exp}
+    payload = {"v": HUMAN_COOKIE_VERSION, "guest_id": int(guest_id), "exp": exp}
     payload_bytes = json.dumps(payload, separators=(",", ":")).encode()
     sig = _sign(payload_bytes, key)
     cookie_value = f"{_b64encode(payload_bytes)}.{_b64encode(sig)}"
@@ -68,9 +73,9 @@ def issue_human_cookie(response: Response, guest_id: int) -> None:
 
 
 def verify_human_cookie(request: Request) -> int | None:
-    """Return guest_id if the wrzdj_human cookie is valid, signed, and unexpired.
+    """Return guest_id if the wrzdj_human cookie is valid, signed, version-matched, and unexpired.
 
-    Returns None on any failure (missing, malformed, bad signature, expired).
+    Returns None on any failure (missing, malformed, bad signature, wrong version, expired).
     """
     raw = request.cookies.get(COOKIE_NAME)
     if not raw or "." not in raw:
@@ -92,6 +97,15 @@ def verify_human_cookie(request: Request) -> int | None:
 
     try:
         payload = json.loads(payload_bytes)
+    except (ValueError, TypeError):
+        return None
+
+    # Reject cookies issued under prior schema versions (v=1 had no field;
+    # the constant bump forces every pre-existing session to re-verify).
+    if payload.get("v") != HUMAN_COOKIE_VERSION:
+        return None
+
+    try:
         guest_id_raw = payload["guest_id"]
         if not isinstance(guest_id_raw, int) or isinstance(guest_id_raw, bool):
             return None
@@ -99,7 +113,7 @@ def verify_human_cookie(request: Request) -> int | None:
         exp = payload["exp"]
         if not isinstance(exp, int) or isinstance(exp, bool):
             return None
-    except (ValueError, KeyError, TypeError):
+    except (KeyError, TypeError):
         return None
 
     if exp < int(utcnow().timestamp()):

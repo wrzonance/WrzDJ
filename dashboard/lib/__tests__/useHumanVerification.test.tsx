@@ -8,6 +8,9 @@ vi.mock('../api', () => ({
       turnstile_site_key: 'test-site-key',
     }),
     verifyHuman: vi.fn().mockResolvedValue({ verified: true, expires_in: 3600 }),
+    // Default: cookie not yet established, fall through to Turnstile bootstrap.
+    // Individual tests override this to verify the fast-path skip.
+    getVerifyStatus: vi.fn().mockResolvedValue({ verified: false, expires_in: 0 }),
   },
   ApiError: class extends Error {
     status: number;

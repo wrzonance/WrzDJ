@@ -16,89 +16,97 @@ export interface UseHumanVerification {
   state: HumanVerificationState;
   ensureVerified: () => Promise<void>;
   reverify: () => Promise<void>;
+  retry: () => void;
   widgetContainerRef: React.RefObject<HTMLDivElement | null>;
 }
 
+/**
+ * Owns the human-verification state machine for the page.
+ *
+ * On mount, probes /api/public/guest/verify-status to short-circuit Turnstile
+ * when the visitor already has a valid wrzdj_human cookie. When no valid
+ * cookie exists, renders the Turnstile widget into the page-supplied
+ * widget container (provided by HumanVerificationOverlay). Cloudflare
+ * escalation from invisible to visible challenge flips state to 'challenge'
+ * via the before-interactive-callback so the overlay can reveal the widget.
+ */
 export function useHumanVerification(): UseHumanVerification {
   const [state, setState] = useState<HumanVerificationState>('idle');
   const widgetContainerRef = useRef<HTMLDivElement | null>(null);
   const fallbackContainerRef = useRef<HTMLDivElement | null>(null);
   const widgetIdRef = useRef<string | null>(null);
   const verifiedResolversRef = useRef<Array<() => void>>([]);
+  const mountedRef = useRef(true);
+  const retryCountRef = useRef(0);
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  const submitToken = useCallback(async (token: string) => {
-    try {
-      const result = await api.verifyHuman(token);
-      if (result.verified) {
-        setState('verified');
-        verifiedResolversRef.current.forEach((resolve) => resolve());
-        verifiedResolversRef.current = [];
-      } else {
-        setState('failed');
-      }
-    } catch {
-      setState('failed');
-    }
+  const flushVerified = useCallback(() => {
+    verifiedResolversRef.current.forEach((resolve) => resolve());
+    verifiedResolversRef.current = [];
   }, []);
 
+  const submitToken = useCallback(
+    async (token: string) => {
+      try {
+        const result = await api.verifyHuman(token);
+        if (!mountedRef.current) return;
+        if (result.verified) {
+          setState('verified');
+          flushVerified();
+        } else {
+          setState('failed');
+        }
+      } catch {
+        if (mountedRef.current) setState('failed');
+      }
+    },
+    [flushVerified],
+  );
+
   const renderWidget = useCallback(async () => {
+    if (!mountedRef.current) return;
     setState('loading');
     const sitekey = await getTurnstileSiteKey();
+    if (!mountedRef.current) return;
     if (!sitekey) {
-      // No site key configured (dev / Turnstile-disabled deploy) — treat as verified
+      // Dev / Turnstile-disabled — treat as verified
       setState('verified');
-      verifiedResolversRef.current.forEach((resolve) => resolve());
-      verifiedResolversRef.current = [];
+      flushVerified();
       return;
     }
     await loadTurnstileScript();
-    if (!window.turnstile) return;
+    if (!mountedRef.current || !window.turnstile) return;
 
-    // Use the page-supplied ref container if it's attached; otherwise create a
-    // visible fallback positioned at center-screen. Cloudflare can escalate
-    // from invisible to visible challenge on suspicious sessions, so the
-    // fallback container MUST be reachable to the user — a display:none
-    // fallback would trap visible-challenge escalations and lock the guest
-    // out of any page that hasn't rendered its widget container yet (e.g.
-    // collect pages where the page-level container sits behind a gate
-    // early-return that hasn't mounted yet).
     let container = widgetContainerRef.current;
-    let fallbackOwned = false;
     if (!container) {
-      container = document.createElement('div');
-      container.setAttribute('data-testid', 'human-verify-fallback');
-      // Zero-size, pointer-events:none container. Cloudflare's injected
-      // iframe sizes itself for invisible vs visible challenge mode and
-      // overflows the container naturally; the wrapper just provides a
-      // stable, centered anchor point in the DOM. Pointer-events:none
-      // ensures the container doesn't intercept clicks on underlying gate
-      // UI when no challenge is being shown.
-      Object.assign(container.style, {
-        position: 'fixed',
-        top: '50%',
-        left: '50%',
-        transform: 'translate(-50%, -50%)',
-        zIndex: '10000',
-        width: '0',
-        height: '0',
-        overflow: 'visible',
-        pointerEvents: 'none',
-      });
-      // Re-enable pointer events on the injected iframe so the user can
-      // interact with a visible challenge widget when Cloudflare escalates.
-      const styleEl = document.createElement('style');
-      styleEl.textContent = `
-        [data-testid="human-verify-fallback"] iframe { pointer-events: auto; }
-      `;
-      document.head.appendChild(styleEl);
-      document.body.appendChild(container);
-      fallbackOwned = true;
-    }
-    // Track for cleanup so we can remove the fallback on unmount
-    if (fallbackOwned) {
-      fallbackContainerRef.current = container;
+      // Overlay should have mounted the ref before we get here; wait a frame
+      // for React to paint and retry. After a few frames give up and create
+      // a zero-size offscreen fallback so the hook still completes (covers
+      // contexts that don't render the overlay, e.g. hook unit tests).
+      if (retryCountRef.current < 3) {
+        retryCountRef.current += 1;
+        requestAnimationFrame(() => void renderWidget());
+        return;
+      }
+      if (!fallbackContainerRef.current) {
+        const el = document.createElement('div');
+        el.setAttribute('data-testid', 'hv-widget-fallback');
+        Object.assign(el.style, {
+          position: 'fixed',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          zIndex: '10000',
+          width: '0',
+          height: '0',
+          overflow: 'visible',
+          pointerEvents: 'none',
+        });
+        document.body.appendChild(el);
+        fallbackContainerRef.current = el;
+      }
+      container = fallbackContainerRef.current;
     }
 
     if (widgetIdRef.current) {
@@ -113,19 +121,48 @@ export function useHumanVerification(): UseHumanVerification {
       callback: (token: string) => {
         void submitToken(token);
       },
-      'error-callback': () => setState('failed'),
+      'error-callback': () => {
+        if (mountedRef.current) setState('failed');
+      },
       'expired-callback': () => {
+        if (!mountedRef.current) return;
         setState('idle');
         if (widgetIdRef.current && window.turnstile) {
           window.turnstile.reset(widgetIdRef.current);
         }
       },
-    });
-  }, [submitToken]);
+      // Cloudflare invokes this when an invisible challenge escalates to a
+      // visible one. We flip state so the overlay reveals the widget. If
+      // this callback name turns out not to exist in the current Turnstile
+      // JS API, an iframe-size polling fallback is the next step.
+      'before-interactive-callback': () => {
+        if (mountedRef.current) setState('challenge');
+      },
+    } as Parameters<typeof window.turnstile.render>[1]);
+  }, [submitToken, flushVerified]);
 
   useEffect(() => {
-    void renderWidget();
+    mountedRef.current = true;
+    void (async () => {
+      try {
+        const status = await api.getVerifyStatus();
+        if (!mountedRef.current) return;
+        if (status.verified) {
+          setState('verified');
+          flushVerified();
+          return;
+        }
+      } catch {
+        // /verify-status failure (network / 5xx) falls through to Turnstile
+      }
+      try {
+        await renderWidget();
+      } catch {
+        if (mountedRef.current) setState('failed');
+      }
+    })();
     return () => {
+      mountedRef.current = false;
       if (widgetIdRef.current && window.turnstile) {
         window.turnstile.remove(widgetIdRef.current);
         widgetIdRef.current = null;
@@ -135,6 +172,7 @@ export function useHumanVerification(): UseHumanVerification {
         fallbackContainerRef.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const ensureVerified = useCallback((): Promise<void> => {
@@ -145,6 +183,7 @@ export function useHumanVerification(): UseHumanVerification {
   }, []);
 
   const reverify = useCallback(async () => {
+    if (!mountedRef.current) return;
     if (widgetIdRef.current && window.turnstile) {
       window.turnstile.reset(widgetIdRef.current);
     }
@@ -152,5 +191,13 @@ export function useHumanVerification(): UseHumanVerification {
     await renderWidget();
   }, [renderWidget]);
 
-  return { state, ensureVerified, reverify, widgetContainerRef };
+  const retry = useCallback(() => {
+    if (widgetIdRef.current && window.turnstile) {
+      window.turnstile.remove(widgetIdRef.current);
+      widgetIdRef.current = null;
+    }
+    void renderWidget();
+  }, [renderWidget]);
+
+  return { state, ensureVerified, reverify, retry, widgetContainerRef };
 }

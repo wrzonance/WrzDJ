@@ -204,19 +204,21 @@ export default function CollectPage() {
         if (ev.phase === 'live' || ev.phase === 'closed') {
           // Don't redirect to /join until we KNOW we're verified — the
           // join_code is gated. The overlay should already be holding the
-          // UI if not verified; next tick retries once humanState flips.
-          if (humanState !== 'verified') return;
-          try {
-            const { join_code } = await apiClient.getLiveJoinCode(code);
-            if (cancelled) return;
-            sessionStorage.setItem(`wrzdj_live_splash_${code}`, '1');
-            router.replace(`/join/${join_code}`);
-          } catch {
-            // 403 (re-verify needed) or 409 (phase mismatch) — bail; next tick retries
+          // UI if not verified; the timer below keeps polling so the next
+          // tick retries the redirect once humanState flips.
+          if (humanState === 'verified') {
+            try {
+              const { join_code } = await apiClient.getLiveJoinCode(code);
+              if (cancelled) return;
+              sessionStorage.setItem(`wrzdj_live_splash_${code}`, '1');
+              router.replace(`/join/${join_code}`);
+              return; // navigation issued; no need to reschedule
+            } catch {
+              // 403 (re-verify needed) or 409 (phase mismatch) — fall through
+              // to the timer scheduling below so polling continues.
+            }
           }
-          return;
-        }
-        if (ev.phase === 'collection') {
+        } else if (ev.phase === 'collection') {
           // Leaderboard is ungated; my-picks requires email verification, so skip
           // it until the guest verifies to avoid surfacing a sticky 403 error.
           const lb = await apiClient.getCollectLeaderboard(code, tab);

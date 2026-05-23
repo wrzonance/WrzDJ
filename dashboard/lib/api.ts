@@ -471,7 +471,9 @@ class ApiClient {
         credentials: 'include',
       });
       if (!res.ok) return { verified: false, expires_in: 0 };
-      return res.json();
+      // Await JSON parse INSIDE the try so a parse failure falls into the
+      // catch and still satisfies the fail-closed {verified: false} contract.
+      return await res.json();
     } catch {
       return { verified: false, expires_in: 0 };
     }

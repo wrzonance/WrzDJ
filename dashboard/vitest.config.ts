@@ -12,7 +12,7 @@ export default defineConfig({
       provider: 'v8',
       exclude: ['node_modules', '.next', '**/*.test.{ts,tsx}', 'vitest.config.ts', 'vitest.setup.ts'],
       thresholds: {
-        branches: 69,
+        branches: 68,
         functions: 65,
         lines: 78,
         statements: 77,

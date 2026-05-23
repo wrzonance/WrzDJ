@@ -461,6 +461,40 @@ class ApiClient {
     return res.json();
   }
 
+  // Fast-path probe used by useHumanVerification on page mount. Returns
+  // verified=false on any error (network, 5xx) so the caller's fallback to
+  // running Turnstile is unconditional and simple.
+  async getVerifyStatus(): Promise<{ verified: boolean; expires_in: number }> {
+    try {
+      const res = await fetch(`${getApiUrl()}/api/public/guest/verify-status`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+      if (!res.ok) return { verified: false, expires_in: 0 };
+      return res.json();
+    } catch {
+      return { verified: false, expires_in: 0 };
+    }
+  }
+
+  // Gated endpoint returning the live event join_code to verified humans.
+  // Throws ApiError on non-2xx because callers discriminate 403 (re-verify)
+  // from 409 (phase mismatch — keep polling).
+  async getLiveJoinCode(code: string): Promise<{ join_code: string }> {
+    const res = await fetch(
+      `${getApiUrl()}/api/public/collect/${code}/live-join-code`,
+      { method: 'GET', credentials: 'include' },
+    );
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ detail: 'Request failed' }));
+      throw new ApiError(
+        typeof body.detail === 'string' ? body.detail : 'Live join code unavailable',
+        res.status,
+      );
+    }
+    return res.json();
+  }
+
   async register(data: {
     username: string;
     email: string;

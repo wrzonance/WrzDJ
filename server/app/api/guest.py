@@ -8,9 +8,18 @@ from app.api.deps import get_db
 from app.core.config import get_settings
 from app.core.rate_limit import get_client_ip, get_guest_id, limiter
 from app.schemas.guest import IdentifyRequest, IdentifyResponse
-from app.schemas.human_verification import VerifyHumanRequest, VerifyHumanResponse
+from app.schemas.human_verification import (
+    VerifyHumanRequest,
+    VerifyHumanResponse,
+    VerifyStatusResponse,
+)
 from app.services.guest_identity import identify_guest
-from app.services.human_verification import issue_human_cookie
+from app.services.human_verification import (
+    COOKIE_NAME,
+    _b64decode,
+    issue_human_cookie,
+    verify_human_cookie,
+)
 from app.services.turnstile import verify_turnstile_token
 
 router = APIRouter()
@@ -80,3 +89,33 @@ async def verify_human(
     issue_human_cookie(response, guest_id)
 
     return VerifyHumanResponse(verified=True, expires_in=settings.human_cookie_ttl_seconds)
+
+
+@router.get("/guest/verify-status", response_model=VerifyStatusResponse)
+@limiter.limit("60/minute")
+def verify_status(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> VerifyStatusResponse:
+    """Report whether the caller already has a valid wrzdj_human cookie.
+
+    Returns verified=false on missing, expired, version-mismatched, or
+    tampered cookies. No side effects (no cookie refresh, no DB writes).
+    Safe to call on every page mount.
+    """
+    response.headers["Cache-Control"] = "no-store, private"
+
+    guest_id = verify_human_cookie(request)
+    if guest_id is None:
+        return VerifyStatusResponse(verified=False, expires_in=0)
+
+    import json as _json
+
+    raw = request.cookies.get(COOKIE_NAME)
+    payload_part, _sig = raw.rsplit(".", 1)
+    payload = _json.loads(_b64decode(payload_part))
+    from app.core.time import utcnow
+
+    remaining = max(0, int(payload["exp"]) - int(utcnow().timestamp()))
+    return VerifyStatusResponse(verified=True, expires_in=remaining)

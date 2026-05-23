@@ -18,6 +18,7 @@ import { NicknameGate, GateResult } from '../../../components/NicknameGate';
 import EmailGate from '../../../components/EmailGate';
 import EmailRecoveryButton from '../../../components/EmailRecoveryButton';
 import EmailRecoveryModal from '../../../components/EmailRecoveryModal';
+import HumanVerificationOverlay from '../../../components/HumanVerificationOverlay';
 import CollectDetailSheet from './components/CollectDetailSheet';
 import LeaderboardTabs from './components/LeaderboardTabs';
 import MyPicksPanel from './components/MyPicksPanel';
@@ -30,7 +31,7 @@ export default function CollectPage() {
   const params = useParams<{ code: string }>();
   const code = params?.code ?? '';
   const { reconcileHint, refresh: refreshIdentity } = useGuestIdentity();
-  const { state: humanState, reverify, widgetContainerRef } = useHumanVerification();
+  const { state: humanState, reverify, retry, widgetContainerRef } = useHumanVerification();
 
   const [event, setEvent] = useState<CollectEventPreview | null>(null);
   const [leaderboard, setLeaderboard] = useState<CollectLeaderboardResponse | null>(null);
@@ -189,11 +190,6 @@ export default function CollectPage() {
     }
   };
 
-  const redirectToJoin = () => {
-    sessionStorage.setItem(`wrzdj_live_splash_${code}`, '1');
-    router.replace(`/join/${code}`);
-  };
-
   useEffect(() => {
     if (!gateComplete) return;
     if (!code) return;
@@ -206,7 +202,18 @@ export default function CollectPage() {
         if (cancelled) return;
         setEvent(ev);
         if (ev.phase === 'live' || ev.phase === 'closed') {
-          redirectToJoin();
+          // Don't redirect to /join until we KNOW we're verified — the
+          // join_code is gated. The overlay should already be holding the
+          // UI if not verified; next tick retries once humanState flips.
+          if (humanState !== 'verified') return;
+          try {
+            const { join_code } = await apiClient.getLiveJoinCode(code);
+            if (cancelled) return;
+            sessionStorage.setItem(`wrzdj_live_splash_${code}`, '1');
+            router.replace(`/join/${join_code}`);
+          } catch {
+            // 403 (re-verify needed) or 409 (phase mismatch) — bail; next tick retries
+          }
           return;
         }
         if (ev.phase === 'collection') {
@@ -238,7 +245,7 @@ export default function CollectPage() {
       if (timer) clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [code, tab, gateComplete, emailVerified]);
+  }, [code, tab, gateComplete, emailVerified, humanState, router]);
 
   const leaderboardAvgBpm = useMemo(() => {
     const withBpm = (leaderboard?.requests ?? []).filter((r) => r.bpm != null);
@@ -266,24 +273,38 @@ export default function CollectPage() {
     }).sort((a, b) => sortByVibes ? (a._score ?? 0) - (b._score ?? 0) : 0);
   }, [searchResults, enrichedResults, sortByVibes, leaderboardAvgBpm]);
 
+  // Single wrapper applied to every render path. Renders the overlay until
+  // human verification is established; children only mount when verified.
+  const wrap = (content: React.ReactNode) => (
+    <HumanVerificationOverlay
+      state={humanState}
+      widgetContainerRef={widgetContainerRef}
+      onRetry={retry}
+    >
+      {content}
+    </HumanVerificationOverlay>
+  );
+
   if (!gateComplete) {
-    return <NicknameGate code={code} onComplete={handleGateComplete} reverify={reverify} />;
+    return wrap(
+      <NicknameGate code={code} onComplete={handleGateComplete} reverify={reverify} />,
+    );
   }
 
   if (error) {
-    return (
+    return wrap(
       <main className="collect-page">
         <div className="collect-container">
           <div className="collect-error">Error: {error}</div>
         </div>
-      </main>
+      </main>,
     );
   }
   if (!event) {
-    return (
+    return wrap(
       <main className="collect-page">
         <div className="loading">Loading…</div>
-      </main>
+      </main>,
     );
   }
 
@@ -295,7 +316,7 @@ export default function CollectPage() {
 
   if (event.phase === 'pre_announce') {
     const opens = event.collection_opens_at ? new Date(event.collection_opens_at) : null;
-    return (
+    return wrap(
       <main className="collect-page tower">
         {bannerNode}
         <div className="collect-container">
@@ -309,7 +330,7 @@ export default function CollectPage() {
             <p className="collect-countdown">until voting opens</p>
           </div>
         </div>
-      </main>
+      </main>,
     );
   }
 
@@ -320,7 +341,7 @@ export default function CollectPage() {
   const border = 'rgba(255,255,255,0.08)';
   const subFg = 'rgba(255,255,255,0.5)';
 
-  return (
+  return wrap(
     <EmailGate verified={emailVerified} onVerified={() => setEmailVerified(true)}>
     <main className="collect-page tower">
       {/* Ambient glows */}
@@ -402,19 +423,8 @@ export default function CollectPage() {
         {myPicks && <MyPicksPanel picks={myPicks} />}
       </div>
 
-      {/* ── Human verification widget ────────────────────────────── */}
-      <div
-        ref={widgetContainerRef}
-        style={{
-          display: humanState === 'challenge' ? 'block' : 'none',
-          margin: '1rem 0',
-        }}
-      />
-      {humanState === 'failed' && (
-        <div style={{ color: '#ef4444', marginTop: '0.5rem', fontSize: '0.9rem', textAlign: 'center' }}>
-          Verification failed. Please refresh the page.
-        </div>
-      )}
+      {/* HumanVerificationOverlay (mounted around this whole page) owns
+          the Turnstile widget container and the failure UI. */}
 
       <SubmitBar
         used={profile?.submission_count ?? 0}
@@ -641,7 +651,7 @@ export default function CollectPage() {
         </div>
       )}
     </main>
-    </EmailGate>
+    </EmailGate>,
   );
 }
 

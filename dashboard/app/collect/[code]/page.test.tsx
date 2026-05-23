@@ -50,6 +50,7 @@ const mockGetCollectLeaderboard = vi.fn();
 const mockSubmitCollectRequest = vi.fn();
 const mockEventSearch = vi.fn();
 const mockEnrichPreview = vi.fn();
+const mockGetLiveJoinCode = vi.fn().mockResolvedValue({ join_code: "ABC" });
 
 vi.mock("../../../lib/api", () => ({
   ApiError: class ApiError extends Error {
@@ -71,6 +72,7 @@ vi.mock("../../../lib/api", () => ({
     search: vi.fn().mockResolvedValue([]),
     voteCollectRequest: vi.fn().mockResolvedValue(undefined),
     enrichPreview: (...a: unknown[]) => mockEnrichPreview(...a),
+    getLiveJoinCode: (...a: unknown[]) => mockGetLiveJoinCode(...a),
   },
 }));
 

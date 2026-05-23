@@ -240,6 +240,23 @@ export interface paths {
         patch: operations["admin_update_user_api_admin_users__user_id__patch"];
         trace?: never;
     };
+    "/api/auth/email/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Confirm Email Change */
+        get: operations["confirm_email_change_api_auth_email_confirm_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/help-seen": {
         parameters: {
             query?: never;
@@ -315,6 +332,40 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/auth/me/email/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request Email Change */
+        post: operations["request_email_change_api_auth_me_email_request_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/me/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Change Password */
+        patch: operations["change_password_api_auth_me_password_patch"];
         trace?: never;
     };
     "/api/auth/register": {
@@ -795,6 +846,30 @@ export interface paths {
         patch: operations["update_collection_settings_endpoint_api_events__code__collection_patch"];
         trace?: never;
     };
+    "/api/events/{code}/collection/sync-tidal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sync Collection To Tidal
+         * @description Sync all non-rejected collection-phase requests to the DJ's Tidal playlist.
+         *
+         *     Includes pending (new) and accepted requests so the DJ can listen to guest
+         *     suggestions on Tidal before the review step.  Already-synced tracks are
+         *     silently skipped inside sync_requests_batch.
+         */
+        post: operations["sync_collection_to_tidal_api_events__code__collection_sync_tidal_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/events/{code}/display-settings": {
         parameters: {
             query?: never;
@@ -817,6 +892,29 @@ export interface paths {
          * @description Update display settings for an event (e.g., hide/show now playing on kiosk).
          */
         patch: operations["update_display_settings_api_events__code__display_settings_patch"];
+        trace?: never;
+    };
+    "/api/events/{code}/enrich-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enrich All Requests
+         * @description Queue enrichment for up to ENRICH_ALL_BATCH_LIMIT requests missing BPM, key, or genre.
+         *
+         *     Batched to avoid exhausting the connection pool when many tracks need enrichment.
+         *     Returns `remaining` so the caller can re-invoke until 0.
+         */
+        post: operations["enrich_all_requests_api_events__code__enrich_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/events/{code}/export/csv": {
@@ -1238,7 +1336,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/public/collect/{code}/profile": {
+    "/api/public/collect/{code}/live-join-code": {
         parameters: {
             query?: never;
             header?: never;
@@ -1246,10 +1344,31 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Profile
-         * @description Read the calling guest's profile for this event. Anonymous callers
-         *     (no cookie) get the default empty profile — there is no IP fallback.
+         * Get Live Join Code
+         * @description Return the live join_code for an event that has entered the live phase.
+         *
+         *     Requires a verified human cookie (not email verification) so the join_code
+         *     is never leaked to unverified bots scraping /collect during the
+         *     collection-to-live transition. The join_code is otherwise revealed only
+         *     via the QR code at the event venue.
          */
+        get: operations["get_live_join_code_api_public_collect__code__live_join_code_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/collect/{code}/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Profile */
         get: operations["get_profile_api_public_collect__code__profile_get"];
         put?: never;
         /** Set Profile */
@@ -1288,6 +1407,23 @@ export interface paths {
         put?: never;
         /** Submit */
         post: operations["submit_api_public_collect__code__requests_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/collect/{code}/requests/{request_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Request Preview */
+        get: operations["request_preview_api_public_collect__code__requests__request_id__preview_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1510,6 +1646,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/public/guest/verify-human": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify Human
+         * @description Validate a Turnstile token and issue a wrzdj_human session cookie.
+         */
+        post: operations["verify_human_api_public_guest_verify_human_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/guest/verify-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Verify Status
+         * @description Report whether the caller already has a valid wrzdj_human cookie.
+         *
+         *     Returns verified=false on missing, expired, version-mismatched, or
+         *     tampered cookies. No side effects (no cookie refresh, no DB writes).
+         *     Safe to call on every page mount.
+         */
+        get: operations["verify_status_api_public_guest_verify_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/guest/verify/confirm": {
         parameters: {
             query?: never;
@@ -1542,6 +1722,9 @@ export interface paths {
         /**
          * Request Verification Code
          * @description Send a verification code to the provided email.
+         *
+         *     Requires a fresh Turnstile token (separate from the session cookie) to
+         *     protect against email-cost / sender-reputation abuse.
          */
         post: operations["request_verification_code_api_public_guest_verify_request_post"];
         delete?: never;
@@ -1562,8 +1745,31 @@ export interface paths {
         /**
          * Create Pairing
          * @description Create a new kiosk pairing session.
+         *
+         *     Requires a valid X-Pair-Nonce header obtained from /pair-challenge,
+         *     bound to the same client IP. Nonce is consumed on use.
          */
         post: operations["create_pairing_api_public_kiosk_pair_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/kiosk/pair-challenge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Pair Challenge
+         * @description Issue a one-time IP-bound nonce required for kiosk pairing.
+         */
+        get: operations["get_pair_challenge_api_public_kiosk_pair_challenge_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2009,6 +2215,8 @@ export interface components {
             id: number;
             /** Is Active */
             is_active: boolean;
+            /** Join Code */
+            join_code: string;
             /** Name */
             name: string;
             /** Owner Id */
@@ -2318,6 +2526,15 @@ export interface components {
          * @enum {string}
          */
         CapabilityStatus: "yes" | "no" | "not_implemented" | "configured" | "not_configured";
+        /** ChangePasswordRequest */
+        ChangePasswordRequest: {
+            /** Confirm New Password */
+            confirm_new_password: string;
+            /** Current Password */
+            current_password: string;
+            /** New Password */
+            new_password: string;
+        };
         /** CollectEventPreview */
         CollectEventPreview: {
             /** Banner Colors */
@@ -2378,6 +2595,11 @@ export interface components {
             /** Nickname */
             nickname: string | null;
             /**
+             * Requester Verified
+             * @default false
+             */
+            requester_verified: boolean;
+            /**
              * Status
              * @enum {string}
              */
@@ -2414,6 +2636,11 @@ export interface components {
             /** Nickname */
             nickname: string | null;
             /**
+             * Requester Verified
+             * @default false
+             */
+            requester_verified: boolean;
+            /**
              * Status
              * @enum {string}
              */
@@ -2435,6 +2662,16 @@ export interface components {
             upvoted: components["schemas"]["CollectMyPicksItem"][];
             /** Voted Request Ids */
             voted_request_ids: number[];
+        };
+        /** CollectPreviewResponse */
+        CollectPreviewResponse: {
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "spotify" | "tidal" | "beatport" | "manual";
+            /** Source Url */
+            source_url: string | null;
         };
         /** CollectProfileRequest */
         CollectProfileRequest: {
@@ -2609,6 +2846,8 @@ export interface components {
             beatport_sync_enabled: boolean;
             /** Code */
             code: string;
+            /** Collect Url */
+            collect_url: string | null;
             /** Collection Opens At */
             collection_opens_at: string | null;
             /** Collection Phase Override */
@@ -2621,6 +2860,8 @@ export interface components {
             id: number;
             /** Is Active */
             is_active: boolean;
+            /** Join Code */
+            join_code: string;
             /** Join Url */
             join_url: string | null;
             /** Live Starts At */
@@ -2688,6 +2929,11 @@ export interface components {
             musical_key: string | null;
             /** Nickname */
             nickname: string | null;
+            /**
+             * Requester Verified
+             * @default false
+             */
+            requester_verified: boolean;
             /**
              * Status
              * @enum {string}
@@ -2858,6 +3104,8 @@ export interface components {
         KioskOut: {
             /** Event Code */
             event_code: string | null;
+            /** Event Join Code */
+            event_join_code: string | null;
             /** Event Name */
             event_name: string | null;
             /** Id */
@@ -2870,6 +3118,13 @@ export interface components {
             paired_at: string | null;
             /** Status */
             status: string;
+        };
+        /** KioskPairChallengeResponse */
+        KioskPairChallengeResponse: {
+            /** Expires In */
+            expires_in: number;
+            /** Nonce */
+            nonce: string;
         };
         /**
          * KioskPairResponse
@@ -2893,6 +3148,8 @@ export interface components {
         KioskPairStatusResponse: {
             /** Event Code */
             event_code: string | null;
+            /** Event Join Code */
+            event_join_code: string | null;
             /** Event Name */
             event_name: string | null;
             /** Status */
@@ -2913,6 +3170,8 @@ export interface components {
         KioskSessionResponse: {
             /** Event Code */
             event_code: string | null;
+            /** Event Join Code */
+            event_join_code: string | null;
             /** Event Name */
             event_name: string | null;
             /** Status */
@@ -2922,6 +3181,17 @@ export interface components {
         LLMPromptRequest: {
             /** Prompt */
             prompt: string;
+        };
+        /**
+         * LiveJoinCodeResponse
+         * @description Returns the live join_code for an event that has entered the live phase.
+         *
+         *     Gated by require_verified_human so the join_code never leaks to unverified
+         *     bots scraping the collect URL during the collection-to-live transition.
+         */
+        LiveJoinCodeResponse: {
+            /** Join Code */
+            join_code: string;
         };
         /** MyRequestInfo */
         MyRequestInfo: {
@@ -3105,6 +3375,11 @@ export interface components {
             musical_key: string | null;
             /** Nickname */
             nickname: string | null;
+            /**
+             * Requester Verified
+             * @default false
+             */
+            requester_verified: boolean;
             /** Title */
             title: string;
             /**
@@ -3223,6 +3498,16 @@ export interface components {
             source_url?: string | null;
             /** Title */
             title: string;
+        };
+        /** RequestEmailChangeRequest */
+        RequestEmailChangeRequest: {
+            /** Current Password */
+            current_password: string;
+            /**
+             * New Email
+             * Format: email
+             */
+            new_email: string;
         };
         /** RequestOut */
         RequestOut: {
@@ -3554,6 +3839,10 @@ export interface components {
             live_starts_at?: string | null;
             /** Submission Cap Per Guest */
             submission_cap_per_guest?: number | null;
+            /** Tidal Collection Bidirectional */
+            tidal_collection_bidirectional?: boolean | null;
+            /** Tidal Sync Enabled */
+            tidal_sync_enabled?: boolean | null;
         };
         /** UserOut */
         UserOut: {
@@ -3562,6 +3851,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Email */
+            email: string | null;
             /**
              * Help Pages Seen
              * @default []
@@ -3571,6 +3862,8 @@ export interface components {
             id: number;
             /** Is Active */
             is_active: boolean;
+            /** Pending Email */
+            pending_email: string | null;
             /** Role */
             role: string;
             /** Username */
@@ -3608,6 +3901,18 @@ export interface components {
              */
             email: string;
         };
+        /** VerifyHumanRequest */
+        VerifyHumanRequest: {
+            /** Turnstile Token */
+            turnstile_token: string;
+        };
+        /** VerifyHumanResponse */
+        VerifyHumanResponse: {
+            /** Expires In */
+            expires_in: number;
+            /** Verified */
+            verified: boolean;
+        };
         /** VerifyRequestResponse */
         VerifyRequestResponse: {
             /** Sent */
@@ -3620,6 +3925,21 @@ export interface components {
              * Format: email
              */
             email: string;
+            /** Turnstile Token */
+            turnstile_token: string;
+        };
+        /**
+         * VerifyStatusResponse
+         * @description Reports whether the caller has a valid wrzdj_human cookie.
+         */
+        VerifyStatusResponse: {
+            /**
+             * Expires In
+             * @default 0
+             */
+            expires_in: number;
+            /** Verified */
+            verified: boolean;
         };
         /** VoteResponse */
         VoteResponse: {
@@ -4130,6 +4450,37 @@ export interface operations {
             };
         };
     };
+    confirm_email_change_api_auth_email_confirm_get: {
+        parameters: {
+            query: {
+                token: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusMessageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     mark_help_page_seen_api_auth_help_seen_post: {
         parameters: {
             query?: never;
@@ -4232,6 +4583,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserOut"];
+                };
+            };
+        };
+    };
+    request_email_change_api_auth_me_email_request_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestEmailChangeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusMessageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    change_password_api_auth_me_password_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusMessageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -5121,6 +5538,37 @@ export interface operations {
             };
         };
     };
+    sync_collection_to_tidal_api_events__code__collection_sync_tidal_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_display_settings_api_events__code__display_settings_get: {
         parameters: {
             query?: never;
@@ -5174,6 +5622,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DisplaySettingsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enrich_all_requests_api_events__code__enrich_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -5915,6 +6394,37 @@ export interface operations {
             };
         };
     };
+    get_live_join_code_api_public_collect__code__live_join_code_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiveJoinCodeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_profile_api_public_collect__code__profile_get: {
         parameters: {
             query?: never;
@@ -6034,6 +6544,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    request_preview_api_public_collect__code__requests__request_id__preview_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+                request_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectPreviewResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6366,6 +6908,59 @@ export interface operations {
             };
         };
     };
+    verify_human_api_public_guest_verify_human_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyHumanRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerifyHumanResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_status_api_public_guest_verify_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerifyStatusResponse"];
+                };
+            };
+        };
+    };
     confirm_code_api_public_guest_verify_confirm_post: {
         parameters: {
             query?: never;
@@ -6448,6 +7043,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["KioskPairResponse"];
+                };
+            };
+        };
+    };
+    get_pair_challenge_api_public_kiosk_pair_challenge_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KioskPairChallengeResponse"];
                 };
             };
         };

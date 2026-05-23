@@ -69,6 +69,8 @@ function mockEvent(overrides = {}) {
   return {
     id: 1,
     code: 'EVT01',
+      join_code: '10TVEJ',
+      collect_url: null,
     name: 'Friday Night',
     created_at: '2026-01-01T00:00:00Z',
     expires_at: '2026-01-02T00:00:00Z',
@@ -221,7 +223,9 @@ describe('DashboardPage', () => {
 
     it('creates event and adds to list', async () => {
       vi.mocked(api.getEvents).mockResolvedValue([]);
-      const newEvent = mockEvent({ id: 2, code: 'NEW01', name: 'New Party' });
+      const newEvent = mockEvent({ id: 2, code: 'NEW01',
+      join_code: '10WENJ',
+      collect_url: null, name: 'New Party' });
       vi.mocked(api.createEvent).mockResolvedValue(newEvent);
       render(<DashboardPage />);
       await waitFor(() => expect(screen.getByText(/No events yet/)).toBeInTheDocument());
@@ -305,8 +309,12 @@ describe('DashboardPage', () => {
 
   describe('Batch delete (selection mode)', () => {
     const twoEvents = [
-      mockEvent({ id: 1, code: 'EVT01', name: 'Friday Night' }),
-      mockEvent({ id: 2, code: 'EVT02', name: 'Saturday Bash' }),
+      mockEvent({ id: 1, code: 'EVT01',
+      join_code: '10TVEJ',
+      collect_url: null, name: 'Friday Night' }),
+      mockEvent({ id: 2, code: 'EVT02',
+      join_code: '20TVEJ',
+      collect_url: null, name: 'Saturday Bash' }),
     ];
 
     it('renders Advanced checkbox', async () => {

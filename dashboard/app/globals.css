@@ -2542,6 +2542,12 @@ h1, .display-heading {
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .hv-overlay-spinner {
+    animation: none;
+  }
+}
+
 .hv-overlay-retry {
   padding: 0.6rem 1.2rem;
   font-size: 0.9rem;

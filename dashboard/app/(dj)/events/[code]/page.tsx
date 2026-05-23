@@ -825,8 +825,9 @@ export default function EventQueuePage() {
   if (tidalStatus?.linked && tidalSyncEnabled) connectedServices.push('tidal');
   if (beatportStatus?.linked && beatportSyncEnabled) connectedServices.push('beatport');
 
-  // Use API's join_url if configured, otherwise use current origin
-  const joinUrl = event.join_url || `${window.location.origin}/join/${event.code}`;
+  // Use API's join_url if configured, otherwise use current origin + the join_code
+  // (NOT event.code — that's the collection code and would 404 the join page).
+  const joinUrl = event.join_url || `${window.location.origin}/join/${event.join_code}`;
   const isExpiredOrArchived = eventStatus === 'expired' || eventStatus === 'archived';
 
   return (
@@ -944,7 +945,7 @@ export default function EventQueuePage() {
         )}
         <div style={{ textAlign: 'center' }}>
           <div className="code" style={{ fontSize: '2rem', color: isExpiredOrArchived ? 'var(--text-tertiary)' : 'var(--color-primary)' }}>
-            {event.code}
+            {event.join_code}
           </div>
           {!isExpiredOrArchived && (
             <>

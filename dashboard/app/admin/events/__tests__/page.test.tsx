@@ -39,6 +39,7 @@ const mockEvents = {
     {
       id: 1,
       code: 'FRI001',
+      join_code: '100IRF',
       name: 'Friday Night',
       owner_username: 'dj1',
       owner_id: 1,
@@ -50,6 +51,7 @@ const mockEvents = {
     {
       id: 2,
       code: 'SAT002',
+      join_code: '200TAS',
       name: 'Saturday Bash',
       owner_username: 'dj2',
       owner_id: 2,
@@ -61,6 +63,7 @@ const mockEvents = {
     {
       id: 3,
       code: 'SUN003',
+      join_code: '300NUS',
       name: 'Sunday Chill',
       owner_username: 'dj1',
       owner_id: 1,

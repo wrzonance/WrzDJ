@@ -184,7 +184,9 @@ import EventQueuePage from '../page';
 
 function mockEvent(overrides = {}) {
   return {
-    id: 1, code: 'TEST', name: 'Test Event',
+    id: 1, code: 'TEST',
+      join_code: 'TSETJO',
+      collect_url: null, name: 'Test Event',
     created_at: '2026-01-01T00:00:00Z', expires_at: '2026-12-31T00:00:00Z',
     is_active: true, join_url: null, requests_open: true,
     tidal_sync_enabled: false, tidal_playlist_id: null,
@@ -305,13 +307,16 @@ describe('EventQueuePage', () => {
       expect(screen.getByTestId('qr-code')).toBeInTheDocument();
     });
 
-    it('renders event code', async () => {
+    it('renders event join_code under the QR (not the collection code)', async () => {
       setupDefaultMocks();
 
       render(<EventQueuePage />);
 
+      // The big bold code shown above the "Scan to join" QR is the join_code
+      // — that's what the QR encodes. Collection code is the URL slug DJs
+      // navigate by but is not the human-facing scan target.
       await waitFor(() => {
-        expect(screen.getByText('TEST')).toBeInTheDocument();
+        expect(screen.getByText('TSETJO')).toBeInTheDocument();
       });
     });
   });

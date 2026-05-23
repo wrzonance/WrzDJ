@@ -96,7 +96,6 @@ async def verify_human(
 def verify_status(
     request: Request,
     response: Response,
-    db: Session = Depends(get_db),
 ) -> VerifyStatusResponse:
     """Report whether the caller already has a valid wrzdj_human cookie.
 

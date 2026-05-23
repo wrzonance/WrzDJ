@@ -28,7 +28,7 @@ export default function HumanVerificationOverlay({
 
   return (
     <div className="hv-overlay-backdrop">
-      <div className="hv-overlay-modal" role="dialog" aria-live="polite">
+      <div className="hv-overlay-modal" role="dialog" aria-modal="true" aria-live="polite">
         {(state === 'idle' || state === 'loading') && <LoadingPanel />}
         {state === 'challenge' && <ChallengePanel />}
         {state === 'failed' && <FailedPanel onRetry={onRetry} />}

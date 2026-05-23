@@ -105,12 +105,12 @@ describe('KioskPairPage', () => {
     // First call returns pairing, second returns active
     mockGetKioskPairStatus
       .mockResolvedValueOnce({ status: 'pairing', event_code: null, event_name: null })
-      .mockResolvedValue({ status: 'active', event_code: 'EVT001', event_name: 'Friday Night' });
+      .mockResolvedValue({ status: 'active', event_code: 'EVT001', event_join_code: 'EVT01J', event_name: 'Friday Night' });
 
     render(<KioskPairPage />);
 
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/e/EVT001/display');
+      expect(mockPush).toHaveBeenCalledWith('/e/EVT01J/display');
     }, { timeout: 5000 });
   });
 
@@ -134,6 +134,7 @@ describe('KioskPairPage', () => {
     mockGetKioskAssignment.mockResolvedValue({
       status: 'active',
       event_code: 'EVT002',
+      event_join_code: 'EVT02J',
       event_name: 'Saturday',
     });
 
@@ -146,7 +147,7 @@ describe('KioskPairPage', () => {
     });
 
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/e/EVT002/display');
+      expect(mockPush).toHaveBeenCalledWith('/e/EVT02J/display');
     });
   });
 });

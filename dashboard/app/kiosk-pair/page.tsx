@@ -35,9 +35,12 @@ export default function KioskPairPage() {
     pollRef.current = setInterval(async () => {
       try {
         const status = await api.getKioskPairStatus(code);
-        if (status.status === 'active' && status.event_code) {
+        // /e/{code}/display resolves by event.join_code (post PR #324). Use
+        // event_join_code from the pairing response, NOT event_code (which is
+        // the internal collection code and would 404 the display endpoint).
+        if (status.status === 'active' && status.event_join_code) {
           stopPolling();
-          router.push(`/e/${status.event_code}/display`);
+          router.push(`/e/${status.event_join_code}/display`);
         } else if (status.status === 'expired') {
           stopPolling();
           setState('expired');
@@ -52,8 +55,8 @@ export default function KioskPairPage() {
     stopPolling();
     // Check immediately first
     api.getKioskAssignment(token).then((status) => {
-      if (status.status === 'active' && status.event_code) {
-        router.push(`/e/${status.event_code}/display`);
+      if (status.status === 'active' && status.event_join_code) {
+        router.push(`/e/${status.event_join_code}/display`);
         return;
       }
       if (status.status === 'expired') {
@@ -66,9 +69,9 @@ export default function KioskPairPage() {
       pollRef.current = setInterval(async () => {
         try {
           const s = await api.getKioskAssignment(token);
-          if (s.status === 'active' && s.event_code) {
+          if (s.status === 'active' && s.event_join_code) {
             stopPolling();
-            router.push(`/e/${s.event_code}/display`);
+            router.push(`/e/${s.event_join_code}/display`);
           } else if (s.status === 'expired') {
             stopPolling();
             localStorage.removeItem(SESSION_TOKEN_KEY);

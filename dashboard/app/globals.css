@@ -2481,3 +2481,79 @@ h1, .display-heading {
   visibility: hidden;
   pointer-events: none;
 }
+
+/* HumanVerificationOverlay — full-screen blocker shown until wrzdj_human cookie is established */
+.hv-overlay-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 1rem;
+}
+
+.hv-overlay-modal {
+  background: #1a1a1a;
+  border-radius: 14px;
+  padding: 1.75rem;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: center;
+}
+
+.hv-overlay-title {
+  font-size: 1.25rem;
+  margin: 0 0 0.5rem 0;
+  color: #ededed;
+}
+
+.hv-overlay-body {
+  font-size: 0.9rem;
+  color: #a0a0a0;
+  margin: 0 0 1rem 0;
+  line-height: 1.45;
+}
+
+.hv-overlay-footnote {
+  font-size: 0.75rem;
+  color: #6a6a6a;
+  margin: 0;
+}
+
+.hv-overlay-spinner {
+  width: 32px;
+  height: 32px;
+  margin: 0 auto 0.75rem;
+  border: 3px solid rgba(255, 255, 255, 0.12);
+  border-top-color: #ededed;
+  border-radius: 50%;
+  animation: hv-spin 1s linear infinite;
+}
+
+@keyframes hv-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.hv-overlay-retry {
+  padding: 0.6rem 1.2rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #0a0a0a;
+  background: #ededed;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-top: 0.5rem;
+}
+
+.hv-overlay-retry:hover {
+  background: #fff;
+}

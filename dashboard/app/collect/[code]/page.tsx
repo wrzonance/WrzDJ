@@ -213,9 +213,14 @@ export default function CollectPage() {
               sessionStorage.setItem(`wrzdj_live_splash_${code}`, '1');
               router.replace(`/join/${join_code}`);
               return; // navigation issued; no need to reschedule
-            } catch {
-              // 403 (re-verify needed) or 409 (phase mismatch) — fall through
-              // to the timer scheduling below so polling continues.
+            } catch (err) {
+              // 403 → cookie expired mid-session; trigger overlay re-verification
+              // so the user isn't silently stuck on /collect after live-phase begins.
+              // 409 (phase mismatch) or any other error → fall through to the
+              // timer scheduling below so polling continues.
+              if (err instanceof ApiError && err.status === 403) {
+                void reverify();
+              }
             }
           }
         } else if (ev.phase === 'collection') {

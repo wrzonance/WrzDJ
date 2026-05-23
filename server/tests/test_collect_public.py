@@ -1102,3 +1102,39 @@ def test_collect_submit_skips_tidal_sync_when_disabled(client, db, test_event: E
 
     assert r.status_code == 201
     mock_sync.assert_not_called()
+
+
+class TestLiveJoinCodeEndpoint:
+    """GET /api/public/collect/{code}/live-join-code"""
+
+    def _force_live(self, db, event):
+        event.collection_phase_override = "force_live"
+        db.commit()
+        db.refresh(event)
+
+    def test_403_without_human_cookie(self, client, db, test_event):
+        self._force_live(db, test_event)
+        client.cookies.clear()
+        r = client.get(f"/api/public/collect/{test_event.code}/live-join-code")
+        assert r.status_code == 403
+        body = r.json()
+        assert body["detail"]["code"] == "human_verification_required"
+        # Critically: no join_code leak in error body
+        assert "join_code" not in str(body)
+
+    def test_200_when_live_and_verified(self, client, db, test_event):
+        # autouse _default_guest_cookie fixture in this file pre-issues
+        # wrzdj_guest + wrzdj_human cookies for a verified guest.
+        self._force_live(db, test_event)
+        r = client.get(f"/api/public/collect/{test_event.code}/live-join-code")
+        assert r.status_code == 200
+        assert r.json() == {"join_code": test_event.join_code}
+
+    def test_409_when_phase_is_collection(self, client, db, test_event):
+        _enable_collection(db, test_event)
+        r = client.get(f"/api/public/collect/{test_event.code}/live-join-code")
+        assert r.status_code == 409
+
+    def test_404_for_unknown_event(self, client, db, test_event):
+        r = client.get("/api/public/collect/ZZZZZZ/live-join-code")
+        assert r.status_code == 404

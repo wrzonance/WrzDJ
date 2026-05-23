@@ -126,6 +126,16 @@ class CollectSubmitRequest(BaseModel):
     nickname: Nickname | None = None
 
 
+class LiveJoinCodeResponse(BaseModel):
+    """Returns the live join_code for an event that has entered the live phase.
+
+    Gated by require_verified_human so the join_code never leaks to unverified
+    bots scraping the collect URL during the collection-to-live transition.
+    """
+
+    join_code: str
+
+
 class CollectVoteRequest(BaseModel):
     request_id: int
 

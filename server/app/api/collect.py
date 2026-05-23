@@ -35,6 +35,7 @@ from app.schemas.collect import (
     EnrichPreviewRequest,
     EnrichPreviewResponse,
     EnrichPreviewResult,
+    LiveJoinCodeResponse,
 )
 from app.services import collect as collect_service
 from app.services.activity_log import log_activity
@@ -508,3 +509,24 @@ def request_preview(
         source=song_request.source,
         source_url=song_request.source_url,
     )
+
+
+@router.get("/{code}/live-join-code", response_model=LiveJoinCodeResponse)
+@limiter.limit("60/minute")
+def get_live_join_code(
+    code: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    _guest_id: int = Depends(require_verified_human),
+) -> LiveJoinCodeResponse:
+    """Return the live join_code for an event that has entered the live phase.
+
+    Requires a verified human cookie (not email verification) so the join_code
+    is never leaked to unverified bots scraping /collect during the
+    collection-to-live transition. The join_code is otherwise revealed only
+    via the QR code at the event venue.
+    """
+    event = _get_event_or_404(db, code)
+    if event.phase not in ("live", "closed"):
+        raise HTTPException(status_code=409, detail="Event is not live")
+    return LiveJoinCodeResponse(join_code=event.join_code)

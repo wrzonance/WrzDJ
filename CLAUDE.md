@@ -312,13 +312,32 @@ REJECTED → NEW (re-open)
 - `server/app/services/track_normalizer.py` — track normalization & remix detection
 - `server/app/services/version_filter.py` — filters unwanted versions (karaoke, demo) with fuzzy matching
 
+### LLM Gateway (provider-agnostic dispatch)
+- `server/app/services/llm/` — connector-based dispatch usable by any agentic feature:
+  - `gateway.py` — `Gateway.dispatch(db, actor, request, *, purpose)` resolves a connector (per-DJ MRU → org default → raise `NoLlmConfigured`) and routes through the matching adapter. Logs every call to `llm_call_log` (counts only — never prompt/completion content) and writes a `llm_audit_event` row for credential lifecycle events.
+  - `base.py` — canonical `ChatRequest` / `ChatResponse` / `ToolSpec` / `LlmAdapter` ABC
+  - `registry.py` — connector_type → adapter class lookup; auto-registers all adapters on import
+  - `tool_translation.py` — JSON-Schema ToolSpec ↔ per-provider tool/function shape + response parsers
+  - `url_validator.py` — validates custom OpenAI-compatible base URLs (HTTPS any host; HTTP loopback + RFC1918 only)
+  - `connector_storage.py` — CRUD + validation + audit/call logging helpers
+  - `exceptions.py` — `AuthInvalid` / `RateLimited` / `QuotaExceeded` / `ProviderUnavailable` / `ToolTranslationError` / `NoLlmConfigured`
+  - `adapters/openai_apikey.py` — OpenAI Platform API-key adapter (httpx-based)
+  - `adapters/openai_compatible.py` — Custom OpenAI-compatible endpoint (Hermes Agent, Ollama, vLLM, LMStudio)
+  - `adapters/anthropic_apikey.py` — Anthropic API-key adapter (uses the `anthropic` SDK)
+- Models: `LlmConnector` (encrypted credentials via `EncryptedText`), `LlmCallLog`, `LlmAuditEvent`
+- Admin endpoints (`/api/admin/llm/*`): connector policy, force-revoke, usage rollup
+- DJ endpoints (`/api/llm/connectors`): list/create/rotate/test/delete (rate-limited, scoped to current user)
+- Admin UI: `/admin/ai` (policy + per-DJ table + usage)
+- DJ UI: `/settings/ai` (connect/test/delete; includes Hermes onboarding for ChatGPT subscription path)
+- The recommendation engine routes through the gateway (`actor = event.created_by`, `purpose = "recommendation"`); the legacy env-var path in `services/recommendation/llm_client.py` remains only as a fallback for callers that don't pass `db`/`actor` (kept until the env-var cleanup follow-up issue ships).
+
 ### Recommendation Engine
 - `server/app/services/recommendation/` — multi-stage pipeline:
   - `service.py` — orchestrator: profile analysis → search → scoring → deduplication
   - `enrichment.py` — fills missing BPM/key/genre from Beatport/MusicBrainz/Tidal (for recommendations; request-level enrichment is in `sync/orchestrator.py`)
   - `scorer.py` — multi-dimensional scoring: BPM compatibility, harmonic mixing, genre affinity, artist diversity penalties
   - `camelot.py` — harmonic mixing wheel (Camelot key compatibility, half-time/double-time BPM)
-  - `llm_client.py` — Claude Haiku integration (6/min rate limit, forced tool_use schema for structured JSON)
+  - `llm_client.py` — gateway-backed query generation (forced `tool_use` schema for structured JSON; legacy direct-Anthropic path retained as fallback for callers without `db`/`actor`)
   - `llm_hooks.py` — structured response models for LLM queries
   - `template.py` — playlist-based template recommendations (DJ picks a Tidal/Beatport playlist as "vibe" source)
   - `mb_verify.py` — MusicBrainz artist verification to detect AI-generated filler tracks (cached in DB)

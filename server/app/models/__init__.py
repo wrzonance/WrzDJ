@@ -5,6 +5,7 @@ from app.models.event import Event
 from app.models.guest import Guest
 from app.models.guest_profile import GuestProfile  # noqa: F401
 from app.models.kiosk import Kiosk
+from app.models.llm_connector import LlmAuditEvent, LlmCallLog, LlmConnector
 from app.models.mb_artist_cache import MbArtistCache
 from app.models.now_playing import NowPlaying
 from app.models.pending_email_change import PendingEmailChange
@@ -23,6 +24,9 @@ __all__ = [
     "Guest",
     "GuestProfile",
     "Kiosk",
+    "LlmAuditEvent",
+    "LlmCallLog",
+    "LlmConnector",
     "MbArtistCache",
     "NowPlaying",
     "PendingEmailChange",

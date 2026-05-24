@@ -131,4 +131,105 @@ describe('AdminAISettingsPage', () => {
       expect(screen.getByText('Failed to load AI settings')).toBeInTheDocument();
     });
   });
+
+  it('renders connector policy + per-DJ connector cards when gateway data loads', async () => {
+    vi.spyOn(api, 'getAISettings').mockResolvedValue({
+      llm_enabled: true,
+      llm_model: 'claude-haiku-4-5-20251001',
+      llm_rate_limit_per_minute: 3,
+      api_key_configured: true,
+      api_key_masked: '...abcd',
+    });
+    vi.spyOn(api, 'getAIModels').mockResolvedValue({
+      models: [{ id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' }],
+    });
+    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: true,
+      llm_default_connector_id: null,
+    });
+    vi.spyOn(api, 'listAllLlmConnectors').mockResolvedValue([
+      {
+        id: 1,
+        user_id: 42,
+        dj_username: 'someDJ',
+        connector_type: 'openai_apikey',
+        display_name: 'My OpenAI',
+        status: 'active',
+        base_url_plain: null,
+        model_hint: 'gpt-5-mini',
+        created_at: '2026-05-01T00:00:00Z',
+        updated_at: '2026-05-01T00:00:00Z',
+        last_used_at: null,
+        last_error: null,
+      },
+    ]);
+    vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({
+      days: 30,
+      rows: [],
+    });
+
+    render(<AdminAISettingsPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText('Connector policy')).toBeInTheDocument(),
+    );
+    expect(screen.getByText('Per-DJ connectors')).toBeInTheDocument();
+    expect(screen.getByText('someDJ')).toBeInTheDocument();
+    expect(screen.getByText(/Usage — last 30 days/)).toBeInTheDocument();
+  });
+
+  it('force-revokes a connector via the admin table', async () => {
+    vi.spyOn(api, 'getAISettings').mockResolvedValue({
+      llm_enabled: true,
+      llm_model: 'claude-haiku-4-5-20251001',
+      llm_rate_limit_per_minute: 3,
+      api_key_configured: true,
+      api_key_masked: '...abcd',
+    });
+    vi.spyOn(api, 'getAIModels').mockResolvedValue({ models: [] });
+    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: true,
+      llm_default_connector_id: null,
+    });
+    vi.spyOn(api, 'listAllLlmConnectors').mockResolvedValue([
+      {
+        id: 9,
+        user_id: 42,
+        dj_username: 'badDJ',
+        connector_type: 'openai_apikey',
+        display_name: 'Compromised',
+        status: 'active',
+        base_url_plain: null,
+        model_hint: null,
+        created_at: '2026-05-01T00:00:00Z',
+        updated_at: '2026-05-01T00:00:00Z',
+        last_used_at: null,
+        last_error: null,
+      },
+    ]);
+    vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({ days: 30, rows: [] });
+    const revokeSpy = vi.spyOn(api, 'revokeAdminLlmConnector').mockResolvedValue({
+      id: 9,
+      user_id: 42,
+      dj_username: 'badDJ',
+      connector_type: 'openai_apikey',
+      display_name: 'Compromised',
+      status: 'disabled',
+      base_url_plain: null,
+      model_hint: null,
+      created_at: '2026-05-01T00:00:00Z',
+      updated_at: '2026-05-01T00:00:00Z',
+      last_used_at: null,
+      last_error: null,
+    });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    render(<AdminAISettingsPage />);
+
+    await waitFor(() => expect(screen.getByText('Compromised')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Force-revoke'));
+    await waitFor(() => expect(revokeSpy).toHaveBeenCalledWith(9));
+  });
 });

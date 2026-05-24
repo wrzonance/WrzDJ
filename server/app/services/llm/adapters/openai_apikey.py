@@ -1,0 +1,57 @@
+"""OpenAI Platform API-key adapter."""
+
+from __future__ import annotations
+
+import json
+import logging
+
+from app.services.llm.adapters._httpx_openai import (
+    build_healthcheck_request,
+    call_openai_chat,
+)
+from app.services.llm.base import ChatRequest, ChatResponse, LlmAdapter
+from app.services.llm.exceptions import AuthInvalid
+from app.services.llm.registry import register_adapter
+
+logger = logging.getLogger(__name__)
+
+OPENAI_BASE_URL = "https://api.openai.com/v1"
+DEFAULT_MODEL = "gpt-5-mini"
+
+
+class OpenAIApiKeyAdapter(LlmAdapter):
+    connector_type = "openai_apikey"
+
+    def _extract_api_key(self) -> str:
+        raw = self.connector.credentials or ""
+        try:
+            blob = json.loads(raw)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise AuthInvalid("Connector credentials are malformed") from exc
+        api_key = blob.get("api_key") if isinstance(blob, dict) else None
+        if not api_key:
+            raise AuthInvalid("Connector is missing an api_key")
+        return str(api_key)
+
+    async def chat(self, request: ChatRequest) -> ChatResponse:
+        api_key = self._extract_api_key()
+        return await call_openai_chat(
+            base_url=OPENAI_BASE_URL,
+            api_key=api_key,
+            request=request,
+            fallback_model=self.connector.model_hint or DEFAULT_MODEL,
+        )
+
+    async def health_check(self) -> None:
+        api_key = self._extract_api_key()
+        ping = build_healthcheck_request()
+        # We just need to exercise the auth path — discard the response.
+        await call_openai_chat(
+            base_url=OPENAI_BASE_URL,
+            api_key=api_key,
+            request=ping,
+            fallback_model=self.connector.model_hint or DEFAULT_MODEL,
+        )
+
+
+register_adapter("openai_apikey", OpenAIApiKeyAdapter)

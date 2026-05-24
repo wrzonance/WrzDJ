@@ -51,6 +51,20 @@ export type AIModelInfo = Schemas['AIModelInfo'];
 export type AIModelsResponse = Schemas['AIModelsResponse'];
 export type AISettings = Schemas['AISettingsOut'];
 export type AISettingsUpdate = Schemas['AISettingsUpdate'];
+
+// LLM gateway (issue #329)
+export type LlmConnector = Schemas['ConnectorOut'];
+export type LlmAdminConnector = Schemas['AdminConnectorOut'];
+export type LlmConnectorCreate = Schemas['ConnectorCreate'];
+export type LlmConnectorPatch = Schemas['ConnectorPatch'];
+export type LlmConnectorCredentialsRotate = Schemas['ConnectorCredentialsRotate'];
+export type LlmConnectorTestResult = Schemas['ConnectorTestResult'];
+export type LlmAdminPolicy = Schemas['AdminPolicyOut'];
+export type LlmAdminPolicyPatch = Schemas['AdminPolicyPatch'];
+export type LlmAdminUsage = Schemas['AdminUsageOut'];
+export type LlmUsageRow = Schemas['UsageRow'];
+export type LlmConnectorType = 'openai_apikey' | 'anthropic_apikey' | 'openai_compatible';
+export type LlmConnectorStatus = 'active' | 'auth_invalid' | 'disabled';
 export type ActivityLogEntry = Schemas['ActivityLogEntry'];
 export type CapabilityStatus = Schemas['CapabilityStatus'];
 export type ServiceCapabilities = Schemas['ServiceCapabilities'];

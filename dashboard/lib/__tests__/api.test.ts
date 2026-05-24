@@ -520,6 +520,101 @@ describe('ApiClient', () => {
     });
   });
 
+  describe('LLM Gateway API', () => {
+    beforeEach(() => {
+      api.setToken('test-token');
+    });
+
+    it('lists per-DJ connectors', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          {
+            id: 1,
+            user_id: 42,
+            connector_type: 'openai_apikey',
+            display_name: 'My OpenAI',
+            status: 'active',
+            base_url_plain: null,
+            model_hint: 'gpt-5-mini',
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-01T00:00:00Z',
+            last_used_at: null,
+            last_error: null,
+          },
+        ],
+      });
+
+      const result = await api.listLlmConnectors();
+      expect(result).toHaveLength(1);
+      expect(result[0].connector_type).toBe('openai_apikey');
+    });
+
+    it('creates a connector via POST', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 2,
+          user_id: 42,
+          connector_type: 'openai_compatible',
+          display_name: 'Hermes',
+          status: 'active',
+          base_url_plain: 'http://127.0.0.1:11434/v1',
+          model_hint: null,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+          last_used_at: null,
+          last_error: null,
+        }),
+      });
+
+      const result = await api.createLlmConnector({
+        connector_type: 'openai_compatible',
+        display_name: 'Hermes',
+        base_url: 'http://127.0.0.1:11434/v1',
+        bearer: null,
+        api_key: null,
+        model_hint: null,
+      });
+      expect(result.id).toBe(2);
+
+      const [, options] = mockFetch.mock.calls[0];
+      expect(options.method).toBe('POST');
+    });
+
+    it('updates admin LLM policy via PATCH', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          llm_apikey_connectors_enabled: false,
+          llm_compatible_connector_enabled: true,
+          llm_default_connector_id: null,
+        }),
+      });
+      const result = await api.updateAdminLlmPolicy({
+        llm_apikey_connectors_enabled: false,
+        llm_compatible_connector_enabled: null,
+        llm_default_connector_id: null,
+        clear_default: true,
+      });
+      expect(result.llm_apikey_connectors_enabled).toBe(false);
+
+      const [, options] = mockFetch.mock.calls[0];
+      expect(options.method).toBe('PATCH');
+    });
+
+    it('fetches admin usage with days param', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ days: 30, rows: [] }),
+      });
+
+      await api.getAdminLlmUsage(30);
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/admin/llm/usage?days=30');
+    });
+  });
+
   describe('Activity Log API', () => {
     beforeEach(() => {
       api.setToken('test-token');

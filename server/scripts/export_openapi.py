@@ -84,6 +84,10 @@ def _promote_response_fields_to_required(spec: dict[str, Any]) -> None:
 
 def export() -> Path:
     output = Path(__file__).resolve().parent.parent / "openapi.json"
+    # Force fresh generation — FastAPI caches the schema on `app.openapi_schema`,
+    # which can hide newly-added routes when this script is invoked from a
+    # long-running process.
+    app.openapi_schema = None
     spec = app.openapi()
     _promote_response_fields_to_required(spec)
     output.write_text(json.dumps(spec, indent=2, sort_keys=True) + "\n")

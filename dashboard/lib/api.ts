@@ -5,6 +5,15 @@ import type {
   AISettings,
   AISettingsUpdate,
   ActivityLogEntry,
+  LlmAdminConnector,
+  LlmAdminPolicy,
+  LlmAdminPolicyPatch,
+  LlmAdminUsage,
+  LlmConnector,
+  LlmConnectorCreate,
+  LlmConnectorCredentialsRotate,
+  LlmConnectorPatch,
+  LlmConnectorTestResult,
   ArchivedEvent,
   BeatportEventSettings,
   BeatportSearchResult,
@@ -49,6 +58,18 @@ export type {
   AIModelsResponse,
   AISettings,
   AISettingsUpdate,
+  LlmAdminConnector,
+  LlmAdminPolicy,
+  LlmAdminPolicyPatch,
+  LlmAdminUsage,
+  LlmConnector,
+  LlmConnectorCreate,
+  LlmConnectorCredentialsRotate,
+  LlmConnectorPatch,
+  LlmConnectorStatus,
+  LlmConnectorTestResult,
+  LlmConnectorType,
+  LlmUsageRow,
   ArchivedEvent,
   BeatportEventSettings,
   BeatportSearchResult,
@@ -1121,6 +1142,69 @@ class ApiClient {
       method: 'PUT',
       body: JSON.stringify(data),
     });
+  }
+
+  // ========== LLM connectors (per-DJ) ==========
+
+  async listLlmConnectors(): Promise<LlmConnector[]> {
+    return this.fetch('/api/llm/connectors');
+  }
+
+  async createLlmConnector(data: LlmConnectorCreate): Promise<LlmConnector> {
+    return this.fetch('/api/llm/connectors', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateLlmConnector(id: number, data: LlmConnectorPatch): Promise<LlmConnector> {
+    return this.fetch(`/api/llm/connectors/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async rotateLlmConnectorCredentials(
+    id: number,
+    data: LlmConnectorCredentialsRotate,
+  ): Promise<LlmConnector> {
+    return this.fetch(`/api/llm/connectors/${id}/credentials`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async testLlmConnector(id: number): Promise<LlmConnectorTestResult> {
+    return this.fetch(`/api/llm/connectors/${id}/test`, { method: 'POST' });
+  }
+
+  async deleteLlmConnector(id: number): Promise<void> {
+    await this.fetch(`/api/llm/connectors/${id}`, { method: 'DELETE' });
+  }
+
+  // ========== Admin LLM policy + oversight ==========
+
+  async getAdminLlmPolicy(): Promise<LlmAdminPolicy> {
+    return this.fetch('/api/admin/llm/policy');
+  }
+
+  async updateAdminLlmPolicy(data: LlmAdminPolicyPatch): Promise<LlmAdminPolicy> {
+    return this.fetch('/api/admin/llm/policy', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listAllLlmConnectors(): Promise<LlmAdminConnector[]> {
+    return this.fetch('/api/admin/llm/connectors');
+  }
+
+  async revokeAdminLlmConnector(id: number): Promise<LlmAdminConnector> {
+    return this.fetch(`/api/admin/llm/connectors/${id}/revoke`, { method: 'POST' });
+  }
+
+  async getAdminLlmUsage(days = 30): Promise<LlmAdminUsage> {
+    return this.fetch(`/api/admin/llm/usage?days=${days}`);
   }
 
   // ========== Kiosk Pairing ==========

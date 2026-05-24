@@ -172,6 +172,116 @@
         "title": "ActivityLogEntry",
         "type": "object"
       },
+      "AdminConnectorOut": {
+        "description": "Admin view \u2014 adds the DJ's username for display.",
+        "properties": {
+          "base_url_plain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url Plain"
+          },
+          "connector_type": {
+            "enum": [
+              "openai_apikey",
+              "anthropic_apikey",
+              "openai_compatible"
+            ],
+            "title": "Connector Type",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "dj_username": {
+            "title": "Dj Username",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "model_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Hint"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "auth_invalid",
+              "disabled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "base_url_plain",
+          "connector_type",
+          "created_at",
+          "display_name",
+          "dj_username",
+          "id",
+          "last_error",
+          "last_used_at",
+          "model_hint",
+          "status",
+          "updated_at",
+          "user_id"
+        ],
+        "title": "AdminConnectorOut",
+        "type": "object"
+      },
       "AdminEventOut": {
         "properties": {
           "code": {
@@ -231,6 +341,101 @@
           "request_count"
         ],
         "title": "AdminEventOut",
+        "type": "object"
+      },
+      "AdminPolicyOut": {
+        "properties": {
+          "llm_apikey_connectors_enabled": {
+            "title": "Llm Apikey Connectors Enabled",
+            "type": "boolean"
+          },
+          "llm_compatible_connector_enabled": {
+            "title": "Llm Compatible Connector Enabled",
+            "type": "boolean"
+          },
+          "llm_default_connector_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Default Connector Id"
+          }
+        },
+        "required": [
+          "llm_apikey_connectors_enabled",
+          "llm_compatible_connector_enabled",
+          "llm_default_connector_id"
+        ],
+        "title": "AdminPolicyOut",
+        "type": "object"
+      },
+      "AdminPolicyPatch": {
+        "properties": {
+          "clear_default": {
+            "default": false,
+            "title": "Clear Default",
+            "type": "boolean"
+          },
+          "llm_apikey_connectors_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Apikey Connectors Enabled"
+          },
+          "llm_compatible_connector_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Compatible Connector Enabled"
+          },
+          "llm_default_connector_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Default Connector Id"
+          }
+        },
+        "title": "AdminPolicyPatch",
+        "type": "object"
+      },
+      "AdminUsageOut": {
+        "properties": {
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/UsageRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "days",
+          "rows"
+        ],
+        "title": "AdminUsageOut",
         "type": "object"
       },
       "AdminUserCreate": {
@@ -1689,6 +1894,295 @@
           "request_id"
         ],
         "title": "CollectVoteRequest",
+        "type": "object"
+      },
+      "ConnectorCreate": {
+        "properties": {
+          "api_key": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "bearer": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bearer"
+          },
+          "connector_type": {
+            "enum": [
+              "openai_apikey",
+              "anthropic_apikey",
+              "openai_compatible"
+            ],
+            "title": "Connector Type",
+            "type": "string"
+          },
+          "display_name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "model_hint": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Hint"
+          }
+        },
+        "required": [
+          "connector_type",
+          "display_name"
+        ],
+        "title": "ConnectorCreate",
+        "type": "object"
+      },
+      "ConnectorCredentialsRotate": {
+        "properties": {
+          "api_key": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "bearer": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bearer"
+          }
+        },
+        "title": "ConnectorCredentialsRotate",
+        "type": "object"
+      },
+      "ConnectorOut": {
+        "description": "Public-safe connector view \u2014 never includes the credential blob.",
+        "properties": {
+          "base_url_plain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url Plain"
+          },
+          "connector_type": {
+            "enum": [
+              "openai_apikey",
+              "anthropic_apikey",
+              "openai_compatible"
+            ],
+            "title": "Connector Type",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "model_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Hint"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "auth_invalid",
+              "disabled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "base_url_plain",
+          "connector_type",
+          "created_at",
+          "display_name",
+          "id",
+          "last_error",
+          "last_used_at",
+          "model_hint",
+          "status",
+          "updated_at",
+          "user_id"
+        ],
+        "title": "ConnectorOut",
+        "type": "object"
+      },
+      "ConnectorPatch": {
+        "description": "Metadata-only patch (no credential rotation here).",
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "model_hint": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Hint"
+          }
+        },
+        "title": "ConnectorPatch",
+        "type": "object"
+      },
+      "ConnectorTestResult": {
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "error_code",
+          "message",
+          "ok"
+        ],
+        "title": "ConnectorTestResult",
         "type": "object"
       },
       "DisplaySettingsResponse": {
@@ -5169,6 +5663,64 @@
         "title": "UpdateCollectionSettings",
         "type": "object"
       },
+      "UsageRow": {
+        "properties": {
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "integer"
+          },
+          "connector_type": {
+            "enum": [
+              "openai_apikey",
+              "anthropic_apikey",
+              "openai_compatible"
+            ],
+            "title": "Connector Type",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "dj_username": {
+            "title": "Dj Username",
+            "type": "string"
+          },
+          "error_count": {
+            "title": "Error Count",
+            "type": "integer"
+          },
+          "error_rate": {
+            "title": "Error Rate",
+            "type": "number"
+          },
+          "total_calls": {
+            "title": "Total Calls",
+            "type": "integer"
+          },
+          "total_tokens_in": {
+            "title": "Total Tokens In",
+            "type": "integer"
+          },
+          "total_tokens_out": {
+            "title": "Total Tokens Out",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connector_id",
+          "connector_type",
+          "display_name",
+          "dj_username",
+          "error_count",
+          "error_rate",
+          "total_calls",
+          "total_tokens_in",
+          "total_tokens_out"
+        ],
+        "title": "UsageRow",
+        "type": "object"
+      },
       "UserOut": {
         "properties": {
           "created_at": {
@@ -5885,6 +6437,208 @@
         "summary": "Admin Check Integration",
         "tags": [
           "admin"
+        ]
+      }
+    },
+    "/api/admin/llm/connectors": {
+      "get": {
+        "operationId": "list_connectors_admin_api_admin_llm_connectors_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AdminConnectorOut"
+                  },
+                  "title": "Response List Connectors Admin Api Admin Llm Connectors Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Connectors Admin",
+        "tags": [
+          "admin",
+          "llm"
+        ]
+      }
+    },
+    "/api/admin/llm/connectors/{connector_id}/revoke": {
+      "post": {
+        "operationId": "revoke_connector_admin_api_admin_llm_connectors__connector_id__revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_id",
+            "required": true,
+            "schema": {
+              "title": "Connector Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminConnectorOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Revoke Connector Admin",
+        "tags": [
+          "admin",
+          "llm"
+        ]
+      }
+    },
+    "/api/admin/llm/policy": {
+      "get": {
+        "operationId": "get_policy_api_admin_llm_policy_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Policy",
+        "tags": [
+          "admin",
+          "llm"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_policy_api_admin_llm_policy_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminPolicyPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Patch Policy",
+        "tags": [
+          "admin",
+          "llm"
+        ]
+      }
+    },
+    "/api/admin/llm/usage": {
+      "get": {
+        "operationId": "get_usage_api_admin_llm_usage_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 180,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUsageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Usage",
+        "tags": [
+          "admin",
+          "llm"
         ]
       }
     },
@@ -9078,6 +9832,279 @@
         ]
       }
     },
+    "/api/llm/connectors": {
+      "get": {
+        "operationId": "list_connectors_api_llm_connectors_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ConnectorOut"
+                  },
+                  "title": "Response List Connectors Api Llm Connectors Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Connectors",
+        "tags": [
+          "llm"
+        ]
+      },
+      "post": {
+        "operationId": "create_connector_endpoint_api_llm_connectors_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Create Connector Endpoint",
+        "tags": [
+          "llm"
+        ]
+      }
+    },
+    "/api/llm/connectors/{connector_id}": {
+      "delete": {
+        "operationId": "delete_connector_endpoint_api_llm_connectors__connector_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_id",
+            "required": true,
+            "schema": {
+              "title": "Connector Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Delete Connector Endpoint",
+        "tags": [
+          "llm"
+        ]
+      },
+      "patch": {
+        "operationId": "update_connector_metadata_api_llm_connectors__connector_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_id",
+            "required": true,
+            "schema": {
+              "title": "Connector Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Update Connector Metadata",
+        "tags": [
+          "llm"
+        ]
+      }
+    },
+    "/api/llm/connectors/{connector_id}/credentials": {
+      "put": {
+        "operationId": "rotate_connector_credentials_api_llm_connectors__connector_id__credentials_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_id",
+            "required": true,
+            "schema": {
+              "title": "Connector Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorCredentialsRotate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Rotate Connector Credentials",
+        "tags": [
+          "llm"
+        ]
+      }
+    },
+    "/api/llm/connectors/{connector_id}/test": {
+      "post": {
+        "operationId": "test_connector_api_llm_connectors__connector_id__test_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_id",
+            "required": true,
+            "schema": {
+              "title": "Connector Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorTestResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Test Connector",
+        "tags": [
+          "llm"
+        ]
+      }
+    },
     "/api/public/collect/{code}": {
       "get": {
         "operationId": "preview_api_public_collect__code__get",
@@ -9559,7 +10586,7 @@
     },
     "/api/public/e/{code}/bridge-status": {
       "get": {
-        "description": "Get bridge connection status for public display.\n\nIndependent of track data \u2014 returns bridge connectivity even when\nno track is currently playing.",
+        "description": "Get bridge connection status for public display.\n\nIndependent of track data \u2014 returns bridge connectivity even when\nno track is currently playing. Resolves by join_code: serves guest-facing\nkiosk display + overlay pages.",
         "operationId": "get_public_bridge_status_api_public_e__code__bridge_status_get",
         "parameters": [
           {
@@ -9602,7 +10629,7 @@
     },
     "/api/public/e/{code}/history": {
       "get": {
-        "description": "Get play history for public display.\n\nReturns the list of tracks played during the event, newest first.",
+        "description": "Get play history for public display.\n\nReturns the list of tracks played during the event, newest first.\nResolves by join_code: serves guest-facing kiosk display.",
         "operationId": "get_public_history_api_public_e__code__history_get",
         "parameters": [
           {
@@ -9668,7 +10695,7 @@
     },
     "/api/public/e/{code}/nowplaying": {
       "get": {
-        "description": "Get current now-playing track for public display.\n\nReturns the track currently playing from StageLinQ, or None if nothing playing.",
+        "description": "Get current now-playing track for public display.\n\nReturns the track currently playing from StageLinQ, or None if nothing playing.\n\nResolves by join_code: this endpoint serves the kiosk display + OBS overlay\npages, which route by join_code per the post-PR-#324 public/guest URL contract.",
         "operationId": "get_public_now_playing_api_public_e__code__nowplaying_get",
         "parameters": [
           {

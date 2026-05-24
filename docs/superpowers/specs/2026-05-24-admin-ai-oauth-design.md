@@ -2,7 +2,7 @@
 
 - **Date:** 2026-05-24
 - **Author:** thewrz
-- **Status:** Draft — awaiting review
+- **Status:** Final, project created in Github, ready for implementation.
 - **Branch:** `worktree-feat+admin-ai-oauth`
 - **Related memory:** `[[llm-oauth-gateway]]`, `[[feedback-litellm-avoid]]`
 - **Replaces:** hardcoded `ANTHROPIC_API_KEY` env-var pathway in `server/app/services/recommendation/llm_client.py`

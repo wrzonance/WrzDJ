@@ -370,6 +370,41 @@ class TestGetPublicNowPlaying:
         assert response.status_code == 410
 
 
+class TestGetPublicBridgeStatus:
+    """Tests for GET /api/public/e/{code}/bridge-status endpoint.
+
+    This endpoint resolves by join_code (post PR #324 / #328 routing migration)
+    because it serves the kiosk display + OBS overlay public pages.
+    """
+
+    def test_returns_default_status_when_no_now_playing(
+        self, client: TestClient, test_event: Event
+    ):
+        """Returns default (disconnected) status when no track has ever played."""
+        response = client.get("/api/public/e/UG4BHD/bridge-status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["connected"] is False
+        assert data["device_name"] is None
+
+    def test_event_not_found(self, client: TestClient):
+        """Returns 404 for an unknown event code."""
+        response = client.get("/api/public/e/INVALID/bridge-status")
+        assert response.status_code == 404
+
+    def test_collection_code_is_rejected(self, client: TestClient, test_event: Event):
+        """Locks in the join_code routing contract: passing the collection
+        code must 404. Prevents accidental regression to the pre-PR-#328
+        get_event_by_code_with_status resolver."""
+        response = client.get(f"/api/public/e/{test_event.code}/bridge-status")
+        assert response.status_code == 404
+
+    def test_expired_event(self, client: TestClient, expired_event: Event):
+        """Returns 410 for an expired event (resolved via join_code)."""
+        response = client.get("/api/public/e/2ZZN6B/bridge-status")
+        assert response.status_code == 410
+
+
 class TestGetPublicHistory:
     """Tests for GET /api/public/e/{code}/history endpoint."""
 

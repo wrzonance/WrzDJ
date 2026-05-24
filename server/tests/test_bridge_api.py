@@ -343,7 +343,7 @@ class TestGetPublicNowPlaying:
         )
 
         # Get public now_playing
-        response = client.get("/api/public/e/TEST01/nowplaying")
+        response = client.get("/api/public/e/UG4BHD/nowplaying")
 
         assert response.status_code == 200
         data = response.json()
@@ -354,7 +354,7 @@ class TestGetPublicNowPlaying:
 
     def test_returns_null_when_empty(self, client: TestClient, test_event: Event):
         """Returns null when no track playing."""
-        response = client.get("/api/public/e/TEST01/nowplaying")
+        response = client.get("/api/public/e/UG4BHD/nowplaying")
 
         assert response.status_code == 200
         assert response.json() is None
@@ -366,7 +366,7 @@ class TestGetPublicNowPlaying:
 
     def test_expired_event(self, client: TestClient, expired_event: Event):
         """Returns 410 for expired event."""
-        response = client.get("/api/public/e/EXPIRE/nowplaying")
+        response = client.get("/api/public/e/2ZZN6B/nowplaying")
         assert response.status_code == 410
 
 
@@ -375,7 +375,7 @@ class TestGetPublicHistory:
 
     def test_returns_empty_history(self, client: TestClient, test_event: Event):
         """Returns empty history."""
-        response = client.get("/api/public/e/TEST01/history")
+        response = client.get("/api/public/e/UG4BHD/history")
 
         assert response.status_code == 200
         data = response.json()
@@ -396,7 +396,7 @@ class TestGetPublicHistory:
             db.add(history)
         db.commit()
 
-        response = client.get("/api/public/e/TEST01/history")
+        response = client.get("/api/public/e/UG4BHD/history")
 
         assert response.status_code == 200
         data = response.json()
@@ -418,7 +418,7 @@ class TestGetPublicHistory:
             db.add(history)
         db.commit()
 
-        response = client.get("/api/public/e/TEST01/history?limit=3&offset=3")
+        response = client.get("/api/public/e/UG4BHD/history?limit=3&offset=3")
 
         assert response.status_code == 200
         data = response.json()
@@ -427,11 +427,11 @@ class TestGetPublicHistory:
 
     def test_limit_capped(self, client: TestClient, test_event: Event):
         """Limit is capped at 100 via Query validation."""
-        response = client.get("/api/public/e/TEST01/history?limit=200")
+        response = client.get("/api/public/e/UG4BHD/history?limit=200")
         assert response.status_code == 422  # FastAPI rejects limit > 100
 
         # Valid limit at the boundary works
-        response = client.get("/api/public/e/TEST01/history?limit=100")
+        response = client.get("/api/public/e/UG4BHD/history?limit=100")
         assert response.status_code == 200
 
     def test_event_not_found(self, client: TestClient):
@@ -441,7 +441,7 @@ class TestGetPublicHistory:
 
     def test_expired_event(self, client: TestClient, expired_event: Event):
         """Returns 410 for expired event."""
-        response = client.get("/api/public/e/EXPIRE/history")
+        response = client.get("/api/public/e/2ZZN6B/history")
         assert response.status_code == 410
 
 

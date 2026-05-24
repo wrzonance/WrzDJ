@@ -693,6 +693,9 @@ a {
   .identity-bar-pulse {
     animation: none;
   }
+  .hv-overlay-spinner {
+    animation: none;
+  }
 }
 
 /* Sticky bottom button */
@@ -2542,11 +2545,8 @@ h1, .display-heading {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .hv-overlay-spinner {
-    animation: none;
-  }
-}
+/* hv-overlay-spinner prefers-reduced-motion override consolidated into the
+   primary block near line 687. */
 
 .hv-overlay-retry {
   padding: 0.6rem 1.2rem;

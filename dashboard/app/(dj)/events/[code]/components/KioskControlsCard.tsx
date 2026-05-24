@@ -1,7 +1,8 @@
 'use client';
 
 interface KioskControlsCardProps {
-  code: string;
+  code: string;        // collection code (DJ-side identifier; kept for legacy uses)
+  joinCode: string;    // join_code — used for the public /e/{join_code}/display URL
   requestsOpen: boolean;
   togglingRequests: boolean;
   onToggleRequests: () => void;
@@ -19,7 +20,8 @@ interface KioskControlsCardProps {
 }
 
 export function KioskControlsCard({
-  code,
+  code: _code,
+  joinCode,
   requestsOpen,
   togglingRequests,
   onToggleRequests,
@@ -45,7 +47,7 @@ export function KioskControlsCard({
           </p>
         </div>
         <a
-          href={`/e/${code}/display`}
+          href={`/e/${joinCode}/display`}
           target="_blank"
           rel="noopener noreferrer"
           className="btn btn-sm"

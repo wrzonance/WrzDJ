@@ -63,6 +63,7 @@ export function EventManagementTab(props: EventManagementTabProps) {
       <HelpSpot spotId="event-kiosk" page="event-manage" order={1} title="Kiosk Controls" description="Toggle requests open/closed, show/hide now-playing, enable display-only mode.">
         <KioskControlsCard
           code={props.code}
+          joinCode={props.event.join_code}
           requestsOpen={props.requestsOpen}
           togglingRequests={props.togglingRequests}
           onToggleRequests={props.onToggleRequests}
@@ -98,7 +99,7 @@ export function EventManagementTab(props: EventManagementTabProps) {
       />
 
       <HelpSpot spotId="event-stream-overlay" page="event-manage" order={3} title="Stream Overlay" description="Copy the OBS browser source URL to show currently playing track on your stream.">
-        <StreamOverlayCard code={props.code} />
+        <StreamOverlayCard joinCode={props.event.join_code} />
       </HelpSpot>
 
       <HelpSpot spotId="event-bridge" page="event-manage" order={4} title="Bridge Status" description="Shows Bridge App connection status with live diagnostics. When connected, use Ping to test responsiveness, Reset Decks to clear stale track state, Reconnect to re-establish equipment detection, or Restart for a full bridge reset.">

@@ -4,14 +4,14 @@ import { useState } from 'react';
 import { Tooltip } from '@/components/Tooltip';
 
 interface StreamOverlayCardProps {
-  code: string;
+  joinCode: string;  // join_code — overlay URL routes by join_code per public-page contract
 }
 
-export function StreamOverlayCard({ code }: StreamOverlayCardProps) {
+export function StreamOverlayCard({ joinCode }: StreamOverlayCardProps) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
-    const overlayUrl = `${window.location.origin}/e/${code}/overlay`;
+    const overlayUrl = `${window.location.origin}/e/${joinCode}/overlay`;
     try {
       await navigator.clipboard.writeText(overlayUrl);
       setCopied(true);
@@ -32,7 +32,7 @@ export function StreamOverlayCard({ code }: StreamOverlayCardProps) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <a
-            href={`/e/${code}/overlay`}
+            href={`/e/${joinCode}/overlay`}
             target="_blank"
             rel="noopener noreferrer"
             className="btn btn-sm"

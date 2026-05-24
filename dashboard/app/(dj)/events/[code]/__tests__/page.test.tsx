@@ -307,7 +307,7 @@ describe('EventQueuePage', () => {
       expect(screen.getByTestId('qr-code')).toBeInTheDocument();
     });
 
-    it('renders event join_code under the QR (not the collection code)', async () => {
+    it('renders event join_code under the QR and encodes it in the QR payload', async () => {
       setupDefaultMocks();
 
       render(<EventQueuePage />);
@@ -318,6 +318,11 @@ describe('EventQueuePage', () => {
       await waitFor(() => {
         expect(screen.getByText('TSETJO')).toBeInTheDocument();
       });
+      // Lock in the QR routing contract: scanning the QR must take guests to
+      // /join/{join_code}, not /join/{collection_code}.
+      const qr = screen.getByTestId('qr-code');
+      expect(qr.getAttribute('data-value')).toContain('/join/TSETJO');
+      expect(qr.getAttribute('data-value')).not.toContain('/join/TEST');
     });
   });
 

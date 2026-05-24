@@ -27,6 +27,7 @@ from app.services.event import (
     EventLookupResult,
     get_event_by_code_for_owner,
     get_event_by_code_with_status,
+    get_event_by_join_code_with_status,
 )
 from app.services.event_bus import publish_event
 from app.services.now_playing import (
@@ -180,8 +181,11 @@ def get_public_now_playing(
     Get current now-playing track for public display.
 
     Returns the track currently playing from StageLinQ, or None if nothing playing.
+
+    Resolves by join_code: this endpoint serves the kiosk display + OBS overlay
+    pages, which route by join_code per the post-PR-#324 public/guest URL contract.
     """
-    event, lookup_result = get_event_by_code_with_status(db, code)
+    event, lookup_result = get_event_by_join_code_with_status(db, code)
 
     if lookup_result == EventLookupResult.NOT_FOUND:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -206,9 +210,10 @@ def get_public_bridge_status(
     Get bridge connection status for public display.
 
     Independent of track data — returns bridge connectivity even when
-    no track is currently playing.
+    no track is currently playing. Resolves by join_code: serves guest-facing
+    kiosk display + overlay pages.
     """
-    event, lookup_result = get_event_by_code_with_status(db, code)
+    event, lookup_result = get_event_by_join_code_with_status(db, code)
 
     if lookup_result == EventLookupResult.NOT_FOUND:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -239,8 +244,9 @@ def get_public_history(
     Get play history for public display.
 
     Returns the list of tracks played during the event, newest first.
+    Resolves by join_code: serves guest-facing kiosk display.
     """
-    event, lookup_result = get_event_by_code_with_status(db, code)
+    event, lookup_result = get_event_by_join_code_with_status(db, code)
 
     if lookup_result == EventLookupResult.NOT_FOUND:
         raise HTTPException(status_code=404, detail="Event not found")

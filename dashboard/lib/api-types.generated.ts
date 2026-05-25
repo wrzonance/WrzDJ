@@ -2377,7 +2377,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey" | "xai_apikey";
             /**
              * Created At
              * Format: date-time
@@ -2961,8 +2961,9 @@ export interface components {
          *
          *     Field requirements vary by ``connector_type``:
          *
-         *     - ``openai_apikey`` / ``anthropic_apikey`` / ``openrouter_apikey``:
-         *       ``api_key`` required; ``base_url`` and ``bearer`` are ignored.
+         *     - ``openai_apikey`` / ``anthropic_apikey`` / ``openrouter_apikey`` /
+         *       ``xai_apikey``: ``api_key`` required; ``base_url`` and ``bearer`` are
+         *       ignored.
          *     - ``openai_compatible``: ``base_url`` required; ``bearer`` optional;
          *       ``api_key`` is ignored.
          *
@@ -2981,7 +2982,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey" | "xai_apikey";
             /** Display Name */
             display_name: string;
             /** Model Hint */
@@ -3013,7 +3014,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey" | "xai_apikey";
             /**
              * Created At
              * Format: date-time
@@ -4199,7 +4200,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey" | "xai_apikey";
             /** Display Name */
             display_name: string;
             /** Dj Username */

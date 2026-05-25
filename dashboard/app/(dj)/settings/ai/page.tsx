@@ -18,6 +18,7 @@ const CONNECTOR_TYPE_LABELS: Record<LlmConnectorType, string> = {
   openai_apikey: 'OpenAI API key',
   anthropic_apikey: 'Anthropic API key',
   openrouter_apikey: 'OpenRouter API key',
+  xai_apikey: 'xAI Grok API key',
   openai_compatible: 'Custom OpenAI-compatible endpoint',
 };
 
@@ -111,7 +112,7 @@ export default function SettingsAIPage() {
     if (!policy) return Object.keys(CONNECTOR_TYPE_LABELS) as LlmConnectorType[];
     const out: LlmConnectorType[] = [];
     if (policy.llm_apikey_connectors_enabled) {
-      out.push('openai_apikey', 'anthropic_apikey', 'openrouter_apikey');
+      out.push('openai_apikey', 'anthropic_apikey', 'openrouter_apikey', 'xai_apikey');
     }
     if (policy.llm_compatible_connector_enabled) out.push('openai_compatible');
     return out;
@@ -314,6 +315,8 @@ export default function SettingsAIPage() {
                       ? 'sk-ant-…'
                       : form.connector_type === 'openrouter_apikey'
                       ? 'sk-or-…'
+                      : form.connector_type === 'xai_apikey'
+                      ? 'xai-…'
                       : 'sk-proj-… / sk-…'
                   }
                   required
@@ -402,6 +405,8 @@ export default function SettingsAIPage() {
                       ? 'gpt-5-mini'
                       : form.connector_type === 'openrouter_apikey'
                       ? 'e.g. openai/gpt-4o-mini'
+                      : form.connector_type === 'xai_apikey'
+                      ? 'grok-3-mini'
                       : 'e.g. llama3'
                   }
                 />

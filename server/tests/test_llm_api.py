@@ -80,6 +80,44 @@ class TestPerDJConnectorsCRUD:
         resp = client.post("/api/llm/connectors", json=body, headers=auth_headers)
         assert resp.status_code == 201, resp.json()
 
+    def test_create_gemini_apikey_happy_path(self, client: TestClient, auth_headers):
+        body = {
+            "connector_type": "gemini_apikey",
+            "display_name": "My Gemini",
+            "api_key": "AIzaSyA1234567890abcdefghijklmnopqrstuv",
+            "model_hint": "gemini-2.5-flash",
+        }
+        resp = client.post("/api/llm/connectors", json=body, headers=auth_headers)
+        assert resp.status_code == 201, resp.json()
+        data = resp.json()
+        assert data["connector_type"] == "gemini_apikey"
+        assert "api_key" not in data
+
+    def test_create_gemini_rejects_non_google_key(self, client: TestClient, auth_headers):
+        body = {
+            "connector_type": "gemini_apikey",
+            "display_name": "Bad Gemini",
+            "api_key": "sk-not-a-google-key",
+        }
+        resp = client.post("/api/llm/connectors", json=body, headers=auth_headers)
+        assert resp.status_code == 400
+
+    def test_gemini_blocked_by_apikey_policy(self, client: TestClient, auth_headers, admin_headers):
+        # Gemini reuses the generic api-key policy flag — no per-provider toggle.
+        resp = client.patch(
+            "/api/admin/llm/policy",
+            json={"llm_apikey_connectors_enabled": False},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        body = {
+            "connector_type": "gemini_apikey",
+            "display_name": "Should Fail",
+            "api_key": "AIzaSyA1234567890abcdefghijklmnopqrstuv",
+        }
+        resp = client.post("/api/llm/connectors", json=body, headers=auth_headers)
+        assert resp.status_code == 403
+
     def test_create_openai_compatible_happy_path(self, client: TestClient, auth_headers):
         body = {
             "connector_type": "openai_compatible",

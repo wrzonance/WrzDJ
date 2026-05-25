@@ -126,3 +126,37 @@ async def test_gateway_path_matches_legacy_path_output(db, test_user, event_prof
         assert gq.target_key == lq.target_key
         assert gq.target_genre == lq.target_genre
         assert gq.reasoning == lq.reasoning
+
+
+@pytest.mark.asyncio
+async def test_gateway_routes_gemini_connector(db, test_user, event_profile):
+    """When the active DJ connector is Gemini, the recommendation engine routes
+    through the Gemini adapter and produces structured queries.
+    """
+    from app.models.llm_connector import LlmConnector
+
+    connector = LlmConnector(
+        user_id=test_user.id,
+        connector_type="gemini_apikey",
+        display_name="Gemini",
+        status="active",
+        credentials=json.dumps({"api_key": "AIzaSyA1234567890abcdefghijklmnopqrstuv"}),
+        model_hint="gemini-2.5-flash",
+    )
+    db.add(connector)
+    db.commit()
+    db.refresh(connector)
+
+    with patch(
+        "app.services.llm.adapters.gemini_apikey.GeminiApiKeyAdapter.chat",
+        new=AsyncMock(return_value=GATEWAY_RESPONSE),
+    ):
+        result = await call_llm(
+            event_profile,
+            "deeper progressive house",
+            db=db,
+            actor=test_user,
+        )
+
+    assert len(result.queries) == 2
+    assert result.queries[0].search_query == "deadmau5 progressive house"

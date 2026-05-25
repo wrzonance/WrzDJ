@@ -190,7 +190,8 @@
             "enum": [
               "openai_apikey",
               "anthropic_apikey",
-              "openai_compatible"
+              "openai_compatible",
+              "gemini_apikey"
             ],
             "title": "Connector Type",
             "type": "string"
@@ -1939,7 +1940,8 @@
             "enum": [
               "openai_apikey",
               "anthropic_apikey",
-              "openai_compatible"
+              "openai_compatible",
+              "gemini_apikey"
             ],
             "title": "Connector Type",
             "type": "string"
@@ -2031,7 +2033,8 @@
             "enum": [
               "openai_apikey",
               "anthropic_apikey",
-              "openai_compatible"
+              "openai_compatible",
+              "gemini_apikey"
             ],
             "title": "Connector Type",
             "type": "string"
@@ -5675,7 +5678,8 @@
             "enum": [
               "openai_apikey",
               "anthropic_apikey",
-              "openai_compatible"
+              "openai_compatible",
+              "gemini_apikey"
             ],
             "title": "Connector Type",
             "type": "string"

@@ -2352,7 +2352,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "gemini_apikey";
             /**
              * Created At
              * Format: date-time
@@ -2956,7 +2956,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "gemini_apikey";
             /** Display Name */
             display_name: string;
             /** Model Hint */
@@ -2988,7 +2988,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "gemini_apikey";
             /**
              * Created At
              * Format: date-time
@@ -4174,7 +4174,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "gemini_apikey";
             /** Display Name */
             display_name: string;
             /** Dj Username */

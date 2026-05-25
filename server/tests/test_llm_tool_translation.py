@@ -6,8 +6,10 @@ from app.services.llm.base import ToolSpec
 from app.services.llm.exceptions import ToolTranslationError
 from app.services.llm.tool_translation import (
     parse_anthropic_response,
+    parse_gemini_response,
     parse_openai_response,
     to_anthropic_tools,
+    to_gemini_tools,
     to_openai_tools,
 )
 
@@ -64,6 +66,131 @@ class TestAnthropicTools:
     def test_force_tool(self):
         tools, choice = to_anthropic_tools([TOOL], "rank_recommendations")
         assert choice == {"type": "tool", "name": "rank_recommendations"}
+
+
+class TestGeminiTools:
+    def test_returns_none_for_no_tools(self):
+        tools, choice = to_gemini_tools(None, None)
+        assert tools is None
+        assert choice is None
+
+    def test_translates_tools(self):
+        tools, choice = to_gemini_tools([TOOL], None)
+        assert tools is not None
+        # Gemini nests declarations under a single tools entry.
+        assert tools[0]["function_declarations"][0]["name"] == "rank_recommendations"
+        assert tools[0]["function_declarations"][0]["parameters"] == TOOL.input_schema
+        assert choice is None
+
+    def test_force_tool(self):
+        tools, choice = to_gemini_tools([TOOL], "rank_recommendations")
+        assert choice == {
+            "function_calling_config": {
+                "mode": "ANY",
+                "allowed_function_names": ["rank_recommendations"],
+            }
+        }
+
+    def test_force_tool_not_in_list(self):
+        with pytest.raises(ToolTranslationError):
+            to_gemini_tools([TOOL], "does_not_exist")
+
+
+class TestParseGeminiResponse:
+    def test_text_response(self):
+        body = {
+            "candidates": [
+                {
+                    "content": {"role": "model", "parts": [{"text": "hello"}]},
+                    "finishReason": "STOP",
+                }
+            ],
+            "usageMetadata": {"promptTokenCount": 2, "candidatesTokenCount": 1},
+            "modelVersion": "gemini-2.5-flash",
+        }
+        resp = parse_gemini_response(body)
+        assert resp.text == "hello"
+        assert resp.stop_reason == "end_turn"
+        assert resp.tool_calls == []
+        assert resp.usage.prompt == 2
+        assert resp.usage.completion == 1
+        assert resp.model == "gemini-2.5-flash"
+
+    def test_function_call(self):
+        body = {
+            "candidates": [
+                {
+                    "content": {
+                        "role": "model",
+                        "parts": [
+                            {
+                                "functionCall": {
+                                    "name": "rank_recommendations",
+                                    "args": {"ids": ["a", "b"]},
+                                }
+                            }
+                        ],
+                    },
+                    "finishReason": "STOP",
+                }
+            ],
+            "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5},
+        }
+        resp = parse_gemini_response(body)
+        assert resp.stop_reason == "tool_use"
+        assert len(resp.tool_calls) == 1
+        assert resp.tool_calls[0].name == "rank_recommendations"
+        assert resp.tool_calls[0].input == {"ids": ["a", "b"]}
+        # No native id from Gemini — falls back to the function name.
+        assert resp.tool_calls[0].id == "rank_recommendations"
+
+    def test_mixed_text_and_function_call(self):
+        body = {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {"text": "Let me rank these."},
+                            {"functionCall": {"name": "rank", "args": {"ids": ["x"]}}},
+                        ]
+                    },
+                    "finishReason": "STOP",
+                }
+            ]
+        }
+        resp = parse_gemini_response(body)
+        assert resp.text == "Let me rank these."
+        assert resp.stop_reason == "tool_use"
+        assert resp.tool_calls[0].input == {"ids": ["x"]}
+
+    def test_max_tokens(self):
+        body = {
+            "candidates": [{"content": {"parts": [{"text": "..."}]}, "finishReason": "MAX_TOKENS"}]
+        }
+        resp = parse_gemini_response(body)
+        assert resp.stop_reason == "max_tokens"
+
+    def test_malformed_response(self):
+        with pytest.raises(ToolTranslationError):
+            parse_gemini_response({"foo": "bar"})
+
+    def test_function_call_missing_name_raises(self):
+        body = {
+            "candidates": [
+                {
+                    "content": {"parts": [{"functionCall": {"args": {"ids": ["x"]}}}]},
+                    "finishReason": "STOP",
+                }
+            ]
+        }
+        with pytest.raises(ToolTranslationError):
+            parse_gemini_response(body)
+
+    def test_empty_candidates_blocked_by_safety(self):
+        # Gemini can return an empty candidates list (e.g. safety block).
+        body = {"candidates": [], "promptFeedback": {"blockReason": "SAFETY"}}
+        with pytest.raises(ToolTranslationError):
+            parse_gemini_response(body)
 
 
 class TestParseOpenAIResponse:

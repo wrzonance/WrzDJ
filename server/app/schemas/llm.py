@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-ConnectorType = Literal["openai_apikey", "anthropic_apikey", "openai_compatible"]
+ConnectorType = Literal["openai_apikey", "anthropic_apikey", "openai_compatible", "gemini_apikey"]
 ConnectorStatus = Literal["active", "auth_invalid", "disabled"]
 
 
@@ -63,7 +63,7 @@ class ConnectorCreate(BaseModel):
 
     @model_validator(mode="after")
     def _require_credentials_for_type(self) -> ConnectorCreate:
-        if self.connector_type in ("openai_apikey", "anthropic_apikey"):
+        if self.connector_type in ("openai_apikey", "anthropic_apikey", "gemini_apikey"):
             if not self.api_key:
                 raise ValueError("api_key is required for API-key connectors")
         elif self.connector_type == "openai_compatible":

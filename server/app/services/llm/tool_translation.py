@@ -210,3 +210,99 @@ def _normalise_anthropic_stop_reason(
     if reason == "max_tokens":
         return "max_tokens"
     return "error"
+
+
+# ---------------------------------------------------------------------------
+# Google Gemini (native generativelanguage API)
+# ---------------------------------------------------------------------------
+def to_gemini_tools(
+    tools: list[ToolSpec] | None, force: str | None
+) -> tuple[list[dict] | None, Any]:
+    """Translate canonical tools → Gemini ``function_declarations`` + toolConfig.
+
+    Returns ``(tools_list, tool_config_or_none)``. Gemini nests every function
+    declaration under a single ``tools`` entry, distinct from OpenAI ``functions``
+    and Anthropic ``tools``.
+    """
+    if not tools:
+        return None, None
+    declarations = [
+        {
+            "name": t.name,
+            "description": t.description,
+            "parameters": t.input_schema,
+        }
+        for t in tools
+    ]
+    gemini_tools = [{"function_declarations": declarations}]
+    tool_config: Any = None
+    if force is not None:
+        if not any(t.name == force for t in tools):
+            raise ToolTranslationError(f"force_tool={force!r} not in tools list")
+        tool_config = {
+            "function_calling_config": {
+                "mode": "ANY",
+                "allowed_function_names": [force],
+            }
+        }
+    return gemini_tools, tool_config
+
+
+def parse_gemini_response(payload: dict) -> ChatResponse:
+    """Parse a Gemini ``generateContent`` response body."""
+    try:
+        candidates = payload["candidates"]
+        candidate = candidates[0]
+    except (KeyError, IndexError, TypeError) as exc:
+        # Empty candidates (safety block) or missing key — surface as a
+        # translation error so the gateway logs/handles it consistently.
+        raise ToolTranslationError("Gemini response missing candidates") from exc
+
+    content = candidate.get("content") or {}
+    parts = content.get("parts") or []
+
+    text_parts: list[str] = []
+    tool_calls: list[ToolCall] = []
+    for part in parts:
+        if not isinstance(part, dict):
+            continue
+        if "functionCall" in part:
+            fn = part.get("functionCall") or {}
+            name = fn.get("name")
+            if not name:
+                raise ToolTranslationError("Gemini functionCall missing name")
+            args = fn.get("args")
+            tool_calls.append(ToolCall(id=str(name), name=str(name), input=dict(args or {})))
+        elif "text" in part:
+            text_parts.append(part.get("text") or "")
+
+    stop_reason = _normalise_gemini_finish_reason(candidate.get("finishReason"))
+    if tool_calls and stop_reason != "tool_use":
+        stop_reason = "tool_use"
+
+    usage_payload = payload.get("usageMetadata") or {}
+    usage = None
+    if usage_payload:
+        usage = TokenUsage(
+            prompt=int(usage_payload.get("promptTokenCount", 0)),
+            completion=int(usage_payload.get("candidatesTokenCount", 0)),
+        )
+
+    return ChatResponse(
+        text="".join(text_parts),
+        tool_calls=tool_calls,
+        stop_reason=stop_reason,
+        usage=usage,
+        model=payload.get("modelVersion"),
+    )
+
+
+def _normalise_gemini_finish_reason(
+    reason: str | None,
+) -> Literal["end_turn", "tool_use", "max_tokens", "error"]:
+    if reason in (None, "STOP"):
+        return "end_turn"
+    if reason == "MAX_TOKENS":
+        return "max_tokens"
+    # SAFETY, RECITATION, OTHER, etc. — treat as error.
+    return "error"

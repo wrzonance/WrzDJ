@@ -186,6 +186,20 @@ class TestParseGeminiResponse:
         with pytest.raises(ToolTranslationError):
             parse_gemini_response(body)
 
+    def test_function_call_non_object_raises(self):
+        # Regression: a truthy non-object ``functionCall`` (e.g. a string) must
+        # surface as ToolTranslationError, not a raw AttributeError from .get().
+        body = {
+            "candidates": [
+                {
+                    "content": {"parts": [{"functionCall": "oops"}]},
+                    "finishReason": "STOP",
+                }
+            ]
+        }
+        with pytest.raises(ToolTranslationError):
+            parse_gemini_response(body)
+
     def test_function_call_non_object_args_raises(self):
         # Regression: a non-object ``args`` (e.g. a list) must surface as a
         # ToolTranslationError, not a raw TypeError/ValueError from dict(...).

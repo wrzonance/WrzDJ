@@ -267,7 +267,13 @@ def parse_gemini_response(payload: dict) -> ChatResponse:
         if not isinstance(part, dict):
             continue
         if "functionCall" in part:
-            fn = part.get("functionCall") or {}
+            raw_fn = part.get("functionCall")
+            if raw_fn is None:
+                fn: dict = {}
+            elif isinstance(raw_fn, dict):
+                fn = raw_fn
+            else:
+                raise ToolTranslationError("Gemini functionCall must be an object")
             name = fn.get("name")
             if not name:
                 raise ToolTranslationError("Gemini functionCall missing name")

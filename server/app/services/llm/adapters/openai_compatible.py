@@ -12,6 +12,7 @@ from app.services.llm.adapters._httpx_openai import (
 from app.services.llm.base import ChatRequest, ChatResponse, LlmAdapter
 from app.services.llm.exceptions import AuthInvalid
 from app.services.llm.registry import register_adapter
+from app.services.llm.url_validator import InvalidBaseUrlError, validate_compatible_base_url
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +34,15 @@ class OpenAICompatibleAdapter(LlmAdapter):
         base_url = blob.get("base_url") or self.connector.base_url_plain
         if not base_url:
             raise AuthInvalid("Connector is missing a base_url")
+        # Final SSRF boundary check: re-validate at call time, since storage-time
+        # validation can be bypassed by stale rows or manual DB edits.
+        try:
+            base_url = validate_compatible_base_url(str(base_url))
+        except InvalidBaseUrlError as exc:
+            raise AuthInvalid("Connector base_url failed validation") from exc
         bearer = blob.get("bearer")
         # Empty-string bearer is treated as no bearer.
-        return str(base_url), (str(bearer) if bearer else None)
+        return base_url, (str(bearer) if bearer else None)
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         base_url, bearer = self._extract_credentials()

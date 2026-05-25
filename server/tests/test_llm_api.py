@@ -435,8 +435,8 @@ class TestPerDJConnectorsCRUD:
 
     def test_create_rejects_unknown_type(self, client: TestClient, auth_headers):
         body = {
-            "connector_type": "gemini_apikey",
-            "display_name": "Future Gemini",
+            "connector_type": "unknown_provider",
+            "display_name": "Future Provider",
             "api_key": "sk-anything",
         }
         # Pydantic Literal rejects this with 422 before we reach our handler.
@@ -522,6 +522,33 @@ class TestPerDJConnectorsCRUD:
             db.query(LlmAuditEvent).filter(LlmAuditEvent.event_type == "connector_deleted").count()
             == 1
         )
+
+    def test_delete_own_connector_clears_system_default(
+        self, client: TestClient, auth_headers, db, test_user
+    ):
+        from app.services.system_settings import get_system_settings
+
+        row = LlmConnector(
+            user_id=test_user.id,
+            connector_type="openai_apikey",
+            display_name="DefaultMine",
+            status="active",
+            credentials=json.dumps({"api_key": "sk-x"}),
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+
+        settings = get_system_settings(db)
+        settings.llm_default_connector_id = row.id
+        db.commit()
+
+        resp = client.delete(f"/api/llm/connectors/{row.id}", headers=auth_headers)
+        assert resp.status_code == 204
+
+        db.expire_all()
+        settings = get_system_settings(db)
+        assert settings.llm_default_connector_id is None
 
     def test_rotate_credentials_audited(self, client: TestClient, auth_headers, db, test_user):
         row = LlmConnector(
@@ -659,6 +686,15 @@ class TestAdminLlm:
     def test_non_admin_cannot_get_policy(self, client: TestClient, auth_headers):
         resp = client.get("/api/admin/llm/policy", headers=auth_headers)
         assert resp.status_code == 403
+
+    def test_patch_policy_rejects_clear_default_with_id(self, client: TestClient, admin_headers):
+        # clear_default and a non-null default id are contradictory.
+        resp = client.patch(
+            "/api/admin/llm/policy",
+            json={"clear_default": True, "llm_default_connector_id": 1},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 422
 
     def test_list_connectors_admin_shows_all(
         self, client: TestClient, admin_headers, db, test_user

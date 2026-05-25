@@ -320,6 +320,12 @@ def delete_connector_endpoint(
         target_connector_id=row.id,
         event_type=AUDIT_DELETED,
     )
+    # If this connector is the system default, clear it before deletion to
+    # mirror the admin revoke path (and to be correct on SQLite, where the FK
+    # ON DELETE SET NULL may not fire).
+    settings = get_system_settings(db)
+    if settings.llm_default_connector_id == row.id:
+        settings.llm_default_connector_id = None
     delete_connector(db, row)
     db.commit()
     return None

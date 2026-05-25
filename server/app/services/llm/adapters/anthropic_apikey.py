@@ -78,18 +78,17 @@ class AnthropicApiKeyAdapter(LlmAdapter):
         if choice is not None:
             kwargs["tool_choice"] = choice
 
-        client = self._client(timeout=timeout)
-
-        try:
-            message = await client.messages.create(**kwargs)
-        except APITimeoutError as exc:
-            raise ProviderUnavailable("Upstream timeout") from exc
-        except APIConnectionError as exc:
-            raise ProviderUnavailable("Upstream network error") from exc
-        except APIStatusError as exc:
-            self._raise_for_status(exc)
-        except APIError as exc:
-            raise ProviderUnavailable(f"Anthropic API error: {type(exc).__name__}") from exc
+        async with self._client(timeout=timeout) as client:
+            try:
+                message = await client.messages.create(**kwargs)
+            except APITimeoutError as exc:
+                raise ProviderUnavailable("Upstream timeout") from exc
+            except APIConnectionError as exc:
+                raise ProviderUnavailable("Upstream network error") from exc
+            except APIStatusError as exc:
+                self._raise_for_status(exc)
+            except APIError as exc:
+                raise ProviderUnavailable(f"Anthropic API error: {type(exc).__name__}") from exc
 
         return parse_anthropic_response(message)
 
@@ -117,7 +116,15 @@ class AnthropicApiKeyAdapter(LlmAdapter):
                 continue
             content = m.content
             if isinstance(content, list):
-                text = "".join(getattr(b, "text", "") or "" for b in content)
+                # Blocks may be dicts (e.g. {"type": "text", "text": "..."}) or
+                # objects with a .text attr — handle both.
+                parts: list[str] = []
+                for b in content:
+                    if isinstance(b, dict):
+                        parts.append(b.get("text") or "")
+                    else:
+                        parts.append(getattr(b, "text", "") or "")
+                text = "".join(parts)
             else:
                 text = content or ""
 

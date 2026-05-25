@@ -20,8 +20,11 @@ const TYPE_LABELS: Record<string, string> = {
   openai_apikey: 'OpenAI',
   anthropic_apikey: 'Anthropic',
   openrouter_apikey: 'OpenRouter',
+  xai_apikey: 'xAI',
   gemini_apikey: 'Gemini',
   openai_compatible: 'OpenAI-compatible',
+  bedrock: 'AWS Bedrock',
+  azure_openai: 'Azure OpenAI',
 };
 
 export default function AdminAISettingsPage() {

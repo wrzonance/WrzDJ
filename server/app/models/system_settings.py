@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, ForeignKey, Integer, String
+from sqlalchemy import Boolean, ForeignKey, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -28,8 +28,12 @@ class SystemSettings(Base):
 
     # LLM gateway connector policy (admin-controlled)
     # See docs/superpowers/specs/2026-05-24-admin-ai-oauth-design.md §4.2
-    llm_apikey_connectors_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    llm_compatible_connector_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    llm_apikey_connectors_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true")
+    )
+    llm_compatible_connector_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true")
+    )
     # Org-default connector — used when a system-context (no actor) LLM call is dispatched
     # FK kept nullable; SET NULL on connector delete to avoid orphan references.
     llm_default_connector_id: Mapped[int | None] = mapped_column(

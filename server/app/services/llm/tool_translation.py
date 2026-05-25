@@ -58,14 +58,22 @@ def parse_openai_response(payload: dict) -> ChatResponse:
 
     tool_calls: list[ToolCall] = []
     raw_tool_calls = msg.get("tool_calls") or []
+    if not isinstance(raw_tool_calls, list):
+        raise ToolTranslationError("OpenAI tool_calls must be a list")
     for tc in raw_tool_calls:
+        if not isinstance(tc, dict):
+            raise ToolTranslationError("OpenAI tool_call entry must be an object")
         fn = tc.get("function") or {}
+        if not isinstance(fn, dict):
+            raise ToolTranslationError("OpenAI tool_call function must be an object")
         name = fn.get("name") or tc.get("name") or ""
         raw_args = fn.get("arguments")
         try:
             input_obj = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
-        except json.JSONDecodeError as exc:
+        except (json.JSONDecodeError, TypeError) as exc:
             raise ToolTranslationError("OpenAI tool_call arguments are not valid JSON") from exc
+        if not isinstance(input_obj, dict):
+            raise ToolTranslationError("OpenAI tool_call arguments must be an object")
         tool_calls.append(ToolCall(id=str(tc.get("id") or name), name=name, input=input_obj))
 
     stop_reason = _normalise_openai_finish_reason(choice.get("finish_reason"))

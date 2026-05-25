@@ -114,6 +114,9 @@ class BedrockAdapter(LlmAdapter):
             canonical_uri=canonical_uri,
             body=payload,
             now=utcnow(),
+            # Forward STS/temporary-credential session token when present so
+            # the SigV4 signature includes X-Amz-Security-Token.
+            session_token=creds.get("aws_session_token") or None,
         )
         headers = {
             "Content-Type": "application/json",
@@ -190,11 +193,7 @@ class BedrockAdapter(LlmAdapter):
         for m in messages:
             if m.role == "system":
                 continue
-            content = m.content
-            if isinstance(content, list):
-                text = "".join(getattr(b, "text", "") or "" for b in content)
-            else:
-                text = content or ""
+            text = _message_text(m)
             if m.role == "tool":
                 if not m.tool_call_id:
                     raise ToolTranslationError("Tool message missing tool_call_id")
@@ -248,7 +247,15 @@ def _render_llama_prompt(request: ChatRequest, tool_instructions: str | None) ->
 def _message_text(m: Message) -> str:
     content = m.content
     if isinstance(content, list):
-        return "".join(getattr(b, "text", "") or "" for b in content)
+        # Blocks may be dicts (e.g. {"type": "text", "text": "..."}) or objects
+        # with a .text attr — handle both.
+        parts: list[str] = []
+        for b in content:
+            if isinstance(b, dict):
+                parts.append(b.get("text") or "")
+            else:
+                parts.append(getattr(b, "text", "") or "")
+        return "".join(parts)
     return content or ""
 
 

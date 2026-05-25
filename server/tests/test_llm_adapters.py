@@ -38,6 +38,23 @@ _AZURE_HTTPX_PATH = "app.services.llm.adapters.azure_openai.httpx.AsyncClient"
 _GEMINI_HTTPX_PATH = "app.services.llm.adapters.gemini_apikey.httpx.AsyncClient"
 
 
+class _FakeAsyncClient:
+    """Wrap a fake Anthropic client so it works with ``async with``.
+
+    The real ``AsyncAnthropic`` client is an async context manager; the adapter
+    uses ``async with self._client(...) as client`` to release HTTP resources.
+    """
+
+    def __init__(self, client):
+        self._client = client
+
+    async def __aenter__(self):
+        return self._client
+
+    async def __aexit__(self, *exc):
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Shared healthcheck request
 # ---------------------------------------------------------------------------
@@ -509,8 +526,10 @@ class TestAnthropicApiKeyAdapter:
         with patch.object(
             adapter,
             "_client",
-            return_value=SimpleNamespace(
-                messages=SimpleNamespace(create=AsyncMock(return_value=fake_message))
+            return_value=_FakeAsyncClient(
+                SimpleNamespace(
+                    messages=SimpleNamespace(create=AsyncMock(return_value=fake_message))
+                )
             ),
         ):
             resp = await adapter.chat(ChatRequest(messages=[Message(role="user", content="hi")]))
@@ -536,8 +555,8 @@ class TestAnthropicApiKeyAdapter:
         with patch.object(
             adapter,
             "_client",
-            return_value=SimpleNamespace(
-                messages=SimpleNamespace(create=AsyncMock(side_effect=exc))
+            return_value=_FakeAsyncClient(
+                SimpleNamespace(messages=SimpleNamespace(create=AsyncMock(side_effect=exc)))
             ),
         ):
             with pytest.raises(AuthInvalid):
@@ -561,8 +580,8 @@ class TestAnthropicApiKeyAdapter:
         with patch.object(
             adapter,
             "_client",
-            return_value=SimpleNamespace(
-                messages=SimpleNamespace(create=AsyncMock(side_effect=exc))
+            return_value=_FakeAsyncClient(
+                SimpleNamespace(messages=SimpleNamespace(create=AsyncMock(side_effect=exc)))
             ),
         ):
             with pytest.raises(RateLimited) as info:

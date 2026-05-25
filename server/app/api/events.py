@@ -943,7 +943,7 @@ async def get_llm_recommendations(
     if not is_llm_available(db, actor=user):
         raise HTTPException(
             status_code=503,
-            detail="LLM recommendations not configured. Set ANTHROPIC_API_KEY to enable.",
+            detail="LLM recommendations not configured. Add a DJ/admin AI connector to enable.",
         )
 
     has_services = bool(user.tidal_access_token) or bool(user.beatport_access_token)
@@ -964,7 +964,7 @@ async def get_llm_recommendations(
             detail="LLM service error. Try again or use algorithmic recommendations.",
         )
 
-    base = _build_recommendation_response(result, db)
+    base = _build_recommendation_response(result, db, actor=user)
 
     llm_queries = [
         LLMQueryInfo(

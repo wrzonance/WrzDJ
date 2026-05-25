@@ -85,7 +85,9 @@ class LlmConnector(Base):
     )
     connector_type: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
     display_name: Mapped[str] = mapped_column(String(80), nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default=STATUS_ACTIVE)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=STATUS_ACTIVE, server_default=STATUS_ACTIVE
+    )
     credentials: Mapped[str] = mapped_column(EncryptedText, nullable=False)
 
     base_url_plain: Mapped[str | None] = mapped_column(String(255), nullable=True)

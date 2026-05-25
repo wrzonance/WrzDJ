@@ -208,6 +208,14 @@ class AdminPolicyPatch(BaseModel):
     llm_default_connector_id: int | None = None
     clear_default: bool = False
 
+    @model_validator(mode="after")
+    def _check_default_consistency(self) -> AdminPolicyPatch:
+        if self.clear_default and self.llm_default_connector_id is not None:
+            raise ValueError(
+                "clear_default cannot be combined with a non-null llm_default_connector_id"
+            )
+        return self
+
 
 class UsageRow(BaseModel):
     connector_id: int

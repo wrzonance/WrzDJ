@@ -15,6 +15,7 @@ ConnectorType = Literal[
     "xai_apikey",
     "bedrock",
     "azure_openai",
+    "gemini_apikey",
 ]
 ConnectorStatus = Literal["active", "auth_invalid", "disabled"]
 
@@ -58,8 +59,8 @@ class ConnectorCreate(BaseModel):
     Field requirements vary by ``connector_type``:
 
     - ``openai_apikey`` / ``anthropic_apikey`` / ``openrouter_apikey`` /
-      ``xai_apikey``: ``api_key`` required; ``base_url`` and ``bearer`` are
-      ignored.
+      ``xai_apikey`` / ``gemini_apikey``: ``api_key`` required; ``base_url``
+      and ``bearer`` are ignored.
     - ``openai_compatible``: ``base_url`` required; ``bearer`` optional;
       ``api_key`` is ignored.
     - ``bedrock``: ``aws_access_key_id``, ``aws_secret_access_key``,
@@ -101,6 +102,7 @@ class ConnectorCreate(BaseModel):
             "anthropic_apikey",
             "openrouter_apikey",
             "xai_apikey",
+            "gemini_apikey",
         ):
             if not _provided(self.api_key):
                 raise ValueError("api_key is required for API-key connectors")

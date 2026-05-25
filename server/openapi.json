@@ -194,7 +194,8 @@
               "openrouter_apikey",
               "xai_apikey",
               "bedrock",
-              "azure_openai"
+              "azure_openai",
+              "gemini_apikey"
             ],
             "title": "Connector Type",
             "type": "string"
@@ -1901,7 +1902,7 @@
         "type": "object"
       },
       "ConnectorCreate": {
-        "description": "Provider-agnostic create payload.\n\nField requirements vary by ``connector_type``:\n\n- ``openai_apikey`` / ``anthropic_apikey`` / ``openrouter_apikey`` /\n  ``xai_apikey``: ``api_key`` required; ``base_url`` and ``bearer`` are\n  ignored.\n- ``openai_compatible``: ``base_url`` required; ``bearer`` optional;\n  ``api_key`` is ignored.\n- ``bedrock``: ``aws_access_key_id``, ``aws_secret_access_key``,\n  ``aws_region`` and ``aws_model_id`` required; other fields ignored.\n- ``azure_openai``: ``api_key``, ``azure_resource_name``,\n  ``azure_deployment_name`` and ``azure_api_version`` all required.\n\nThe combination is enforced by :meth:`_require_credentials_for_type`.\nSee ``build_create_payload`` in ``services/llm/connector_storage.py``\nfor the full validation flow (including key shape checks).",
+        "description": "Provider-agnostic create payload.\n\nField requirements vary by ``connector_type``:\n\n- ``openai_apikey`` / ``anthropic_apikey`` / ``openrouter_apikey`` /\n  ``xai_apikey`` / ``gemini_apikey``: ``api_key`` required; ``base_url``\n  and ``bearer`` are ignored.\n- ``openai_compatible``: ``base_url`` required; ``bearer`` optional;\n  ``api_key`` is ignored.\n- ``bedrock``: ``aws_access_key_id``, ``aws_secret_access_key``,\n  ``aws_region`` and ``aws_model_id`` required; other fields ignored.\n- ``azure_openai``: ``api_key``, ``azure_resource_name``,\n  ``azure_deployment_name`` and ``azure_api_version`` all required.\n\nThe combination is enforced by :meth:`_require_credentials_for_type`.\nSee ``build_create_payload`` in ``services/llm/connector_storage.py``\nfor the full validation flow (including key shape checks).",
         "properties": {
           "api_key": {
             "anyOf": [
@@ -2031,7 +2032,8 @@
               "openrouter_apikey",
               "xai_apikey",
               "bedrock",
-              "azure_openai"
+              "azure_openai",
+              "gemini_apikey"
             ],
             "title": "Connector Type",
             "type": "string"
@@ -2211,7 +2213,8 @@
               "openrouter_apikey",
               "xai_apikey",
               "bedrock",
-              "azure_openai"
+              "azure_openai",
+              "gemini_apikey"
             ],
             "title": "Connector Type",
             "type": "string"
@@ -5859,7 +5862,8 @@
               "openrouter_apikey",
               "xai_apikey",
               "bedrock",
-              "azure_openai"
+              "azure_openai",
+              "gemini_apikey"
             ],
             "title": "Connector Type",
             "type": "string"

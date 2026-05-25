@@ -19,6 +19,7 @@ const CONNECTOR_TYPE_LABELS: Record<LlmConnectorType, string> = {
   anthropic_apikey: 'Anthropic API key',
   openrouter_apikey: 'OpenRouter API key',
   xai_apikey: 'xAI Grok API key',
+  gemini_apikey: 'Google Gemini API key',
   openai_compatible: 'Custom OpenAI-compatible endpoint',
   bedrock: 'AWS Bedrock',
   azure_openai: 'Azure OpenAI',
@@ -135,6 +136,7 @@ export default function SettingsAIPage() {
         'xai_apikey',
         'bedrock',
         'azure_openai',
+        'gemini_apikey',
       );
     }
     if (policy.llm_compatible_connector_enabled) out.push('openai_compatible');
@@ -464,6 +466,8 @@ export default function SettingsAIPage() {
                       ? 'sk-or-…'
                       : form.connector_type === 'xai_apikey'
                       ? 'xai-…'
+                      : form.connector_type === 'gemini_apikey'
+                      ? 'AIza…'
                       : 'sk-proj-… / sk-…'
                   }
                   required
@@ -555,6 +559,8 @@ export default function SettingsAIPage() {
                         ? 'e.g. openai/gpt-4o-mini'
                         : form.connector_type === 'xai_apikey'
                         ? 'grok-3-mini'
+                        : form.connector_type === 'gemini_apikey'
+                        ? 'gemini-2.5-flash'
                         : 'e.g. llama3'
                     }
                   />

@@ -20,6 +20,7 @@ from app.models.llm_connector import (
     CONNECTOR_TYPE_ANTHROPIC_APIKEY,
     CONNECTOR_TYPE_AZURE_OPENAI,
     CONNECTOR_TYPE_BEDROCK,
+    CONNECTOR_TYPE_GEMINI_APIKEY,
     CONNECTOR_TYPE_OPENAI_APIKEY,
     CONNECTOR_TYPE_OPENAI_COMPATIBLE,
     CONNECTOR_TYPE_OPENROUTER_APIKEY,
@@ -141,6 +142,7 @@ def build_create_payload(
         CONNECTOR_TYPE_ANTHROPIC_APIKEY,
         CONNECTOR_TYPE_OPENROUTER_APIKEY,
         CONNECTOR_TYPE_XAI_APIKEY,
+        CONNECTOR_TYPE_GEMINI_APIKEY,
     ):
         if not api_key:
             raise ValueError("api_key is required")
@@ -189,6 +191,9 @@ _OPENAI_KEY_PREFIXES = ("sk-",)
 _ANTHROPIC_KEY_PREFIX = "sk-ant-"
 _OPENROUTER_KEY_PREFIX = "sk-or-"
 _XAI_KEY_PREFIX = "xai-"
+# Google AI Studio (Gemini) keys are "AIza" + 35 url-safe chars = 39 total.
+_GEMINI_KEY_PREFIX = "AIza"
+_GEMINI_KEY_LENGTH = 39
 _SAFE_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
 # Slash is permitted so namespaced model ids (e.g. OpenRouter's
 # "provider/model") validate. The hint is only ever sent as the request-body
@@ -266,6 +271,9 @@ def _looks_like_api_key(connector_type: str, key: str) -> bool:
         return any(key.startswith(p) for p in _OPENAI_KEY_PREFIXES) and len(key) >= 20
     if connector_type == CONNECTOR_TYPE_XAI_APIKEY:
         return key.startswith(_XAI_KEY_PREFIX) and len(key) >= len(_XAI_KEY_PREFIX) + 20
+    if connector_type == CONNECTOR_TYPE_GEMINI_APIKEY:
+        # Google "AIza…" keys are a fixed 39-char url-safe string.
+        return key.startswith(_GEMINI_KEY_PREFIX) and len(key) == _GEMINI_KEY_LENGTH
     return False
 
 
@@ -369,6 +377,7 @@ def rotate_credentials(
         CONNECTOR_TYPE_ANTHROPIC_APIKEY,
         CONNECTOR_TYPE_OPENROUTER_APIKEY,
         CONNECTOR_TYPE_XAI_APIKEY,
+        CONNECTOR_TYPE_GEMINI_APIKEY,
     ):
         if not api_key:
             raise ValueError("api_key is required for rotation")

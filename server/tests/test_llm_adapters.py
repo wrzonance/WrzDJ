@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
+from app.services.llm.adapters._httpx_openai import build_healthcheck_request
 from app.services.llm.adapters.anthropic_apikey import AnthropicApiKeyAdapter
 from app.services.llm.adapters.azure_openai import AzureOpenAIAdapter, _build_azure_endpoint
 from app.services.llm.adapters.gemini_apikey import GeminiApiKeyAdapter
@@ -35,6 +36,17 @@ from app.services.llm.exceptions import (
 _HTTPX_PATH = "app.services.llm.adapters._httpx_openai.httpx.AsyncClient"
 _AZURE_HTTPX_PATH = "app.services.llm.adapters.azure_openai.httpx.AsyncClient"
 _GEMINI_HTTPX_PATH = "app.services.llm.adapters.gemini_apikey.httpx.AsyncClient"
+
+
+# ---------------------------------------------------------------------------
+# Shared healthcheck request
+# ---------------------------------------------------------------------------
+def test_healthcheck_request_imposes_no_tiny_output_cap():
+    # A 1-token cap is consumed entirely by reasoning models' internal tokens,
+    # producing zero output and an HTTP 400. The probe must leave the budget
+    # to the provider's default.
+    req = build_healthcheck_request()
+    assert req.max_tokens is None
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +198,22 @@ class TestOpenAIApiKeyAdapter:
         assert client.calls[0]["url"].endswith("/chat/completions")
 
     @pytest.mark.asyncio
+    async def test_uses_max_completion_tokens_not_max_tokens(self):
+        # OpenAI Platform's newer (GPT-5 / o-series) models reject the legacy
+        # `max_tokens` field with HTTP 400 and require `max_completion_tokens`.
+        connector = _make_openai_connector()
+        adapter = OpenAIApiKeyAdapter(connector)
+        request = ChatRequest(messages=[Message(role="user", content="hi")], max_tokens=100)
+
+        client = _AsyncClient(_ok_response(_openai_success_body("pong")))
+        with patch(_HTTPX_PATH, return_value=client):
+            await adapter.chat(request)
+
+        body = client.calls[0]["json"]
+        assert body["max_completion_tokens"] == 100
+        assert "max_tokens" not in body
+
+    @pytest.mark.asyncio
     async def test_401_maps_to_auth_invalid(self):
         connector = _make_openai_connector()
         adapter = OpenAIApiKeyAdapter(connector)
@@ -299,6 +327,22 @@ class TestOpenAICompatibleAdapter:
         with patch(_HTTPX_PATH, return_value=client):
             await adapter.chat(ChatRequest(messages=[Message(role="user", content="hi")]))
         assert client.calls[0]["headers"]["Authorization"] == "Bearer abc123"
+
+    @pytest.mark.asyncio
+    async def test_uses_legacy_max_tokens(self):
+        # Third-party OpenAI-compatible servers (Ollama / vLLM / LMStudio) speak
+        # the legacy `max_tokens` field — they must NOT receive max_completion_tokens.
+        connector = _make_compatible_connector()
+        adapter = OpenAICompatibleAdapter(connector)
+        request = ChatRequest(messages=[Message(role="user", content="hi")], max_tokens=100)
+
+        client = _AsyncClient(_ok_response(_openai_success_body("ok")))
+        with patch(_HTTPX_PATH, return_value=client):
+            await adapter.chat(request)
+
+        body = client.calls[0]["json"]
+        assert body["max_tokens"] == 100
+        assert "max_completion_tokens" not in body
 
 
 # ---------------------------------------------------------------------------
@@ -906,6 +950,19 @@ class TestAzureOpenAIAdapter:
         with patch(_AZURE_HTTPX_PATH, return_value=client):
             await adapter.health_check()
         assert client.calls[0]["headers"]["api-key"] == "azure-secret-key"
+
+    @pytest.mark.asyncio
+    async def test_uses_max_completion_tokens_not_max_tokens(self):
+        # Azure serves the same OpenAI models, which reject legacy `max_tokens`.
+        connector = _make_azure_connector()
+        adapter = AzureOpenAIAdapter(connector)
+        request = ChatRequest(messages=[Message(role="user", content="hi")], max_tokens=100)
+        client = _AsyncClient(_ok_response(_openai_success_body("ok")))
+        with patch(_AZURE_HTTPX_PATH, return_value=client):
+            await adapter.chat(request)
+        body = client.calls[0]["json"]
+        assert body["max_completion_tokens"] == 100
+        assert "max_tokens" not in body
 
     @pytest.mark.asyncio
     async def test_401_maps_to_auth_invalid(self):

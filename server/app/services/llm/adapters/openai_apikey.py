@@ -18,6 +18,12 @@ logger = logging.getLogger(__name__)
 OPENAI_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_MODEL = "gpt-5-mini"
 
+# OpenAI Platform's GPT-5 / o-series models reject the legacy ``max_tokens`` field
+# (HTTP 400 ``unsupported_parameter``) and require ``max_completion_tokens``, which
+# every current OpenAI Platform chat model also accepts. Third-party OpenAI-compatible
+# servers still speak ``max_tokens``, so this override is scoped to the Platform adapter.
+_MAX_TOKENS_FIELD = "max_completion_tokens"
+
 
 class OpenAIApiKeyAdapter(LlmAdapter):
     connector_type = "openai_apikey"
@@ -40,6 +46,7 @@ class OpenAIApiKeyAdapter(LlmAdapter):
             api_key=api_key,
             request=request,
             fallback_model=self.connector.model_hint or DEFAULT_MODEL,
+            max_tokens_field=_MAX_TOKENS_FIELD,
         )
 
     async def health_check(self) -> None:
@@ -51,6 +58,7 @@ class OpenAIApiKeyAdapter(LlmAdapter):
             api_key=api_key,
             request=ping,
             fallback_model=self.connector.model_hint or DEFAULT_MODEL,
+            max_tokens_field=_MAX_TOKENS_FIELD,
         )
 
 

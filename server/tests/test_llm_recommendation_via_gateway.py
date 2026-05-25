@@ -68,6 +68,24 @@ def _legacy_anthropic_response():
     return SimpleNamespace(content=[tool_block])
 
 
+def test_parse_tool_response_propagates_provider_model():
+    """The actual provider model from the gateway response must survive parsing,
+    so the UI badge reflects the connector that ran (not a hardcoded default)."""
+    from app.services.recommendation.llm_client import _parse_tool_response
+
+    resp = ChatResponse(
+        text="",
+        tool_calls=[
+            ToolCall(id="t", name="search_queries", input={"queries": [{"search_query": "x"}]})
+        ],
+        stop_reason="tool_use",
+        model="gpt-5.4-mini",
+    )
+    result = _parse_tool_response(resp)
+    assert result.model == "gpt-5.4-mini"
+    assert result.queries[0].search_query == "x"
+
+
 @pytest.mark.asyncio
 async def test_gateway_path_matches_legacy_path_output(db, test_user, event_profile):
     """The same model output, routed via gateway vs legacy env-var, yields the

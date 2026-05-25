@@ -69,7 +69,7 @@ def _normalise_role(role: str) -> str:
     return role
 
 
-def _build_payload(req: ChatRequest, model: str | None) -> dict:
+def _build_payload(req: ChatRequest, model: str | None, *, max_tokens_field: str) -> dict:
     tools, choice = to_openai_tools(req.tools, req.force_tool)
 
     body: dict[str, Any] = {
@@ -77,7 +77,7 @@ def _build_payload(req: ChatRequest, model: str | None) -> dict:
         "messages": _messages_to_openai(req),
     }
     if req.max_tokens is not None:
-        body["max_tokens"] = req.max_tokens
+        body[max_tokens_field] = req.max_tokens
     if req.temperature is not None:
         body["temperature"] = req.temperature
     if tools:
@@ -95,6 +95,7 @@ async def call_openai_chat(
     request: ChatRequest,
     fallback_model: str | None,
     extra_headers: dict | None = None,
+    max_tokens_field: str = "max_tokens",
 ) -> ChatResponse:
     """Issue a Chat Completions request and parse the response.
 
@@ -122,7 +123,7 @@ async def call_openai_chat(
     timeout = request.timeout_seconds or DEFAULT_TIMEOUT_SECONDS
     timeout = min(max(timeout, 1.0), MAX_TIMEOUT_SECONDS)
 
-    payload = _build_payload(request, model)
+    payload = _build_payload(request, model, max_tokens_field=max_tokens_field)
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -182,11 +183,15 @@ def _parse_retry_after(value: str | None) -> int | None:
 def build_healthcheck_request() -> ChatRequest:
     """Return a minimal request used to verify the connector is alive.
 
-    A 1-token call is cheap and exercises the auth path. Adapters override the
-    ``model`` via the connector's ``model_hint`` before sending.
+    Deliberately omits ``max_tokens``: reasoning models (OpenAI GPT-5 / o-series)
+    spend their completion budget on internal reasoning tokens before producing
+    any visible output, so a 1-token cap is fully consumed by reasoning and the
+    request fails with HTTP 400 ("max_tokens or model output limit was reached").
+    Letting the provider apply its default budget keeps the probe cheap (the
+    prompt is trivial) while working for reasoning and non-reasoning models alike.
+    Adapters override the ``model`` via the connector's ``model_hint``.
     """
     return ChatRequest(
         messages=[Message(role="user", content="ping")],
-        max_tokens=1,
         temperature=0.0,
     )

@@ -233,7 +233,7 @@ def _parse_tool_response(response) -> LLMSuggestionResult:  # noqa: ANN001 — k
                             reasoning=q.get("reasoning", ""),
                         )
                     )
-        return LLMSuggestionResult(queries=queries, raw_response=raw_text)
+        return LLMSuggestionResult(queries=queries, raw_response=raw_text, model=response.model)
 
     # Path 2 — legacy Anthropic SDK Message-like object.
     for block in getattr(response, "content", []) or []:
@@ -253,7 +253,9 @@ def _parse_tool_response(response) -> LLMSuggestionResult:  # noqa: ANN001 — k
                     )
                 )
 
-    return LLMSuggestionResult(queries=queries, raw_response=raw_text)
+    return LLMSuggestionResult(
+        queries=queries, raw_response=raw_text, model=getattr(response, "model", None)
+    )
 
 
 async def call_llm(
@@ -308,6 +310,7 @@ async def call_llm(
         result = LLMSuggestionResult(
             queries=result.queries[:max_queries],
             raw_response=result.raw_response,
+            model=result.model,
         )
 
     logger.info(

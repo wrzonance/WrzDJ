@@ -30,6 +30,7 @@ class LLMSuggestionResult:
 
     queries: list[LLMSuggestionQuery]
     raw_response: str  # Full LLM response for debugging
+    model: str | None = None  # Provider model that actually produced the response
 
 
 async def generate_llm_suggestions(

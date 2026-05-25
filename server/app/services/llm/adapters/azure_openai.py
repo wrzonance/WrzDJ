@@ -124,7 +124,9 @@ class AzureOpenAIAdapter(LlmAdapter):
         # but the shared payload builder requires a non-None model. Default to
         # the deployment name when no explicit model/hint is supplied.
         model = request.model or self.connector.model_hint or creds["azure_deployment_name"]
-        payload = _build_payload(request, model)
+        # Azure serves the same OpenAI models, which reject the legacy `max_tokens`
+        # field on GPT-5 / o-series deployments — use `max_completion_tokens`.
+        payload = _build_payload(request, model, max_tokens_field="max_completion_tokens")
 
         headers: dict[str, str] = {
             "Content-Type": "application/json",

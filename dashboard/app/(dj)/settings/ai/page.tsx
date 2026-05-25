@@ -16,6 +16,7 @@ import { useAuth } from '@/lib/auth';
 const CONNECTOR_TYPE_LABELS: Record<LlmConnectorType, string> = {
   openai_apikey: 'OpenAI API key',
   anthropic_apikey: 'Anthropic API key',
+  xai_apikey: 'xAI Grok API key',
   openai_compatible: 'Custom OpenAI-compatible endpoint',
 };
 
@@ -92,7 +93,7 @@ export default function SettingsAIPage() {
     if (!policy) return Object.keys(CONNECTOR_TYPE_LABELS) as LlmConnectorType[];
     const out: LlmConnectorType[] = [];
     if (policy.llm_apikey_connectors_enabled) {
-      out.push('openai_apikey', 'anthropic_apikey');
+      out.push('openai_apikey', 'anthropic_apikey', 'xai_apikey');
     }
     if (policy.llm_compatible_connector_enabled) out.push('openai_compatible');
     return out;
@@ -293,6 +294,8 @@ export default function SettingsAIPage() {
                   placeholder={
                     form.connector_type === 'anthropic_apikey'
                       ? 'sk-ant-…'
+                      : form.connector_type === 'xai_apikey'
+                      ? 'xai-…'
                       : 'sk-proj-… / sk-…'
                   }
                   required
@@ -358,6 +361,8 @@ export default function SettingsAIPage() {
                     ? 'claude-haiku-4-5-20251001'
                     : form.connector_type === 'openai_apikey'
                     ? 'gpt-5-mini'
+                    : form.connector_type === 'xai_apikey'
+                    ? 'grok-3-mini'
                     : 'e.g. llama3'
                 }
               />

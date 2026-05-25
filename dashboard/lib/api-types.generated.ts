@@ -1421,6 +1421,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/llm/openrouter/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Openrouter Models
+         * @description Return the OpenRouter model catalogue for the model-hint dropdown.
+         *
+         *     Served from a process-wide TTL cache (refreshed hourly). The OpenRouter
+         *     ``/models`` endpoint is public, so no connector credentials are required.
+         *     Returns an empty list if the catalogue is unavailable — the frontend then
+         *     falls back to a free-text model input.
+         */
+        get: operations["list_openrouter_models_api_llm_openrouter_models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/collect/{code}": {
         parameters: {
             query?: never;
@@ -2352,7 +2377,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "gemini_apikey";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey" | "xai_apikey" | "bedrock" | "azure_openai" | "gemini_apikey";
             /**
              * Created At
              * Format: date-time
@@ -2936,10 +2961,15 @@ export interface components {
          *
          *     Field requirements vary by ``connector_type``:
          *
-         *     - ``openai_apikey`` / ``anthropic_apikey``: ``api_key`` required;
-         *       ``base_url`` and ``bearer`` are ignored.
+         *     - ``openai_apikey`` / ``anthropic_apikey`` / ``openrouter_apikey`` /
+         *       ``xai_apikey`` / ``gemini_apikey``: ``api_key`` required; ``base_url``
+         *       and ``bearer`` are ignored.
          *     - ``openai_compatible``: ``base_url`` required; ``bearer`` optional;
          *       ``api_key`` is ignored.
+         *     - ``bedrock``: ``aws_access_key_id``, ``aws_secret_access_key``,
+         *       ``aws_region`` and ``aws_model_id`` required; other fields ignored.
+         *     - ``azure_openai``: ``api_key``, ``azure_resource_name``,
+         *       ``azure_deployment_name`` and ``azure_api_version`` all required.
          *
          *     The combination is enforced by :meth:`_require_credentials_for_type`.
          *     See ``build_create_payload`` in ``services/llm/connector_storage.py``
@@ -2948,6 +2978,20 @@ export interface components {
         ConnectorCreate: {
             /** Api Key */
             api_key?: string | null;
+            /** Aws Access Key Id */
+            aws_access_key_id?: string | null;
+            /** Aws Model Id */
+            aws_model_id?: string | null;
+            /** Aws Region */
+            aws_region?: string | null;
+            /** Aws Secret Access Key */
+            aws_secret_access_key?: string | null;
+            /** Azure Api Version */
+            azure_api_version?: string | null;
+            /** Azure Deployment Name */
+            azure_deployment_name?: string | null;
+            /** Azure Resource Name */
+            azure_resource_name?: string | null;
             /** Base Url */
             base_url?: string | null;
             /** Bearer */
@@ -2956,7 +3000,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "gemini_apikey";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey" | "xai_apikey" | "bedrock" | "azure_openai" | "gemini_apikey";
             /** Display Name */
             display_name: string;
             /** Model Hint */
@@ -2972,6 +3016,20 @@ export interface components {
         ConnectorCredentialsRotate: {
             /** Api Key */
             api_key?: string | null;
+            /** Aws Access Key Id */
+            aws_access_key_id?: string | null;
+            /** Aws Model Id */
+            aws_model_id?: string | null;
+            /** Aws Region */
+            aws_region?: string | null;
+            /** Aws Secret Access Key */
+            aws_secret_access_key?: string | null;
+            /** Azure Api Version */
+            azure_api_version?: string | null;
+            /** Azure Deployment Name */
+            azure_deployment_name?: string | null;
+            /** Azure Resource Name */
+            azure_resource_name?: string | null;
             /** Base Url */
             base_url?: string | null;
             /** Bearer */
@@ -2988,7 +3046,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "gemini_apikey";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey" | "xai_apikey" | "bedrock" | "azure_openai" | "gemini_apikey";
             /**
              * Created At
              * Format: date-time
@@ -4174,7 +4232,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "gemini_apikey";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey" | "xai_apikey" | "bedrock" | "azure_openai" | "gemini_apikey";
             /** Display Name */
             display_name: string;
             /** Dj Username */
@@ -6955,6 +7013,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_openrouter_models_api_llm_openrouter_models_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIModelsResponse"];
                 };
             };
         };

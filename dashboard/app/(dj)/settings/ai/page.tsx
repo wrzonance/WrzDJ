@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { api } from '@/lib/api';
 import type {
+  AIModelInfo,
   LlmAdminPolicy,
   LlmConnector,
   LlmConnectorCreate,
@@ -16,8 +17,12 @@ import { useAuth } from '@/lib/auth';
 const CONNECTOR_TYPE_LABELS: Record<LlmConnectorType, string> = {
   openai_apikey: 'OpenAI API key',
   anthropic_apikey: 'Anthropic API key',
+  openrouter_apikey: 'OpenRouter API key',
+  xai_apikey: 'xAI Grok API key',
   gemini_apikey: 'Google Gemini API key',
   openai_compatible: 'Custom OpenAI-compatible endpoint',
+  bedrock: 'AWS Bedrock',
+  azure_openai: 'Azure OpenAI',
 };
 
 const STATUS_LABELS: Record<string, { text: string; color: string }> = {
@@ -34,6 +39,13 @@ interface FormState {
   base_url: string;
   bearer: string;
   model_hint: string;
+  aws_access_key_id: string;
+  aws_secret_access_key: string;
+  aws_region: string;
+  aws_model_id: string;
+  azure_resource_name: string;
+  azure_deployment_name: string;
+  azure_api_version: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -44,6 +56,13 @@ const EMPTY_FORM: FormState = {
   base_url: '',
   bearer: '',
   model_hint: '',
+  aws_access_key_id: '',
+  aws_secret_access_key: '',
+  aws_region: '',
+  aws_model_id: '',
+  azure_resource_name: '',
+  azure_deployment_name: '',
+  azure_api_version: '',
 };
 
 export default function SettingsAIPage() {
@@ -59,6 +78,8 @@ export default function SettingsAIPage() {
   const [submitMessage, setSubmitMessage] = useState('');
   const [submitError, setSubmitError] = useState('');
   const [testStateById, setTestStateById] = useState<Record<number, string>>({});
+  const [openrouterModels, setOpenrouterModels] = useState<AIModelInfo[]>([]);
+  const [openrouterModelsLoaded, setOpenrouterModelsLoaded] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -89,11 +110,34 @@ export default function SettingsAIPage() {
     };
   }, [isAuthenticated]);
 
+  // Lazily fetch the OpenRouter model catalogue the first time a DJ opens the
+  // form on the OpenRouter type. Best-effort: an empty list (or a failed fetch)
+  // simply falls back to the free-text model input. Fetched once per mount.
+  const wantsOpenrouterModels = form.open && form.connector_type === 'openrouter_apikey';
+  useEffect(() => {
+    if (!wantsOpenrouterModels || openrouterModelsLoaded) return;
+    setOpenrouterModelsLoaded(true);
+    api
+      .listOpenRouterModels()
+      .then((res) => setOpenrouterModels(res.models))
+      .catch(() => {
+        // Swallow — the dropdown gracefully degrades to free-text entry.
+      });
+  }, [wantsOpenrouterModels, openrouterModelsLoaded]);
+
   const allowedTypes = useMemo(() => {
     if (!policy) return Object.keys(CONNECTOR_TYPE_LABELS) as LlmConnectorType[];
     const out: LlmConnectorType[] = [];
     if (policy.llm_apikey_connectors_enabled) {
-      out.push('openai_apikey', 'anthropic_apikey', 'gemini_apikey');
+      out.push(
+        'openai_apikey',
+        'anthropic_apikey',
+        'openrouter_apikey',
+        'xai_apikey',
+        'bedrock',
+        'azure_openai',
+        'gemini_apikey',
+      );
     }
     if (policy.llm_compatible_connector_enabled) out.push('openai_compatible');
     return out;
@@ -122,16 +166,28 @@ export default function SettingsAIPage() {
     setSubmitting(true);
     setSubmitMessage('');
     setSubmitError('');
+    const isCompatible = form.connector_type === 'openai_compatible';
+    const isBedrock = form.connector_type === 'bedrock';
+    const isAzure = form.connector_type === 'azure_openai';
+    // API-key providers: everything that isn't openai_compatible or bedrock.
+    // Azure also carries an api_key (plus its azure_* fields).
+    const isApiKey = !isCompatible && !isBedrock;
     const payload: LlmConnectorCreate = {
       connector_type: form.connector_type,
       display_name: form.display_name,
-      model_hint: form.model_hint || null,
-      api_key:
-        form.connector_type === 'openai_compatible' ? null : form.api_key,
-      base_url:
-        form.connector_type === 'openai_compatible' ? form.base_url : null,
-      bearer:
-        form.connector_type === 'openai_compatible' ? form.bearer || null : null,
+      // Bedrock has no model_hint field (it uses aws_model_id); never post a
+      // stale hint left over from a prior connector-type selection.
+      model_hint: isBedrock ? null : form.model_hint || null,
+      api_key: isApiKey ? form.api_key : null,
+      base_url: isCompatible ? form.base_url : null,
+      bearer: isCompatible ? form.bearer || null : null,
+      aws_access_key_id: isBedrock ? form.aws_access_key_id : null,
+      aws_secret_access_key: isBedrock ? form.aws_secret_access_key : null,
+      aws_region: isBedrock ? form.aws_region : null,
+      aws_model_id: isBedrock ? form.aws_model_id : null,
+      azure_resource_name: isAzure ? form.azure_resource_name : null,
+      azure_deployment_name: isAzure ? form.azure_deployment_name : null,
+      azure_api_version: isAzure ? form.azure_api_version : null,
     };
     try {
       const created = await api.createLlmConnector(payload);
@@ -282,7 +338,119 @@ export default function SettingsAIPage() {
               />
             </div>
 
-            {form.connector_type !== 'openai_compatible' ? (
+            {form.connector_type === 'bedrock' ? (
+              <>
+                <div className="form-group">
+                  <label htmlFor="aws_access_key_id">AWS access key ID</label>
+                  <input
+                    id="aws_access_key_id"
+                    className="input"
+                    value={form.aws_access_key_id}
+                    onChange={(e) => setForm({ ...form, aws_access_key_id: e.target.value })}
+                    placeholder="AKIA…"
+                    autoComplete="off"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="aws_secret_access_key">AWS secret access key</label>
+                  <input
+                    id="aws_secret_access_key"
+                    className="input"
+                    type="password"
+                    value={form.aws_secret_access_key}
+                    onChange={(e) => setForm({ ...form, aws_secret_access_key: e.target.value })}
+                    autoComplete="off"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="aws_region">AWS region</label>
+                  <input
+                    id="aws_region"
+                    className="input"
+                    value={form.aws_region}
+                    onChange={(e) => setForm({ ...form, aws_region: e.target.value })}
+                    placeholder="us-east-1"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="aws_model_id">Bedrock model ID</label>
+                  <input
+                    id="aws_model_id"
+                    className="input"
+                    value={form.aws_model_id}
+                    onChange={(e) => setForm({ ...form, aws_model_id: e.target.value })}
+                    placeholder="anthropic.claude-3-5-sonnet-20241022-v2:0"
+                    required
+                  />
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0.5rem 0 0' }}>
+                    Calls are signed with AWS SigV4 and billed to your AWS account.
+                    Claude (<code>anthropic.*</code>) and Llama (<code>meta.*</code>)
+                    model families are supported.
+                  </p>
+                </div>
+              </>
+            ) : form.connector_type === 'azure_openai' ? (
+              <>
+                <div className="form-group">
+                  <label htmlFor="api_key">API key</label>
+                  <input
+                    id="api_key"
+                    className="input"
+                    type="password"
+                    value={form.api_key}
+                    onChange={(e) => setForm({ ...form, api_key: e.target.value })}
+                    placeholder="Azure OpenAI key"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="azure_resource_name">Resource name</label>
+                  <input
+                    id="azure_resource_name"
+                    className="input"
+                    value={form.azure_resource_name}
+                    onChange={(e) =>
+                      setForm({ ...form, azure_resource_name: e.target.value })
+                    }
+                    placeholder="e.g. my-company"
+                    required
+                  />
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0.5rem 0 0' }}>
+                    The resource subdomain in{' '}
+                    <code>https://&lt;resource&gt;.openai.azure.com</code>.
+                  </p>
+                </div>
+                <div className="form-group">
+                  <label htmlFor="azure_deployment_name">Deployment name</label>
+                  <input
+                    id="azure_deployment_name"
+                    className="input"
+                    value={form.azure_deployment_name}
+                    onChange={(e) =>
+                      setForm({ ...form, azure_deployment_name: e.target.value })
+                    }
+                    placeholder="e.g. gpt-4o-prod"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="azure_api_version">API version</label>
+                  <input
+                    id="azure_api_version"
+                    className="input"
+                    value={form.azure_api_version}
+                    onChange={(e) =>
+                      setForm({ ...form, azure_api_version: e.target.value })
+                    }
+                    placeholder="e.g. 2024-06-01"
+                    required
+                  />
+                </div>
+              </>
+            ) : form.connector_type !== 'openai_compatible' ? (
               <div className="form-group">
                 <label htmlFor="api_key">API key</label>
                 <input
@@ -294,6 +462,10 @@ export default function SettingsAIPage() {
                   placeholder={
                     form.connector_type === 'anthropic_apikey'
                       ? 'sk-ant-…'
+                      : form.connector_type === 'openrouter_apikey'
+                      ? 'sk-or-…'
+                      : form.connector_type === 'xai_apikey'
+                      ? 'xai-…'
                       : form.connector_type === 'gemini_apikey'
                       ? 'AIza…'
                       : 'sk-proj-… / sk-…'
@@ -349,24 +521,52 @@ export default function SettingsAIPage() {
               </>
             )}
 
-            <div className="form-group">
-              <label htmlFor="model_hint">Model (optional)</label>
-              <input
-                id="model_hint"
-                className="input"
-                value={form.model_hint}
-                onChange={(e) => setForm({ ...form, model_hint: e.target.value })}
-                placeholder={
-                  form.connector_type === 'anthropic_apikey'
-                    ? 'claude-haiku-4-5-20251001'
-                    : form.connector_type === 'openai_apikey'
-                    ? 'gpt-5-mini'
-                    : form.connector_type === 'gemini_apikey'
-                    ? 'gemini-2.5-flash'
-                    : 'e.g. llama3'
-                }
-              />
-            </div>
+            {form.connector_type !== 'bedrock' && (
+              <div className="form-group">
+                <label htmlFor="model_hint">Model (optional)</label>
+                {form.connector_type === 'openrouter_apikey' && openrouterModels.length > 0 ? (
+                  <>
+                    <select
+                      id="model_hint"
+                      className="input"
+                      value={form.model_hint}
+                      onChange={(e) => setForm({ ...form, model_hint: e.target.value })}
+                    >
+                      <option value="">Default (openai/gpt-4o-mini)</option>
+                      {openrouterModels.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} ({m.id})
+                        </option>
+                      ))}
+                    </select>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0.5rem 0 0' }}>
+                      Each model routes through OpenRouter and bills your account at that model&apos;s
+                      OpenRouter rate (see openrouter.ai/models for per-token pricing).
+                    </p>
+                  </>
+                ) : (
+                  <input
+                    id="model_hint"
+                    className="input"
+                    value={form.model_hint}
+                    onChange={(e) => setForm({ ...form, model_hint: e.target.value })}
+                    placeholder={
+                      form.connector_type === 'anthropic_apikey'
+                        ? 'claude-haiku-4-5-20251001'
+                        : form.connector_type === 'openai_apikey'
+                        ? 'gpt-5-mini'
+                        : form.connector_type === 'openrouter_apikey'
+                        ? 'e.g. openai/gpt-4o-mini'
+                        : form.connector_type === 'xai_apikey'
+                        ? 'grok-3-mini'
+                        : form.connector_type === 'gemini_apikey'
+                        ? 'gemini-2.5-flash'
+                        : 'e.g. llama3'
+                    }
+                  />
+                )}
+              </div>
+            )}
 
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
               <button type="submit" className="btn btn-primary" disabled={submitting}>

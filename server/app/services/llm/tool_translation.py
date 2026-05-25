@@ -318,3 +318,133 @@ def _normalise_gemini_finish_reason(
         return "max_tokens"
     # SAFETY, RECITATION, OTHER, etc. — treat as error.
     return "error"
+
+
+# ---------------------------------------------------------------------------
+# Bedrock — Llama family
+#
+# Llama models on Bedrock (meta.llama*) have no structured tool/function field
+# in the InvokeModel request. The convention (matching Meta's tool-use prompt
+# format) is to describe the available tools inside the system prompt and ask
+# the model to emit a single JSON object as its reply. We then parse that JSON
+# back into a canonical ``ToolCall``.
+# ---------------------------------------------------------------------------
+def render_llama_tool_instructions(tools: list[ToolSpec] | None, force: str | None) -> str | None:
+    """Build a system-prompt fragment describing the available tools.
+
+    Returns ``None`` when there are no tools. When ``force`` is set, the
+    fragment instructs the model to call exactly that tool.
+    """
+    if not tools:
+        return None
+    if force is not None and not any(t.name == force for t in tools):
+        raise ToolTranslationError(f"force_tool={force!r} not in tools list")
+
+    lines = [
+        "You have access to the following tools. To call a tool, respond with "
+        "ONLY a single JSON object and no other text, of the form: "
+        '{"name": "<tool_name>", "input": {<arguments>}}.',
+    ]
+    for t in tools:
+        lines.append(
+            f"- {t.name}: {t.description} "
+            f"(input JSON schema: {json.dumps(t.input_schema, sort_keys=True)})"
+        )
+    if force is not None:
+        lines.append(f"You MUST call the tool named {force!r}.")
+    return "\n".join(lines)
+
+
+def parse_llama_response(payload: dict, tool_names: set[str] | None = None) -> ChatResponse:
+    """Parse a Bedrock Llama InvokeModel response body.
+
+    Bedrock Llama returns ``{"generation": "...", "stop_reason": "stop|length",
+    "prompt_token_count": int, "generation_token_count": int}``. When the
+    generated text is a tool-call JSON object whose ``name`` is one of the
+    expected tools, surface it as a ``ToolCall``.
+    """
+    if not isinstance(payload, dict):
+        raise ToolTranslationError("Bedrock Llama response is not a JSON object")
+
+    generation = payload.get("generation")
+    if generation is None:
+        raise ToolTranslationError("Bedrock Llama response missing 'generation'")
+    text = str(generation)
+
+    stop_reason = _normalise_llama_stop_reason(payload.get("stop_reason"))
+
+    usage = None
+    prompt_tokens = payload.get("prompt_token_count")
+    completion_tokens = payload.get("generation_token_count")
+    if prompt_tokens is not None and completion_tokens is not None:
+        usage = TokenUsage(prompt=int(prompt_tokens), completion=int(completion_tokens))
+
+    tool_calls: list[ToolCall] = []
+    parsed = _try_parse_tool_json(text)
+    if parsed is not None:
+        name = parsed.get("name")
+        tool_input = parsed.get("input")
+        if (
+            isinstance(name, str)
+            and name
+            and isinstance(tool_input, dict)
+            and (tool_names is None or name in tool_names)
+        ):
+            tool_calls.append(ToolCall(id=name, name=name, input=tool_input))
+            stop_reason = "tool_use"
+            text = ""
+
+    return ChatResponse(
+        text=text,
+        tool_calls=tool_calls,
+        stop_reason=stop_reason,
+        usage=usage,
+        model=None,
+    )
+
+
+def _try_parse_tool_json(text: str) -> dict | None:
+    """Best-effort extraction of a single ``{"name":..., "input":...}`` object.
+
+    Llama sometimes wraps the JSON in prose or code fences; we extract the first
+    balanced ``{...}`` span and attempt to decode it.
+    """
+    candidate = text.strip()
+    if not candidate:
+        return None
+    # Strip ``` fences if present.
+    if candidate.startswith("```"):
+        candidate = candidate.strip("`")
+        # drop a leading "json" language tag
+        if candidate.lower().startswith("json"):
+            candidate = candidate[4:]
+        candidate = candidate.strip()
+
+    start = candidate.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    for i in range(start, len(candidate)):
+        ch = candidate[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                blob = candidate[start : i + 1]
+                try:
+                    obj = json.loads(blob)
+                except json.JSONDecodeError:
+                    return None
+                return obj if isinstance(obj, dict) else None
+    return None
+
+
+def _normalise_llama_stop_reason(
+    reason: str | None,
+) -> Literal["end_turn", "tool_use", "max_tokens", "error"]:
+    if reason in (None, "stop"):
+        return "end_turn"
+    if reason == "length":
+        return "max_tokens"
+    return "error"

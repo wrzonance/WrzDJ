@@ -55,9 +55,13 @@ def _bootstrap() -> None:
     # Local imports keep the registry module dependency-free at import time.
     from app.services.llm.adapters import (  # noqa: F401
         anthropic_apikey,
+        azure_openai,
+        bedrock,
         gemini_apikey,
         openai_apikey,
         openai_compatible,
+        openrouter_apikey,
+        xai_apikey,
     )
 
 

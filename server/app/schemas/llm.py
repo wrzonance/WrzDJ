@@ -7,7 +7,15 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-ConnectorType = Literal["openai_apikey", "anthropic_apikey", "openai_compatible", "azure_openai"]
+ConnectorType = Literal[
+    "openai_apikey",
+    "anthropic_apikey",
+    "openai_compatible",
+    "openrouter_apikey",
+    "xai_apikey",
+    "bedrock",
+    "azure_openai",
+]
 ConnectorStatus = Literal["active", "auth_invalid", "disabled"]
 
 
@@ -49,10 +57,13 @@ class ConnectorCreate(BaseModel):
 
     Field requirements vary by ``connector_type``:
 
-    - ``openai_apikey`` / ``anthropic_apikey``: ``api_key`` required;
-      ``base_url`` and ``bearer`` are ignored.
+    - ``openai_apikey`` / ``anthropic_apikey`` / ``openrouter_apikey`` /
+      ``xai_apikey``: ``api_key`` required; ``base_url`` and ``bearer`` are
+      ignored.
     - ``openai_compatible``: ``base_url`` required; ``bearer`` optional;
       ``api_key`` is ignored.
+    - ``bedrock``: ``aws_access_key_id``, ``aws_secret_access_key``,
+      ``aws_region`` and ``aws_model_id`` required; other fields ignored.
     - ``azure_openai``: ``api_key``, ``azure_resource_name``,
       ``azure_deployment_name`` and ``azure_api_version`` all required.
 
@@ -72,6 +83,12 @@ class ConnectorCreate(BaseModel):
     base_url: str | None = Field(default=None, max_length=512)
     bearer: str | None = Field(default=None, max_length=512)
 
+    # Set for bedrock (AWS SigV4 — billed to the DJ's AWS account)
+    aws_access_key_id: str | None = Field(default=None, max_length=128)
+    aws_secret_access_key: str | None = Field(default=None, max_length=512)
+    aws_region: str | None = Field(default=None, max_length=64)
+    aws_model_id: str | None = Field(default=None, max_length=128)
+
     # Set for azure_openai (stored in the encrypted credentials blob, not columns)
     azure_resource_name: str | None = Field(default=None, max_length=120)
     azure_deployment_name: str | None = Field(default=None, max_length=120)
@@ -79,12 +96,30 @@ class ConnectorCreate(BaseModel):
 
     @model_validator(mode="after")
     def _require_credentials_for_type(self) -> ConnectorCreate:
-        if self.connector_type in ("openai_apikey", "anthropic_apikey"):
+        if self.connector_type in (
+            "openai_apikey",
+            "anthropic_apikey",
+            "openrouter_apikey",
+            "xai_apikey",
+        ):
             if not _provided(self.api_key):
                 raise ValueError("api_key is required for API-key connectors")
         elif self.connector_type == "openai_compatible":
             if not _provided(self.base_url):
                 raise ValueError("base_url is required for openai_compatible connectors")
+        elif self.connector_type == "bedrock":
+            missing = [
+                name
+                for name, value in (
+                    ("aws_access_key_id", self.aws_access_key_id),
+                    ("aws_secret_access_key", self.aws_secret_access_key),
+                    ("aws_region", self.aws_region),
+                    ("aws_model_id", self.aws_model_id),
+                )
+                if not _provided(value)
+            ]
+            if missing:
+                raise ValueError("bedrock connectors require " + ", ".join(missing))
         elif self.connector_type == "azure_openai":
             missing = [
                 name
@@ -119,6 +154,12 @@ class ConnectorCredentialsRotate(BaseModel):
     base_url: str | None = Field(default=None, max_length=512)
     bearer: str | None = Field(default=None, max_length=512)
 
+    # Set when rotating bedrock credentials.
+    aws_access_key_id: str | None = Field(default=None, max_length=128)
+    aws_secret_access_key: str | None = Field(default=None, max_length=512)
+    aws_region: str | None = Field(default=None, max_length=64)
+    aws_model_id: str | None = Field(default=None, max_length=128)
+
     # azure_openai rotation — admins can swap resource/deployment/version
     # without recreating the connector (all live in the encrypted blob).
     azure_resource_name: str | None = Field(default=None, max_length=120)
@@ -133,6 +174,10 @@ class ConnectorCredentialsRotate(BaseModel):
                 self.api_key,
                 self.base_url,
                 self.bearer,
+                self.aws_access_key_id,
+                self.aws_secret_access_key,
+                self.aws_region,
+                self.aws_model_id,
                 self.azure_resource_name,
                 self.azure_deployment_name,
                 self.azure_api_version,

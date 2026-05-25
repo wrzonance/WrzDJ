@@ -19,6 +19,7 @@ const PAGE_ID = 'admin-ai';
 const TYPE_LABELS: Record<string, string> = {
   openai_apikey: 'OpenAI',
   anthropic_apikey: 'Anthropic',
+  openrouter_apikey: 'OpenRouter',
   openai_compatible: 'OpenAI-compatible',
 };
 
@@ -283,7 +284,7 @@ export default function AdminAISettingsPage() {
               checked={policy.llm_apikey_connectors_enabled}
               onChange={(e) => handlePolicyPatch({ llm_apikey_connectors_enabled: e.target.checked })}
             />
-            Allow API-key connectors (OpenAI, Anthropic)
+            Allow API-key connectors (OpenAI, Anthropic, OpenRouter)
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', marginTop: '0.75rem' }}>
             <input

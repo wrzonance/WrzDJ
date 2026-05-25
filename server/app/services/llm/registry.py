@@ -56,8 +56,11 @@ def _bootstrap() -> None:
     from app.services.llm.adapters import (  # noqa: F401
         anthropic_apikey,
         azure_openai,
+        bedrock,
         openai_apikey,
         openai_compatible,
+        openrouter_apikey,
+        xai_apikey,
     )
 
 

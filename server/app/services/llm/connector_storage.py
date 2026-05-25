@@ -19,8 +19,11 @@ from app.models.llm_connector import (
     AUDIT_REVOKED_BY_ADMIN,
     CONNECTOR_TYPE_ANTHROPIC_APIKEY,
     CONNECTOR_TYPE_AZURE_OPENAI,
+    CONNECTOR_TYPE_BEDROCK,
     CONNECTOR_TYPE_OPENAI_APIKEY,
     CONNECTOR_TYPE_OPENAI_COMPATIBLE,
+    CONNECTOR_TYPE_OPENROUTER_APIKEY,
+    CONNECTOR_TYPE_XAI_APIKEY,
     STATUS_ACTIVE,
     STATUS_AUTH_INVALID,
     STATUS_DISABLED,
@@ -96,6 +99,10 @@ def build_create_payload(
     base_url: str | None = None,
     bearer: str | None = None,
     model_hint: str | None = None,
+    aws_access_key_id: str | None = None,
+    aws_secret_access_key: str | None = None,
+    aws_region: str | None = None,
+    aws_model_id: str | None = None,
     azure_resource_name: str | None = None,
     azure_deployment_name: str | None = None,
     azure_api_version: str | None = None,
@@ -123,7 +130,7 @@ def build_create_payload(
                 raise ValueError("model_hint must be 80 characters or fewer")
             if not _is_safe_model_hint(model_hint):
                 raise ValueError(
-                    "model_hint may only contain letters, digits, dot, underscore, or hyphen"
+                    "model_hint may only contain letters, digits, dot, underscore, hyphen, or slash"
                 )
 
     creds: dict[str, Any]
@@ -132,6 +139,8 @@ def build_create_payload(
     if connector_type in (
         CONNECTOR_TYPE_OPENAI_APIKEY,
         CONNECTOR_TYPE_ANTHROPIC_APIKEY,
+        CONNECTOR_TYPE_OPENROUTER_APIKEY,
+        CONNECTOR_TYPE_XAI_APIKEY,
     ):
         if not api_key:
             raise ValueError("api_key is required")
@@ -147,6 +156,13 @@ def build_create_payload(
         except InvalidBaseUrlError as exc:
             raise ValueError(str(exc)) from exc
         creds = {"base_url": plain_base_url, "bearer": bearer or None}
+    elif connector_type == CONNECTOR_TYPE_BEDROCK:
+        creds = _build_bedrock_creds(
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            aws_region=aws_region,
+            aws_model_id=aws_model_id,
+        )
     elif connector_type == CONNECTOR_TYPE_AZURE_OPENAI:
         if not api_key:
             raise ValueError("api_key is required")
@@ -171,12 +187,68 @@ def build_create_payload(
 
 _OPENAI_KEY_PREFIXES = ("sk-",)
 _ANTHROPIC_KEY_PREFIX = "sk-ant-"
+_OPENROUTER_KEY_PREFIX = "sk-or-"
+_XAI_KEY_PREFIX = "xai-"
 _SAFE_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
-_SAFE_MODEL_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
+# Slash is permitted so namespaced model ids (e.g. OpenRouter's
+# "provider/model") validate. The hint is only ever sent as the request-body
+# "model" field — never used to build a filesystem/URL path.
+_SAFE_MODEL_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_./")
 
 
 def _is_safe_model_hint(s: str) -> bool:
     return all(c in _SAFE_MODEL_CHARS for c in s)
+
+
+# AWS region tokens are lowercase alnum + hyphen (e.g. us-east-1, eu-central-1).
+_AWS_REGION_CHARS = set("abcdefghijklmnopqrstuvwxyz0123456789-")
+# Bedrock model ids look like "anthropic.claude-3-5-sonnet-20241022-v2:0" or
+# "meta.llama3-70b-instruct-v1:0" — allow the inference-profile/ARN-ish chars.
+_AWS_MODEL_ID_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.:/")
+
+
+def _build_bedrock_creds(
+    *,
+    aws_access_key_id: str | None,
+    aws_secret_access_key: str | None,
+    aws_region: str | None,
+    aws_model_id: str | None,
+) -> dict[str, str]:
+    """Validate + assemble the bedrock credentials blob.
+
+    Raises :class:`ValueError` (→ HTTP 400) on any malformed field. No AWS
+    dependency: the access key id / secret are opaque strings; we only sanity
+    check shape and reject obviously-bad input before persisting.
+    """
+    access_key = (aws_access_key_id or "").strip()
+    secret_key = (aws_secret_access_key or "").strip()
+    region = (aws_region or "").strip()
+    model_id = (aws_model_id or "").strip()
+
+    if not access_key:
+        raise ValueError("aws_access_key_id is required")
+    if not secret_key:
+        raise ValueError("aws_secret_access_key is required")
+    if not region:
+        raise ValueError("aws_region is required")
+    if not model_id:
+        raise ValueError("aws_model_id is required")
+
+    if " " in access_key or "\n" in access_key or not all(c in _SAFE_CHARS for c in access_key):
+        raise ValueError("aws_access_key_id format is invalid")
+    if " " in secret_key or "\n" in secret_key:
+        raise ValueError("aws_secret_access_key format is invalid")
+    if not all(c in _AWS_REGION_CHARS for c in region):
+        raise ValueError("aws_region format is invalid")
+    if not all(c in _AWS_MODEL_ID_CHARS for c in model_id):
+        raise ValueError("aws_model_id format is invalid")
+
+    return {
+        "aws_access_key_id": access_key,
+        "aws_secret_access_key": secret_key,
+        "aws_region": region,
+        "aws_model_id": model_id,
+    }
 
 
 def _looks_like_api_key(connector_type: str, key: str) -> bool:
@@ -187,8 +259,13 @@ def _looks_like_api_key(connector_type: str, key: str) -> bool:
         return False
     if connector_type == CONNECTOR_TYPE_ANTHROPIC_APIKEY:
         return key.startswith(_ANTHROPIC_KEY_PREFIX) and len(key) >= len(_ANTHROPIC_KEY_PREFIX) + 30
+    if connector_type == CONNECTOR_TYPE_OPENROUTER_APIKEY:
+        min_len = len(_OPENROUTER_KEY_PREFIX) + 20
+        return key.startswith(_OPENROUTER_KEY_PREFIX) and len(key) >= min_len
     if connector_type == CONNECTOR_TYPE_OPENAI_APIKEY:
         return any(key.startswith(p) for p in _OPENAI_KEY_PREFIXES) and len(key) >= 20
+    if connector_type == CONNECTOR_TYPE_XAI_APIKEY:
+        return key.startswith(_XAI_KEY_PREFIX) and len(key) >= len(_XAI_KEY_PREFIX) + 20
     return False
 
 
@@ -277,6 +354,10 @@ def rotate_credentials(
     api_key: str | None = None,
     base_url: str | None = None,
     bearer: str | None = None,
+    aws_access_key_id: str | None = None,
+    aws_secret_access_key: str | None = None,
+    aws_region: str | None = None,
+    aws_model_id: str | None = None,
     azure_resource_name: str | None = None,
     azure_deployment_name: str | None = None,
     azure_api_version: str | None = None,
@@ -286,6 +367,8 @@ def rotate_credentials(
     if connector.connector_type in (
         CONNECTOR_TYPE_OPENAI_APIKEY,
         CONNECTOR_TYPE_ANTHROPIC_APIKEY,
+        CONNECTOR_TYPE_OPENROUTER_APIKEY,
+        CONNECTOR_TYPE_XAI_APIKEY,
     ):
         if not api_key:
             raise ValueError("api_key is required for rotation")
@@ -302,6 +385,21 @@ def rotate_credentials(
             raise ValueError(str(exc)) from exc
         blob = {"base_url": base_url, "bearer": bearer or None}
         connector.base_url_plain = base_url
+    elif connector.connector_type == CONNECTOR_TYPE_BEDROCK:
+        # Partial rotation: keep existing fields when a new value isn't supplied.
+        existing: dict[str, Any] = {}
+        try:
+            parsed = json.loads(connector.credentials or "{}")
+            if isinstance(parsed, dict):
+                existing = parsed
+        except (json.JSONDecodeError, TypeError):
+            existing = {}
+        blob = _build_bedrock_creds(
+            aws_access_key_id=aws_access_key_id or existing.get("aws_access_key_id"),
+            aws_secret_access_key=(aws_secret_access_key or existing.get("aws_secret_access_key")),
+            aws_region=aws_region or existing.get("aws_region"),
+            aws_model_id=aws_model_id or existing.get("aws_model_id"),
+        )
     elif connector.connector_type == CONNECTOR_TYPE_AZURE_OPENAI:
         # Partial rotation: any omitted field keeps its current value, so an
         # admin can swap just the resource/deployment/version (or just the key)

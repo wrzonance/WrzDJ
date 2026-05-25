@@ -127,6 +127,9 @@ def create_connector_endpoint(
             base_url=payload.base_url,
             bearer=payload.bearer,
             model_hint=payload.model_hint,
+            azure_resource_name=payload.azure_resource_name,
+            azure_deployment_name=payload.azure_deployment_name,
+            azure_api_version=payload.azure_api_version,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -207,6 +210,9 @@ def rotate_connector_credentials(
             api_key=payload.api_key,
             base_url=payload.base_url,
             bearer=payload.bearer,
+            azure_resource_name=payload.azure_resource_name,
+            azure_deployment_name=payload.azure_deployment_name,
+            azure_api_version=payload.azure_api_version,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

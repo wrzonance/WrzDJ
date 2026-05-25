@@ -101,6 +101,70 @@ class TestPerDJConnectorsCRUD:
         resp = client.post("/api/llm/connectors", json=body, headers=auth_headers)
         assert resp.status_code == 400
 
+    def test_create_azure_openai_happy_path(self, client: TestClient, auth_headers):
+        body = {
+            "connector_type": "azure_openai",
+            "display_name": "Venue Azure",
+            "api_key": "azure-secret-key-12345",
+            "azure_resource_name": "venue-co",
+            "azure_deployment_name": "gpt4o-prod",
+            "azure_api_version": "2024-06-01",
+        }
+        resp = client.post("/api/llm/connectors", json=body, headers=auth_headers)
+        assert resp.status_code == 201, resp.json()
+        data = resp.json()
+        assert data["connector_type"] == "azure_openai"
+        # Credentials (incl. azure config) are never echoed back.
+        assert "api_key" not in data
+        assert "azure_resource_name" not in data
+        assert data["base_url_plain"] is None
+
+    def test_create_azure_openai_requires_all_config_fields(self, client: TestClient, auth_headers):
+        body = {
+            "connector_type": "azure_openai",
+            "display_name": "Incomplete Azure",
+            "api_key": "azure-secret-key-12345",
+            "azure_resource_name": "venue-co",
+            # missing deployment + api_version
+        }
+        resp = client.post("/api/llm/connectors", json=body, headers=auth_headers)
+        assert resp.status_code in (400, 422)
+
+    def test_rotate_azure_openai_config_without_recreating(
+        self, client: TestClient, auth_headers, db, test_user
+    ):
+        create_body = {
+            "connector_type": "azure_openai",
+            "display_name": "Rotatable Azure",
+            "api_key": "azure-secret-key-12345",
+            "azure_resource_name": "old-resource",
+            "azure_deployment_name": "old-deployment",
+            "azure_api_version": "2024-02-01",
+        }
+        created = client.post("/api/llm/connectors", json=create_body, headers=auth_headers)
+        assert created.status_code == 201, created.json()
+        connector_id = created.json()["id"]
+
+        # Rotate ONLY the deployment + resource — api_key omitted, must be kept.
+        rotate = client.put(
+            f"/api/llm/connectors/{connector_id}/credentials",
+            json={
+                "azure_resource_name": "new-resource",
+                "azure_deployment_name": "new-deployment",
+            },
+            headers=auth_headers,
+        )
+        assert rotate.status_code == 200, rotate.json()
+
+        # Verify the persisted blob carried forward the api_key + version.
+        row = db.get(LlmConnector, connector_id)
+        db.refresh(row)
+        blob = json.loads(row.credentials)
+        assert blob["api_key"] == "azure-secret-key-12345"
+        assert blob["azure_resource_name"] == "new-resource"
+        assert blob["azure_deployment_name"] == "new-deployment"
+        assert blob["azure_api_version"] == "2024-02-01"
+
     def test_create_rejects_invalid_key_format(self, client: TestClient, auth_headers):
         body = {
             "connector_type": "openai_apikey",

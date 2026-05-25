@@ -17,6 +17,7 @@ const CONNECTOR_TYPE_LABELS: Record<LlmConnectorType, string> = {
   openai_apikey: 'OpenAI API key',
   anthropic_apikey: 'Anthropic API key',
   openai_compatible: 'Custom OpenAI-compatible endpoint',
+  azure_openai: 'Azure OpenAI',
 };
 
 const STATUS_LABELS: Record<string, { text: string; color: string }> = {
@@ -33,6 +34,9 @@ interface FormState {
   base_url: string;
   bearer: string;
   model_hint: string;
+  azure_resource_name: string;
+  azure_deployment_name: string;
+  azure_api_version: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -43,6 +47,9 @@ const EMPTY_FORM: FormState = {
   base_url: '',
   bearer: '',
   model_hint: '',
+  azure_resource_name: '',
+  azure_deployment_name: '',
+  azure_api_version: '',
 };
 
 export default function SettingsAIPage() {
@@ -92,7 +99,7 @@ export default function SettingsAIPage() {
     if (!policy) return Object.keys(CONNECTOR_TYPE_LABELS) as LlmConnectorType[];
     const out: LlmConnectorType[] = [];
     if (policy.llm_apikey_connectors_enabled) {
-      out.push('openai_apikey', 'anthropic_apikey');
+      out.push('openai_apikey', 'anthropic_apikey', 'azure_openai');
     }
     if (policy.llm_compatible_connector_enabled) out.push('openai_compatible');
     return out;
@@ -121,6 +128,7 @@ export default function SettingsAIPage() {
     setSubmitting(true);
     setSubmitMessage('');
     setSubmitError('');
+    const isAzure = form.connector_type === 'azure_openai';
     const payload: LlmConnectorCreate = {
       connector_type: form.connector_type,
       display_name: form.display_name,
@@ -131,6 +139,9 @@ export default function SettingsAIPage() {
         form.connector_type === 'openai_compatible' ? form.base_url : null,
       bearer:
         form.connector_type === 'openai_compatible' ? form.bearer || null : null,
+      azure_resource_name: isAzure ? form.azure_resource_name : null,
+      azure_deployment_name: isAzure ? form.azure_deployment_name : null,
+      azure_api_version: isAzure ? form.azure_api_version : null,
     };
     try {
       const created = await api.createLlmConnector(payload);
@@ -282,22 +293,73 @@ export default function SettingsAIPage() {
             </div>
 
             {form.connector_type !== 'openai_compatible' ? (
-              <div className="form-group">
-                <label htmlFor="api_key">API key</label>
-                <input
-                  id="api_key"
-                  className="input"
-                  type="password"
-                  value={form.api_key}
-                  onChange={(e) => setForm({ ...form, api_key: e.target.value })}
-                  placeholder={
-                    form.connector_type === 'anthropic_apikey'
-                      ? 'sk-ant-…'
-                      : 'sk-proj-… / sk-…'
-                  }
-                  required
-                />
-              </div>
+              <>
+                <div className="form-group">
+                  <label htmlFor="api_key">API key</label>
+                  <input
+                    id="api_key"
+                    className="input"
+                    type="password"
+                    value={form.api_key}
+                    onChange={(e) => setForm({ ...form, api_key: e.target.value })}
+                    placeholder={
+                      form.connector_type === 'anthropic_apikey'
+                        ? 'sk-ant-…'
+                        : form.connector_type === 'azure_openai'
+                        ? 'Azure OpenAI key'
+                        : 'sk-proj-… / sk-…'
+                    }
+                    required
+                  />
+                </div>
+                {form.connector_type === 'azure_openai' && (
+                  <>
+                    <div className="form-group">
+                      <label htmlFor="azure_resource_name">Resource name</label>
+                      <input
+                        id="azure_resource_name"
+                        className="input"
+                        value={form.azure_resource_name}
+                        onChange={(e) =>
+                          setForm({ ...form, azure_resource_name: e.target.value })
+                        }
+                        placeholder="e.g. my-company"
+                        required
+                      />
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0.5rem 0 0' }}>
+                        The resource subdomain in{' '}
+                        <code>https://&lt;resource&gt;.openai.azure.com</code>.
+                      </p>
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="azure_deployment_name">Deployment name</label>
+                      <input
+                        id="azure_deployment_name"
+                        className="input"
+                        value={form.azure_deployment_name}
+                        onChange={(e) =>
+                          setForm({ ...form, azure_deployment_name: e.target.value })
+                        }
+                        placeholder="e.g. gpt-4o-prod"
+                        required
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="azure_api_version">API version</label>
+                      <input
+                        id="azure_api_version"
+                        className="input"
+                        value={form.azure_api_version}
+                        onChange={(e) =>
+                          setForm({ ...form, azure_api_version: e.target.value })
+                        }
+                        placeholder="e.g. 2024-06-01"
+                        required
+                      />
+                    </div>
+                  </>
+                )}
+              </>
             ) : (
               <>
                 <div className="form-group">

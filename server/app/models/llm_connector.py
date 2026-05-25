@@ -28,12 +28,14 @@ from app.models.base import Base
 CONNECTOR_TYPE_OPENAI_APIKEY = "openai_apikey"
 CONNECTOR_TYPE_ANTHROPIC_APIKEY = "anthropic_apikey"
 CONNECTOR_TYPE_OPENAI_COMPATIBLE = "openai_compatible"
+CONNECTOR_TYPE_AZURE_OPENAI = "azure_openai"
 
 VALID_CONNECTOR_TYPES = frozenset(
     {
         CONNECTOR_TYPE_OPENAI_APIKEY,
         CONNECTOR_TYPE_ANTHROPIC_APIKEY,
         CONNECTOR_TYPE_OPENAI_COMPATIBLE,
+        CONNECTOR_TYPE_AZURE_OPENAI,
     }
 )
 
@@ -58,6 +60,8 @@ class LlmConnector(Base):
     `credentials` is a JSON string encrypted via Fernet. Shape varies by type:
     - openai_apikey / anthropic_apikey: {"api_key": "..."}
     - openai_compatible: {"base_url": "...", "bearer": "..." | null}
+    - azure_openai: {"api_key": "...", "azure_resource_name": "...",
+      "azure_deployment_name": "...", "azure_api_version": "..."}
 
     `base_url_plain` mirrors the openai_compatible base_url in plaintext so admin
     listing can render without decrypting. Contains no credentials.

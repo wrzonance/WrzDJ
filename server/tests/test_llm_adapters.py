@@ -14,6 +14,7 @@ import httpx
 import pytest
 
 from app.services.llm.adapters.anthropic_apikey import AnthropicApiKeyAdapter
+from app.services.llm.adapters.azure_openai import AzureOpenAIAdapter
 from app.services.llm.adapters.openai_apikey import OpenAIApiKeyAdapter
 from app.services.llm.adapters.openai_compatible import OpenAICompatibleAdapter
 from app.services.llm.base import ChatRequest, Message
@@ -26,6 +27,7 @@ from app.services.llm.exceptions import (
 )
 
 _HTTPX_PATH = "app.services.llm.adapters._httpx_openai.httpx.AsyncClient"
+_AZURE_HTTPX_PATH = "app.services.llm.adapters.azure_openai.httpx.AsyncClient"
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +49,26 @@ def _make_compatible_connector(base_url="http://127.0.0.1:11434/v1", bearer=None
         credentials=json.dumps(creds),
         model_hint="llama3",
         base_url_plain=base_url,
+    )
+
+
+def _make_azure_connector(
+    api_key="azure-secret-key",
+    resource="my-resource",
+    deployment="gpt4o",
+    api_version="2024-06-01",
+):
+    creds = {
+        "api_key": api_key,
+        "azure_resource_name": resource,
+        "azure_deployment_name": deployment,
+        "azure_api_version": api_version,
+    }
+    return SimpleNamespace(
+        connector_type="azure_openai",
+        credentials=json.dumps(creds),
+        model_hint=None,
+        base_url_plain=None,
     )
 
 
@@ -317,3 +339,127 @@ class TestAnthropicApiKeyAdapter:
             await adapter.chat(
                 ChatRequest(messages=[Message(role="tool", content="result", tool_call_id=None)])
             )
+
+
+# ---------------------------------------------------------------------------
+# Azure OpenAI adapter
+# ---------------------------------------------------------------------------
+class TestAzureOpenAIAdapter:
+    @pytest.mark.asyncio
+    async def test_happy_path_url_and_api_key_header(self):
+        connector = _make_azure_connector(
+            resource="acme", deployment="gpt4o", api_version="2024-06-01"
+        )
+        adapter = AzureOpenAIAdapter(connector)
+        client = _AsyncClient(_ok_response(_openai_success_body("pong")))
+        with patch(_AZURE_HTTPX_PATH, return_value=client):
+            resp = await adapter.chat(ChatRequest(messages=[Message(role="user", content="hi")]))
+
+        assert resp.text == "pong"
+        call = client.calls[0]
+        # Per-deployment URL with api-version query string.
+        assert call["url"] == (
+            "https://acme.openai.azure.com/openai/deployments/gpt4o"
+            "/chat/completions?api-version=2024-06-01"
+        )
+        # Azure uses the `api-key` header, NOT `Authorization: Bearer`.
+        assert call["headers"]["api-key"] == "azure-secret-key"
+        assert "Authorization" not in call["headers"]
+
+    @pytest.mark.asyncio
+    async def test_health_check_succeeds(self):
+        connector = _make_azure_connector()
+        adapter = AzureOpenAIAdapter(connector)
+        client = _AsyncClient(_ok_response(_openai_success_body("ok")))
+        with patch(_AZURE_HTTPX_PATH, return_value=client):
+            await adapter.health_check()
+        assert client.calls[0]["headers"]["api-key"] == "azure-secret-key"
+
+    @pytest.mark.asyncio
+    async def test_401_maps_to_auth_invalid(self):
+        adapter = AzureOpenAIAdapter(_make_azure_connector())
+        resp = httpx.Response(
+            401, request=httpx.Request("POST", "https://acme.openai.azure.com"), json={}
+        )
+        with patch(_AZURE_HTTPX_PATH, return_value=_AsyncClient(resp)):
+            with pytest.raises(AuthInvalid):
+                await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
+
+    @pytest.mark.asyncio
+    async def test_429_maps_to_rate_limited_with_retry_after(self):
+        adapter = AzureOpenAIAdapter(_make_azure_connector())
+        resp = httpx.Response(
+            429,
+            request=httpx.Request("POST", "https://acme.openai.azure.com"),
+            headers={"Retry-After": "17"},
+            json={},
+        )
+        with patch(_AZURE_HTTPX_PATH, return_value=_AsyncClient(resp)):
+            with pytest.raises(RateLimited) as info:
+                await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
+        assert info.value.retry_after_seconds == 17
+
+    @pytest.mark.asyncio
+    async def test_5xx_maps_to_provider_unavailable(self):
+        adapter = AzureOpenAIAdapter(_make_azure_connector())
+        resp = httpx.Response(
+            503, request=httpx.Request("POST", "https://acme.openai.azure.com"), json={}
+        )
+        with patch(_AZURE_HTTPX_PATH, return_value=_AsyncClient(resp)):
+            with pytest.raises(ProviderUnavailable):
+                await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
+
+    @pytest.mark.asyncio
+    async def test_402_maps_to_quota_exceeded(self):
+        adapter = AzureOpenAIAdapter(_make_azure_connector())
+        resp = httpx.Response(
+            402, request=httpx.Request("POST", "https://acme.openai.azure.com"), json={}
+        )
+        with patch(_AZURE_HTTPX_PATH, return_value=_AsyncClient(resp)):
+            with pytest.raises(QuotaExceeded):
+                await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
+
+    @pytest.mark.asyncio
+    async def test_timeout_maps_to_provider_unavailable(self):
+        adapter = AzureOpenAIAdapter(_make_azure_connector())
+        client = _AsyncClient(httpx.TimeoutException("timeout"))
+        with patch(_AZURE_HTTPX_PATH, return_value=client):
+            with pytest.raises(ProviderUnavailable):
+                await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
+
+    @pytest.mark.asyncio
+    async def test_malformed_json_body_raises_tool_translation_error(self):
+        adapter = AzureOpenAIAdapter(_make_azure_connector())
+        resp = httpx.Response(
+            200,
+            request=httpx.Request("POST", "https://acme.openai.azure.com"),
+            content=b"not json",
+            headers={"Content-Type": "application/json"},
+        )
+        with patch(_AZURE_HTTPX_PATH, return_value=_AsyncClient(resp)):
+            with pytest.raises(ToolTranslationError):
+                await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
+
+    @pytest.mark.asyncio
+    async def test_missing_config_raises_auth_invalid(self):
+        connector = SimpleNamespace(
+            connector_type="azure_openai",
+            credentials=json.dumps({"api_key": "k"}),  # missing azure_* fields
+            model_hint=None,
+            base_url_plain=None,
+        )
+        adapter = AzureOpenAIAdapter(connector)
+        with pytest.raises(AuthInvalid):
+            await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
+
+    @pytest.mark.asyncio
+    async def test_malformed_credentials_raise_auth_invalid(self):
+        connector = SimpleNamespace(
+            connector_type="azure_openai",
+            credentials="not json",
+            model_hint=None,
+            base_url_plain=None,
+        )
+        adapter = AzureOpenAIAdapter(connector)
+        with pytest.raises(AuthInvalid):
+            await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))

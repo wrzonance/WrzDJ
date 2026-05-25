@@ -84,6 +84,80 @@ describe('SettingsAIPage', () => {
     expect(optionValues).toEqual(['openai_compatible']);
   });
 
+  it('offers Azure OpenAI and reveals its config fields', async () => {
+    vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
+    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: true,
+      llm_default_connector_id: null,
+    });
+
+    render(<SettingsAIPage />);
+
+    await waitFor(() => expect(screen.getByText('+ Add provider')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('+ Add provider'));
+
+    const select = screen.getByLabelText('Provider') as HTMLSelectElement;
+    const optionValues = Array.from(select.options).map((o) => o.value);
+    expect(optionValues).toContain('azure_openai');
+
+    // Switching to Azure surfaces the resource/deployment/api-version inputs.
+    fireEvent.change(select, { target: { value: 'azure_openai' } });
+    expect(screen.getByLabelText('API key')).toBeInTheDocument();
+    expect(screen.getByLabelText('Resource name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Deployment name')).toBeInTheDocument();
+    expect(screen.getByLabelText('API version')).toBeInTheDocument();
+  });
+
+  it('sends Azure config fields on create', async () => {
+    vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
+    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: true,
+      llm_default_connector_id: null,
+    });
+    const createSpy = vi
+      .spyOn(api, 'createLlmConnector')
+      .mockResolvedValue(makeConnector({ connector_type: 'azure_openai' }));
+
+    render(<SettingsAIPage />);
+
+    await waitFor(() => expect(screen.getByText('+ Add provider')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('+ Add provider'));
+
+    fireEvent.change(screen.getByLabelText('Provider'), {
+      target: { value: 'azure_openai' },
+    });
+    fireEvent.change(screen.getByLabelText('Display name'), {
+      target: { value: 'Venue Azure' },
+    });
+    fireEvent.change(screen.getByLabelText('API key'), {
+      target: { value: 'azure-secret' },
+    });
+    fireEvent.change(screen.getByLabelText('Resource name'), {
+      target: { value: 'venue-co' },
+    });
+    fireEvent.change(screen.getByLabelText('Deployment name'), {
+      target: { value: 'gpt4o-prod' },
+    });
+    fireEvent.change(screen.getByLabelText('API version'), {
+      target: { value: '2024-06-01' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(createSpy).toHaveBeenCalled());
+    expect(createSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connector_type: 'azure_openai',
+        api_key: 'azure-secret',
+        azure_resource_name: 'venue-co',
+        azure_deployment_name: 'gpt4o-prod',
+        azure_api_version: '2024-06-01',
+      }),
+    );
+  });
+
   it('runs Test and surfaces the result', async () => {
     const row = makeConnector();
     vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([row]);

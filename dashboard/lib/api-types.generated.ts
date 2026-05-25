@@ -2352,7 +2352,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "azure_openai";
             /**
              * Created At
              * Format: date-time
@@ -2940,6 +2940,8 @@ export interface components {
          *       ``base_url`` and ``bearer`` are ignored.
          *     - ``openai_compatible``: ``base_url`` required; ``bearer`` optional;
          *       ``api_key`` is ignored.
+         *     - ``azure_openai``: ``api_key``, ``azure_resource_name``,
+         *       ``azure_deployment_name`` and ``azure_api_version`` all required.
          *
          *     The combination is enforced by :meth:`_require_credentials_for_type`.
          *     See ``build_create_payload`` in ``services/llm/connector_storage.py``
@@ -2948,6 +2950,12 @@ export interface components {
         ConnectorCreate: {
             /** Api Key */
             api_key?: string | null;
+            /** Azure Api Version */
+            azure_api_version?: string | null;
+            /** Azure Deployment Name */
+            azure_deployment_name?: string | null;
+            /** Azure Resource Name */
+            azure_resource_name?: string | null;
             /** Base Url */
             base_url?: string | null;
             /** Bearer */
@@ -2956,7 +2964,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "azure_openai";
             /** Display Name */
             display_name: string;
             /** Model Hint */
@@ -2972,6 +2980,12 @@ export interface components {
         ConnectorCredentialsRotate: {
             /** Api Key */
             api_key?: string | null;
+            /** Azure Api Version */
+            azure_api_version?: string | null;
+            /** Azure Deployment Name */
+            azure_deployment_name?: string | null;
+            /** Azure Resource Name */
+            azure_resource_name?: string | null;
             /** Base Url */
             base_url?: string | null;
             /** Bearer */
@@ -2988,7 +3002,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "azure_openai";
             /**
              * Created At
              * Format: date-time
@@ -4174,7 +4188,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "azure_openai";
             /** Display Name */
             display_name: string;
             /** Dj Username */

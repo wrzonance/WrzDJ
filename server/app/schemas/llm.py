@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-ConnectorType = Literal["openai_apikey", "anthropic_apikey", "openai_compatible"]
+ConnectorType = Literal["openai_apikey", "anthropic_apikey", "openai_compatible", "azure_openai"]
 ConnectorStatus = Literal["active", "auth_invalid", "disabled"]
 
 
@@ -44,6 +44,8 @@ class ConnectorCreate(BaseModel):
       ``base_url`` and ``bearer`` are ignored.
     - ``openai_compatible``: ``base_url`` required; ``bearer`` optional;
       ``api_key`` is ignored.
+    - ``azure_openai``: ``api_key``, ``azure_resource_name``,
+      ``azure_deployment_name`` and ``azure_api_version`` all required.
 
     The combination is enforced by :meth:`_require_credentials_for_type`.
     See ``build_create_payload`` in ``services/llm/connector_storage.py``
@@ -54,12 +56,17 @@ class ConnectorCreate(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=80)
     model_hint: str | None = Field(default=None, max_length=80)
 
-    # Set for apikey types
+    # Set for apikey types (and azure_openai)
     api_key: str | None = Field(default=None, max_length=512)
 
     # Set for openai_compatible
     base_url: str | None = Field(default=None, max_length=512)
     bearer: str | None = Field(default=None, max_length=512)
+
+    # Set for azure_openai (stored in the encrypted credentials blob, not columns)
+    azure_resource_name: str | None = Field(default=None, max_length=120)
+    azure_deployment_name: str | None = Field(default=None, max_length=120)
+    azure_api_version: str | None = Field(default=None, max_length=40)
 
     @model_validator(mode="after")
     def _require_credentials_for_type(self) -> ConnectorCreate:
@@ -69,6 +76,19 @@ class ConnectorCreate(BaseModel):
         elif self.connector_type == "openai_compatible":
             if not self.base_url:
                 raise ValueError("base_url is required for openai_compatible connectors")
+        elif self.connector_type == "azure_openai":
+            missing = [
+                name
+                for name, value in (
+                    ("api_key", self.api_key),
+                    ("azure_resource_name", self.azure_resource_name),
+                    ("azure_deployment_name", self.azure_deployment_name),
+                    ("azure_api_version", self.azure_api_version),
+                )
+                if not value
+            ]
+            if missing:
+                raise ValueError("azure_openai connectors require: " + ", ".join(missing))
         return self
 
 
@@ -90,10 +110,23 @@ class ConnectorCredentialsRotate(BaseModel):
     base_url: str | None = Field(default=None, max_length=512)
     bearer: str | None = Field(default=None, max_length=512)
 
+    # azure_openai rotation — admins can swap resource/deployment/version
+    # without recreating the connector (all live in the encrypted blob).
+    azure_resource_name: str | None = Field(default=None, max_length=120)
+    azure_deployment_name: str | None = Field(default=None, max_length=120)
+    azure_api_version: str | None = Field(default=None, max_length=40)
+
     @model_validator(mode="after")
     def _require_at_least_one(self) -> ConnectorCredentialsRotate:
-        if not (self.api_key or self.base_url or self.bearer):
-            raise ValueError("At least one of api_key, base_url, or bearer must be provided")
+        if not (
+            self.api_key
+            or self.base_url
+            or self.bearer
+            or self.azure_resource_name
+            or self.azure_deployment_name
+            or self.azure_api_version
+        ):
+            raise ValueError("At least one credential field must be provided")
         return self
 
 

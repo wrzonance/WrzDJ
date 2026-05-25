@@ -190,7 +190,8 @@
             "enum": [
               "openai_apikey",
               "anthropic_apikey",
-              "openai_compatible"
+              "openai_compatible",
+              "xai_apikey"
             ],
             "title": "Connector Type",
             "type": "string"
@@ -1897,7 +1898,7 @@
         "type": "object"
       },
       "ConnectorCreate": {
-        "description": "Provider-agnostic create payload.\n\nField requirements vary by ``connector_type``:\n\n- ``openai_apikey`` / ``anthropic_apikey``: ``api_key`` required;\n  ``base_url`` and ``bearer`` are ignored.\n- ``openai_compatible``: ``base_url`` required; ``bearer`` optional;\n  ``api_key`` is ignored.\n\nThe combination is enforced by :meth:`_require_credentials_for_type`.\nSee ``build_create_payload`` in ``services/llm/connector_storage.py``\nfor the full validation flow (including key shape checks).",
+        "description": "Provider-agnostic create payload.\n\nField requirements vary by ``connector_type``:\n\n- ``openai_apikey`` / ``anthropic_apikey`` / ``xai_apikey``: ``api_key``\n  required; ``base_url`` and ``bearer`` are ignored.\n- ``openai_compatible``: ``base_url`` required; ``bearer`` optional;\n  ``api_key`` is ignored.\n\nThe combination is enforced by :meth:`_require_credentials_for_type`.\nSee ``build_create_payload`` in ``services/llm/connector_storage.py``\nfor the full validation flow (including key shape checks).",
         "properties": {
           "api_key": {
             "anyOf": [
@@ -1939,7 +1940,8 @@
             "enum": [
               "openai_apikey",
               "anthropic_apikey",
-              "openai_compatible"
+              "openai_compatible",
+              "xai_apikey"
             ],
             "title": "Connector Type",
             "type": "string"
@@ -2031,7 +2033,8 @@
             "enum": [
               "openai_apikey",
               "anthropic_apikey",
-              "openai_compatible"
+              "openai_compatible",
+              "xai_apikey"
             ],
             "title": "Connector Type",
             "type": "string"
@@ -5675,7 +5678,8 @@
             "enum": [
               "openai_apikey",
               "anthropic_apikey",
-              "openai_compatible"
+              "openai_compatible",
+              "xai_apikey"
             ],
             "title": "Connector Type",
             "type": "string"

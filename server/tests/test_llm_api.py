@@ -80,6 +80,47 @@ class TestPerDJConnectorsCRUD:
         resp = client.post("/api/llm/connectors", json=body, headers=auth_headers)
         assert resp.status_code == 201, resp.json()
 
+    def test_create_xai_apikey_happy_path(self, client: TestClient, auth_headers):
+        body = {
+            "connector_type": "xai_apikey",
+            "display_name": "My Grok",
+            "api_key": "xai-1234567890abcdef1234567890abcdef",
+            "model_hint": "grok-3-mini",
+        }
+        resp = client.post("/api/llm/connectors", json=body, headers=auth_headers)
+        assert resp.status_code == 201, resp.json()
+        data = resp.json()
+        assert data["connector_type"] == "xai_apikey"
+        assert "api_key" not in data
+
+    def test_create_xai_apikey_rejects_invalid_key_format(self, client: TestClient, auth_headers):
+        body = {
+            "connector_type": "xai_apikey",
+            "display_name": "Bad Grok",
+            # Missing the xai- prefix.
+            "api_key": "sk-1234567890abcdef1234567890",
+        }
+        resp = client.post("/api/llm/connectors", json=body, headers=auth_headers)
+        assert resp.status_code == 400
+
+    def test_create_xai_apikey_blocked_by_apikey_policy(
+        self, client: TestClient, auth_headers, admin_headers
+    ):
+        # The generic api-key policy flag also gates xAI connectors.
+        resp = client.patch(
+            "/api/admin/llm/policy",
+            json={"llm_apikey_connectors_enabled": False},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200, resp.json()
+        body = {
+            "connector_type": "xai_apikey",
+            "display_name": "Blocked Grok",
+            "api_key": "xai-1234567890abcdef1234567890abcdef",
+        }
+        resp = client.post("/api/llm/connectors", json=body, headers=auth_headers)
+        assert resp.status_code == 403
+
     def test_create_openai_compatible_happy_path(self, client: TestClient, auth_headers):
         body = {
             "connector_type": "openai_compatible",

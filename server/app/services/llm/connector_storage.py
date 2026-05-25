@@ -20,6 +20,7 @@ from app.models.llm_connector import (
     CONNECTOR_TYPE_ANTHROPIC_APIKEY,
     CONNECTOR_TYPE_OPENAI_APIKEY,
     CONNECTOR_TYPE_OPENAI_COMPATIBLE,
+    CONNECTOR_TYPE_XAI_APIKEY,
     STATUS_ACTIVE,
     STATUS_AUTH_INVALID,
     STATUS_DISABLED,
@@ -128,6 +129,7 @@ def build_create_payload(
     if connector_type in (
         CONNECTOR_TYPE_OPENAI_APIKEY,
         CONNECTOR_TYPE_ANTHROPIC_APIKEY,
+        CONNECTOR_TYPE_XAI_APIKEY,
     ):
         if not api_key:
             raise ValueError("api_key is required")
@@ -157,6 +159,7 @@ def build_create_payload(
 
 _OPENAI_KEY_PREFIXES = ("sk-",)
 _ANTHROPIC_KEY_PREFIX = "sk-ant-"
+_XAI_KEY_PREFIX = "xai-"
 _SAFE_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
 _SAFE_MODEL_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
 
@@ -175,6 +178,8 @@ def _looks_like_api_key(connector_type: str, key: str) -> bool:
         return key.startswith(_ANTHROPIC_KEY_PREFIX) and len(key) >= len(_ANTHROPIC_KEY_PREFIX) + 30
     if connector_type == CONNECTOR_TYPE_OPENAI_APIKEY:
         return any(key.startswith(p) for p in _OPENAI_KEY_PREFIXES) and len(key) >= 20
+    if connector_type == CONNECTOR_TYPE_XAI_APIKEY:
+        return key.startswith(_XAI_KEY_PREFIX) and len(key) >= len(_XAI_KEY_PREFIX) + 20
     return False
 
 
@@ -208,6 +213,7 @@ def rotate_credentials(
     if connector.connector_type in (
         CONNECTOR_TYPE_OPENAI_APIKEY,
         CONNECTOR_TYPE_ANTHROPIC_APIKEY,
+        CONNECTOR_TYPE_XAI_APIKEY,
     ):
         if not api_key:
             raise ValueError("api_key is required for rotation")

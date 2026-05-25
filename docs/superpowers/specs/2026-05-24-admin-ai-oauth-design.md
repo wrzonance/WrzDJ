@@ -509,12 +509,28 @@ MVP ships when all hold:
 
 This spec is the work-order for an implementation agent (likely via `superpowers:executing-plans` + `superpowers:subagent-driven-development`).
 
+### 10.0 Branching & Integration Strategy
+
+**This work-track does NOT merge incrementally into `main`.** It is large and multi-stage; merging each piece into `main` before the whole feature is validated would ship half-built surfaces to production.
+
+Instead, all work converges on a **long-lived integration branch: `epic/ai-engine`** (created from `main`).
+
+- **Every sub-task branches off `epic/ai-engine`, not `main`:**
+  `git fetch origin && git checkout -b feat/issue-NNN origin/epic/ai-engine`
+- **Every sub-PR targets `epic/ai-engine` as its base** (`gh pr create --base epic/ai-engine ...`). Never open a sub-PR against `main`.
+- **Each stage is still validated independently** — full CI, CodeRabbit review, and manual testing run on every sub-PR before it merges into `epic/ai-engine`. The integration branch is not a dumping ground; it is gated the same as `main`.
+- **`epic/ai-engine` → `main` happens exactly once**, at the end, after the complete feature is validated end-to-end (full regression pass + manual sign-off). That final merge is its own reviewed PR.
+- **Keep the epic current:** periodically rebase/merge `main` into `epic/ai-engine` so it doesn't drift from production. Resolve conflicts on the epic, never by force-pushing `main`.
+- Wherever §11 mini-specs say a deferred item "depends on MVP merged", read that as **merged into `epic/ai-engine`** (not `main`).
+
+The MVP (issue #329 / its PR) is the first merge into `epic/ai-engine` and establishes the gateway interfaces all deferred adapters build on.
+
 ### 10.1 Phase 1: Build the MVP
 
 The implementer agent must:
 
 1. Read this spec in full before touching code
-2. Confirm it is working on branch `worktree-feat+admin-ai-oauth` (or equivalent feature branch — never `main`)
+2. Confirm it is working on a feature branch cut from `origin/epic/ai-engine` (e.g. `feat/issue-NNN`) — never `main`, and never directly on `epic/ai-engine` (see §10.0)
 3. Read `CLAUDE.md` (project root) for branch strategy, commit format, CI checks, deploy workflow
 4. Read related memory: `[[llm-oauth-gateway]]`, `[[feedback-litellm-avoid]]`
 5. Use `superpowers:writing-plans` to produce a phased implementation plan from this spec
@@ -527,7 +543,7 @@ The implementer agent must:
    - Sub-agent F: recommendation-engine migration + regression test
    - Sub-agent G: documentation updates (`CLAUDE.md` adds new env vars / new endpoints; `docs/` may need a new HUMAN-VERIFICATION-style doc for LLM connectors)
 7. Each sub-agent prompt must include the branch-safety template from `~/.claude/rules/agents.md` (read CLAUDE.md, never commit to main, branch name)
-8. After all sub-agents finish, run full local CI (the "push to testing" workflow from MEMORY.md) and only then push + open PR
+8. After all sub-agents finish, run full local CI (the "push to testing" workflow from MEMORY.md) and only then push + open PR **with base `epic/ai-engine`** (`gh pr create --base epic/ai-engine`)
 9. Honor all acceptance criteria in §9 before marking the MVP complete
 
 ### 10.2 Phase 2: File deferred items as GitHub issues

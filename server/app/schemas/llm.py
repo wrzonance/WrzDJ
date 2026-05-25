@@ -13,6 +13,7 @@ ConnectorType = Literal[
     "openai_compatible",
     "openrouter_apikey",
     "xai_apikey",
+    "bedrock",
 ]
 ConnectorStatus = Literal["active", "auth_invalid", "disabled"]
 
@@ -51,6 +52,8 @@ class ConnectorCreate(BaseModel):
       ignored.
     - ``openai_compatible``: ``base_url`` required; ``bearer`` optional;
       ``api_key`` is ignored.
+    - ``bedrock``: ``aws_access_key_id``, ``aws_secret_access_key``,
+      ``aws_region`` and ``aws_model_id`` required; other fields ignored.
 
     The combination is enforced by :meth:`_require_credentials_for_type`.
     See ``build_create_payload`` in ``services/llm/connector_storage.py``
@@ -68,6 +71,12 @@ class ConnectorCreate(BaseModel):
     base_url: str | None = Field(default=None, max_length=512)
     bearer: str | None = Field(default=None, max_length=512)
 
+    # Set for bedrock (AWS SigV4 — billed to the DJ's AWS account)
+    aws_access_key_id: str | None = Field(default=None, max_length=128)
+    aws_secret_access_key: str | None = Field(default=None, max_length=512)
+    aws_region: str | None = Field(default=None, max_length=64)
+    aws_model_id: str | None = Field(default=None, max_length=128)
+
     @model_validator(mode="after")
     def _require_credentials_for_type(self) -> ConnectorCreate:
         if self.connector_type in (
@@ -81,6 +90,19 @@ class ConnectorCreate(BaseModel):
         elif self.connector_type == "openai_compatible":
             if not self.base_url:
                 raise ValueError("base_url is required for openai_compatible connectors")
+        elif self.connector_type == "bedrock":
+            missing = [
+                name
+                for name, value in (
+                    ("aws_access_key_id", self.aws_access_key_id),
+                    ("aws_secret_access_key", self.aws_secret_access_key),
+                    ("aws_region", self.aws_region),
+                    ("aws_model_id", self.aws_model_id),
+                )
+                if not value
+            ]
+            if missing:
+                raise ValueError("bedrock connectors require " + ", ".join(missing))
         return self
 
 
@@ -102,10 +124,24 @@ class ConnectorCredentialsRotate(BaseModel):
     base_url: str | None = Field(default=None, max_length=512)
     bearer: str | None = Field(default=None, max_length=512)
 
+    # Set when rotating bedrock credentials.
+    aws_access_key_id: str | None = Field(default=None, max_length=128)
+    aws_secret_access_key: str | None = Field(default=None, max_length=512)
+    aws_region: str | None = Field(default=None, max_length=64)
+    aws_model_id: str | None = Field(default=None, max_length=128)
+
     @model_validator(mode="after")
     def _require_at_least_one(self) -> ConnectorCredentialsRotate:
-        if not (self.api_key or self.base_url or self.bearer):
-            raise ValueError("At least one of api_key, base_url, or bearer must be provided")
+        if not (
+            self.api_key
+            or self.base_url
+            or self.bearer
+            or self.aws_access_key_id
+            or self.aws_secret_access_key
+            or self.aws_region
+            or self.aws_model_id
+        ):
+            raise ValueError("At least one credential field must be provided")
         return self
 
 

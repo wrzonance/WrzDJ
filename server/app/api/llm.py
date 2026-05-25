@@ -147,6 +147,10 @@ def create_connector_endpoint(
             base_url=payload.base_url,
             bearer=payload.bearer,
             model_hint=payload.model_hint,
+            aws_access_key_id=payload.aws_access_key_id,
+            aws_secret_access_key=payload.aws_secret_access_key,
+            aws_region=payload.aws_region,
+            aws_model_id=payload.aws_model_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -227,6 +231,10 @@ def rotate_connector_credentials(
             api_key=payload.api_key,
             base_url=payload.base_url,
             bearer=payload.bearer,
+            aws_access_key_id=payload.aws_access_key_id,
+            aws_secret_access_key=payload.aws_secret_access_key,
+            aws_region=payload.aws_region,
+            aws_model_id=payload.aws_model_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -2377,7 +2377,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey" | "xai_apikey";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey" | "xai_apikey" | "bedrock";
             /**
              * Created At
              * Format: date-time
@@ -2966,6 +2966,8 @@ export interface components {
          *       ignored.
          *     - ``openai_compatible``: ``base_url`` required; ``bearer`` optional;
          *       ``api_key`` is ignored.
+         *     - ``bedrock``: ``aws_access_key_id``, ``aws_secret_access_key``,
+         *       ``aws_region`` and ``aws_model_id`` required; other fields ignored.
          *
          *     The combination is enforced by :meth:`_require_credentials_for_type`.
          *     See ``build_create_payload`` in ``services/llm/connector_storage.py``
@@ -2974,6 +2976,14 @@ export interface components {
         ConnectorCreate: {
             /** Api Key */
             api_key?: string | null;
+            /** Aws Access Key Id */
+            aws_access_key_id?: string | null;
+            /** Aws Model Id */
+            aws_model_id?: string | null;
+            /** Aws Region */
+            aws_region?: string | null;
+            /** Aws Secret Access Key */
+            aws_secret_access_key?: string | null;
             /** Base Url */
             base_url?: string | null;
             /** Bearer */
@@ -2982,7 +2992,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey" | "xai_apikey";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey" | "xai_apikey" | "bedrock";
             /** Display Name */
             display_name: string;
             /** Model Hint */
@@ -2998,6 +3008,14 @@ export interface components {
         ConnectorCredentialsRotate: {
             /** Api Key */
             api_key?: string | null;
+            /** Aws Access Key Id */
+            aws_access_key_id?: string | null;
+            /** Aws Model Id */
+            aws_model_id?: string | null;
+            /** Aws Region */
+            aws_region?: string | null;
+            /** Aws Secret Access Key */
+            aws_secret_access_key?: string | null;
             /** Base Url */
             base_url?: string | null;
             /** Bearer */
@@ -3014,7 +3032,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey" | "xai_apikey";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey" | "xai_apikey" | "bedrock";
             /**
              * Created At
              * Format: date-time
@@ -4200,7 +4218,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey" | "xai_apikey";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey" | "xai_apikey" | "bedrock";
             /** Display Name */
             display_name: string;
             /** Dj Username */

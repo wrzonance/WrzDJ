@@ -20,6 +20,7 @@ const CONNECTOR_TYPE_LABELS: Record<LlmConnectorType, string> = {
   openrouter_apikey: 'OpenRouter API key',
   xai_apikey: 'xAI Grok API key',
   openai_compatible: 'Custom OpenAI-compatible endpoint',
+  bedrock: 'AWS Bedrock',
 };
 
 const STATUS_LABELS: Record<string, { text: string; color: string }> = {
@@ -36,6 +37,10 @@ interface FormState {
   base_url: string;
   bearer: string;
   model_hint: string;
+  aws_access_key_id: string;
+  aws_secret_access_key: string;
+  aws_region: string;
+  aws_model_id: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -46,6 +51,10 @@ const EMPTY_FORM: FormState = {
   base_url: '',
   bearer: '',
   model_hint: '',
+  aws_access_key_id: '',
+  aws_secret_access_key: '',
+  aws_region: '',
+  aws_model_id: '',
 };
 
 export default function SettingsAIPage() {
@@ -112,7 +121,13 @@ export default function SettingsAIPage() {
     if (!policy) return Object.keys(CONNECTOR_TYPE_LABELS) as LlmConnectorType[];
     const out: LlmConnectorType[] = [];
     if (policy.llm_apikey_connectors_enabled) {
-      out.push('openai_apikey', 'anthropic_apikey', 'openrouter_apikey', 'xai_apikey');
+      out.push(
+        'openai_apikey',
+        'anthropic_apikey',
+        'openrouter_apikey',
+        'xai_apikey',
+        'bedrock',
+      );
     }
     if (policy.llm_compatible_connector_enabled) out.push('openai_compatible');
     return out;
@@ -141,16 +156,22 @@ export default function SettingsAIPage() {
     setSubmitting(true);
     setSubmitMessage('');
     setSubmitError('');
+    const isCompatible = form.connector_type === 'openai_compatible';
+    const isBedrock = form.connector_type === 'bedrock';
+    const isApiKey = !isCompatible && !isBedrock;
     const payload: LlmConnectorCreate = {
       connector_type: form.connector_type,
       display_name: form.display_name,
-      model_hint: form.model_hint || null,
-      api_key:
-        form.connector_type === 'openai_compatible' ? null : form.api_key,
-      base_url:
-        form.connector_type === 'openai_compatible' ? form.base_url : null,
-      bearer:
-        form.connector_type === 'openai_compatible' ? form.bearer || null : null,
+      // Bedrock has no model_hint field (it uses aws_model_id); never post a
+      // stale hint left over from a prior connector-type selection.
+      model_hint: isBedrock ? null : form.model_hint || null,
+      api_key: isApiKey ? form.api_key : null,
+      base_url: isCompatible ? form.base_url : null,
+      bearer: isCompatible ? form.bearer || null : null,
+      aws_access_key_id: isBedrock ? form.aws_access_key_id : null,
+      aws_secret_access_key: isBedrock ? form.aws_secret_access_key : null,
+      aws_region: isBedrock ? form.aws_region : null,
+      aws_model_id: isBedrock ? form.aws_model_id : null,
     };
     try {
       const created = await api.createLlmConnector(payload);
@@ -301,7 +322,61 @@ export default function SettingsAIPage() {
               />
             </div>
 
-            {form.connector_type !== 'openai_compatible' ? (
+            {form.connector_type === 'bedrock' ? (
+              <>
+                <div className="form-group">
+                  <label htmlFor="aws_access_key_id">AWS access key ID</label>
+                  <input
+                    id="aws_access_key_id"
+                    className="input"
+                    value={form.aws_access_key_id}
+                    onChange={(e) => setForm({ ...form, aws_access_key_id: e.target.value })}
+                    placeholder="AKIA…"
+                    autoComplete="off"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="aws_secret_access_key">AWS secret access key</label>
+                  <input
+                    id="aws_secret_access_key"
+                    className="input"
+                    type="password"
+                    value={form.aws_secret_access_key}
+                    onChange={(e) => setForm({ ...form, aws_secret_access_key: e.target.value })}
+                    autoComplete="off"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="aws_region">AWS region</label>
+                  <input
+                    id="aws_region"
+                    className="input"
+                    value={form.aws_region}
+                    onChange={(e) => setForm({ ...form, aws_region: e.target.value })}
+                    placeholder="us-east-1"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="aws_model_id">Bedrock model ID</label>
+                  <input
+                    id="aws_model_id"
+                    className="input"
+                    value={form.aws_model_id}
+                    onChange={(e) => setForm({ ...form, aws_model_id: e.target.value })}
+                    placeholder="anthropic.claude-3-5-sonnet-20241022-v2:0"
+                    required
+                  />
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0.5rem 0 0' }}>
+                    Calls are signed with AWS SigV4 and billed to your AWS account.
+                    Claude (<code>anthropic.*</code>) and Llama (<code>meta.*</code>)
+                    model families are supported.
+                  </p>
+                </div>
+              </>
+            ) : form.connector_type !== 'openai_compatible' ? (
               <div className="form-group">
                 <label htmlFor="api_key">API key</label>
                 <input
@@ -370,48 +445,50 @@ export default function SettingsAIPage() {
               </>
             )}
 
-            <div className="form-group">
-              <label htmlFor="model_hint">Model (optional)</label>
-              {form.connector_type === 'openrouter_apikey' && openrouterModels.length > 0 ? (
-                <>
-                  <select
+            {form.connector_type !== 'bedrock' && (
+              <div className="form-group">
+                <label htmlFor="model_hint">Model (optional)</label>
+                {form.connector_type === 'openrouter_apikey' && openrouterModels.length > 0 ? (
+                  <>
+                    <select
+                      id="model_hint"
+                      className="input"
+                      value={form.model_hint}
+                      onChange={(e) => setForm({ ...form, model_hint: e.target.value })}
+                    >
+                      <option value="">Default (openai/gpt-4o-mini)</option>
+                      {openrouterModels.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} ({m.id})
+                        </option>
+                      ))}
+                    </select>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0.5rem 0 0' }}>
+                      Each model routes through OpenRouter and bills your account at that model&apos;s
+                      OpenRouter rate (see openrouter.ai/models for per-token pricing).
+                    </p>
+                  </>
+                ) : (
+                  <input
                     id="model_hint"
                     className="input"
                     value={form.model_hint}
                     onChange={(e) => setForm({ ...form, model_hint: e.target.value })}
-                  >
-                    <option value="">Default (openai/gpt-4o-mini)</option>
-                    {openrouterModels.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name} ({m.id})
-                      </option>
-                    ))}
-                  </select>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0.5rem 0 0' }}>
-                    Each model routes through OpenRouter and bills your account at that model&apos;s
-                    OpenRouter rate (see openrouter.ai/models for per-token pricing).
-                  </p>
-                </>
-              ) : (
-                <input
-                  id="model_hint"
-                  className="input"
-                  value={form.model_hint}
-                  onChange={(e) => setForm({ ...form, model_hint: e.target.value })}
-                  placeholder={
-                    form.connector_type === 'anthropic_apikey'
-                      ? 'claude-haiku-4-5-20251001'
-                      : form.connector_type === 'openai_apikey'
-                      ? 'gpt-5-mini'
-                      : form.connector_type === 'openrouter_apikey'
-                      ? 'e.g. openai/gpt-4o-mini'
-                      : form.connector_type === 'xai_apikey'
-                      ? 'grok-3-mini'
-                      : 'e.g. llama3'
-                  }
-                />
-              )}
-            </div>
+                    placeholder={
+                      form.connector_type === 'anthropic_apikey'
+                        ? 'claude-haiku-4-5-20251001'
+                        : form.connector_type === 'openai_apikey'
+                        ? 'gpt-5-mini'
+                        : form.connector_type === 'openrouter_apikey'
+                        ? 'e.g. openai/gpt-4o-mini'
+                        : form.connector_type === 'xai_apikey'
+                        ? 'grok-3-mini'
+                        : 'e.g. llama3'
+                    }
+                  />
+                )}
+              </div>
+            )}
 
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
               <button type="submit" className="btn btn-primary" disabled={submitting}>

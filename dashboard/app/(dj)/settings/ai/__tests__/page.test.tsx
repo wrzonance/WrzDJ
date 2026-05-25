@@ -84,6 +84,32 @@ describe('SettingsAIPage', () => {
     expect(optionValues).toEqual(['openai_compatible']);
   });
 
+  it('offers AWS Bedrock when api-key connectors are enabled', async () => {
+    vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
+    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: false,
+      llm_default_connector_id: null,
+    });
+
+    render(<SettingsAIPage />);
+
+    await waitFor(() => expect(screen.getByText('+ Add provider')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('+ Add provider'));
+
+    const select = screen.getByLabelText('Provider') as HTMLSelectElement;
+    const optionValues = Array.from(select.options).map((o) => o.value);
+    expect(optionValues).toContain('bedrock');
+    expect(optionValues).not.toContain('openai_compatible');
+
+    // Selecting Bedrock reveals the four AWS credential inputs.
+    fireEvent.change(select, { target: { value: 'bedrock' } });
+    expect(screen.getByLabelText('AWS access key ID')).toBeInTheDocument();
+    expect(screen.getByLabelText('AWS secret access key')).toBeInTheDocument();
+    expect(screen.getByLabelText('AWS region')).toBeInTheDocument();
+    expect(screen.getByLabelText('Bedrock model ID')).toBeInTheDocument();
+  });
+
   it('runs Test and surfaces the result', async () => {
     const row = makeConnector();
     vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([row]);

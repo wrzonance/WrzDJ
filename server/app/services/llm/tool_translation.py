@@ -156,6 +156,8 @@ def parse_anthropic_response(message: Any) -> ChatResponse:
                 name = getattr(block, "name", None)
                 tool_id = getattr(block, "id", None) or name
                 input_obj = getattr(block, "input", None)
+            if not name or not tool_id:
+                raise ToolTranslationError("Anthropic tool_use block missing id/name")
             tool_calls.append(
                 ToolCall(id=str(tool_id), name=str(name), input=dict(input_obj or {}))
             )

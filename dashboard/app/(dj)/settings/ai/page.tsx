@@ -56,6 +56,7 @@ export default function SettingsAIPage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState('');
+  const [submitError, setSubmitError] = useState('');
   const [testStateById, setTestStateById] = useState<Record<number, string>>({});
 
   useEffect(() => {
@@ -100,16 +101,26 @@ export default function SettingsAIPage() {
   if (isLoading || !isAuthenticated) return null;
 
   const handleOpenForm = () => {
-    setForm({ ...EMPTY_FORM, open: true, connector_type: allowedTypes[0] ?? 'openai_apikey' });
+    if (allowedTypes.length === 0) {
+      setSubmitError('Connector creation is currently disabled by admin policy.');
+      setSubmitMessage('');
+      return;
+    }
+    setForm({ ...EMPTY_FORM, open: true, connector_type: allowedTypes[0] });
     setSubmitMessage('');
+    setSubmitError('');
   };
 
-  const handleCancel = () => setForm(EMPTY_FORM);
+  const handleCancel = () => {
+    setForm(EMPTY_FORM);
+    setSubmitError('');
+  };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     setSubmitMessage('');
+    setSubmitError('');
     const payload: LlmConnectorCreate = {
       connector_type: form.connector_type,
       display_name: form.display_name,
@@ -127,7 +138,7 @@ export default function SettingsAIPage() {
       setForm(EMPTY_FORM);
       setSubmitMessage(`Created "${created.display_name}". Run "Test" to verify it works.`);
     } catch (err) {
-      setSubmitMessage(
+      setSubmitError(
         err instanceof Error ? err.message : 'Create failed (check your inputs)',
       );
     } finally {
@@ -184,6 +195,9 @@ export default function SettingsAIPage() {
       {submitMessage && (
         <div style={{ color: 'var(--color-success)', marginTop: '1rem' }}>{submitMessage}</div>
       )}
+      {submitError && (
+        <div style={{ color: 'var(--color-danger)', marginTop: '1rem' }}>{submitError}</div>
+      )}
 
       <section style={{ marginTop: '2rem' }}>
         <h2>Connected providers</h2>
@@ -222,7 +236,12 @@ export default function SettingsAIPage() {
       </section>
 
       <section style={{ marginTop: '2rem' }}>
-        {!form.open && (
+        {allowedTypes.length === 0 && !form.open && (
+          <p style={{ color: 'var(--text-secondary)' }}>
+            Connector creation is currently disabled by admin policy.
+          </p>
+        )}
+        {allowedTypes.length > 0 && !form.open && (
           <button className="btn btn-primary" onClick={handleOpenForm}>
             + Add provider
           </button>

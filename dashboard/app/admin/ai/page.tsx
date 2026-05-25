@@ -49,20 +49,26 @@ export default function AdminAISettingsPage() {
 
   useEffect(() => {
     let active = true;
-    Promise.all([
+    // Load each gateway section independently — a transient failure in one
+    // request shouldn't hide the others (e.g. usage 500 should not blank the
+    // policy + connectors panes).
+    Promise.allSettled([
       api.getAdminLlmPolicy(),
       api.listAllLlmConnectors(),
       api.getAdminLlmUsage(30),
-    ])
-      .then(([p, c, u]) => {
-        if (!active) return;
-        setPolicy(p);
-        setConnectors(c);
-        setUsage(u);
-      })
-      .catch(() => {
-        // soft-fail — legacy AI settings card still renders
-      });
+    ]).then(([p, c, u]) => {
+      if (!active) return;
+      if (p.status === 'fulfilled') setPolicy(p.value);
+      if (c.status === 'fulfilled') setConnectors(c.value);
+      if (u.status === 'fulfilled') setUsage(u.value);
+      if (
+        p.status === 'rejected' ||
+        c.status === 'rejected' ||
+        u.status === 'rejected'
+      ) {
+        setPolicyMessage('Some LLM gateway data failed to load');
+      }
+    });
     return () => {
       active = false;
     };

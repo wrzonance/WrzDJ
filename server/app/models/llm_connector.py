@@ -127,7 +127,7 @@ class LlmAuditEvent(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     actor_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
     target_connector_id: Mapped[int | None] = mapped_column(
-        ForeignKey("llm_connectors.id"), nullable=True
+        ForeignKey("llm_connectors.id", ondelete="SET NULL"), nullable=True
     )
     event_type: Mapped[str] = mapped_column(String(60), index=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

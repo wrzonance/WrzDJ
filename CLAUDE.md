@@ -66,7 +66,7 @@ NEXT_PUBLIC_API_URL="http://LAN_IP:8000" npm run dev
 - Encryption: `TOKEN_ENCRYPTION_KEY` (Fernet, 44 chars base64) — required in production for OAuth token encryption
 - Beatport: `BEATPORT_CLIENT_ID`, `BEATPORT_CLIENT_SECRET`, `BEATPORT_REDIRECT_URI`, `BEATPORT_AUTH_BASE_URL`
 - Soundcharts: `SOUNDCHARTS_APP_ID`, `SOUNDCHARTS_API_KEY` (song discovery for recommendations)
-- Anthropic (LLM recommendations): `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` (default: `claude-haiku-4-5-20251001`), `ANTHROPIC_MAX_TOKENS`, `ANTHROPIC_TIMEOUT_SECONDS`
+- Anthropic (LLM recommendations, legacy): `ANTHROPIC_API_KEY` (**DEPRECATED** — migrated to the LLM Gateway connector system; see `.env.example` LLM section), `ANTHROPIC_MODEL` (default: `claude-haiku-4-5-20251001`), `ANTHROPIC_MAX_TOKENS`, `ANTHROPIC_TIMEOUT_SECONDS`
 
 ## Running CI Checks Locally
 

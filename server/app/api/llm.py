@@ -172,7 +172,17 @@ def update_connector_metadata(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception as exc:  # likely a UniqueConstraint collision on rename
+        db.rollback()
+        if "uq_dj_connector_label" in str(exc):
+            raise HTTPException(
+                status_code=409,
+                detail="You already have a connector with that display name and type",
+            ) from exc
+        logger.exception("Failed to update LLM connector metadata")
+        raise HTTPException(status_code=500, detail="Failed to update connector metadata") from exc
     db.refresh(row)
     return ConnectorOut.model_validate(row)
 

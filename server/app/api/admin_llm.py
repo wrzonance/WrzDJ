@@ -71,8 +71,13 @@ def patch_policy(
 
     # Default connector handling:
     # - clear_default=True takes precedence and sets to NULL
+    # - explicit `llm_default_connector_id: null` also clears the default
     # - otherwise, llm_default_connector_id (if non-None) is validated and set
-    if payload.clear_default:
+    explicit_null_default = (
+        "llm_default_connector_id" in payload.model_fields_set
+        and payload.llm_default_connector_id is None
+    )
+    if payload.clear_default or explicit_null_default:
         update_kwargs["llm_default_connector_id"] = None
     elif payload.llm_default_connector_id is not None:
         target = get_connector(db, payload.llm_default_connector_id)

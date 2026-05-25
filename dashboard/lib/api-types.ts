@@ -63,8 +63,9 @@ export type LlmAdminPolicy = Schemas['AdminPolicyOut'];
 export type LlmAdminPolicyPatch = Schemas['AdminPolicyPatch'];
 export type LlmAdminUsage = Schemas['AdminUsageOut'];
 export type LlmUsageRow = Schemas['UsageRow'];
-export type LlmConnectorType = 'openai_apikey' | 'anthropic_apikey' | 'openai_compatible';
-export type LlmConnectorStatus = 'active' | 'auth_invalid' | 'disabled';
+// Derive from schema so backend enum changes propagate to TS automatically.
+export type LlmConnectorType = Schemas['ConnectorOut']['connector_type'];
+export type LlmConnectorStatus = Schemas['ConnectorOut']['status'];
 export type ActivityLogEntry = Schemas['ActivityLogEntry'];
 export type CapabilityStatus = Schemas['CapabilityStatus'];
 export type ServiceCapabilities = Schemas['ServiceCapabilities'];

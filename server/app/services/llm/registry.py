@@ -12,11 +12,23 @@ _REGISTRY: dict[str, type[LlmAdapter]] = {}
 
 
 def register_adapter(connector_type: str, cls: type[LlmAdapter]) -> None:
-    """Register an adapter class for a connector_type."""
+    """Register an adapter class for a connector_type.
+
+    Re-registering the *same* class is a no-op (safe for re-imports during
+    tests). Registering a *different* class for an already-bound
+    ``connector_type`` raises :class:`ValueError` — silently overwriting
+    adapters would make behavior depend on import order and hide collisions.
+    """
     if not connector_type:
         raise ValueError("connector_type must be non-empty")
     if not issubclass(cls, LlmAdapter):
         raise TypeError("Adapter must subclass LlmAdapter")
+    existing = _REGISTRY.get(connector_type)
+    if existing is not None and existing is not cls:
+        raise ValueError(
+            f"connector_type {connector_type!r} already registered by "
+            f"{existing.__name__}; refusing to overwrite with {cls.__name__}"
+        )
     _REGISTRY[connector_type] = cls
 
 

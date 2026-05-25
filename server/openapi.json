@@ -1897,6 +1897,7 @@
         "type": "object"
       },
       "ConnectorCreate": {
+        "description": "Provider-agnostic create payload.\n\nField requirements vary by ``connector_type``:\n\n- ``openai_apikey`` / ``anthropic_apikey``: ``api_key`` required;\n  ``base_url`` and ``bearer`` are ignored.\n- ``openai_compatible``: ``base_url`` required; ``bearer`` optional;\n  ``api_key`` is ignored.\n\nThe combination is enforced by :meth:`_require_credentials_for_type`.\nSee ``build_create_payload`` in ``services/llm/connector_storage.py``\nfor the full validation flow (including key shape checks).",
         "properties": {
           "api_key": {
             "anyOf": [
@@ -1970,6 +1971,7 @@
         "type": "object"
       },
       "ConnectorCredentialsRotate": {
+        "description": "Rotation payload \u2014 at least one credential field must be supplied.\n\nField semantics mirror :class:`ConnectorCreate`. The actual field required\ndepends on the connector being rotated (validated in ``rotate_credentials``).",
         "properties": {
           "api_key": {
             "anyOf": [

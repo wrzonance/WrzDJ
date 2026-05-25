@@ -63,14 +63,19 @@ async def generate_llm_suggestions(
     )
 
 
-def is_llm_available(db=None) -> bool:
+def is_llm_available(db=None, actor=None) -> bool:
     """Check if LLM recommendations are configured and available.
 
-    Truthy if the admin has enabled LLMs (``SystemSettings.llm_enabled``) AND
-    at least one usable connector exists — either an active connector owned by
-    *any* DJ (admin org default) or a connector for the actor (resolved by the
-    gateway at dispatch time). For backwards-compat we also accept the legacy
-    ``ANTHROPIC_API_KEY`` env var when no DB connectors exist.
+    Mirrors :func:`app.services.llm.gateway._resolve_connector` semantics so the
+    "feature available" signal aligns with whether dispatch will actually
+    succeed:
+
+    - If ``actor`` is provided: returns True when the actor owns an active
+      connector (matches the per-DJ MRU lookup).
+    - Otherwise (no actor or no actor-owned active connector): returns True
+      when an active system-default connector is configured.
+    - As a last fallback, the legacy ``ANTHROPIC_API_KEY`` env var unlocks
+      the feature for callers that still take the env-var path.
     """
     from app.core.config import get_settings
 
@@ -83,17 +88,27 @@ def is_llm_available(db=None) -> bool:
         if not settings.llm_enabled:
             return False
 
-        # Any active connector unlocks the feature (gateway picks at dispatch).
-        any_active = db.query(LlmConnector.id).filter(LlmConnector.status == STATUS_ACTIVE).first()
-        if any_active is not None:
-            return True
+        # Per-DJ active connector — matches gateway resolver step 1.
+        if actor is not None:
+            actor_active = (
+                db.query(LlmConnector.id)
+                .filter(
+                    LlmConnector.user_id == actor.id,
+                    LlmConnector.status == STATUS_ACTIVE,
+                )
+                .first()
+            )
+            if actor_active is not None:
+                return True
 
-        # System default fallback
+        # System default fallback — matches gateway resolver step 2.
         sys_settings = db.query(SystemSettings).first()
         if sys_settings and sys_settings.llm_default_connector_id:
-            return True
+            default = db.get(LlmConnector, sys_settings.llm_default_connector_id)
+            if default is not None and default.status == STATUS_ACTIVE:
+                return True
 
-        # Final fallback: legacy env var
+        # Final fallback: legacy env var (kept until env-var cleanup ships).
         return bool(get_settings().anthropic_api_key)
 
     return bool(get_settings().anthropic_api_key)

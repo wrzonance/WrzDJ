@@ -43,8 +43,15 @@ def _messages_to_openai(req: ChatRequest) -> list[dict]:
     for m in req.messages:
         content = m.content
         if isinstance(content, list):
-            # Concatenate text blocks — MVP is text-only.
-            text = "".join(getattr(b, "text", "") or "" for b in content)
+            # Concatenate text blocks — MVP is text-only. Blocks may be dicts
+            # (e.g. {"type": "text", "text": "..."}) or objects with a .text attr.
+            parts: list[str] = []
+            for b in content:
+                if isinstance(b, dict):
+                    parts.append(b.get("text") or "")
+                else:
+                    parts.append(getattr(b, "text", "") or "")
+            text = "".join(parts)
         else:
             text = content or ""
 

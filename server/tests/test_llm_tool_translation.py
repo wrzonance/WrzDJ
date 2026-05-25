@@ -182,3 +182,25 @@ class TestParseAnthropicResponse:
         msg = {"stop_reason": "max_tokens", "content": []}
         resp = parse_anthropic_response(msg)
         assert resp.stop_reason == "max_tokens"
+
+    def test_anthropic_tool_use_missing_id_name_raises(self):
+        """Regression: malformed tool_use without id/name must fail fast.
+
+        Pin per PR #348: previously the parser cast missing values to the
+        string "None", producing invalid canonical ToolCall objects.
+        """
+        msg = {
+            "stop_reason": "tool_use",
+            "content": [{"type": "tool_use", "input": {"ids": ["x"]}}],
+        }
+        with pytest.raises(ToolTranslationError):
+            parse_anthropic_response(msg)
+
+    def test_anthropic_tool_use_empty_name_raises(self):
+        """Empty name with no id to fall back to must raise, not emit 'None'."""
+        msg = {
+            "stop_reason": "tool_use",
+            "content": [{"type": "tool_use", "name": "", "input": {}}],
+        }
+        with pytest.raises(ToolTranslationError):
+            parse_anthropic_response(msg)

@@ -252,8 +252,11 @@ def update_metadata(
         connector.display_name = display_name
     if model_hint is not None:
         model_hint = model_hint.strip() or None
-        if model_hint is not None and not _is_safe_model_hint(model_hint):
-            raise ValueError("model_hint contains invalid characters")
+        if model_hint is not None:
+            if len(model_hint) > 80:
+                raise ValueError("model_hint must be 80 characters or fewer")
+            if not _is_safe_model_hint(model_hint):
+                raise ValueError("model_hint contains invalid characters")
         connector.model_hint = model_hint
     return connector
 

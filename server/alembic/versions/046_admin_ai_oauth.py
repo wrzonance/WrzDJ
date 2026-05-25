@@ -118,7 +118,7 @@ def upgrade() -> None:
         sa.Column(
             "target_connector_id",
             sa.Integer(),
-            sa.ForeignKey("llm_connectors.id"),
+            sa.ForeignKey("llm_connectors.id", ondelete="SET NULL"),
             nullable=True,
         ),
         sa.Column("event_type", sa.String(60), nullable=False),

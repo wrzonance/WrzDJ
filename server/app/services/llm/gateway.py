@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from time import monotonic
 
-from sqlalchemy import desc
+from sqlalchemy import desc, nulls_last
 from sqlalchemy.orm import Session
 
 from app.core.time import utcnow
@@ -162,7 +162,7 @@ def _resolve_connector(db: Session, actor: User | None) -> LlmConnector:
                 LlmConnector.user_id == actor.id,
                 LlmConnector.status == STATUS_ACTIVE,
             )
-            .order_by(desc(LlmConnector.last_used_at), desc(LlmConnector.id))
+            .order_by(nulls_last(desc(LlmConnector.last_used_at)), desc(LlmConnector.id))
             .first()
         )
         if row is not None:

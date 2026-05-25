@@ -80,6 +80,48 @@ class TestPerDJConnectorsCRUD:
         resp = client.post("/api/llm/connectors", json=body, headers=auth_headers)
         assert resp.status_code == 201, resp.json()
 
+    def test_create_openrouter_apikey_happy_path(self, client: TestClient, auth_headers):
+        body = {
+            "connector_type": "openrouter_apikey",
+            "display_name": "My OpenRouter",
+            "api_key": "sk-or-v1-1234567890abcdef1234567890abcdef",
+            "model_hint": "openai/gpt-4o-mini",
+        }
+        resp = client.post("/api/llm/connectors", json=body, headers=auth_headers)
+        assert resp.status_code == 201, resp.json()
+        data = resp.json()
+        assert data["connector_type"] == "openrouter_apikey"
+        assert data["model_hint"] == "openai/gpt-4o-mini"
+        assert "credentials" not in data
+        assert "api_key" not in data
+
+    def test_create_openrouter_rejects_non_openrouter_key(self, client: TestClient, auth_headers):
+        body = {
+            "connector_type": "openrouter_apikey",
+            "display_name": "Wrong prefix",
+            "api_key": "sk-proj-abc1234567890abcdef12",
+        }
+        resp = client.post("/api/llm/connectors", json=body, headers=auth_headers)
+        assert resp.status_code == 400
+
+    def test_create_openrouter_blocked_by_apikey_policy(
+        self, client: TestClient, auth_headers, admin_headers
+    ):
+        # OpenRouter is gated by the generic api-key flag (no per-provider flag).
+        resp = client.patch(
+            "/api/admin/llm/policy",
+            json={"llm_apikey_connectors_enabled": False},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200, resp.json()
+        body = {
+            "connector_type": "openrouter_apikey",
+            "display_name": "Should Fail",
+            "api_key": "sk-or-v1-1234567890abcdef1234567890abcdef",
+        }
+        resp = client.post("/api/llm/connectors", json=body, headers=auth_headers)
+        assert resp.status_code == 403
+
     def test_create_xai_apikey_happy_path(self, client: TestClient, auth_headers):
         body = {
             "connector_type": "xai_apikey",
@@ -320,6 +362,35 @@ class TestHealthCheck:
 
         db.refresh(row)
         assert row.status == "auth_invalid"
+
+
+# ---------- OpenRouter model catalogue endpoint ----------
+class TestOpenRouterModels:
+    def test_returns_cached_model_list(self, client: TestClient, auth_headers):
+        from app.schemas.ai_settings import AIModelInfo
+
+        models = [
+            AIModelInfo(id="openai/gpt-4o-mini", name="GPT-4o mini"),
+            AIModelInfo(id="anthropic/claude-3.5-sonnet", name="Claude 3.5 Sonnet"),
+        ]
+        with patch(
+            "app.api.llm.get_openrouter_models",
+            new=AsyncMock(return_value=models),
+        ):
+            resp = client.get("/api/llm/openrouter/models", headers=auth_headers)
+        assert resp.status_code == 200
+        ids = [m["id"] for m in resp.json()["models"]]
+        assert ids == ["openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet"]
+
+    def test_returns_empty_when_catalogue_unavailable(self, client: TestClient, auth_headers):
+        with patch("app.api.llm.get_openrouter_models", new=AsyncMock(return_value=[])):
+            resp = client.get("/api/llm/openrouter/models", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["models"] == []
+
+    def test_requires_authentication(self, client: TestClient):
+        resp = client.get("/api/llm/openrouter/models")
+        assert resp.status_code == 401
 
 
 # ---------- Admin policy / oversight ----------

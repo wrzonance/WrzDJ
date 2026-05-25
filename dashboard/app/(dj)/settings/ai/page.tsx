@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { api } from '@/lib/api';
 import type {
+  AIModelInfo,
   LlmAdminPolicy,
   LlmConnector,
   LlmConnectorCreate,
@@ -16,6 +17,7 @@ import { useAuth } from '@/lib/auth';
 const CONNECTOR_TYPE_LABELS: Record<LlmConnectorType, string> = {
   openai_apikey: 'OpenAI API key',
   anthropic_apikey: 'Anthropic API key',
+  openrouter_apikey: 'OpenRouter API key',
   xai_apikey: 'xAI Grok API key',
   openai_compatible: 'Custom OpenAI-compatible endpoint',
 };
@@ -59,6 +61,8 @@ export default function SettingsAIPage() {
   const [submitMessage, setSubmitMessage] = useState('');
   const [submitError, setSubmitError] = useState('');
   const [testStateById, setTestStateById] = useState<Record<number, string>>({});
+  const [openrouterModels, setOpenrouterModels] = useState<AIModelInfo[]>([]);
+  const [openrouterModelsLoaded, setOpenrouterModelsLoaded] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -89,11 +93,26 @@ export default function SettingsAIPage() {
     };
   }, [isAuthenticated]);
 
+  // Lazily fetch the OpenRouter model catalogue the first time a DJ opens the
+  // form on the OpenRouter type. Best-effort: an empty list (or a failed fetch)
+  // simply falls back to the free-text model input. Fetched once per mount.
+  const wantsOpenrouterModels = form.open && form.connector_type === 'openrouter_apikey';
+  useEffect(() => {
+    if (!wantsOpenrouterModels || openrouterModelsLoaded) return;
+    setOpenrouterModelsLoaded(true);
+    api
+      .listOpenRouterModels()
+      .then((res) => setOpenrouterModels(res.models))
+      .catch(() => {
+        // Swallow — the dropdown gracefully degrades to free-text entry.
+      });
+  }, [wantsOpenrouterModels, openrouterModelsLoaded]);
+
   const allowedTypes = useMemo(() => {
     if (!policy) return Object.keys(CONNECTOR_TYPE_LABELS) as LlmConnectorType[];
     const out: LlmConnectorType[] = [];
     if (policy.llm_apikey_connectors_enabled) {
-      out.push('openai_apikey', 'anthropic_apikey', 'xai_apikey');
+      out.push('openai_apikey', 'anthropic_apikey', 'openrouter_apikey', 'xai_apikey');
     }
     if (policy.llm_compatible_connector_enabled) out.push('openai_compatible');
     return out;
@@ -294,6 +313,8 @@ export default function SettingsAIPage() {
                   placeholder={
                     form.connector_type === 'anthropic_apikey'
                       ? 'sk-ant-…'
+                      : form.connector_type === 'openrouter_apikey'
+                      ? 'sk-or-…'
                       : form.connector_type === 'xai_apikey'
                       ? 'xai-…'
                       : 'sk-proj-… / sk-…'
@@ -351,21 +372,45 @@ export default function SettingsAIPage() {
 
             <div className="form-group">
               <label htmlFor="model_hint">Model (optional)</label>
-              <input
-                id="model_hint"
-                className="input"
-                value={form.model_hint}
-                onChange={(e) => setForm({ ...form, model_hint: e.target.value })}
-                placeholder={
-                  form.connector_type === 'anthropic_apikey'
-                    ? 'claude-haiku-4-5-20251001'
-                    : form.connector_type === 'openai_apikey'
-                    ? 'gpt-5-mini'
-                    : form.connector_type === 'xai_apikey'
-                    ? 'grok-3-mini'
-                    : 'e.g. llama3'
-                }
-              />
+              {form.connector_type === 'openrouter_apikey' && openrouterModels.length > 0 ? (
+                <>
+                  <select
+                    id="model_hint"
+                    className="input"
+                    value={form.model_hint}
+                    onChange={(e) => setForm({ ...form, model_hint: e.target.value })}
+                  >
+                    <option value="">Default (openai/gpt-4o-mini)</option>
+                    {openrouterModels.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name} ({m.id})
+                      </option>
+                    ))}
+                  </select>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0.5rem 0 0' }}>
+                    Each model routes through OpenRouter and bills your account at that model&apos;s
+                    OpenRouter rate (see openrouter.ai/models for per-token pricing).
+                  </p>
+                </>
+              ) : (
+                <input
+                  id="model_hint"
+                  className="input"
+                  value={form.model_hint}
+                  onChange={(e) => setForm({ ...form, model_hint: e.target.value })}
+                  placeholder={
+                    form.connector_type === 'anthropic_apikey'
+                      ? 'claude-haiku-4-5-20251001'
+                      : form.connector_type === 'openai_apikey'
+                      ? 'gpt-5-mini'
+                      : form.connector_type === 'openrouter_apikey'
+                      ? 'e.g. openai/gpt-4o-mini'
+                      : form.connector_type === 'xai_apikey'
+                      ? 'grok-3-mini'
+                      : 'e.g. llama3'
+                  }
+                />
+              )}
             </div>
 
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>

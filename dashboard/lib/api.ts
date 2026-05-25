@@ -1150,6 +1150,10 @@ class ApiClient {
     return this.fetch('/api/llm/connectors');
   }
 
+  async listOpenRouterModels(): Promise<AIModelsResponse> {
+    return this.fetch('/api/llm/openrouter/models');
+  }
+
   async createLlmConnector(data: LlmConnectorCreate): Promise<LlmConnector> {
     return this.fetch('/api/llm/connectors', {
       method: 'POST',

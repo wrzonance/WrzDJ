@@ -57,6 +57,7 @@ def _bootstrap() -> None:
         anthropic_apikey,
         openai_apikey,
         openai_compatible,
+        openrouter_apikey,
         xai_apikey,
     )
 

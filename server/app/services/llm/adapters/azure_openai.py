@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
+from urllib.parse import quote, urlencode
 
 import httpx
 
@@ -42,16 +44,41 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gpt-4o-mini"
 
+# Azure naming rules: resource is a DNS host label (letters/digits/hyphen);
+# deployment + api-version are token-ish. These mirror the storage-layer
+# validators in connector_storage.py and provide defense-in-depth at the
+# URL-composition boundary against component injection (CLAUDE.md: validate at
+# system boundaries — never trust the credential blob implicitly).
+_RESOURCE_RE = re.compile(r"^[A-Za-z0-9-]+$")
+_DEPLOYMENT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+_API_VERSION_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
 
 def _build_azure_endpoint(resource_name: str, deployment_name: str, api_version: str) -> str:
     """Compose the per-deployment Azure Chat Completions URL.
 
     ``resource_name`` is the bare resource (e.g. ``my-co``), NOT a full host.
+
+    The three components are validated and the path/query parts URL-encoded so a
+    malformed credential blob cannot rewrite the authority/path/query and route
+    requests to an unintended endpoint.
     """
+    resource_name = resource_name.strip()
+    deployment_name = deployment_name.strip()
+    api_version = api_version.strip()
+    if not _RESOURCE_RE.fullmatch(resource_name):
+        raise AuthInvalid("Invalid Azure resource name")
+    if not _DEPLOYMENT_RE.fullmatch(deployment_name):
+        raise AuthInvalid("Invalid Azure deployment name")
+    if not _API_VERSION_RE.fullmatch(api_version):
+        raise AuthInvalid("Invalid Azure API version")
+
+    deployment_segment = quote(deployment_name, safe="")
+    query = urlencode({"api-version": api_version})
     return (
         f"https://{resource_name}.openai.azure.com"
-        f"/openai/deployments/{deployment_name}/chat/completions"
-        f"?api-version={api_version}"
+        f"/openai/deployments/{deployment_segment}/chat/completions"
+        f"?{query}"
     )
 
 

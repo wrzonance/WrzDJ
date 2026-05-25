@@ -306,13 +306,26 @@ def rotate_credentials(
         # Partial rotation: any omitted field keeps its current value, so an
         # admin can swap just the resource/deployment/version (or just the key)
         # without recreating the connector.
+        # Only None means "field omitted, keep current value". An explicit ""
+        # is passed through to _build_azure_creds() so it is rejected rather
+        # than silently preserving the old value.
         current = _load_existing_blob(connector)
-        new_api_key = (api_key.strip() if api_key else None) or current.get("api_key")
+        new_api_key = current.get("api_key") if api_key is None else api_key.strip()
         blob = _build_azure_creds(
             api_key=new_api_key,
-            azure_resource_name=azure_resource_name or current.get("azure_resource_name"),
-            azure_deployment_name=azure_deployment_name or current.get("azure_deployment_name"),
-            azure_api_version=azure_api_version or current.get("azure_api_version"),
+            azure_resource_name=(
+                current.get("azure_resource_name")
+                if azure_resource_name is None
+                else azure_resource_name
+            ),
+            azure_deployment_name=(
+                current.get("azure_deployment_name")
+                if azure_deployment_name is None
+                else azure_deployment_name
+            ),
+            azure_api_version=(
+                current.get("azure_api_version") if azure_api_version is None else azure_api_version
+            ),
         )
     else:  # pragma: no cover
         raise ValueError(f"Unsupported connector_type: {connector.connector_type!r}")

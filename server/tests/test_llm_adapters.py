@@ -14,7 +14,7 @@ import httpx
 import pytest
 
 from app.services.llm.adapters.anthropic_apikey import AnthropicApiKeyAdapter
-from app.services.llm.adapters.azure_openai import AzureOpenAIAdapter
+from app.services.llm.adapters.azure_openai import AzureOpenAIAdapter, _build_azure_endpoint
 from app.services.llm.adapters.openai_apikey import OpenAIApiKeyAdapter
 from app.services.llm.adapters.openai_compatible import OpenAICompatibleAdapter
 from app.services.llm.base import ChatRequest, Message
@@ -463,3 +463,25 @@ class TestAzureOpenAIAdapter:
         adapter = AzureOpenAIAdapter(connector)
         with pytest.raises(AuthInvalid):
             await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
+
+    def test_build_endpoint_encodes_and_validates(self):
+        # Valid components compose the expected URL with the query encoded.
+        url = _build_azure_endpoint("acme", "gpt-4o", "2024-06-01")
+        assert url == (
+            "https://acme.openai.azure.com/openai/deployments/gpt-4o"
+            "/chat/completions?api-version=2024-06-01"
+        )
+
+    @pytest.mark.parametrize(
+        ("resource", "deployment", "version"),
+        [
+            ("acme.evil.com/x", "gpt-4o", "2024-06-01"),  # authority rewrite
+            ("acme", "../../admin", "2024-06-01"),  # path traversal
+            ("acme", "gpt-4o", "2024-06-01&inject=1"),  # query injection
+            ("acme/", "gpt-4o", "2024-06-01"),  # trailing slash in host
+            ("acme", "gpt 4o", "2024-06-01"),  # whitespace in deployment
+        ],
+    )
+    def test_build_endpoint_rejects_url_injection(self, resource, deployment, version):
+        with pytest.raises(AuthInvalid):
+            _build_azure_endpoint(resource, deployment, version)

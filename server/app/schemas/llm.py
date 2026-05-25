@@ -11,6 +11,15 @@ ConnectorType = Literal["openai_apikey", "anthropic_apikey", "openai_compatible"
 ConnectorStatus = Literal["active", "auth_invalid", "disabled"]
 
 
+def _provided(value: str | None) -> bool:
+    """True only when ``value`` is a non-blank string.
+
+    Used by the credential validators so whitespace-only inputs (``"   "``) are
+    treated as missing rather than passing a bare truthiness check.
+    """
+    return isinstance(value, str) and value.strip() != ""
+
+
 class ConnectorOut(BaseModel):
     """Public-safe connector view — never includes the credential blob."""
 
@@ -71,10 +80,10 @@ class ConnectorCreate(BaseModel):
     @model_validator(mode="after")
     def _require_credentials_for_type(self) -> ConnectorCreate:
         if self.connector_type in ("openai_apikey", "anthropic_apikey"):
-            if not self.api_key:
+            if not _provided(self.api_key):
                 raise ValueError("api_key is required for API-key connectors")
         elif self.connector_type == "openai_compatible":
-            if not self.base_url:
+            if not _provided(self.base_url):
                 raise ValueError("base_url is required for openai_compatible connectors")
         elif self.connector_type == "azure_openai":
             missing = [
@@ -85,7 +94,7 @@ class ConnectorCreate(BaseModel):
                     ("azure_deployment_name", self.azure_deployment_name),
                     ("azure_api_version", self.azure_api_version),
                 )
-                if not value
+                if not _provided(value)
             ]
             if missing:
                 raise ValueError("azure_openai connectors require: " + ", ".join(missing))
@@ -118,13 +127,16 @@ class ConnectorCredentialsRotate(BaseModel):
 
     @model_validator(mode="after")
     def _require_at_least_one(self) -> ConnectorCredentialsRotate:
-        if not (
-            self.api_key
-            or self.base_url
-            or self.bearer
-            or self.azure_resource_name
-            or self.azure_deployment_name
-            or self.azure_api_version
+        if not any(
+            _provided(v)
+            for v in (
+                self.api_key,
+                self.base_url,
+                self.bearer,
+                self.azure_resource_name,
+                self.azure_deployment_name,
+                self.azure_api_version,
+            )
         ):
             raise ValueError("At least one credential field must be provided")
         return self

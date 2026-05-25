@@ -19,6 +19,7 @@ const PAGE_ID = 'admin-ai';
 const TYPE_LABELS: Record<string, string> = {
   openai_apikey: 'OpenAI',
   anthropic_apikey: 'Anthropic',
+  openrouter_apikey: 'OpenRouter',
   openai_compatible: 'OpenAI-compatible',
 };
 

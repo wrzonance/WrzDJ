@@ -20,6 +20,7 @@ from app.models.llm_connector import (
     CONNECTOR_TYPE_ANTHROPIC_APIKEY,
     CONNECTOR_TYPE_OPENAI_APIKEY,
     CONNECTOR_TYPE_OPENAI_COMPATIBLE,
+    CONNECTOR_TYPE_OPENROUTER_APIKEY,
     STATUS_ACTIVE,
     STATUS_AUTH_INVALID,
     STATUS_DISABLED,
@@ -119,7 +120,7 @@ def build_create_payload(
                 raise ValueError("model_hint must be 80 characters or fewer")
             if not _is_safe_model_hint(model_hint):
                 raise ValueError(
-                    "model_hint may only contain letters, digits, dot, underscore, or hyphen"
+                    "model_hint may only contain letters, digits, dot, underscore, hyphen, or slash"
                 )
 
     creds: dict[str, Any]
@@ -128,6 +129,7 @@ def build_create_payload(
     if connector_type in (
         CONNECTOR_TYPE_OPENAI_APIKEY,
         CONNECTOR_TYPE_ANTHROPIC_APIKEY,
+        CONNECTOR_TYPE_OPENROUTER_APIKEY,
     ):
         if not api_key:
             raise ValueError("api_key is required")
@@ -157,8 +159,12 @@ def build_create_payload(
 
 _OPENAI_KEY_PREFIXES = ("sk-",)
 _ANTHROPIC_KEY_PREFIX = "sk-ant-"
+_OPENROUTER_KEY_PREFIX = "sk-or-"
 _SAFE_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
-_SAFE_MODEL_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
+# Slash is permitted so namespaced model ids (e.g. OpenRouter's
+# "provider/model") validate. The hint is only ever sent as the request-body
+# "model" field — never used to build a filesystem/URL path.
+_SAFE_MODEL_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_./")
 
 
 def _is_safe_model_hint(s: str) -> bool:
@@ -173,6 +179,9 @@ def _looks_like_api_key(connector_type: str, key: str) -> bool:
         return False
     if connector_type == CONNECTOR_TYPE_ANTHROPIC_APIKEY:
         return key.startswith(_ANTHROPIC_KEY_PREFIX) and len(key) >= len(_ANTHROPIC_KEY_PREFIX) + 30
+    if connector_type == CONNECTOR_TYPE_OPENROUTER_APIKEY:
+        min_len = len(_OPENROUTER_KEY_PREFIX) + 20
+        return key.startswith(_OPENROUTER_KEY_PREFIX) and len(key) >= min_len
     if connector_type == CONNECTOR_TYPE_OPENAI_APIKEY:
         return any(key.startswith(p) for p in _OPENAI_KEY_PREFIXES) and len(key) >= 20
     return False
@@ -208,6 +217,7 @@ def rotate_credentials(
     if connector.connector_type in (
         CONNECTOR_TYPE_OPENAI_APIKEY,
         CONNECTOR_TYPE_ANTHROPIC_APIKEY,
+        CONNECTOR_TYPE_OPENROUTER_APIKEY,
     ):
         if not api_key:
             raise ValueError("api_key is required for rotation")

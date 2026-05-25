@@ -1421,6 +1421,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/llm/openrouter/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Openrouter Models
+         * @description Return the OpenRouter model catalogue for the model-hint dropdown.
+         *
+         *     Served from a process-wide TTL cache (refreshed hourly). The OpenRouter
+         *     ``/models`` endpoint is public, so no connector credentials are required.
+         *     Returns an empty list if the catalogue is unavailable — the frontend then
+         *     falls back to a free-text model input.
+         */
+        get: operations["list_openrouter_models_api_llm_openrouter_models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/collect/{code}": {
         parameters: {
             query?: never;
@@ -2352,7 +2377,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey";
             /**
              * Created At
              * Format: date-time
@@ -2936,8 +2961,8 @@ export interface components {
          *
          *     Field requirements vary by ``connector_type``:
          *
-         *     - ``openai_apikey`` / ``anthropic_apikey``: ``api_key`` required;
-         *       ``base_url`` and ``bearer`` are ignored.
+         *     - ``openai_apikey`` / ``anthropic_apikey`` / ``openrouter_apikey``:
+         *       ``api_key`` required; ``base_url`` and ``bearer`` are ignored.
          *     - ``openai_compatible``: ``base_url`` required; ``bearer`` optional;
          *       ``api_key`` is ignored.
          *
@@ -2956,7 +2981,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey";
             /** Display Name */
             display_name: string;
             /** Model Hint */
@@ -2988,7 +3013,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey";
             /**
              * Created At
              * Format: date-time
@@ -4174,7 +4199,7 @@ export interface components {
              * Connector Type
              * @enum {string}
              */
-            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible";
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey";
             /** Display Name */
             display_name: string;
             /** Dj Username */
@@ -6955,6 +6980,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_openrouter_models_api_llm_openrouter_models_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIModelsResponse"];
                 };
             };
         };

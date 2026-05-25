@@ -109,6 +109,92 @@ describe('SettingsAIPage', () => {
     });
   });
 
+  it('offers OpenRouter and fetches its model dropdown', async () => {
+    vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
+    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: false,
+      llm_default_connector_id: null,
+    });
+    const modelsSpy = vi.spyOn(api, 'listOpenRouterModels').mockResolvedValue({
+      models: [
+        { id: 'openai/gpt-4o-mini', name: 'GPT-4o mini' },
+        { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
+      ],
+    });
+
+    render(<SettingsAIPage />);
+
+    await waitFor(() => expect(screen.getByText('+ Add provider')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('+ Add provider'));
+
+    const select = screen.getByLabelText('Provider') as HTMLSelectElement;
+    const optionValues = Array.from(select.options).map((o) => o.value);
+    expect(optionValues).toContain('openrouter_apikey');
+
+    // Switch to OpenRouter — the model catalogue should be fetched and rendered.
+    fireEvent.change(select, { target: { value: 'openrouter_apikey' } });
+    await waitFor(() => expect(modelsSpy).toHaveBeenCalled());
+
+    // The dropdown options appear once the (async) fetch resolves.
+    await screen.findByRole('option', { name: /GPT-4o mini/ });
+    const modelSelect = screen.getByLabelText('Model (optional)') as HTMLSelectElement;
+    const modelValues = Array.from(modelSelect.options).map((o) => o.value);
+    expect(modelValues).toContain('openai/gpt-4o-mini');
+    expect(modelValues).toContain('anthropic/claude-3.5-sonnet');
+  });
+
+  it('creates an OpenRouter connector with the selected model', async () => {
+    vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
+    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: false,
+      llm_default_connector_id: null,
+    });
+    vi.spyOn(api, 'listOpenRouterModels').mockResolvedValue({
+      models: [{ id: 'openai/gpt-4o-mini', name: 'GPT-4o mini' }],
+    });
+    const createSpy = vi.spyOn(api, 'createLlmConnector').mockResolvedValue(
+      makeConnector({
+        connector_type: 'openrouter_apikey',
+        display_name: 'My OpenRouter',
+        model_hint: 'openai/gpt-4o-mini',
+      }),
+    );
+
+    render(<SettingsAIPage />);
+    await waitFor(() => expect(screen.getByText('+ Add provider')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('+ Add provider'));
+
+    fireEvent.change(screen.getByLabelText('Provider'), {
+      target: { value: 'openrouter_apikey' },
+    });
+    fireEvent.change(screen.getByLabelText('Display name'), {
+      target: { value: 'My OpenRouter' },
+    });
+    fireEvent.change(screen.getByLabelText('API key'), {
+      target: { value: 'sk-or-v1-1234567890abcdef1234567890abcdef' },
+    });
+
+    await screen.findByRole('option', { name: /GPT-4o mini/ });
+    const modelSelect = screen.getByLabelText('Model (optional)') as HTMLSelectElement;
+    fireEvent.change(modelSelect, { target: { value: 'openai/gpt-4o-mini' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(createSpy).toHaveBeenCalled());
+    expect(createSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connector_type: 'openrouter_apikey',
+        display_name: 'My OpenRouter',
+        api_key: 'sk-or-v1-1234567890abcdef1234567890abcdef',
+        base_url: null,
+        bearer: null,
+        model_hint: 'openai/gpt-4o-mini',
+      }),
+    );
+  });
+
   it('deletes after confirmation', async () => {
     vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([makeConnector()]);
     vi.spyOn(api, 'getAdminLlmPolicy').mockRejectedValue(new Error('nope'));

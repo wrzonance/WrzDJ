@@ -16,6 +16,10 @@ import pytest
 from app.services.llm.adapters.anthropic_apikey import AnthropicApiKeyAdapter
 from app.services.llm.adapters.openai_apikey import OpenAIApiKeyAdapter
 from app.services.llm.adapters.openai_compatible import OpenAICompatibleAdapter
+from app.services.llm.adapters.openrouter_apikey import (
+    OPENROUTER_BASE_URL,
+    OpenRouterApiKeyAdapter,
+)
 from app.services.llm.base import ChatRequest, Message
 from app.services.llm.exceptions import (
     AuthInvalid,
@@ -47,6 +51,15 @@ def _make_compatible_connector(base_url="http://127.0.0.1:11434/v1", bearer=None
         credentials=json.dumps(creds),
         model_hint="llama3",
         base_url_plain=base_url,
+    )
+
+
+def _make_openrouter_connector(model_hint="openai/gpt-4o-mini"):
+    return SimpleNamespace(
+        connector_type="openrouter_apikey",
+        credentials=json.dumps({"api_key": "sk-or-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaa"}),
+        model_hint=model_hint,
+        base_url_plain=None,
     )
 
 
@@ -227,6 +240,151 @@ class TestOpenAICompatibleAdapter:
         with patch(_HTTPX_PATH, return_value=client):
             await adapter.chat(ChatRequest(messages=[Message(role="user", content="hi")]))
         assert client.calls[0]["headers"]["Authorization"] == "Bearer abc123"
+
+
+# ---------------------------------------------------------------------------
+# OpenRouter API-key adapter
+# ---------------------------------------------------------------------------
+class TestOpenRouterApiKeyAdapter:
+    @pytest.mark.asyncio
+    async def test_happy_path_uses_fixed_base_url_and_bearer(self):
+        connector = _make_openrouter_connector()
+        adapter = OpenRouterApiKeyAdapter(connector)
+        client = _AsyncClient(_ok_response(_openai_success_body("pong")))
+        with patch(_HTTPX_PATH, return_value=client):
+            resp = await adapter.chat(ChatRequest(messages=[Message(role="user", content="hi")]))
+
+        assert resp.text == "pong"
+        # The api_key is surfaced as a Bearer token...
+        assert client.calls[0]["headers"]["Authorization"].startswith("Bearer ")
+        # ...and the request always targets the fixed OpenRouter endpoint.
+        assert client.calls[0]["url"] == f"{OPENROUTER_BASE_URL}/chat/completions"
+
+    @pytest.mark.asyncio
+    async def test_model_hint_is_sent_as_model(self):
+        connector = _make_openrouter_connector(model_hint="anthropic/claude-3.5-sonnet")
+        adapter = OpenRouterApiKeyAdapter(connector)
+        client = _AsyncClient(_ok_response(_openai_success_body("ok")))
+        with patch(_HTTPX_PATH, return_value=client):
+            await adapter.chat(ChatRequest(messages=[Message(role="user", content="hi")]))
+        assert client.calls[0]["json"]["model"] == "anthropic/claude-3.5-sonnet"
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_default_model_when_no_hint(self):
+        connector = _make_openrouter_connector(model_hint=None)
+        adapter = OpenRouterApiKeyAdapter(connector)
+        client = _AsyncClient(_ok_response(_openai_success_body("ok")))
+        with patch(_HTTPX_PATH, return_value=client):
+            await adapter.chat(ChatRequest(messages=[Message(role="user", content="hi")]))
+        assert client.calls[0]["json"]["model"] == "openai/gpt-4o-mini"
+
+    @pytest.mark.asyncio
+    async def test_401_maps_to_auth_invalid(self):
+        connector = _make_openrouter_connector()
+        adapter = OpenRouterApiKeyAdapter(connector)
+        resp = httpx.Response(
+            401, request=httpx.Request("POST", "https://example.com"), json={"error": "bad"}
+        )
+        client = _AsyncClient(resp)
+        with patch(_HTTPX_PATH, return_value=client):
+            with pytest.raises(AuthInvalid):
+                await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
+
+    @pytest.mark.asyncio
+    async def test_429_maps_to_rate_limited(self):
+        connector = _make_openrouter_connector()
+        adapter = OpenRouterApiKeyAdapter(connector)
+        resp = httpx.Response(
+            429,
+            request=httpx.Request("POST", "https://example.com"),
+            headers={"Retry-After": "12"},
+            json={"error": "limit"},
+        )
+        client = _AsyncClient(resp)
+        with patch(_HTTPX_PATH, return_value=client):
+            with pytest.raises(RateLimited) as info:
+                await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
+        assert info.value.retry_after_seconds == 12
+
+    @pytest.mark.asyncio
+    async def test_5xx_maps_to_provider_unavailable(self):
+        connector = _make_openrouter_connector()
+        adapter = OpenRouterApiKeyAdapter(connector)
+        resp = httpx.Response(
+            503, request=httpx.Request("POST", "https://example.com"), json={"error": "down"}
+        )
+        client = _AsyncClient(resp)
+        with patch(_HTTPX_PATH, return_value=client):
+            with pytest.raises(ProviderUnavailable):
+                await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
+
+    @pytest.mark.asyncio
+    async def test_402_maps_to_quota_exceeded(self):
+        connector = _make_openrouter_connector()
+        adapter = OpenRouterApiKeyAdapter(connector)
+        resp = httpx.Response(
+            402, request=httpx.Request("POST", "https://example.com"), json={"error": "billing"}
+        )
+        client = _AsyncClient(resp)
+        with patch(_HTTPX_PATH, return_value=client):
+            with pytest.raises(QuotaExceeded):
+                await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
+
+    @pytest.mark.asyncio
+    async def test_timeout_maps_to_provider_unavailable(self):
+        connector = _make_openrouter_connector()
+        adapter = OpenRouterApiKeyAdapter(connector)
+        client = _AsyncClient(httpx.TimeoutException("timeout"))
+        with patch(_HTTPX_PATH, return_value=client):
+            with pytest.raises(ProviderUnavailable):
+                await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
+
+    @pytest.mark.asyncio
+    async def test_malformed_body_raises_tool_translation_error(self):
+        connector = _make_openrouter_connector()
+        adapter = OpenRouterApiKeyAdapter(connector)
+        resp = httpx.Response(
+            200,
+            request=httpx.Request("POST", "https://example.com"),
+            content=b"not json",
+        )
+        client = _AsyncClient(resp)
+        with patch(_HTTPX_PATH, return_value=client):
+            with pytest.raises(ToolTranslationError):
+                await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
+
+    @pytest.mark.asyncio
+    async def test_malformed_credentials_raise_auth_invalid(self):
+        connector = SimpleNamespace(
+            connector_type="openrouter_apikey",
+            credentials="not json",
+            model_hint="openai/gpt-4o-mini",
+            base_url_plain=None,
+        )
+        adapter = OpenRouterApiKeyAdapter(connector)
+        with pytest.raises(AuthInvalid):
+            await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
+
+    @pytest.mark.asyncio
+    async def test_missing_api_key_raises_auth_invalid(self):
+        connector = SimpleNamespace(
+            connector_type="openrouter_apikey",
+            credentials=json.dumps({}),
+            model_hint="openai/gpt-4o-mini",
+            base_url_plain=None,
+        )
+        adapter = OpenRouterApiKeyAdapter(connector)
+        with pytest.raises(AuthInvalid):
+            await adapter.health_check()
+
+    @pytest.mark.asyncio
+    async def test_health_check_hits_fixed_base_url(self):
+        connector = _make_openrouter_connector()
+        adapter = OpenRouterApiKeyAdapter(connector)
+        client = _AsyncClient(_ok_response(_openai_success_body("ok")))
+        with patch(_HTTPX_PATH, return_value=client):
+            await adapter.health_check()
+        assert client.calls[0]["url"] == f"{OPENROUTER_BASE_URL}/chat/completions"
 
 
 # ---------------------------------------------------------------------------

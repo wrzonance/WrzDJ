@@ -1,8 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import type { AISettings, AIModelInfo } from '@/lib/api-types';
+import type {
+  AISettings,
+  AIModelInfo,
+  LlmAdminConnector,
+  LlmAdminPolicy,
+  LlmAdminUsage,
+} from '@/lib/api-types';
 import { useAdminPage } from '@/lib/useAdminPage';
 import { HelpSpot } from '@/components/help/HelpSpot';
 import { HelpButton } from '@/components/help/HelpButton';
@@ -10,11 +16,23 @@ import { OnboardingOverlay } from '@/components/help/OnboardingOverlay';
 
 const PAGE_ID = 'admin-ai';
 
+const TYPE_LABELS: Record<string, string> = {
+  openai_apikey: 'OpenAI',
+  anthropic_apikey: 'Anthropic',
+  openai_compatible: 'OpenAI-compatible',
+};
+
 export default function AdminAISettingsPage() {
   const [models, setModels] = useState<AIModelInfo[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  // LLM gateway state
+  const [policy, setPolicy] = useState<LlmAdminPolicy | null>(null);
+  const [connectors, setConnectors] = useState<LlmAdminConnector[]>([]);
+  const [usage, setUsage] = useState<LlmAdminUsage | null>(null);
+  const [policyMessage, setPolicyMessage] = useState('');
 
   const { data: settings, loading, error: loadError, setData: setSettings } = useAdminPage<AISettings>({
     pageId: PAGE_ID,
@@ -28,6 +46,33 @@ export default function AdminAISettingsPage() {
     },
     onError: () => 'Failed to load AI settings',
   });
+
+  useEffect(() => {
+    let active = true;
+    // Load each gateway section independently — a transient failure in one
+    // request shouldn't hide the others (e.g. usage 500 should not blank the
+    // policy + connectors panes).
+    Promise.allSettled([
+      api.getAdminLlmPolicy(),
+      api.listAllLlmConnectors(),
+      api.getAdminLlmUsage(30),
+    ]).then(([p, c, u]) => {
+      if (!active) return;
+      if (p.status === 'fulfilled') setPolicy(p.value);
+      if (c.status === 'fulfilled') setConnectors(c.value);
+      if (u.status === 'fulfilled') setUsage(u.value);
+      if (
+        p.status === 'rejected' ||
+        c.status === 'rejected' ||
+        u.status === 'rejected'
+      ) {
+        setPolicyMessage('Some LLM gateway data failed to load');
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handleSave = async () => {
     if (!settings) return;
@@ -47,6 +92,41 @@ export default function AdminAISettingsPage() {
       setError(err instanceof Error ? err.message : 'Failed to save settings');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handlePolicyPatch = async (next: Partial<LlmAdminPolicy>) => {
+    if (!policy) return;
+    setPolicyMessage('');
+    const optimistic = { ...policy, ...next };
+    const prev = policy;
+    setPolicy(optimistic);
+    try {
+      const updated = await api.updateAdminLlmPolicy({
+        llm_apikey_connectors_enabled: optimistic.llm_apikey_connectors_enabled,
+        llm_compatible_connector_enabled: optimistic.llm_compatible_connector_enabled,
+        llm_default_connector_id: optimistic.llm_default_connector_id,
+        clear_default: optimistic.llm_default_connector_id === null,
+      });
+      setPolicy(updated);
+      setPolicyMessage('Policy saved');
+      setTimeout(() => setPolicyMessage(''), 2000);
+    } catch (err) {
+      setPolicy(prev);
+      setPolicyMessage(err instanceof Error ? err.message : 'Save failed');
+    }
+  };
+
+  const handleRevoke = async (id: number) => {
+    if (!window.confirm('Force-revoke this connector? The DJ will need to re-add it.')) return;
+    try {
+      const updated = await api.revokeAdminLlmConnector(id);
+      setConnectors((prev) => prev.map((c) => (c.id === id ? updated : c)));
+      // Reload policy in case the default changed
+      const newPolicy = await api.getAdminLlmPolicy();
+      setPolicy(newPolicy);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Revoke failed');
     }
   };
 
@@ -189,6 +269,149 @@ export default function AdminAISettingsPage() {
           {saving ? 'Saving...' : 'Save Settings'}
         </button>
       </div>
+
+      {/* ====== LLM Gateway connector policy ====== */}
+      {policy && (
+        <div className="card" style={{ marginTop: '2rem' }}>
+          <h2 style={{ marginTop: 0 }}>Connector policy</h2>
+          {policyMessage && (
+            <div style={{ marginBottom: '1rem', color: 'var(--text-secondary)' }}>{policyMessage}</div>
+          )}
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={policy.llm_apikey_connectors_enabled}
+              onChange={(e) => handlePolicyPatch({ llm_apikey_connectors_enabled: e.target.checked })}
+            />
+            Allow API-key connectors (OpenAI, Anthropic)
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', marginTop: '0.75rem' }}>
+            <input
+              type="checkbox"
+              checked={policy.llm_compatible_connector_enabled}
+              onChange={(e) => handlePolicyPatch({ llm_compatible_connector_enabled: e.target.checked })}
+            />
+            Allow custom OpenAI-compatible endpoints
+          </label>
+
+          <div className="form-group" style={{ marginTop: '1.5rem' }}>
+            <label htmlFor="default-connector">Org default connector</label>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
+              Used when a system call has no DJ actor (background jobs).
+            </div>
+            <select
+              id="default-connector"
+              className="input"
+              value={policy.llm_default_connector_id ?? ''}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (!v) {
+                  handlePolicyPatch({ llm_default_connector_id: null });
+                } else {
+                  handlePolicyPatch({ llm_default_connector_id: parseInt(v) });
+                }
+              }}
+              style={{ maxWidth: '480px' }}
+            >
+              <option value="">— None —</option>
+              {connectors
+                .filter((c) => c.status === 'active')
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.dj_username} — {c.display_name} ({TYPE_LABELS[c.connector_type] ?? c.connector_type})
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: '1rem' }}>
+            WrzDJ stores provider credentials encrypted at rest. Calls consume the DJ&apos;s
+            quota or billing directly. Credentials are never shared between DJs.
+          </p>
+        </div>
+      )}
+
+      {/* ====== Per-DJ connectors table ====== */}
+      <div className="card" style={{ marginTop: '2rem' }}>
+        <h2 style={{ marginTop: 0 }}>Per-DJ connectors</h2>
+        {connectors.length === 0 ? (
+          <p style={{ color: 'var(--text-secondary)' }}>No DJs have connected an LLM yet.</p>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {['DJ', 'Type', 'Name', 'Status', 'Last used', 'Actions'].map((h) => (
+                    <th key={h} style={{ textAlign: 'left', padding: '0.5rem', borderBottom: '1px solid var(--border-color)' }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {connectors.map((c) => (
+                  <tr key={c.id}>
+                    <td style={{ padding: '0.5rem' }}>{c.dj_username}</td>
+                    <td style={{ padding: '0.5rem' }}>
+                      {TYPE_LABELS[c.connector_type] ?? c.connector_type}
+                    </td>
+                    <td style={{ padding: '0.5rem' }}>{c.display_name}</td>
+                    <td style={{ padding: '0.5rem' }}>{c.status}</td>
+                    <td style={{ padding: '0.5rem', color: 'var(--text-secondary)' }}>
+                      {c.last_used_at ? new Date(c.last_used_at).toLocaleString() : '—'}
+                    </td>
+                    <td style={{ padding: '0.5rem' }}>
+                      {c.status !== 'disabled' && (
+                        <button className="btn btn-danger" onClick={() => handleRevoke(c.id)}>
+                          Force-revoke
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ====== Usage ====== */}
+      {usage && (
+        <div className="card" style={{ marginTop: '2rem' }}>
+          <h2 style={{ marginTop: 0 }}>Usage — last {usage.days} days</h2>
+          {usage.rows.length === 0 ? (
+            <p style={{ color: 'var(--text-secondary)' }}>No calls yet.</p>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    {['DJ', 'Connector', 'Calls', 'Tokens in', 'Tokens out', 'Error rate'].map((h) => (
+                      <th key={h} style={{ textAlign: 'left', padding: '0.5rem', borderBottom: '1px solid var(--border-color)' }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {usage.rows.map((r) => (
+                    <tr key={r.connector_id}>
+                      <td style={{ padding: '0.5rem' }}>{r.dj_username}</td>
+                      <td style={{ padding: '0.5rem' }}>
+                        {r.display_name} <span style={{ color: 'var(--text-secondary)' }}>· {TYPE_LABELS[r.connector_type] ?? r.connector_type}</span>
+                      </td>
+                      <td style={{ padding: '0.5rem' }}>{r.total_calls}</td>
+                      <td style={{ padding: '0.5rem' }}>{r.total_tokens_in}</td>
+                      <td style={{ padding: '0.5rem' }}>{r.total_tokens_out}</td>
+                      <td style={{ padding: '0.5rem' }}>{(r.error_rate * 100).toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

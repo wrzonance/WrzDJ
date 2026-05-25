@@ -72,6 +72,8 @@ class TestGenerateLLMSuggestions:
             tracks=None,
             rejected_tracks=None,
             currently_playing=None,
+            db=None,
+            actor=None,
         )
 
     @pytest.mark.asyncio
@@ -97,6 +99,8 @@ class TestGenerateLLMSuggestions:
             tracks=tracks,
             rejected_tracks=None,
             currently_playing=None,
+            db=None,
+            actor=None,
         )
 
 

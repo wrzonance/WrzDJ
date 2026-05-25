@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api import (
     admin,
+    admin_llm,
     auth,
     beatport,
     bridge,
@@ -9,6 +10,7 @@ from app.api import (
     events,
     guest,
     kiosk,
+    llm,
     public,
     requests,
     search,
@@ -43,3 +45,5 @@ api_router.include_router(beatport.router, prefix="/beatport", tags=["beatport"]
 api_router.include_router(kiosk.public_router, prefix="/public/kiosk", tags=["kiosk"])
 api_router.include_router(kiosk.auth_router, prefix="/kiosk", tags=["kiosk"])
 api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
+api_router.include_router(llm.router, prefix="/llm", tags=["llm"])
+api_router.include_router(admin_llm.router, prefix="/admin/llm", tags=["admin", "llm"])

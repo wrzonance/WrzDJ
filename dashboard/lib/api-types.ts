@@ -51,6 +51,21 @@ export type AIModelInfo = Schemas['AIModelInfo'];
 export type AIModelsResponse = Schemas['AIModelsResponse'];
 export type AISettings = Schemas['AISettingsOut'];
 export type AISettingsUpdate = Schemas['AISettingsUpdate'];
+
+// LLM gateway (issue #329)
+export type LlmConnector = Schemas['ConnectorOut'];
+export type LlmAdminConnector = Schemas['AdminConnectorOut'];
+export type LlmConnectorCreate = Schemas['ConnectorCreate'];
+export type LlmConnectorPatch = Schemas['ConnectorPatch'];
+export type LlmConnectorCredentialsRotate = Schemas['ConnectorCredentialsRotate'];
+export type LlmConnectorTestResult = Schemas['ConnectorTestResult'];
+export type LlmAdminPolicy = Schemas['AdminPolicyOut'];
+export type LlmAdminPolicyPatch = Schemas['AdminPolicyPatch'];
+export type LlmAdminUsage = Schemas['AdminUsageOut'];
+export type LlmUsageRow = Schemas['UsageRow'];
+// Derive from schema so backend enum changes propagate to TS automatically.
+export type LlmConnectorType = Schemas['ConnectorOut']['connector_type'];
+export type LlmConnectorStatus = Schemas['ConnectorOut']['status'];
 export type ActivityLogEntry = Schemas['ActivityLogEntry'];
 export type CapabilityStatus = Schemas['CapabilityStatus'];
 export type ServiceCapabilities = Schemas['ServiceCapabilities'];

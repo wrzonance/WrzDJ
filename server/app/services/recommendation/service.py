@@ -848,13 +848,16 @@ async def generate_recommendations_from_llm(
         (playing.artist, playing.song_title, getattr(playing, "bpm", None)) if playing else None
     )
 
-    # Step 2: Call LLM (pass enriched tracks + rejected + currently playing)
+    # Step 2: Call LLM (pass enriched tracks + rejected + currently playing).
+    # Route via the gateway by supplying db + actor (the event owner).
     llm_result = await generate_llm_suggestions(
         profile,
         prompt,
         tracks=enriched or None,
         rejected_tracks=rejected_names or None,
         currently_playing=currently_playing,
+        db=db,
+        actor=user,
     )
 
     if not llm_result.queries:

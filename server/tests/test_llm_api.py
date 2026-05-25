@@ -92,6 +92,92 @@ class TestPerDJConnectorsCRUD:
         data = resp.json()
         assert data["base_url_plain"] == "http://127.0.0.1:11434/v1"
 
+    def test_create_bedrock_happy_path(self, client: TestClient, auth_headers, db, test_user):
+        body = {
+            "connector_type": "bedrock",
+            "display_name": "My Bedrock",
+            "aws_access_key_id": "AKIAEXAMPLEKEY12345",
+            "aws_secret_access_key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+            "aws_region": "us-east-1",
+            "aws_model_id": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+        }
+        resp = client.post("/api/llm/connectors", json=body, headers=auth_headers)
+        assert resp.status_code == 201, resp.json()
+        data = resp.json()
+        assert data["connector_type"] == "bedrock"
+        # base_url_plain stays null — no plaintext credential surface for bedrock.
+        assert data["base_url_plain"] is None
+        # Verify the encrypted blob round-trips with all four AWS fields.
+        row = db.query(LlmConnector).filter(LlmConnector.id == data["id"]).one()
+        blob = json.loads(row.credentials)
+        assert blob["aws_access_key_id"] == "AKIAEXAMPLEKEY12345"
+        assert blob["aws_region"] == "us-east-1"
+        assert blob["aws_model_id"] == "anthropic.claude-3-5-sonnet-20241022-v2:0"
+
+    def test_create_bedrock_requires_all_aws_fields(self, client: TestClient, auth_headers):
+        body = {
+            "connector_type": "bedrock",
+            "display_name": "Incomplete",
+            "aws_access_key_id": "AKIAEXAMPLEKEY12345",
+            "aws_secret_access_key": "secret",
+            # missing aws_region + aws_model_id
+        }
+        resp = client.post("/api/llm/connectors", json=body, headers=auth_headers)
+        # model_validator → ValueError → 422 (pydantic) before our handler
+        assert resp.status_code in (400, 422)
+
+    def test_create_bedrock_blocked_when_apikey_connectors_disabled(
+        self, client: TestClient, auth_headers, db
+    ):
+        from app.services.system_settings import get_system_settings
+
+        settings = get_system_settings(db)
+        settings.llm_apikey_connectors_enabled = False
+        db.commit()
+
+        body = {
+            "connector_type": "bedrock",
+            "display_name": "Blocked Bedrock",
+            "aws_access_key_id": "AKIAEXAMPLEKEY12345",
+            "aws_secret_access_key": "secret",
+            "aws_region": "us-east-1",
+            "aws_model_id": "meta.llama3-70b-instruct-v1:0",
+        }
+        resp = client.post("/api/llm/connectors", json=body, headers=auth_headers)
+        assert resp.status_code == 403
+
+    def test_rotate_bedrock_credentials(self, client: TestClient, auth_headers, db, test_user):
+        row = LlmConnector(
+            user_id=test_user.id,
+            connector_type="bedrock",
+            display_name="Rotatable",
+            status="active",
+            credentials=json.dumps(
+                {
+                    "aws_access_key_id": "AKIAOLDKEY1234567890",
+                    "aws_secret_access_key": "oldsecret",
+                    "aws_region": "us-east-1",
+                    "aws_model_id": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+                }
+            ),
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+
+        # Rotate only the secret — other fields must be preserved.
+        resp = client.put(
+            f"/api/llm/connectors/{row.id}/credentials",
+            json={"aws_secret_access_key": "newsecret"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200, resp.json()
+        db.refresh(row)
+        blob = json.loads(row.credentials)
+        assert blob["aws_secret_access_key"] == "newsecret"
+        assert blob["aws_access_key_id"] == "AKIAOLDKEY1234567890"
+        assert blob["aws_region"] == "us-east-1"
+
     def test_create_openai_compatible_rejects_public_http(self, client: TestClient, auth_headers):
         body = {
             "connector_type": "openai_compatible",

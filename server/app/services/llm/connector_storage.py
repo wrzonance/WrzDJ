@@ -18,6 +18,7 @@ from app.models.llm_connector import (
     AUDIT_POLICY_CHANGED,
     AUDIT_REVOKED_BY_ADMIN,
     CONNECTOR_TYPE_ANTHROPIC_APIKEY,
+    CONNECTOR_TYPE_BEDROCK,
     CONNECTOR_TYPE_OPENAI_APIKEY,
     CONNECTOR_TYPE_OPENAI_COMPATIBLE,
     STATUS_ACTIVE,
@@ -95,6 +96,10 @@ def build_create_payload(
     base_url: str | None = None,
     bearer: str | None = None,
     model_hint: str | None = None,
+    aws_access_key_id: str | None = None,
+    aws_secret_access_key: str | None = None,
+    aws_region: str | None = None,
+    aws_model_id: str | None = None,
 ) -> CreateConnectorPayload:
     """Translate request fields into a validated ``CreateConnectorPayload``.
 
@@ -143,6 +148,13 @@ def build_create_payload(
         except InvalidBaseUrlError as exc:
             raise ValueError(str(exc)) from exc
         creds = {"base_url": plain_base_url, "bearer": bearer or None}
+    elif connector_type == CONNECTOR_TYPE_BEDROCK:
+        creds = _build_bedrock_creds(
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            aws_region=aws_region,
+            aws_model_id=aws_model_id,
+        )
     else:  # pragma: no cover — guarded by the membership check above
         raise ValueError(f"Unsupported connector_type: {connector_type!r}")
 
@@ -163,6 +175,57 @@ _SAFE_MODEL_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012
 
 def _is_safe_model_hint(s: str) -> bool:
     return all(c in _SAFE_MODEL_CHARS for c in s)
+
+
+# AWS region tokens are lowercase alnum + hyphen (e.g. us-east-1, eu-central-1).
+_AWS_REGION_CHARS = set("abcdefghijklmnopqrstuvwxyz0123456789-")
+# Bedrock model ids look like "anthropic.claude-3-5-sonnet-20241022-v2:0" or
+# "meta.llama3-70b-instruct-v1:0" — allow the inference-profile/ARN-ish chars.
+_AWS_MODEL_ID_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.:/")
+
+
+def _build_bedrock_creds(
+    *,
+    aws_access_key_id: str | None,
+    aws_secret_access_key: str | None,
+    aws_region: str | None,
+    aws_model_id: str | None,
+) -> dict[str, str]:
+    """Validate + assemble the bedrock credentials blob.
+
+    Raises :class:`ValueError` (→ HTTP 400) on any malformed field. No AWS
+    dependency: the access key id / secret are opaque strings; we only sanity
+    check shape and reject obviously-bad input before persisting.
+    """
+    access_key = (aws_access_key_id or "").strip()
+    secret_key = (aws_secret_access_key or "").strip()
+    region = (aws_region or "").strip()
+    model_id = (aws_model_id or "").strip()
+
+    if not access_key:
+        raise ValueError("aws_access_key_id is required")
+    if not secret_key:
+        raise ValueError("aws_secret_access_key is required")
+    if not region:
+        raise ValueError("aws_region is required")
+    if not model_id:
+        raise ValueError("aws_model_id is required")
+
+    if " " in access_key or "\n" in access_key or not all(c in _SAFE_CHARS for c in access_key):
+        raise ValueError("aws_access_key_id format is invalid")
+    if " " in secret_key or "\n" in secret_key:
+        raise ValueError("aws_secret_access_key format is invalid")
+    if not all(c in _AWS_REGION_CHARS for c in region):
+        raise ValueError("aws_region format is invalid")
+    if not all(c in _AWS_MODEL_ID_CHARS for c in model_id):
+        raise ValueError("aws_model_id format is invalid")
+
+    return {
+        "aws_access_key_id": access_key,
+        "aws_secret_access_key": secret_key,
+        "aws_region": region,
+        "aws_model_id": model_id,
+    }
 
 
 def _looks_like_api_key(connector_type: str, key: str) -> bool:
@@ -202,6 +265,10 @@ def rotate_credentials(
     api_key: str | None = None,
     base_url: str | None = None,
     bearer: str | None = None,
+    aws_access_key_id: str | None = None,
+    aws_secret_access_key: str | None = None,
+    aws_region: str | None = None,
+    aws_model_id: str | None = None,
 ) -> LlmConnector:
     """Rotate the credential blob in-place. Caller commits."""
     blob: dict[str, Any]
@@ -224,6 +291,21 @@ def rotate_credentials(
             raise ValueError(str(exc)) from exc
         blob = {"base_url": base_url, "bearer": bearer or None}
         connector.base_url_plain = base_url
+    elif connector.connector_type == CONNECTOR_TYPE_BEDROCK:
+        # Partial rotation: keep existing fields when a new value isn't supplied.
+        existing: dict[str, Any] = {}
+        try:
+            parsed = json.loads(connector.credentials or "{}")
+            if isinstance(parsed, dict):
+                existing = parsed
+        except (json.JSONDecodeError, TypeError):
+            existing = {}
+        blob = _build_bedrock_creds(
+            aws_access_key_id=aws_access_key_id or existing.get("aws_access_key_id"),
+            aws_secret_access_key=(aws_secret_access_key or existing.get("aws_secret_access_key")),
+            aws_region=aws_region or existing.get("aws_region"),
+            aws_model_id=aws_model_id or existing.get("aws_model_id"),
+        )
     else:  # pragma: no cover
         raise ValueError(f"Unsupported connector_type: {connector.connector_type!r}")
 

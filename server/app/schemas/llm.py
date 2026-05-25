@@ -14,8 +14,18 @@ ConnectorType = Literal[
     "openrouter_apikey",
     "xai_apikey",
     "bedrock",
+    "azure_openai",
 ]
 ConnectorStatus = Literal["active", "auth_invalid", "disabled"]
+
+
+def _provided(value: str | None) -> bool:
+    """True only when ``value`` is a non-blank string.
+
+    Used by the credential validators so whitespace-only inputs (``"   "``) are
+    treated as missing rather than passing a bare truthiness check.
+    """
+    return isinstance(value, str) and value.strip() != ""
 
 
 class ConnectorOut(BaseModel):
@@ -54,6 +64,8 @@ class ConnectorCreate(BaseModel):
       ``api_key`` is ignored.
     - ``bedrock``: ``aws_access_key_id``, ``aws_secret_access_key``,
       ``aws_region`` and ``aws_model_id`` required; other fields ignored.
+    - ``azure_openai``: ``api_key``, ``azure_resource_name``,
+      ``azure_deployment_name`` and ``azure_api_version`` all required.
 
     The combination is enforced by :meth:`_require_credentials_for_type`.
     See ``build_create_payload`` in ``services/llm/connector_storage.py``
@@ -64,7 +76,7 @@ class ConnectorCreate(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=80)
     model_hint: str | None = Field(default=None, max_length=80)
 
-    # Set for apikey types
+    # Set for apikey types (and azure_openai)
     api_key: str | None = Field(default=None, max_length=512)
 
     # Set for openai_compatible
@@ -77,6 +89,11 @@ class ConnectorCreate(BaseModel):
     aws_region: str | None = Field(default=None, max_length=64)
     aws_model_id: str | None = Field(default=None, max_length=128)
 
+    # Set for azure_openai (stored in the encrypted credentials blob, not columns)
+    azure_resource_name: str | None = Field(default=None, max_length=120)
+    azure_deployment_name: str | None = Field(default=None, max_length=120)
+    azure_api_version: str | None = Field(default=None, max_length=40)
+
     @model_validator(mode="after")
     def _require_credentials_for_type(self) -> ConnectorCreate:
         if self.connector_type in (
@@ -85,10 +102,10 @@ class ConnectorCreate(BaseModel):
             "openrouter_apikey",
             "xai_apikey",
         ):
-            if not self.api_key:
+            if not _provided(self.api_key):
                 raise ValueError("api_key is required for API-key connectors")
         elif self.connector_type == "openai_compatible":
-            if not self.base_url:
+            if not _provided(self.base_url):
                 raise ValueError("base_url is required for openai_compatible connectors")
         elif self.connector_type == "bedrock":
             missing = [
@@ -99,10 +116,23 @@ class ConnectorCreate(BaseModel):
                     ("aws_region", self.aws_region),
                     ("aws_model_id", self.aws_model_id),
                 )
-                if not value
+                if not _provided(value)
             ]
             if missing:
                 raise ValueError("bedrock connectors require " + ", ".join(missing))
+        elif self.connector_type == "azure_openai":
+            missing = [
+                name
+                for name, value in (
+                    ("api_key", self.api_key),
+                    ("azure_resource_name", self.azure_resource_name),
+                    ("azure_deployment_name", self.azure_deployment_name),
+                    ("azure_api_version", self.azure_api_version),
+                )
+                if not _provided(value)
+            ]
+            if missing:
+                raise ValueError("azure_openai connectors require: " + ", ".join(missing))
         return self
 
 
@@ -130,16 +160,28 @@ class ConnectorCredentialsRotate(BaseModel):
     aws_region: str | None = Field(default=None, max_length=64)
     aws_model_id: str | None = Field(default=None, max_length=128)
 
+    # azure_openai rotation — admins can swap resource/deployment/version
+    # without recreating the connector (all live in the encrypted blob).
+    azure_resource_name: str | None = Field(default=None, max_length=120)
+    azure_deployment_name: str | None = Field(default=None, max_length=120)
+    azure_api_version: str | None = Field(default=None, max_length=40)
+
     @model_validator(mode="after")
     def _require_at_least_one(self) -> ConnectorCredentialsRotate:
-        if not (
-            self.api_key
-            or self.base_url
-            or self.bearer
-            or self.aws_access_key_id
-            or self.aws_secret_access_key
-            or self.aws_region
-            or self.aws_model_id
+        if not any(
+            _provided(v)
+            for v in (
+                self.api_key,
+                self.base_url,
+                self.bearer,
+                self.aws_access_key_id,
+                self.aws_secret_access_key,
+                self.aws_region,
+                self.aws_model_id,
+                self.azure_resource_name,
+                self.azure_deployment_name,
+                self.azure_api_version,
+            )
         ):
             raise ValueError("At least one credential field must be provided")
         return self

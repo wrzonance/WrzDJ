@@ -18,6 +18,7 @@ from app.models.llm_connector import (
     AUDIT_POLICY_CHANGED,
     AUDIT_REVOKED_BY_ADMIN,
     CONNECTOR_TYPE_ANTHROPIC_APIKEY,
+    CONNECTOR_TYPE_AZURE_OPENAI,
     CONNECTOR_TYPE_BEDROCK,
     CONNECTOR_TYPE_OPENAI_APIKEY,
     CONNECTOR_TYPE_OPENAI_COMPATIBLE,
@@ -102,6 +103,9 @@ def build_create_payload(
     aws_secret_access_key: str | None = None,
     aws_region: str | None = None,
     aws_model_id: str | None = None,
+    azure_resource_name: str | None = None,
+    azure_deployment_name: str | None = None,
+    azure_api_version: str | None = None,
 ) -> CreateConnectorPayload:
     """Translate request fields into a validated ``CreateConnectorPayload``.
 
@@ -158,6 +162,16 @@ def build_create_payload(
             aws_secret_access_key=aws_secret_access_key,
             aws_region=aws_region,
             aws_model_id=aws_model_id,
+        )
+    elif connector_type == CONNECTOR_TYPE_AZURE_OPENAI:
+        if not api_key:
+            raise ValueError("api_key is required")
+        api_key = api_key.strip()
+        creds = _build_azure_creds(
+            api_key=api_key,
+            azure_resource_name=azure_resource_name,
+            azure_deployment_name=azure_deployment_name,
+            azure_api_version=azure_api_version,
         )
     else:  # pragma: no cover — guarded by the membership check above
         raise ValueError(f"Unsupported connector_type: {connector_type!r}")
@@ -255,6 +269,67 @@ def _looks_like_api_key(connector_type: str, key: str) -> bool:
     return False
 
 
+# Azure resource/deployment names: letters, digits, hyphen (Azure naming rules).
+_AZURE_NAME_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-")
+# api-version is a date-ish token, optionally with a -preview suffix.
+_AZURE_VERSION_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.")
+
+
+def _validate_azure_field(name: str, value: str | None, allowed: set[str], max_len: int) -> str:
+    if not value:
+        raise ValueError(f"{name} is required")
+    value = value.strip()
+    if not value:
+        raise ValueError(f"{name} is required")
+    if len(value) > max_len:
+        raise ValueError(f"{name} must be {max_len} characters or fewer")
+    if not all(c in allowed for c in value):
+        raise ValueError(f"{name} contains invalid characters")
+    return value
+
+
+def _build_azure_creds(
+    *,
+    api_key: str | None,
+    azure_resource_name: str | None,
+    azure_deployment_name: str | None,
+    azure_api_version: str | None,
+) -> dict[str, Any]:
+    """Validate + assemble the Azure OpenAI credential blob.
+
+    All four fields (api_key + the three azure_* config values) are stored in
+    the encrypted blob — there are no dedicated DB columns.
+    """
+    if not api_key or not api_key.strip():
+        raise ValueError("api_key is required")
+    return {
+        "api_key": api_key.strip(),
+        "azure_resource_name": _validate_azure_field(
+            "azure_resource_name", azure_resource_name, _AZURE_NAME_CHARS, 120
+        ),
+        "azure_deployment_name": _validate_azure_field(
+            "azure_deployment_name", azure_deployment_name, _AZURE_NAME_CHARS, 120
+        ),
+        "azure_api_version": _validate_azure_field(
+            "azure_api_version", azure_api_version, _AZURE_VERSION_CHARS, 40
+        ),
+    }
+
+
+def _load_existing_blob(connector: LlmConnector) -> dict[str, Any]:
+    """Decode the connector's current credential blob (best-effort).
+
+    Returns an empty dict when the blob is missing or malformed so callers can
+    treat absent values as "no prior value" during partial rotation.
+    """
+    raw = connector.credentials or ""
+    try:
+        blob = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return blob if isinstance(blob, dict) else {}
+
+
 def create_connector(db: Session, *, user_id: int, payload: CreateConnectorPayload) -> LlmConnector:
     """Persist a new connector. Caller is responsible for audit event + commit."""
     row = LlmConnector(
@@ -283,6 +358,9 @@ def rotate_credentials(
     aws_secret_access_key: str | None = None,
     aws_region: str | None = None,
     aws_model_id: str | None = None,
+    azure_resource_name: str | None = None,
+    azure_deployment_name: str | None = None,
+    azure_api_version: str | None = None,
 ) -> LlmConnector:
     """Rotate the credential blob in-place. Caller commits."""
     blob: dict[str, Any]
@@ -321,6 +399,31 @@ def rotate_credentials(
             aws_secret_access_key=(aws_secret_access_key or existing.get("aws_secret_access_key")),
             aws_region=aws_region or existing.get("aws_region"),
             aws_model_id=aws_model_id or existing.get("aws_model_id"),
+        )
+    elif connector.connector_type == CONNECTOR_TYPE_AZURE_OPENAI:
+        # Partial rotation: any omitted field keeps its current value, so an
+        # admin can swap just the resource/deployment/version (or just the key)
+        # without recreating the connector.
+        # Only None means "field omitted, keep current value". An explicit ""
+        # is passed through to _build_azure_creds() so it is rejected rather
+        # than silently preserving the old value.
+        current = _load_existing_blob(connector)
+        new_api_key = current.get("api_key") if api_key is None else api_key.strip()
+        blob = _build_azure_creds(
+            api_key=new_api_key,
+            azure_resource_name=(
+                current.get("azure_resource_name")
+                if azure_resource_name is None
+                else azure_resource_name
+            ),
+            azure_deployment_name=(
+                current.get("azure_deployment_name")
+                if azure_deployment_name is None
+                else azure_deployment_name
+            ),
+            azure_api_version=(
+                current.get("azure_api_version") if azure_api_version is None else azure_api_version
+            ),
         )
     else:  # pragma: no cover
         raise ValueError(f"Unsupported connector_type: {connector.connector_type!r}")

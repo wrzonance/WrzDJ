@@ -151,6 +151,9 @@ def create_connector_endpoint(
             aws_secret_access_key=payload.aws_secret_access_key,
             aws_region=payload.aws_region,
             aws_model_id=payload.aws_model_id,
+            azure_resource_name=payload.azure_resource_name,
+            azure_deployment_name=payload.azure_deployment_name,
+            azure_api_version=payload.azure_api_version,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -235,6 +238,9 @@ def rotate_connector_credentials(
             aws_secret_access_key=payload.aws_secret_access_key,
             aws_region=payload.aws_region,
             aws_model_id=payload.aws_model_id,
+            azure_resource_name=payload.azure_resource_name,
+            azure_deployment_name=payload.azure_deployment_name,
+            azure_api_version=payload.azure_api_version,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -28,6 +28,7 @@ from app.models.base import Base
 CONNECTOR_TYPE_OPENAI_APIKEY = "openai_apikey"
 CONNECTOR_TYPE_ANTHROPIC_APIKEY = "anthropic_apikey"
 CONNECTOR_TYPE_OPENAI_COMPATIBLE = "openai_compatible"
+CONNECTOR_TYPE_AZURE_OPENAI = "azure_openai"
 CONNECTOR_TYPE_BEDROCK = "bedrock"
 CONNECTOR_TYPE_OPENROUTER_APIKEY = "openrouter_apikey"
 CONNECTOR_TYPE_XAI_APIKEY = "xai_apikey"
@@ -37,6 +38,7 @@ VALID_CONNECTOR_TYPES = frozenset(
         CONNECTOR_TYPE_OPENAI_APIKEY,
         CONNECTOR_TYPE_ANTHROPIC_APIKEY,
         CONNECTOR_TYPE_OPENAI_COMPATIBLE,
+        CONNECTOR_TYPE_AZURE_OPENAI,
         CONNECTOR_TYPE_BEDROCK,
         CONNECTOR_TYPE_OPENROUTER_APIKEY,
         CONNECTOR_TYPE_XAI_APIKEY,
@@ -64,6 +66,8 @@ class LlmConnector(Base):
     `credentials` is a JSON string encrypted via Fernet. Shape varies by type:
     - openai_apikey / anthropic_apikey / openrouter_apikey: {"api_key": "..."}
     - openai_compatible: {"base_url": "...", "bearer": "..." | null}
+    - azure_openai: {"api_key": "...", "azure_resource_name": "...",
+      "azure_deployment_name": "...", "azure_api_version": "..."}
     - bedrock: {"aws_access_key_id": "...", "aws_secret_access_key": "...",
       "aws_region": "...", "aws_model_id": "..."}
 

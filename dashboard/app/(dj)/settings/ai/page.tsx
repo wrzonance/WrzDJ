@@ -21,6 +21,7 @@ const CONNECTOR_TYPE_LABELS: Record<LlmConnectorType, string> = {
   xai_apikey: 'xAI Grok API key',
   openai_compatible: 'Custom OpenAI-compatible endpoint',
   bedrock: 'AWS Bedrock',
+  azure_openai: 'Azure OpenAI',
 };
 
 const STATUS_LABELS: Record<string, { text: string; color: string }> = {
@@ -41,6 +42,9 @@ interface FormState {
   aws_secret_access_key: string;
   aws_region: string;
   aws_model_id: string;
+  azure_resource_name: string;
+  azure_deployment_name: string;
+  azure_api_version: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -55,6 +59,9 @@ const EMPTY_FORM: FormState = {
   aws_secret_access_key: '',
   aws_region: '',
   aws_model_id: '',
+  azure_resource_name: '',
+  azure_deployment_name: '',
+  azure_api_version: '',
 };
 
 export default function SettingsAIPage() {
@@ -127,6 +134,7 @@ export default function SettingsAIPage() {
         'openrouter_apikey',
         'xai_apikey',
         'bedrock',
+        'azure_openai',
       );
     }
     if (policy.llm_compatible_connector_enabled) out.push('openai_compatible');
@@ -158,6 +166,9 @@ export default function SettingsAIPage() {
     setSubmitError('');
     const isCompatible = form.connector_type === 'openai_compatible';
     const isBedrock = form.connector_type === 'bedrock';
+    const isAzure = form.connector_type === 'azure_openai';
+    // API-key providers: everything that isn't openai_compatible or bedrock.
+    // Azure also carries an api_key (plus its azure_* fields).
     const isApiKey = !isCompatible && !isBedrock;
     const payload: LlmConnectorCreate = {
       connector_type: form.connector_type,
@@ -172,6 +183,9 @@ export default function SettingsAIPage() {
       aws_secret_access_key: isBedrock ? form.aws_secret_access_key : null,
       aws_region: isBedrock ? form.aws_region : null,
       aws_model_id: isBedrock ? form.aws_model_id : null,
+      azure_resource_name: isAzure ? form.azure_resource_name : null,
+      azure_deployment_name: isAzure ? form.azure_deployment_name : null,
+      azure_api_version: isAzure ? form.azure_api_version : null,
     };
     try {
       const created = await api.createLlmConnector(payload);
@@ -374,6 +388,64 @@ export default function SettingsAIPage() {
                     Claude (<code>anthropic.*</code>) and Llama (<code>meta.*</code>)
                     model families are supported.
                   </p>
+                </div>
+              </>
+            ) : form.connector_type === 'azure_openai' ? (
+              <>
+                <div className="form-group">
+                  <label htmlFor="api_key">API key</label>
+                  <input
+                    id="api_key"
+                    className="input"
+                    type="password"
+                    value={form.api_key}
+                    onChange={(e) => setForm({ ...form, api_key: e.target.value })}
+                    placeholder="Azure OpenAI key"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="azure_resource_name">Resource name</label>
+                  <input
+                    id="azure_resource_name"
+                    className="input"
+                    value={form.azure_resource_name}
+                    onChange={(e) =>
+                      setForm({ ...form, azure_resource_name: e.target.value })
+                    }
+                    placeholder="e.g. my-company"
+                    required
+                  />
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0.5rem 0 0' }}>
+                    The resource subdomain in{' '}
+                    <code>https://&lt;resource&gt;.openai.azure.com</code>.
+                  </p>
+                </div>
+                <div className="form-group">
+                  <label htmlFor="azure_deployment_name">Deployment name</label>
+                  <input
+                    id="azure_deployment_name"
+                    className="input"
+                    value={form.azure_deployment_name}
+                    onChange={(e) =>
+                      setForm({ ...form, azure_deployment_name: e.target.value })
+                    }
+                    placeholder="e.g. gpt-4o-prod"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="azure_api_version">API version</label>
+                  <input
+                    id="azure_api_version"
+                    className="input"
+                    value={form.azure_api_version}
+                    onChange={(e) =>
+                      setForm({ ...form, azure_api_version: e.target.value })
+                    }
+                    placeholder="e.g. 2024-06-01"
+                    required
+                  />
                 </div>
               </>
             ) : form.connector_type !== 'openai_compatible' ? (

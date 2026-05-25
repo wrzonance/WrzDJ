@@ -172,7 +172,9 @@ class BedrockAdapter(LlmAdapter):
         return body, None
 
     def _build_llama_body(self, request: ChatRequest) -> tuple[dict, set[str] | None]:
-        tool_names = {t.name for t in request.tools} if request.tools else None
+        # When no tools are configured, pass an empty set (not None) so generated
+        # {"name","input"} JSON is never misclassified as a tool call.
+        tool_names = {t.name for t in request.tools} if request.tools else set()
         tool_instructions = render_llama_tool_instructions(request.tools, request.force_tool)
         prompt = _render_llama_prompt(request, tool_instructions)
         body: dict[str, Any] = {"prompt": prompt}

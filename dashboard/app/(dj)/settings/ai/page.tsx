@@ -136,7 +136,9 @@ export default function SettingsAIPage() {
     const payload: LlmConnectorCreate = {
       connector_type: form.connector_type,
       display_name: form.display_name,
-      model_hint: form.model_hint || null,
+      // Bedrock has no model_hint field (it uses aws_model_id); never post a
+      // stale hint left over from a prior connector-type selection.
+      model_hint: isBedrock ? null : form.model_hint || null,
       api_key: isApiKey ? form.api_key : null,
       base_url: isCompatible ? form.base_url : null,
       bearer: isCompatible ? form.bearer || null : null,

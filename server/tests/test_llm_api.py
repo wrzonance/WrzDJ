@@ -111,6 +111,7 @@ class TestPerDJConnectorsCRUD:
         row = db.query(LlmConnector).filter(LlmConnector.id == data["id"]).one()
         blob = json.loads(row.credentials)
         assert blob["aws_access_key_id"] == "AKIAEXAMPLEKEY12345"
+        assert blob["aws_secret_access_key"] == "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
         assert blob["aws_region"] == "us-east-1"
         assert blob["aws_model_id"] == "anthropic.claude-3-5-sonnet-20241022-v2:0"
 
@@ -177,6 +178,7 @@ class TestPerDJConnectorsCRUD:
         assert blob["aws_secret_access_key"] == "newsecret"
         assert blob["aws_access_key_id"] == "AKIAOLDKEY1234567890"
         assert blob["aws_region"] == "us-east-1"
+        assert blob["aws_model_id"] == "anthropic.claude-3-5-sonnet-20241022-v2:0"
 
     def test_create_openai_compatible_rejects_public_http(self, client: TestClient, auth_headers):
         body = {

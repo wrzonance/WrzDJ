@@ -24,6 +24,7 @@ from app.models.llm_connector import (
     VALID_CONNECTOR_TYPES,
 )
 from app.models.user import User
+from app.schemas.ai_settings import AIModelsResponse
 from app.schemas.llm import (
     ConnectorCreate,
     ConnectorCredentialsRotate,
@@ -53,6 +54,7 @@ from app.services.llm.exceptions import (
     RateLimited,
     ToolTranslationError,
 )
+from app.services.llm.openrouter_models import get_openrouter_models
 from app.services.llm.registry import get_adapter_class
 from app.services.system_settings import get_system_settings
 
@@ -107,6 +109,24 @@ def list_connectors(
 ) -> list[ConnectorOut]:
     rows = list_connectors_for_user(db, user.id)
     return [ConnectorOut.model_validate(r) for r in rows]
+
+
+@router.get("/openrouter/models", response_model=AIModelsResponse)
+@limiter.limit("30/minute")
+async def list_openrouter_models(
+    request: FastAPIRequest,
+    user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+) -> AIModelsResponse:
+    """Return the OpenRouter model catalogue for the model-hint dropdown.
+
+    Served from a process-wide TTL cache (refreshed hourly). The OpenRouter
+    ``/models`` endpoint is public, so no connector credentials are required.
+    Returns an empty list if the catalogue is unavailable — the frontend then
+    falls back to a free-text model input.
+    """
+    models = await get_openrouter_models()
+    return AIModelsResponse(models=models)
 
 
 @router.post("/connectors", response_model=ConnectorOut, status_code=201)

@@ -58,6 +58,8 @@ def _bootstrap() -> None:
         bedrock,
         openai_apikey,
         openai_compatible,
+        openrouter_apikey,
+        xai_apikey,
     )
 
 

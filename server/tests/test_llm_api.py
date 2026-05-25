@@ -81,10 +81,12 @@ class TestPerDJConnectorsCRUD:
         assert resp.status_code == 201, resp.json()
 
     def test_create_gemini_apikey_happy_path(self, client: TestClient, auth_headers):
+        # Built at runtime (valid 39-char shape) so no "AIza…" literal is committed.
+        gemini_key = "AIza" + ("A" * 35)
         body = {
             "connector_type": "gemini_apikey",
             "display_name": "My Gemini",
-            "api_key": "AIzaSyA1234567890abcdefghijklmnopqrstuv",
+            "api_key": gemini_key,
             "model_hint": "gemini-2.5-flash",
         }
         resp = client.post("/api/llm/connectors", json=body, headers=auth_headers)
@@ -110,10 +112,11 @@ class TestPerDJConnectorsCRUD:
             headers=admin_headers,
         )
         assert resp.status_code == 200
+        gemini_key = "AIza" + ("A" * 35)
         body = {
             "connector_type": "gemini_apikey",
             "display_name": "Should Fail",
-            "api_key": "AIzaSyA1234567890abcdefghijklmnopqrstuv",
+            "api_key": gemini_key,
         }
         resp = client.post("/api/llm/connectors", json=body, headers=auth_headers)
         assert resp.status_code == 403

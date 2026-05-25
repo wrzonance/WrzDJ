@@ -135,7 +135,13 @@ class GeminiApiKeyAdapter(LlmAdapter):
 
             content = m.content
             if isinstance(content, list):
-                text = "".join(getattr(b, "text", "") or "" for b in content)
+                chunks: list[str] = []
+                for b in content:
+                    if isinstance(b, dict):
+                        chunks.append(str(b.get("text") or ""))
+                    else:
+                        chunks.append(str(getattr(b, "text", "") or ""))
+                text = "".join(chunks)
             else:
                 text = content or ""
 

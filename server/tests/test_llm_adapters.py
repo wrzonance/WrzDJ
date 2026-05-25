@@ -17,7 +17,7 @@ from app.services.llm.adapters.anthropic_apikey import AnthropicApiKeyAdapter
 from app.services.llm.adapters.gemini_apikey import GeminiApiKeyAdapter
 from app.services.llm.adapters.openai_apikey import OpenAIApiKeyAdapter
 from app.services.llm.adapters.openai_compatible import OpenAICompatibleAdapter
-from app.services.llm.base import ChatRequest, Message, ToolSpec
+from app.services.llm.base import ChatRequest, ContentBlock, Message, ToolSpec
 from app.services.llm.exceptions import (
     AuthInvalid,
     ProviderUnavailable,
@@ -61,10 +61,16 @@ def _make_anthropic_connector():
     )
 
 
+# Non-secret placeholder — avoids committing an "AIza…"-shaped literal that trips
+# secret scanners. The adapter doesn't validate key shape (that's done upstream),
+# so any string works for transport-level assertions.
+_GEMINI_TEST_KEY = "gemini-test-key-not-a-real-secret"
+
+
 def _make_gemini_connector(model_hint="gemini-2.5-flash"):
     return SimpleNamespace(
         connector_type="gemini_apikey",
-        credentials=json.dumps({"api_key": "AIzaSyA1234567890abcdefghijklmnopqrstuv"}),
+        credentials=json.dumps({"api_key": _GEMINI_TEST_KEY}),
         model_hint=model_hint,
         base_url_plain=None,
     )
@@ -358,10 +364,8 @@ class TestGeminiApiKeyAdapter:
         assert resp.usage.prompt == 3
         assert resp.usage.completion == 1
         # API key goes in the x-goog-api-key header, never the URL/query string.
-        assert client.calls[0]["headers"]["x-goog-api-key"] == (
-            "AIzaSyA1234567890abcdefghijklmnopqrstuv"
-        )
-        assert "AIzaSy" not in client.calls[0]["url"]
+        assert client.calls[0]["headers"]["x-goog-api-key"] == _GEMINI_TEST_KEY
+        assert _GEMINI_TEST_KEY not in client.calls[0]["url"]
         assert client.calls[0]["url"].endswith(":generateContent")
         assert "gemini-2.5-flash" in client.calls[0]["url"]
 
@@ -613,6 +617,27 @@ class TestGeminiApiKeyAdapter:
         # The system message is not surfaced as a content turn.
         assert len(contents) == 1
         assert contents[0]["role"] == "user"
+
+    @pytest.mark.asyncio
+    async def test_list_content_blocks_flatten_to_text(self):
+        """Regression: list-based content (ContentBlock objects AND raw dicts)
+        must flatten into the part text, not silently drop to empty strings."""
+        connector = _make_gemini_connector()
+        adapter = GeminiApiKeyAdapter(connector)
+        obj_msg = Message(
+            role="user",
+            content=[ContentBlock(text="hello "), ContentBlock(text="world")],
+        )
+        # A dict-shaped block reaching the adapter unvalidated (model_construct
+        # skips Pydantic coercion) must still contribute its text.
+        dict_msg = Message.model_construct(role="assistant", content=[{"text": "ack"}])
+        request = ChatRequest(messages=[obj_msg, dict_msg])
+        client = _AsyncClient(_ok_response(_gemini_success_body()))
+        with patch(_GEMINI_HTTPX_PATH, return_value=client):
+            await adapter.chat(request)
+        contents = client.calls[0]["json"]["contents"]
+        assert contents[0]["parts"][0]["text"] == "hello world"
+        assert contents[1]["parts"][0]["text"] == "ack"
 
     @pytest.mark.asyncio
     async def test_402_maps_to_quota_exceeded(self):

@@ -40,8 +40,8 @@ class ConnectorCreate(BaseModel):
 
     Field requirements vary by ``connector_type``:
 
-    - ``openai_apikey`` / ``anthropic_apikey``: ``api_key`` required;
-      ``base_url`` and ``bearer`` are ignored.
+    - ``openai_apikey`` / ``anthropic_apikey`` / ``gemini_apikey``: ``api_key``
+      required; ``base_url`` and ``bearer`` are ignored.
     - ``openai_compatible``: ``base_url`` required; ``bearer`` optional;
       ``api_key`` is ignored.
 

@@ -186,6 +186,34 @@ class TestParseGeminiResponse:
         with pytest.raises(ToolTranslationError):
             parse_gemini_response(body)
 
+    def test_function_call_non_object_args_raises(self):
+        # Regression: a non-object ``args`` (e.g. a list) must surface as a
+        # ToolTranslationError, not a raw TypeError/ValueError from dict(...).
+        body = {
+            "candidates": [
+                {
+                    "content": {"parts": [{"functionCall": {"name": "rank", "args": ["x"]}}]},
+                    "finishReason": "STOP",
+                }
+            ]
+        }
+        with pytest.raises(ToolTranslationError):
+            parse_gemini_response(body)
+
+    def test_function_call_missing_args_defaults_to_empty(self):
+        # Regression: omitted/null ``args`` yields an empty input dict, not a crash.
+        body = {
+            "candidates": [
+                {
+                    "content": {"parts": [{"functionCall": {"name": "rank"}}]},
+                    "finishReason": "STOP",
+                }
+            ]
+        }
+        resp = parse_gemini_response(body)
+        assert resp.tool_calls[0].name == "rank"
+        assert resp.tool_calls[0].input == {}
+
     def test_empty_candidates_blocked_by_safety(self):
         # Gemini can return an empty candidates list (e.g. safety block).
         body = {"candidates": [], "promptFeedback": {"blockReason": "SAFETY"}}

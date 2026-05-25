@@ -272,7 +272,13 @@ def parse_gemini_response(payload: dict) -> ChatResponse:
             if not name:
                 raise ToolTranslationError("Gemini functionCall missing name")
             args = fn.get("args")
-            tool_calls.append(ToolCall(id=str(name), name=str(name), input=dict(args or {})))
+            if args is None:
+                input_obj: dict = {}
+            elif isinstance(args, dict):
+                input_obj = args
+            else:
+                raise ToolTranslationError("Gemini functionCall args must be an object")
+            tool_calls.append(ToolCall(id=str(name), name=str(name), input=input_obj))
         elif "text" in part:
             text_parts.append(part.get("text") or "")
 

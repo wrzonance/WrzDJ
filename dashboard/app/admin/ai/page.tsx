@@ -284,7 +284,7 @@ export default function AdminAISettingsPage() {
               checked={policy.llm_apikey_connectors_enabled}
               onChange={(e) => handlePolicyPatch({ llm_apikey_connectors_enabled: e.target.checked })}
             />
-            Allow API-key connectors (OpenAI, Anthropic)
+            Allow API-key connectors (e.g. OpenAI, Anthropic, Gemini)
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', marginTop: '0.75rem' }}>
             <input

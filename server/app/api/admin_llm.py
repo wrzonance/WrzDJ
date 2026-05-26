@@ -19,6 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_admin, get_db
+from app.core.csv_safe import sanitize_csv_value
 from app.core.rate_limit import limiter
 from app.core.time import utcnow
 from app.models.llm_connector import LlmAuditEvent, LlmConnector
@@ -51,21 +52,6 @@ router = APIRouter()
 # Hard ceiling for a single CSV export — keeps an attacker (or an honest admin
 # with a huge history) from streaming an unbounded result set.
 _AUDIT_CSV_ROW_CAP = 10_000
-
-# Leading characters that spreadsheet apps (Excel/Sheets/LibreOffice) treat as
-# the start of a formula. Cells beginning with these can execute arbitrary
-# formulas when the exported CSV is opened, so we defang them on the way out.
-_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
-
-
-def _sanitize_csv_cell(value: str) -> str:
-    """Neutralize CSV/spreadsheet formula injection by prefixing a single quote.
-
-    Any cell whose first character could be interpreted as a formula trigger by
-    a spreadsheet application is prefixed with ``'`` so it is rendered as literal
-    text instead of being evaluated.
-    """
-    return f"'{value}" if value and value[0] in _CSV_FORMULA_PREFIXES else value
 
 
 def _audit_query(
@@ -381,9 +367,9 @@ def export_audit_events_csv(
             writer.writerow(
                 [
                     event.created_at.isoformat() if event.created_at else "",
-                    _sanitize_csv_cell(actor),
-                    _sanitize_csv_cell(event.event_type or ""),
-                    _sanitize_csv_cell(connector_display_name or ""),
+                    sanitize_csv_value(actor),
+                    sanitize_csv_value(event.event_type or ""),
+                    sanitize_csv_value(connector_display_name or ""),
                     "",
                 ]
             )

@@ -325,6 +325,11 @@ class TestSanitizeCsvValue:
         result = sanitize_csv_value("\n=cmd|' /C calc'!A0")
         assert result.startswith("'")
 
+    def test_sanitizes_leading_space(self):
+        """Leading space is escaped — importers trim it then evaluate the formula."""
+        result = sanitize_csv_value(" =cmd|' /C calc'!A0")
+        assert result.startswith("'")
+
     def test_preserves_normal_values(self):
         """Test that normal values are not modified."""
         assert sanitize_csv_value("Normal Song Title") == "Normal Song Title"

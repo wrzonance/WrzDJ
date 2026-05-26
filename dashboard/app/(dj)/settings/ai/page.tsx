@@ -283,7 +283,7 @@ export default function SettingsAIPage() {
       </section>
 
       <section style={{ marginTop: '2rem' }}>
-        {allowedTypes.length === 0 && !form.open && (
+        {allowedTypes.length === 0 && !form.open && !loading && (
           <p style={{ color: 'var(--text-secondary)' }}>
             Connector creation is currently disabled by admin policy.
           </p>

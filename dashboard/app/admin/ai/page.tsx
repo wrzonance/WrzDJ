@@ -38,6 +38,13 @@ const AUDIT_EVENT_TYPES: Array<{ value: string; label: string }> = [
   { value: 'auth_invalid_observed', label: 'Auth invalid observed' },
   { value: 'policy_changed', label: 'Policy changed' },
   { value: 'connector_health_check', label: 'Health check' },
+  // Gateway auto-fallback events are written as `fallback_triggered:<trigger>`
+  // (see services/llm/gateway.py). The audit filter is an exact event_type match,
+  // so each trigger variant needs its own option to be filterable.
+  { value: 'fallback_triggered:rate_limited', label: 'Fallback — rate limited' },
+  { value: 'fallback_triggered:auth_invalid', label: 'Fallback — auth invalid' },
+  { value: 'fallback_triggered:provider_unavailable', label: 'Fallback — provider unavailable' },
+  { value: 'fallback_triggered:quota_exceeded', label: 'Fallback — quota exceeded' },
 ];
 
 const AUDIT_PAGE_SIZE = 50;

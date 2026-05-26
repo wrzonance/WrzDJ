@@ -257,30 +257,34 @@ describe('AdminAISettingsPage', () => {
     const revokeObjectURL = vi.fn();
     vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL });
 
-    render(<AdminAISettingsPage />);
+    try {
+      render(<AdminAISettingsPage />);
 
-    await waitFor(() => expect(screen.getByText('Audit trail')).toBeInTheDocument());
-    auditSpy.mockClear();
+      await waitFor(() => expect(screen.getByText('Audit trail')).toBeInTheDocument());
+      auditSpy.mockClear();
 
-    fireEvent.change(screen.getByLabelText('Event type'), {
-      target: { value: 'connector_credentials_rotated' },
-    });
+      fireEvent.change(screen.getByLabelText('Event type'), {
+        target: { value: 'connector_credentials_rotated' },
+      });
 
-    await waitFor(() =>
-      expect(auditSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ event_type: 'connector_credentials_rotated' }),
-      ),
-    );
+      await waitFor(() =>
+        expect(auditSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ event_type: 'connector_credentials_rotated' }),
+        ),
+      );
 
-    // CSV export must honor the active event-type filter.
-    fireEvent.click(screen.getByText('Export CSV'));
-    await waitFor(() =>
-      expect(exportSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ event_type: 'connector_credentials_rotated' }),
-      ),
-    );
-
-    vi.unstubAllGlobals();
+      // CSV export must honor the active event-type filter.
+      fireEvent.click(screen.getByText('Export CSV'));
+      await waitFor(() =>
+        expect(exportSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ event_type: 'connector_credentials_rotated' }),
+        ),
+      );
+    } finally {
+      // Guarantee the URL stub is restored even if an assertion fails early,
+      // so it can't leak into later tests.
+      vi.unstubAllGlobals();
+    }
   });
 
   it('force-revokes a connector via the admin table', async () => {

@@ -31,7 +31,10 @@ class OpenAICompatibleAdapter(LlmAdapter):
             raise AuthInvalid("Connector credentials are malformed") from exc
         if not isinstance(blob, dict):
             raise AuthInvalid("Connector credentials shape is invalid")
-        base_url = blob.get("base_url") or self.connector.base_url_plain
+        # Encrypted credentials are the sole source of truth for routing. base_url_plain
+        # is a display-only admin mirror — never send traffic to it, since it could be
+        # stale relative to the encrypted blob. Fail closed if the blob lacks the URL.
+        base_url = blob.get("base_url")
         if not base_url:
             raise AuthInvalid("Connector is missing a base_url")
         # Final SSRF boundary check: re-validate at call time, since storage-time

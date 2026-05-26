@@ -309,6 +309,48 @@ class TestParseOpenAIResponse:
         with pytest.raises(ToolTranslationError):
             parse_openai_response(body)
 
+    @pytest.mark.parametrize("bad_args", [[], False, 0, 1, "[]", "false"])
+    def test_tool_arguments_falsy_non_object_rejected(self, bad_args):
+        """Falsy/non-object arguments must raise, not silently coerce to {}."""
+        body = {
+            "choices": [
+                {
+                    "finish_reason": "tool_calls",
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "function": {"name": "rank", "arguments": bad_args},
+                            }
+                        ]
+                    },
+                }
+            ]
+        }
+        with pytest.raises(ToolTranslationError):
+            parse_openai_response(body)
+
+    @pytest.mark.parametrize("empty_args", [None, ""])
+    def test_tool_arguments_none_or_empty_string_become_empty_dict(self, empty_args):
+        """None (and empty-string, used by some compatible servers) → {} is valid."""
+        body = {
+            "choices": [
+                {
+                    "finish_reason": "tool_calls",
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "function": {"name": "rank", "arguments": empty_args},
+                            }
+                        ]
+                    },
+                }
+            ]
+        }
+        resp = parse_openai_response(body)
+        assert resp.tool_calls[0].input == {}
+
     def test_finish_reason_length(self):
         body = {"choices": [{"finish_reason": "length", "message": {"content": "..."}}]}
         resp = parse_openai_response(body)

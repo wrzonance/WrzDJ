@@ -68,8 +68,17 @@ def parse_openai_response(payload: dict) -> ChatResponse:
             raise ToolTranslationError("OpenAI tool_call function must be an object")
         name = fn.get("name") or tc.get("name") or ""
         raw_args = fn.get("arguments")
+        # Only None (and empty-string, which some compatible servers send for
+        # no-arg calls) falls back to {}. Other falsy non-objects ([], False, 0)
+        # must NOT be coerced to {} — they fall through to the isinstance check
+        # below and raise, rather than silently running a tool with empty input.
         try:
-            input_obj = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
+            if raw_args is None:
+                input_obj = {}
+            elif isinstance(raw_args, str):
+                input_obj = json.loads(raw_args) if raw_args else {}
+            else:
+                input_obj = raw_args
         except (json.JSONDecodeError, TypeError) as exc:
             raise ToolTranslationError("OpenAI tool_call arguments are not valid JSON") from exc
         if not isinstance(input_obj, dict):

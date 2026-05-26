@@ -361,6 +361,19 @@ class TestOpenAICompatibleAdapter:
         assert body["max_tokens"] == 100
         assert "max_completion_tokens" not in body
 
+    def test_fails_closed_when_blob_missing_base_url(self):
+        # base_url_plain is a display-only mirror; it must NEVER be used to route
+        # traffic. If the encrypted blob lacks base_url, fail closed.
+        connector = SimpleNamespace(
+            connector_type="openai_compatible",
+            credentials=json.dumps({"bearer": "abc"}),  # no base_url in the blob
+            model_hint="llama3",
+            base_url_plain="http://127.0.0.1:11434/v1",  # mirror present but ignored
+        )
+        adapter = OpenAICompatibleAdapter(connector)
+        with pytest.raises(AuthInvalid):
+            adapter._extract_credentials()
+
 
 # ---------------------------------------------------------------------------
 # OpenRouter API-key adapter

@@ -424,4 +424,47 @@ describe('AdminAISettingsPage', () => {
       ),
     );
   });
+
+  // Use 5 (not 0) for the below-min value: the onChange handler treats a falsy
+  // parsed value as "no change" (`parseInt(...) || policy.value`), so 0 would be
+  // coerced back to the current policy before blur ever sees it. 5 is a genuine
+  // below-min entry that the blur clamp must lift to 7.
+  it('clamps a below-min retention value before patching (issue #342)', async () => {
+    vi.spyOn(api, 'getAISettings').mockResolvedValue({
+      llm_enabled: true,
+      llm_model: 'claude-haiku-4-5-20251001',
+      llm_rate_limit_per_minute: 3,
+      api_key_configured: true,
+      api_key_masked: '...abcd',
+    });
+    vi.spyOn(api, 'getAIModels').mockResolvedValue({ models: [] });
+    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: true,
+      llm_default_connector_id: null,
+      llm_call_log_retention_days: 30,
+    });
+    vi.spyOn(api, 'listAllLlmConnectors').mockResolvedValue([]);
+    vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({ days: 30, rows: [] });
+    const patchSpy = vi.spyOn(api, 'updateAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: true,
+      llm_default_connector_id: null,
+      llm_call_log_retention_days: 7,
+    });
+
+    render(<AdminAISettingsPage />);
+
+    const input = (await screen.findByLabelText(
+      /Call log retention/i,
+    )) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '5' } });
+    fireEvent.blur(input);
+
+    await waitFor(() =>
+      expect(patchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ llm_call_log_retention_days: 7 }),
+      ),
+    );
+  });
 });

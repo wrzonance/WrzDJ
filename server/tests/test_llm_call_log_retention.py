@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from datetime import timedelta
 
+import pytest
 from sqlalchemy.orm import Session
 
 from app.core.time import utcnow
@@ -76,6 +77,20 @@ class TestPurgeHelper:
         db.commit()
 
         assert deleted == 0
+        assert db.query(LlmCallLog).count() == 1
+
+    def test_rejects_out_of_bounds_window_without_deleting(self, db: Session, test_user):
+        # A corrupt/tampered persisted value outside the 7-365 contract must fail
+        # closed: raise before deleting, never push the cutoff to now/future and
+        # wipe history. The daily cleanup loop catches this and retries next pass.
+        connector = _make_connector(db, test_user.id)
+        _seed_call_log(db, connector.id, age_days=5)
+
+        for bad in (0, -1, 6, 366, 100000):
+            with pytest.raises(ValueError):
+                purge_call_log_older_than(db, retention_days=bad)
+            db.rollback()
+
         assert db.query(LlmCallLog).count() == 1
 
     def test_boundary_row_at_exactly_window_kept(self, db: Session, test_user):

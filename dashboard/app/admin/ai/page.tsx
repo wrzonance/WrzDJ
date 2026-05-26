@@ -455,7 +455,9 @@ export default function AdminAISettingsPage() {
               }
               onBlur={(e) => {
                 const raw = parseInt(e.target.value, 10);
-                const clamped = Number.isNaN(raw) ? 30 : Math.min(365, Math.max(7, raw));
+                const clamped = Number.isNaN(raw)
+                  ? policy.llm_call_log_retention_days
+                  : Math.min(365, Math.max(7, raw));
                 handlePolicyPatch({ llm_call_log_retention_days: clamped });
               }}
             />

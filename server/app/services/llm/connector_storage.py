@@ -535,6 +535,14 @@ def purge_call_log_older_than(db: Session, *, retention_days: int) -> int:
 
     from app.core.time import utcnow
 
+    # Fail closed on out-of-bounds windows. A non-positive value would push the
+    # cutoff to now/future and delete nearly all history; an oversized value is
+    # equally suspect. The admin UI/schema clamp to 7-365, so a value outside
+    # that range means a corrupt or tampered persisted setting — refuse rather
+    # than over-delete. The daily cleanup loop catches this and retries next pass.
+    if not 7 <= retention_days <= 365:
+        raise ValueError("retention_days must be between 7 and 365")
+
     cutoff = utcnow() - timedelta(days=retention_days)
     result = db.execute(delete(LlmCallLog).where(LlmCallLog.created_at < cutoff))
     return result.rowcount or 0

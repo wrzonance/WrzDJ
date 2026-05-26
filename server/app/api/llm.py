@@ -31,6 +31,7 @@ from app.schemas.llm import (
     ConnectorOut,
     ConnectorPatch,
     ConnectorTestResult,
+    DjPolicyOut,
 )
 from app.services.llm.connector_storage import (
     AUDIT_CREATED,
@@ -61,6 +62,28 @@ from app.services.system_settings import get_system_settings
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# API-key connector types (everything that isn't the custom OpenAI-compatible
+# endpoint). Gated by the single ``llm_apikey_connectors_enabled`` flag, mirroring
+# ``_check_connector_type_allowed`` below. Sorted for a deterministic response.
+_APIKEY_CONNECTOR_TYPES: tuple[str, ...] = tuple(
+    sorted(VALID_CONNECTOR_TYPES - {CONNECTOR_TYPE_OPENAI_COMPATIBLE})
+)
+
+
+def _allowed_connector_types(*, apikey_enabled: bool, compatible_enabled: bool) -> list[str]:
+    """Compute the connector types a DJ may create under the given policy.
+
+    Kept consistent with ``_check_connector_type_allowed`` so the advertised set
+    exactly matches what the create endpoint will accept (no UX/enforcement drift).
+    """
+    allowed: list[str] = []
+    if apikey_enabled:
+        allowed.extend(_APIKEY_CONNECTOR_TYPES)
+    if compatible_enabled:
+        allowed.append(CONNECTOR_TYPE_OPENAI_COMPATIBLE)
+    return allowed
 
 
 def _check_connector_type_allowed(db: Session, connector_type: str) -> None:
@@ -109,6 +132,38 @@ def list_connectors(
 ) -> list[ConnectorOut]:
     rows = list_connectors_for_user(db, user.id)
     return [ConnectorOut.model_validate(r) for r in rows]
+
+
+@router.get(
+    "/policy",
+    response_model=DjPolicyOut,
+    responses={
+        401: {"description": "Not authenticated (missing or invalid bearer token)."},
+        403: {"description": "Authenticated but not an active DJ (e.g. pending approval)."},
+    },
+)
+@limiter.limit("60/minute")
+def get_dj_policy(
+    request: FastAPIRequest,
+    _user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+) -> DjPolicyOut:
+    """DJ-readable connector policy (non-sensitive subset).
+
+    The settings/ai page consumes this to fail *closed* — hiding connector
+    types the admin has disabled rather than showing every provider and only
+    discovering the block when the create call returns 403. Admin-only fields
+    (e.g. ``llm_default_connector_id``) are intentionally excluded.
+    """
+    settings = get_system_settings(db)
+    return DjPolicyOut(
+        llm_apikey_connectors_enabled=settings.llm_apikey_connectors_enabled,
+        llm_compatible_connector_enabled=settings.llm_compatible_connector_enabled,
+        allowed_connector_types=_allowed_connector_types(
+            apikey_enabled=settings.llm_apikey_connectors_enabled,
+            compatible_enabled=settings.llm_compatible_connector_enabled,
+        ),  # type: ignore[arg-type]
+    )
 
 
 @router.get("/openrouter/models", response_model=AIModelsResponse)

@@ -2564,6 +2564,43 @@
         "title": "DisplaySettingsUpdate",
         "type": "object"
       },
+      "DjPolicyOut": {
+        "description": "DJ-readable connector policy \u2014 the non-sensitive subset of the admin\npolicy surface.\n\nLets the settings/ai page fail *closed*: a normal DJ can learn which\nconnector types the admin has enabled (so disallowed providers are hidden\nin the picker) without exposing admin-only fields such as\n``llm_default_connector_id``.\n\n``allowed_connector_types`` is the pre-computed set of connector types a DJ\nmay create given the two toggles, so the frontend doesn't have to hard-code\nthe api-key-vs-compatible mapping.",
+        "properties": {
+          "allowed_connector_types": {
+            "items": {
+              "enum": [
+                "openai_apikey",
+                "anthropic_apikey",
+                "openai_compatible",
+                "openrouter_apikey",
+                "xai_apikey",
+                "bedrock",
+                "azure_openai",
+                "gemini_apikey"
+              ],
+              "type": "string"
+            },
+            "title": "Allowed Connector Types",
+            "type": "array"
+          },
+          "llm_apikey_connectors_enabled": {
+            "title": "Llm Apikey Connectors Enabled",
+            "type": "boolean"
+          },
+          "llm_compatible_connector_enabled": {
+            "title": "Llm Compatible Connector Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "allowed_connector_types",
+          "llm_apikey_connectors_enabled",
+          "llm_compatible_connector_enabled"
+        ],
+        "title": "DjPolicyOut",
+        "type": "object"
+      },
       "EnrichPreviewItem": {
         "properties": {
           "artist": {
@@ -10650,6 +10687,39 @@
           }
         ],
         "summary": "List Openrouter Models",
+        "tags": [
+          "llm"
+        ]
+      }
+    },
+    "/api/llm/policy": {
+      "get": {
+        "description": "DJ-readable connector policy (non-sensitive subset).\n\nThe settings/ai page consumes this to fail *closed* \u2014 hiding connector\ntypes the admin has disabled rather than showing every provider and only\ndiscovering the block when the create call returns 403. Admin-only fields\n(e.g. ``llm_default_connector_id``) are intentionally excluded.",
+        "operationId": "get_dj_policy_api_llm_policy_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DjPolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not authenticated (missing or invalid bearer token)."
+          },
+          "403": {
+            "description": "Authenticated but not an active DJ (e.g. pending approval)."
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Dj Policy",
         "tags": [
           "llm"
         ]

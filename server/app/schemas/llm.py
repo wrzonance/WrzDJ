@@ -201,6 +201,25 @@ class AdminPolicyOut(BaseModel):
     llm_default_connector_id: int | None
 
 
+class DjPolicyOut(BaseModel):
+    """DJ-readable connector policy — the non-sensitive subset of the admin
+    policy surface.
+
+    Lets the settings/ai page fail *closed*: a normal DJ can learn which
+    connector types the admin has enabled (so disallowed providers are hidden
+    in the picker) without exposing admin-only fields such as
+    ``llm_default_connector_id``.
+
+    ``allowed_connector_types`` is the pre-computed set of connector types a DJ
+    may create given the two toggles, so the frontend doesn't have to hard-code
+    the api-key-vs-compatible mapping.
+    """
+
+    llm_apikey_connectors_enabled: bool
+    llm_compatible_connector_enabled: bool
+    allowed_connector_types: list[ConnectorType]
+
+
 class AdminPolicyPatch(BaseModel):
     llm_apikey_connectors_enabled: bool | None = None
     llm_compatible_connector_enabled: bool | None = None

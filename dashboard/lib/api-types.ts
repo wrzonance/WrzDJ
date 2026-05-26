@@ -61,6 +61,7 @@ export type LlmConnectorCredentialsRotate = Schemas['ConnectorCredentialsRotate'
 export type LlmConnectorTestResult = Schemas['ConnectorTestResult'];
 export type LlmAdminPolicy = Schemas['AdminPolicyOut'];
 export type LlmAdminPolicyPatch = Schemas['AdminPolicyPatch'];
+export type LlmDjPolicy = Schemas['DjPolicyOut'];
 export type LlmAdminUsage = Schemas['AdminUsageOut'];
 export type LlmUsageRow = Schemas['UsageRow'];
 // LLM audit trail (issue #341)

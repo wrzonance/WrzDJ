@@ -1495,6 +1495,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/llm/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Dj Policy
+         * @description DJ-readable connector policy (non-sensitive subset).
+         *
+         *     The settings/ai page consumes this to fail *closed* — hiding connector
+         *     types the admin has disabled rather than showing every provider and only
+         *     discovering the block when the create call returns 403. Admin-only fields
+         *     (e.g. ``llm_default_connector_id``) are intentionally excluded.
+         */
+        get: operations["get_dj_policy_api_llm_policy_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/collect/{code}": {
         parameters: {
             query?: never;
@@ -3226,6 +3251,28 @@ export interface components {
             now_playing_hidden?: boolean | null;
             /** Requests Open */
             requests_open?: boolean | null;
+        };
+        /**
+         * DjPolicyOut
+         * @description DJ-readable connector policy — the non-sensitive subset of the admin
+         *     policy surface.
+         *
+         *     Lets the settings/ai page fail *closed*: a normal DJ can learn which
+         *     connector types the admin has enabled (so disallowed providers are hidden
+         *     in the picker) without exposing admin-only fields such as
+         *     ``llm_default_connector_id``.
+         *
+         *     ``allowed_connector_types`` is the pre-computed set of connector types a DJ
+         *     may create given the two toggles, so the frontend doesn't have to hard-code
+         *     the api-key-vs-compatible mapping.
+         */
+        DjPolicyOut: {
+            /** Allowed Connector Types */
+            allowed_connector_types: ("openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey" | "xai_apikey" | "bedrock" | "azure_openai" | "gemini_apikey")[];
+            /** Llm Apikey Connectors Enabled */
+            llm_apikey_connectors_enabled: boolean;
+            /** Llm Compatible Connector Enabled */
+            llm_compatible_connector_enabled: boolean;
         };
         /** EnrichPreviewItem */
         EnrichPreviewItem: {
@@ -7195,6 +7242,40 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AIModelsResponse"];
                 };
+            };
+        };
+    };
+    get_dj_policy_api_llm_policy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DjPolicyOut"];
+                };
+            };
+            /** @description Not authenticated (missing or invalid bearer token). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authenticated but not an active DJ (e.g. pending approval). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

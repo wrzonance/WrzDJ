@@ -3,7 +3,33 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
 import SettingsAIPage from '../page';
 import { api } from '@/lib/api';
-import type { LlmConnector } from '@/lib/api-types';
+import type { LlmConnector, LlmConnectorType, LlmDjPolicy } from '@/lib/api-types';
+
+const ALL_APIKEY_TYPES: LlmConnectorType[] = [
+  'openai_apikey',
+  'anthropic_apikey',
+  'openrouter_apikey',
+  'xai_apikey',
+  'bedrock',
+  'azure_openai',
+  'gemini_apikey',
+];
+
+// Build a DJ policy payload. `allowed_connector_types` is what the server
+// computes from the two toggles; the page renders exactly this set.
+function makePolicy(
+  apikeyEnabled: boolean,
+  compatibleEnabled: boolean,
+): LlmDjPolicy {
+  const allowed: LlmConnectorType[] = [];
+  if (apikeyEnabled) allowed.push(...ALL_APIKEY_TYPES);
+  if (compatibleEnabled) allowed.push('openai_compatible');
+  return {
+    llm_apikey_connectors_enabled: apikeyEnabled,
+    llm_compatible_connector_enabled: compatibleEnabled,
+    allowed_connector_types: allowed,
+  };
+}
 
 vi.mock('@/lib/auth', () => ({
   useAuth: () => ({
@@ -57,7 +83,7 @@ describe('SettingsAIPage', () => {
         model_hint: 'claude-haiku',
       }),
     ]);
-    vi.spyOn(api, 'getAdminLlmPolicy').mockRejectedValue(new Error('forbidden'));
+    vi.spyOn(api, 'getLlmPolicy').mockRejectedValue(new Error('forbidden'));
 
     render(<SettingsAIPage />);
 
@@ -67,11 +93,7 @@ describe('SettingsAIPage', () => {
 
   it('respects admin policy when filtering allowed connector types', async () => {
     vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
-    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
-      llm_apikey_connectors_enabled: false,
-      llm_compatible_connector_enabled: true,
-      llm_default_connector_id: null,
-    });
+    vi.spyOn(api, 'getLlmPolicy').mockResolvedValue(makePolicy(false, true));
 
     render(<SettingsAIPage />);
 
@@ -84,13 +106,56 @@ describe('SettingsAIPage', () => {
     expect(optionValues).toEqual(['openai_compatible']);
   });
 
+  it('reads the DJ-scoped policy endpoint (not the admin one)', async () => {
+    vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
+    const adminPolicySpy = vi
+      .spyOn(api, 'getAdminLlmPolicy')
+      .mockRejectedValue(new Error('should not be called'));
+    const policySpy = vi
+      .spyOn(api, 'getLlmPolicy')
+      .mockResolvedValue(makePolicy(true, true));
+
+    render(<SettingsAIPage />);
+
+    await waitFor(() => expect(policySpy).toHaveBeenCalled());
+    expect(adminPolicySpy).not.toHaveBeenCalled();
+  });
+
+  it('fails closed: hides all provider types when policy fetch fails', async () => {
+    vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
+    // Simulate the DJ policy endpoint being unavailable.
+    vi.spyOn(api, 'getLlmPolicy').mockRejectedValue(new Error('unavailable'));
+
+    render(<SettingsAIPage />);
+
+    // No "+ Add provider" button — the picker is hidden entirely.
+    await waitFor(() =>
+      expect(
+        screen.getByText('Connector creation is currently disabled by admin policy.'),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByText('+ Add provider')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Provider')).not.toBeInTheDocument();
+  });
+
+  it('fails closed: only api-key types when compatible is disabled (no leak of all)', async () => {
+    vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
+    vi.spyOn(api, 'getLlmPolicy').mockResolvedValue(makePolicy(true, false));
+
+    render(<SettingsAIPage />);
+
+    await waitFor(() => expect(screen.getByText('+ Add provider')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('+ Add provider'));
+
+    const select = screen.getByLabelText('Provider') as HTMLSelectElement;
+    const optionValues = Array.from(select.options).map((o) => o.value);
+    expect(optionValues).not.toContain('openai_compatible');
+    expect(optionValues).toContain('openai_apikey');
+  });
+
   it('offers Azure OpenAI and reveals its config fields', async () => {
     vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
-    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
-      llm_apikey_connectors_enabled: true,
-      llm_compatible_connector_enabled: true,
-      llm_default_connector_id: null,
-    });
+    vi.spyOn(api, 'getLlmPolicy').mockResolvedValue(makePolicy(true, true));
 
     render(<SettingsAIPage />);
 
@@ -111,11 +176,7 @@ describe('SettingsAIPage', () => {
 
   it('sends Azure config fields on create', async () => {
     vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
-    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
-      llm_apikey_connectors_enabled: true,
-      llm_compatible_connector_enabled: true,
-      llm_default_connector_id: null,
-    });
+    vi.spyOn(api, 'getLlmPolicy').mockResolvedValue(makePolicy(true, true));
     const createSpy = vi
       .spyOn(api, 'createLlmConnector')
       .mockResolvedValue(makeConnector({ connector_type: 'azure_openai' }));
@@ -160,11 +221,7 @@ describe('SettingsAIPage', () => {
 
   it('offers AWS Bedrock when api-key connectors are enabled', async () => {
     vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
-    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
-      llm_apikey_connectors_enabled: true,
-      llm_compatible_connector_enabled: false,
-      llm_default_connector_id: null,
-    });
+    vi.spyOn(api, 'getLlmPolicy').mockResolvedValue(makePolicy(true, false));
 
     render(<SettingsAIPage />);
 
@@ -187,11 +244,7 @@ describe('SettingsAIPage', () => {
   it('runs Test and surfaces the result', async () => {
     const row = makeConnector();
     vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([row]);
-    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
-      llm_apikey_connectors_enabled: true,
-      llm_compatible_connector_enabled: true,
-      llm_default_connector_id: null,
-    });
+    vi.spyOn(api, 'getLlmPolicy').mockResolvedValue(makePolicy(true, true));
     const testSpy = vi.spyOn(api, 'testLlmConnector').mockResolvedValue({
       ok: true,
       error_code: null,
@@ -211,11 +264,7 @@ describe('SettingsAIPage', () => {
 
   it('offers OpenRouter and fetches its model dropdown', async () => {
     vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
-    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
-      llm_apikey_connectors_enabled: true,
-      llm_compatible_connector_enabled: false,
-      llm_default_connector_id: null,
-    });
+    vi.spyOn(api, 'getLlmPolicy').mockResolvedValue(makePolicy(true, false));
     const modelsSpy = vi.spyOn(api, 'listOpenRouterModels').mockResolvedValue({
       models: [
         { id: 'openai/gpt-4o-mini', name: 'GPT-4o mini' },
@@ -246,11 +295,7 @@ describe('SettingsAIPage', () => {
 
   it('creates an OpenRouter connector with the selected model', async () => {
     vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
-    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
-      llm_apikey_connectors_enabled: true,
-      llm_compatible_connector_enabled: false,
-      llm_default_connector_id: null,
-    });
+    vi.spyOn(api, 'getLlmPolicy').mockResolvedValue(makePolicy(true, false));
     vi.spyOn(api, 'listOpenRouterModels').mockResolvedValue({
       models: [{ id: 'openai/gpt-4o-mini', name: 'GPT-4o mini' }],
     });
@@ -297,7 +342,7 @@ describe('SettingsAIPage', () => {
 
   it('deletes after confirmation', async () => {
     vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([makeConnector()]);
-    vi.spyOn(api, 'getAdminLlmPolicy').mockRejectedValue(new Error('nope'));
+    vi.spyOn(api, 'getLlmPolicy').mockRejectedValue(new Error('nope'));
     const delSpy = vi.spyOn(api, 'deleteLlmConnector').mockResolvedValue();
     vi.spyOn(window, 'confirm').mockReturnValue(true);
 

@@ -6,16 +6,17 @@ application-layer concern, so it lives here as a single shared primitive rather
 than being re-implemented per endpoint.
 """
 
-_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r", "\n")
 
 
 def sanitize_csv_value(value: str | None) -> str:
     """Neutralize CSV/spreadsheet formula injection.
 
     Spreadsheet apps (Excel, Google Sheets, LibreOffice) interpret cells starting
-    with ``=``, ``+``, ``-``, ``@``, tab, or CR as formulas, which can be exploited
-    when an exported file is opened. Prefixing such a cell with a single quote
-    forces it to render as literal text.
+    with ``=``, ``+``, ``-``, ``@``, tab, CR, or LF as formulas (leading whitespace/
+    control chars can be stripped on import, exposing a trailing formula), which can
+    be exploited when an exported file is opened. Prefixing such a cell with a single
+    quote forces it to render as literal text.
     """
     if not value:
         return ""

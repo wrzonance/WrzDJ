@@ -20,6 +20,11 @@ vi.mock('@/lib/api', () => ({
     getMe: () => mockGetMe(),
     changePassword: (...args: unknown[]) => mockChangePassword(...args),
     requestEmailChange: (...args: unknown[]) => mockRequestEmailChange(...args),
+    // The AI providers section (relocated from /settings/ai, #357) mounts
+    // inside the account page. Stub its API surface so the section can render
+    // without network access. getLlmPolicy rejects → fail-closed (no extra UI).
+    listLlmConnectors: () => Promise.resolve([]),
+    getLlmPolicy: () => Promise.reject(new Error('forbidden')),
   },
 }));
 
@@ -41,6 +46,13 @@ describe('AccountPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Change Password')).toBeInTheDocument();
       expect(screen.getByText('Change Email')).toBeInTheDocument();
+    });
+  });
+
+  it('renders the relocated AI / Model providers section', async () => {
+    render(<AccountPage />);
+    await waitFor(() => {
+      expect(screen.getByText('AI / Model providers')).toBeInTheDocument();
     });
   });
 

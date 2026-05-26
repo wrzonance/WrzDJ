@@ -1,7 +1,5 @@
 'use client';
 
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 
 import { api } from '@/lib/api';
@@ -12,7 +10,6 @@ import type {
   LlmConnectorType,
   LlmDjPolicy,
 } from '@/lib/api-types';
-import { useAuth } from '@/lib/auth';
 
 const CONNECTOR_TYPE_LABELS: Record<LlmConnectorType, string> = {
   openai_apikey: 'OpenAI API key',
@@ -65,10 +62,16 @@ const EMPTY_FORM: FormState = {
   azure_api_version: '',
 };
 
-export default function SettingsAIPage() {
-  const router = useRouter();
-  const { isAuthenticated, isLoading } = useAuth();
-
+/**
+ * DJ-facing AI connector management UI (connect / test / delete, model hint,
+ * Hermes onboarding). Relocated from the standalone `/settings/ai` route into
+ * the `/account` page (issue #357). The component assumes the parent already
+ * enforces authentication — it does no auth gating of its own.
+ *
+ * Fail-closed behavior is preserved: when the DJ-scoped policy endpoint can't
+ * be read, NO provider types are offered rather than leaking every type.
+ */
+export default function AiProvidersSection() {
   const [policy, setPolicy] = useState<LlmDjPolicy | null>(null);
   const [connectors, setConnectors] = useState<LlmConnector[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,14 +85,7 @@ export default function SettingsAIPage() {
   const [openrouterModelsLoaded, setOpenrouterModelsLoaded] = useState(false);
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push('/login');
-    }
-  }, [isAuthenticated, isLoading, router]);
-
-  useEffect(() => {
     let active = true;
-    if (!isAuthenticated) return;
     setLoading(true);
     setError('');
     Promise.all([api.listLlmConnectors(), fetchPolicySoft()])
@@ -108,7 +104,7 @@ export default function SettingsAIPage() {
     return () => {
       active = false;
     };
-  }, [isAuthenticated]);
+  }, []);
 
   // Lazily fetch the OpenRouter model catalogue the first time a DJ opens the
   // form on the OpenRouter type. Best-effort: an empty list (or a failed fetch)
@@ -132,8 +128,6 @@ export default function SettingsAIPage() {
     if (!policy) return [];
     return policy.allowed_connector_types as LlmConnectorType[];
   }, [policy]);
-
-  if (isLoading || !isAuthenticated) return null;
 
   const handleOpenForm = () => {
     if (allowedTypes.length === 0) {
@@ -223,13 +217,10 @@ export default function SettingsAIPage() {
   };
 
   return (
-    <main style={{ maxWidth: '720px', margin: '0 auto', padding: '2rem 1rem' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem' }}>
-        <Link href="/dashboard" style={{ color: 'var(--text-secondary)', textDecoration: 'none', fontSize: '0.875rem' }}>
-          ← Dashboard
-        </Link>
-        <h1 style={{ margin: 0 }}>AI providers</h1>
-      </div>
+    <div>
+      <h2 style={{ marginTop: 0, marginBottom: '1.25rem', fontSize: '1.1rem' }}>
+        AI / Model providers
+      </h2>
 
       <p style={{ color: 'var(--text-secondary)' }}>
         Connect your own LLM provider so AI-assisted features (recommendations, etc.) bill to
@@ -247,7 +238,7 @@ export default function SettingsAIPage() {
       )}
 
       <section style={{ marginTop: '2rem' }}>
-        <h2>Connected providers</h2>
+        <h3 style={{ marginTop: 0 }}>Connected providers</h3>
         {connectors.length === 0 && !loading && (
           <p style={{ color: 'var(--text-secondary)' }}>No connectors yet.</p>
         )}
@@ -295,7 +286,7 @@ export default function SettingsAIPage() {
         )}
         {form.open && (
           <form className="card" onSubmit={handleCreate} style={{ marginTop: '1rem' }}>
-            <h2 style={{ marginTop: 0 }}>Add provider</h2>
+            <h3 style={{ marginTop: 0 }}>Add provider</h3>
 
             <div className="form-group">
               <label htmlFor="connector_type">Provider</label>
@@ -569,7 +560,7 @@ export default function SettingsAIPage() {
           </form>
         )}
       </section>
-    </main>
+    </div>
   );
 }
 

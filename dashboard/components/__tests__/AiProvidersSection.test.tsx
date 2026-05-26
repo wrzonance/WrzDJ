@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
-import SettingsAIPage from '../page';
+import AiProvidersSection from '../AiProvidersSection';
 import { api } from '@/lib/api';
 import type { LlmConnector, LlmConnectorType, LlmDjPolicy } from '@/lib/api-types';
 
@@ -16,7 +16,7 @@ const ALL_APIKEY_TYPES: LlmConnectorType[] = [
 ];
 
 // Build a DJ policy payload. `allowed_connector_types` is what the server
-// computes from the two toggles; the page renders exactly this set.
+// computes from the two toggles; the section renders exactly this set.
 function makePolicy(
   apikeyEnabled: boolean,
   compatibleEnabled: boolean,
@@ -30,24 +30,6 @@ function makePolicy(
     allowed_connector_types: allowed,
   };
 }
-
-vi.mock('@/lib/auth', () => ({
-  useAuth: () => ({
-    isAuthenticated: true,
-    isLoading: false,
-    role: 'dj',
-    logout: vi.fn(),
-  }),
-}));
-
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
-  usePathname: () => '/settings/ai',
-}));
-
-vi.mock('next/link', () => ({
-  default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-}));
 
 const NOW = new Date().toISOString();
 
@@ -68,9 +50,18 @@ function makeConnector(overrides: Partial<LlmConnector> = {}): LlmConnector {
   };
 }
 
-describe('SettingsAIPage', () => {
+describe('AiProvidersSection', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('renders the section heading', async () => {
+    vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
+    vi.spyOn(api, 'getLlmPolicy').mockRejectedValue(new Error('forbidden'));
+
+    render(<AiProvidersSection />);
+
+    expect(screen.getByText('AI / Model providers')).toBeInTheDocument();
   });
 
   it('lists existing connectors', async () => {
@@ -85,7 +76,7 @@ describe('SettingsAIPage', () => {
     ]);
     vi.spyOn(api, 'getLlmPolicy').mockRejectedValue(new Error('forbidden'));
 
-    render(<SettingsAIPage />);
+    render(<AiProvidersSection />);
 
     await waitFor(() => expect(screen.getByText('My OpenAI')).toBeInTheDocument());
     expect(screen.getByText('My Claude')).toBeInTheDocument();
@@ -95,7 +86,7 @@ describe('SettingsAIPage', () => {
     vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
     vi.spyOn(api, 'getLlmPolicy').mockResolvedValue(makePolicy(false, true));
 
-    render(<SettingsAIPage />);
+    render(<AiProvidersSection />);
 
     await waitFor(() => expect(screen.getByText('+ Add provider')).toBeInTheDocument());
     fireEvent.click(screen.getByText('+ Add provider'));
@@ -115,7 +106,7 @@ describe('SettingsAIPage', () => {
       .spyOn(api, 'getLlmPolicy')
       .mockResolvedValue(makePolicy(true, true));
 
-    render(<SettingsAIPage />);
+    render(<AiProvidersSection />);
 
     await waitFor(() => expect(policySpy).toHaveBeenCalled());
     expect(adminPolicySpy).not.toHaveBeenCalled();
@@ -126,7 +117,7 @@ describe('SettingsAIPage', () => {
     // Simulate the DJ policy endpoint being unavailable.
     vi.spyOn(api, 'getLlmPolicy').mockRejectedValue(new Error('unavailable'));
 
-    render(<SettingsAIPage />);
+    render(<AiProvidersSection />);
 
     // No "+ Add provider" button — the picker is hidden entirely.
     await waitFor(() =>
@@ -142,7 +133,7 @@ describe('SettingsAIPage', () => {
     vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
     vi.spyOn(api, 'getLlmPolicy').mockResolvedValue(makePolicy(true, false));
 
-    render(<SettingsAIPage />);
+    render(<AiProvidersSection />);
 
     await waitFor(() => expect(screen.getByText('+ Add provider')).toBeInTheDocument());
     fireEvent.click(screen.getByText('+ Add provider'));
@@ -157,7 +148,7 @@ describe('SettingsAIPage', () => {
     vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
     vi.spyOn(api, 'getLlmPolicy').mockResolvedValue(makePolicy(true, true));
 
-    render(<SettingsAIPage />);
+    render(<AiProvidersSection />);
 
     await waitFor(() => expect(screen.getByText('+ Add provider')).toBeInTheDocument());
     fireEvent.click(screen.getByText('+ Add provider'));
@@ -181,7 +172,7 @@ describe('SettingsAIPage', () => {
       .spyOn(api, 'createLlmConnector')
       .mockResolvedValue(makeConnector({ connector_type: 'azure_openai' }));
 
-    render(<SettingsAIPage />);
+    render(<AiProvidersSection />);
 
     await waitFor(() => expect(screen.getByText('+ Add provider')).toBeInTheDocument());
     fireEvent.click(screen.getByText('+ Add provider'));
@@ -223,7 +214,7 @@ describe('SettingsAIPage', () => {
     vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
     vi.spyOn(api, 'getLlmPolicy').mockResolvedValue(makePolicy(true, false));
 
-    render(<SettingsAIPage />);
+    render(<AiProvidersSection />);
 
     await waitFor(() => expect(screen.getByText('+ Add provider')).toBeInTheDocument());
     fireEvent.click(screen.getByText('+ Add provider'));
@@ -253,7 +244,7 @@ describe('SettingsAIPage', () => {
     // The refresh after Test re-lists connectors
     vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([row]);
 
-    render(<SettingsAIPage />);
+    render(<AiProvidersSection />);
 
     await waitFor(() => expect(screen.getByText('My OpenAI')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'Test' }));
@@ -272,7 +263,7 @@ describe('SettingsAIPage', () => {
       ],
     });
 
-    render(<SettingsAIPage />);
+    render(<AiProvidersSection />);
 
     await waitFor(() => expect(screen.getByText('+ Add provider')).toBeInTheDocument());
     fireEvent.click(screen.getByText('+ Add provider'));
@@ -307,7 +298,7 @@ describe('SettingsAIPage', () => {
       }),
     );
 
-    render(<SettingsAIPage />);
+    render(<AiProvidersSection />);
     await waitFor(() => expect(screen.getByText('+ Add provider')).toBeInTheDocument());
     fireEvent.click(screen.getByText('+ Add provider'));
 
@@ -346,7 +337,7 @@ describe('SettingsAIPage', () => {
     const delSpy = vi.spyOn(api, 'deleteLlmConnector').mockResolvedValue();
     vi.spyOn(window, 'confirm').mockReturnValue(true);
 
-    render(<SettingsAIPage />);
+    render(<AiProvidersSection />);
 
     await waitFor(() => expect(screen.getByText('My OpenAI')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));

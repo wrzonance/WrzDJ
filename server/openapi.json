@@ -172,6 +172,38 @@
         "title": "ActivityLogEntry",
         "type": "object"
       },
+      "AdminAuditOut": {
+        "description": "Paginated audit-event browse response.",
+        "properties": {
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/AuditEventRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "limit",
+          "offset",
+          "rows",
+          "total"
+        ],
+        "title": "AdminAuditOut",
+        "type": "object"
+      },
       "AdminConnectorOut": {
         "description": "Admin view \u2014 adds the DJ's username for display.",
         "properties": {
@@ -549,6 +581,77 @@
           }
         },
         "title": "AdminUserUpdate",
+        "type": "object"
+      },
+      "AuditEventRow": {
+        "description": "A single audit-trail row with joined display labels.\n\nNever includes credential material \u2014 only the target connector's\nhuman-readable display name (joined from ``llm_connectors``).",
+        "properties": {
+          "actor_user_id": {
+            "title": "Actor User Id",
+            "type": "integer"
+          },
+          "actor_username": {
+            "title": "Actor Username",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_type": {
+            "title": "Event Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "target_connector_display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Connector Display Name"
+          },
+          "target_connector_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Connector Id"
+          }
+        },
+        "required": [
+          "actor_user_id",
+          "actor_username",
+          "created_at",
+          "event_type",
+          "id",
+          "notes",
+          "target_connector_display_name",
+          "target_connector_id"
+        ],
+        "title": "AuditEventRow",
         "type": "object"
       },
       "BeatportEventSettings": {
@@ -6627,6 +6730,233 @@
         "summary": "Admin Check Integration",
         "tags": [
           "admin"
+        ]
+      }
+    },
+    "/api/admin/llm/audit": {
+      "get": {
+        "description": "Browse the LLM audit trail (admin-only).\n\nRead-only view over ``llm_audit_event`` with optional filters and\npagination. The target connector's display name is joined in \u2014 credential\nmaterial is never read or returned.",
+        "operationId": "list_audit_events_api_admin_llm_audit_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "event_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 60,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Event Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "actor_user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Actor User Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target_connector_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Connector Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 3650,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAuditOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Audit Events",
+        "tags": [
+          "admin",
+          "llm"
+        ]
+      }
+    },
+    "/api/admin/llm/audit.csv": {
+      "get": {
+        "description": "Export the (filtered) audit trail as CSV (admin-only).\n\nHonors the same filters as ``GET /audit``. Capped at\n``_AUDIT_CSV_ROW_CAP`` rows to avoid unbounded streaming. Columns:\ntimestamp, actor, event_type, target_connector, notes. Never includes\ncredential material.",
+        "operationId": "export_audit_events_csv_api_admin_llm_audit_csv_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "event_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 60,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Event Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "actor_user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Actor User Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target_connector_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Connector Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 3650,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Export Audit Events Csv",
+        "tags": [
+          "admin",
+          "llm"
         ]
       }
     },

@@ -6,21 +6,30 @@ Routes are mounted at ``/api/admin/llm``.
 
 from __future__ import annotations
 
+import csv
+import io
 import logging
+from collections.abc import Iterator
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import Request as FastAPIRequest
+from fastapi.responses import StreamingResponse
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_admin, get_db
 from app.core.rate_limit import limiter
-from app.models.llm_connector import LlmConnector
+from app.core.time import utcnow
+from app.models.llm_connector import LlmAuditEvent, LlmConnector
 from app.models.user import User
 from app.schemas.llm import (
+    AdminAuditOut,
     AdminConnectorOut,
     AdminPolicyOut,
     AdminPolicyPatch,
     AdminUsageOut,
+    AuditEventRow,
     UsageRow,
 )
 from app.services.llm.connector_storage import (
@@ -38,6 +47,48 @@ from app.services.system_settings import get_system_settings, update_system_sett
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Hard ceiling for a single CSV export — keeps an attacker (or an honest admin
+# with a huge history) from streaming an unbounded result set.
+_AUDIT_CSV_ROW_CAP = 10_000
+
+
+def _audit_query(
+    db: Session,
+    *,
+    event_type: str | None,
+    actor_user_id: int | None,
+    target_connector_id: int | None,
+    days: int,
+):
+    """Build the base SELECT joining actor username + connector display name.
+
+    Read-only: never touches the encrypted ``credentials`` column. Returns a
+    Core ``Select`` over (LlmAuditEvent, actor_username, connector_display_name)
+    so both the JSON browse endpoint and the CSV export share one filter path.
+    """
+    cutoff = utcnow() - timedelta(days=days)
+    stmt = (
+        select(
+            LlmAuditEvent,
+            User.username.label("actor_username"),
+            LlmConnector.display_name.label("connector_display_name"),
+        )
+        .join(User, User.id == LlmAuditEvent.actor_user_id, isouter=True)
+        .join(
+            LlmConnector,
+            LlmConnector.id == LlmAuditEvent.target_connector_id,
+            isouter=True,
+        )
+        .where(LlmAuditEvent.created_at >= cutoff)
+    )
+    if event_type is not None:
+        stmt = stmt.where(LlmAuditEvent.event_type == event_type)
+    if actor_user_id is not None:
+        stmt = stmt.where(LlmAuditEvent.actor_user_id == actor_user_id)
+    if target_connector_id is not None:
+        stmt = stmt.where(LlmAuditEvent.target_connector_id == target_connector_id)
+    return stmt
 
 
 @router.get("/policy", response_model=AdminPolicyOut)
@@ -207,3 +258,113 @@ def get_usage(
     # Sort: most calls first, then by error rate desc as tiebreaker
     rows_out.sort(key=lambda r: (-r.total_calls, -r.error_rate))
     return AdminUsageOut(days=days, rows=rows_out)
+
+
+@router.get("/audit", response_model=AdminAuditOut)
+@limiter.limit("60/minute")
+def list_audit_events(
+    request: FastAPIRequest,
+    event_type: str | None = Query(default=None, max_length=60),
+    actor_user_id: int | None = Query(default=None, ge=1),
+    target_connector_id: int | None = Query(default=None, ge=1),
+    days: int = Query(default=30, ge=1, le=3650),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    _admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+) -> AdminAuditOut:
+    """Browse the LLM audit trail (admin-only).
+
+    Read-only view over ``llm_audit_event`` with optional filters and
+    pagination. The target connector's display name is joined in — credential
+    material is never read or returned.
+    """
+    base = _audit_query(
+        db,
+        event_type=event_type,
+        actor_user_id=actor_user_id,
+        target_connector_id=target_connector_id,
+        days=days,
+    )
+
+    total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
+
+    page = (
+        base.order_by(LlmAuditEvent.created_at.desc(), LlmAuditEvent.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+
+    rows_out: list[AuditEventRow] = []
+    for event, actor_username, connector_display_name in db.execute(page).all():
+        rows_out.append(
+            AuditEventRow(
+                id=event.id,
+                created_at=event.created_at,
+                event_type=event.event_type,
+                actor_user_id=event.actor_user_id,
+                actor_username=actor_username or f"user#{event.actor_user_id}",
+                target_connector_id=event.target_connector_id,
+                target_connector_display_name=connector_display_name,
+                notes=None,
+            )
+        )
+
+    return AdminAuditOut(rows=rows_out, total=int(total), limit=limit, offset=offset)
+
+
+@router.get("/audit.csv")
+@limiter.limit("12/minute")
+def export_audit_events_csv(
+    request: FastAPIRequest,
+    event_type: str | None = Query(default=None, max_length=60),
+    actor_user_id: int | None = Query(default=None, ge=1),
+    target_connector_id: int | None = Query(default=None, ge=1),
+    days: int = Query(default=30, ge=1, le=3650),
+    _admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Export the (filtered) audit trail as CSV (admin-only).
+
+    Honors the same filters as ``GET /audit``. Capped at
+    ``_AUDIT_CSV_ROW_CAP`` rows to avoid unbounded streaming. Columns:
+    timestamp, actor, event_type, target_connector, notes. Never includes
+    credential material.
+    """
+    stmt = (
+        _audit_query(
+            db,
+            event_type=event_type,
+            actor_user_id=actor_user_id,
+            target_connector_id=target_connector_id,
+            days=days,
+        )
+        .order_by(LlmAuditEvent.created_at.desc(), LlmAuditEvent.id.desc())
+        .limit(_AUDIT_CSV_ROW_CAP)
+    )
+    result_rows = db.execute(stmt).all()
+
+    def _generate() -> Iterator[str]:
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(["timestamp", "actor", "event_type", "target_connector", "notes"])
+        yield buffer.getvalue()
+        buffer.seek(0)
+        buffer.truncate(0)
+
+        for event, actor_username, connector_display_name in result_rows:
+            writer.writerow(
+                [
+                    event.created_at.isoformat() if event.created_at else "",
+                    actor_username or f"user#{event.actor_user_id}",
+                    event.event_type,
+                    connector_display_name or "",
+                    "",
+                ]
+            )
+            yield buffer.getvalue()
+            buffer.seek(0)
+            buffer.truncate(0)
+
+    headers = {"Content-Disposition": 'attachment; filename="llm-audit-events.csv"'}
+    return StreamingResponse(_generate(), media_type="text/csv", headers=headers)

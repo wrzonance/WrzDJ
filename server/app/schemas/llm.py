@@ -232,3 +232,29 @@ class UsageRow(BaseModel):
 class AdminUsageOut(BaseModel):
     days: int
     rows: list[UsageRow]
+
+
+class AuditEventRow(BaseModel):
+    """A single audit-trail row with joined display labels.
+
+    Never includes credential material — only the target connector's
+    human-readable display name (joined from ``llm_connectors``).
+    """
+
+    id: int
+    created_at: datetime
+    event_type: str
+    actor_user_id: int
+    actor_username: str
+    target_connector_id: int | None = None
+    target_connector_display_name: str | None = None
+    notes: str | None = None
+
+
+class AdminAuditOut(BaseModel):
+    """Paginated audit-event browse response."""
+
+    rows: list[AuditEventRow]
+    total: int
+    limit: int
+    offset: int

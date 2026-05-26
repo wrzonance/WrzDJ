@@ -104,6 +104,7 @@ def get_policy(
         llm_apikey_connectors_enabled=settings.llm_apikey_connectors_enabled,
         llm_compatible_connector_enabled=settings.llm_compatible_connector_enabled,
         llm_default_connector_id=settings.llm_default_connector_id,
+        llm_call_log_retention_days=settings.llm_call_log_retention_days,
     )
 
 
@@ -120,6 +121,8 @@ def patch_policy(
         update_kwargs["llm_apikey_connectors_enabled"] = payload.llm_apikey_connectors_enabled
     if payload.llm_compatible_connector_enabled is not None:
         update_kwargs["llm_compatible_connector_enabled"] = payload.llm_compatible_connector_enabled
+    if payload.llm_call_log_retention_days is not None:
+        update_kwargs["llm_call_log_retention_days"] = payload.llm_call_log_retention_days
 
     # Default connector handling:
     # - clear_default=True takes precedence and sets to NULL
@@ -154,6 +157,7 @@ def patch_policy(
         llm_apikey_connectors_enabled=settings.llm_apikey_connectors_enabled,
         llm_compatible_connector_enabled=settings.llm_compatible_connector_enabled,
         llm_default_connector_id=settings.llm_default_connector_id,
+        llm_call_log_retention_days=settings.llm_call_log_retention_days,
     )
 
 

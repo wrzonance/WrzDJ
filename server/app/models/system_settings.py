@@ -26,6 +26,12 @@ class SystemSettings(Base):
     llm_model: Mapped[str] = mapped_column(String(100), default="claude-haiku-4-5-20251001")
     llm_rate_limit_per_minute: Mapped[int] = mapped_column(Integer, default=3)
 
+    # llm_call_log retention (days). Daily cleanup deletes rows older than this.
+    # Bounds (7..365) are enforced at the API level, not the DB.
+    llm_call_log_retention_days: Mapped[int] = mapped_column(
+        Integer, default=30, server_default=text("30")
+    )
+
     # LLM gateway connector policy (admin-controlled)
     # See docs/superpowers/specs/2026-05-24-admin-ai-oauth-design.md §4.2
     llm_apikey_connectors_enabled: Mapped[bool] = mapped_column(

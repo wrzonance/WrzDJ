@@ -2532,6 +2532,8 @@ export interface components {
         AdminPolicyOut: {
             /** Llm Apikey Connectors Enabled */
             llm_apikey_connectors_enabled: boolean;
+            /** Llm Call Log Retention Days */
+            llm_call_log_retention_days: number;
             /** Llm Compatible Connector Enabled */
             llm_compatible_connector_enabled: boolean;
             /** Llm Default Connector Id */
@@ -2546,6 +2548,8 @@ export interface components {
             clear_default: boolean;
             /** Llm Apikey Connectors Enabled */
             llm_apikey_connectors_enabled?: boolean | null;
+            /** Llm Call Log Retention Days */
+            llm_call_log_retention_days?: number | null;
             /** Llm Compatible Connector Enabled */
             llm_compatible_connector_enabled?: boolean | null;
             /** Llm Default Connector Id */

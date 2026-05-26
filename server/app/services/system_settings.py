@@ -27,6 +27,7 @@ def get_system_settings(db: Session) -> SystemSettings:
             llm_apikey_connectors_enabled=True,
             llm_compatible_connector_enabled=True,
             llm_default_connector_id=None,
+            llm_call_log_retention_days=30,
         )
         db.add(settings)
         db.commit()
@@ -49,6 +50,7 @@ def update_system_settings(
     llm_apikey_connectors_enabled: bool | None = None,
     llm_compatible_connector_enabled: bool | None = None,
     llm_default_connector_id: int | None | object = _UNSET,
+    llm_call_log_retention_days: int | None = None,
 ) -> SystemSettings:
     """Update system settings fields."""
     settings = get_system_settings(db)
@@ -78,6 +80,8 @@ def update_system_settings(
         settings.llm_compatible_connector_enabled = llm_compatible_connector_enabled
     if llm_default_connector_id is not _UNSET:
         settings.llm_default_connector_id = llm_default_connector_id  # type: ignore[assignment]
+    if llm_call_log_retention_days is not None:
+        settings.llm_call_log_retention_days = llm_call_log_retention_days
     db.commit()
     db.refresh(settings)
     return settings

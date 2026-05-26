@@ -52,6 +52,21 @@ router = APIRouter()
 # with a huge history) from streaming an unbounded result set.
 _AUDIT_CSV_ROW_CAP = 10_000
 
+# Leading characters that spreadsheet apps (Excel/Sheets/LibreOffice) treat as
+# the start of a formula. Cells beginning with these can execute arbitrary
+# formulas when the exported CSV is opened, so we defang them on the way out.
+_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _sanitize_csv_cell(value: str) -> str:
+    """Neutralize CSV/spreadsheet formula injection by prefixing a single quote.
+
+    Any cell whose first character could be interpreted as a formula trigger by
+    a spreadsheet application is prefixed with ``'`` so it is rendered as literal
+    text instead of being evaluated.
+    """
+    return f"'{value}" if value and value[0] in _CSV_FORMULA_PREFIXES else value
+
 
 def _audit_query(
     db: Session,
@@ -313,7 +328,16 @@ def list_audit_events(
     return AdminAuditOut(rows=rows_out, total=int(total), limit=limit, offset=offset)
 
 
-@router.get("/audit.csv")
+@router.get(
+    "/audit.csv",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "content": {"text/csv": {"schema": {"type": "string", "format": "binary"}}},
+            "description": "CSV export of the filtered audit trail.",
+        }
+    },
+)
 @limiter.limit("12/minute")
 def export_audit_events_csv(
     request: FastAPIRequest,
@@ -353,12 +377,13 @@ def export_audit_events_csv(
         buffer.truncate(0)
 
         for event, actor_username, connector_display_name in result_rows:
+            actor = actor_username or f"user#{event.actor_user_id}"
             writer.writerow(
                 [
                     event.created_at.isoformat() if event.created_at else "",
-                    actor_username or f"user#{event.actor_user_id}",
-                    event.event_type,
-                    connector_display_name or "",
+                    _sanitize_csv_cell(actor),
+                    _sanitize_csv_cell(event.event_type or ""),
+                    _sanitize_csv_cell(connector_display_name or ""),
                     "",
                 ]
             )

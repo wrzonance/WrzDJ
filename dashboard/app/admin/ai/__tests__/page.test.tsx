@@ -249,6 +249,13 @@ describe('AdminAISettingsPage', () => {
       limit: 50,
       offset: 0,
     });
+    const exportSpy = vi
+      .spyOn(api, 'downloadAdminLlmAuditCsv')
+      .mockResolvedValue(new Blob(['ok'], { type: 'text/csv' }));
+    // jsdom doesn't implement these — handleExportCsv triggers a browser download.
+    const createObjectURL = vi.fn(() => 'blob:mock');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL });
 
     render(<AdminAISettingsPage />);
 
@@ -264,6 +271,16 @@ describe('AdminAISettingsPage', () => {
         expect.objectContaining({ event_type: 'connector_credentials_rotated' }),
       ),
     );
+
+    // CSV export must honor the active event-type filter.
+    fireEvent.click(screen.getByText('Export CSV'));
+    await waitFor(() =>
+      expect(exportSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ event_type: 'connector_credentials_rotated' }),
+      ),
+    );
+
+    vi.unstubAllGlobals();
   });
 
   it('force-revokes a connector via the admin table', async () => {

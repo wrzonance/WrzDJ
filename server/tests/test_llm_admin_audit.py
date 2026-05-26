@@ -228,6 +228,10 @@ class TestAuditCsvExport:
         resp = client.get("/api/admin/llm/audit.csv", headers=auth_headers)
         assert resp.status_code == 403
 
+    def test_unauthenticated_rejected(self, client: TestClient):
+        resp = client.get("/api/admin/llm/audit.csv")
+        assert resp.status_code == 401
+
     def test_csv_content_type_and_rows(self, client: TestClient, admin_headers, db, test_user):
         conn = _make_connector(db, user_id=test_user.id, display_name="My OpenAI")
         _make_audit(
@@ -280,3 +284,26 @@ class TestAuditCsvExport:
         )
         resp = client.get("/api/admin/llm/audit.csv", headers=admin_headers)
         assert "sk-secret-should-never-leak" not in resp.text
+
+    def test_csv_neutralizes_formula_injection(
+        self, client: TestClient, admin_headers, db, test_user
+    ):
+        # A connector display name that starts with "=" would execute as a
+        # spreadsheet formula if written verbatim into the CSV.
+        conn = _make_connector(db, user_id=test_user.id, display_name='=HYPERLINK("http://evil")')
+        _make_audit(
+            db,
+            actor_user_id=test_user.id,
+            target_connector_id=conn.id,
+            event_type="connector_created",
+        )
+        resp = client.get("/api/admin/llm/audit.csv", headers=admin_headers)
+        assert resp.status_code == 200
+
+        rows = list(csv.reader(io.StringIO(resp.text)))
+        target_cells = [cell for row in rows[1:] for cell in row if "HYPERLINK" in cell]
+        assert target_cells, "expected the injected display name to be present"
+        # Every cell carrying the payload must be defanged with a leading quote
+        # so spreadsheet apps treat it as literal text, not a formula.
+        for cell in target_cells:
+            assert cell.startswith("'="), cell

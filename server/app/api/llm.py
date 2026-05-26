@@ -134,7 +134,14 @@ def list_connectors(
     return [ConnectorOut.model_validate(r) for r in rows]
 
 
-@router.get("/policy", response_model=DjPolicyOut)
+@router.get(
+    "/policy",
+    response_model=DjPolicyOut,
+    responses={
+        401: {"description": "Not authenticated (missing or invalid bearer token)."},
+        403: {"description": "Authenticated but not an active DJ (e.g. pending approval)."},
+    },
+)
 @limiter.limit("60/minute")
 def get_dj_policy(
     request: FastAPIRequest,

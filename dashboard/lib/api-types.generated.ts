@@ -7102,6 +7102,20 @@ export interface operations {
                     "application/json": components["schemas"]["DjPolicyOut"];
                 };
             };
+            /** @description Not authenticated (missing or invalid bearer token). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authenticated but not an active DJ (e.g. pending approval). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     preview_api_public_collect__code__get: {

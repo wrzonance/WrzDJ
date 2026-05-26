@@ -10373,6 +10373,12 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "description": "Not authenticated (missing or invalid bearer token)."
+          },
+          "403": {
+            "description": "Authenticated but not an active DJ (e.g. pending approval)."
           }
         },
         "security": [

@@ -108,6 +108,9 @@ describe('SettingsAIPage', () => {
 
   it('reads the DJ-scoped policy endpoint (not the admin one)', async () => {
     vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
+    const adminPolicySpy = vi
+      .spyOn(api, 'getAdminLlmPolicy')
+      .mockRejectedValue(new Error('should not be called'));
     const policySpy = vi
       .spyOn(api, 'getLlmPolicy')
       .mockResolvedValue(makePolicy(true, true));
@@ -115,6 +118,7 @@ describe('SettingsAIPage', () => {
     render(<SettingsAIPage />);
 
     await waitFor(() => expect(policySpy).toHaveBeenCalled());
+    expect(adminPolicySpy).not.toHaveBeenCalled();
   });
 
   it('fails closed: hides all provider types when policy fetch fails', async () => {

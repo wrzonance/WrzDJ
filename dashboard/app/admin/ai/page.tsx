@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import type { AdminLlmAuditFilters } from '@/lib/api';
 import type {
   AISettings,
   AIModelInfo,
+  LlmAdminAudit,
   LlmAdminConnector,
   LlmAdminPolicy,
   LlmAdminUsage,
@@ -27,6 +29,27 @@ const TYPE_LABELS: Record<string, string> = {
   azure_openai: 'Azure OpenAI',
 };
 
+// Audit event types — mirrors AUDIT_* constants in models/llm_connector.py.
+const AUDIT_EVENT_TYPES: Array<{ value: string; label: string }> = [
+  { value: 'connector_created', label: 'Connector created' },
+  { value: 'connector_credentials_rotated', label: 'Credentials rotated' },
+  { value: 'connector_deleted', label: 'Connector deleted' },
+  { value: 'connector_revoked_by_admin', label: 'Revoked by admin' },
+  { value: 'auth_invalid_observed', label: 'Auth invalid observed' },
+  { value: 'policy_changed', label: 'Policy changed' },
+  { value: 'connector_health_check', label: 'Health check' },
+];
+
+const AUDIT_PAGE_SIZE = 50;
+
+const AUDIT_DAY_OPTIONS: Array<{ value: number; label: string }> = [
+  { value: 7, label: 'Last 7 days' },
+  { value: 30, label: 'Last 30 days' },
+  { value: 90, label: 'Last 90 days' },
+  { value: 365, label: 'Last year' },
+  { value: 3650, label: 'All time' },
+];
+
 export default function AdminAISettingsPage() {
   const [models, setModels] = useState<AIModelInfo[]>([]);
   const [saving, setSaving] = useState(false);
@@ -38,6 +61,36 @@ export default function AdminAISettingsPage() {
   const [connectors, setConnectors] = useState<LlmAdminConnector[]>([]);
   const [usage, setUsage] = useState<LlmAdminUsage | null>(null);
   const [policyMessage, setPolicyMessage] = useState('');
+
+  // Audit trail state (issue #341)
+  const [audit, setAudit] = useState<LlmAdminAudit | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState('');
+  const [auditEventType, setAuditEventType] = useState('');
+  const [auditActorId, setAuditActorId] = useState('');
+  const [auditConnectorId, setAuditConnectorId] = useState('');
+  const [auditDays, setAuditDays] = useState(30);
+  const [auditPage, setAuditPage] = useState(0);
+  const [exporting, setExporting] = useState(false);
+
+  const buildAuditFilters = useCallback(
+    (overrides: Partial<AdminLlmAuditFilters> = {}): AdminLlmAuditFilters => {
+      const filters: AdminLlmAuditFilters = {
+        days: auditDays,
+        limit: AUDIT_PAGE_SIZE,
+        offset: auditPage * AUDIT_PAGE_SIZE,
+      };
+      if (auditEventType) filters.event_type = auditEventType;
+      const actorId = parseInt(auditActorId, 10);
+      if (auditActorId && !Number.isNaN(actorId)) filters.actor_user_id = actorId;
+      const connectorId = parseInt(auditConnectorId, 10);
+      if (auditConnectorId && !Number.isNaN(connectorId)) {
+        filters.target_connector_id = connectorId;
+      }
+      return { ...filters, ...overrides };
+    },
+    [auditDays, auditPage, auditEventType, auditActorId, auditConnectorId],
+  );
 
   const { data: settings, loading, error: loadError, setData: setSettings } = useAdminPage<AISettings>({
     pageId: PAGE_ID,
@@ -78,6 +131,49 @@ export default function AdminAISettingsPage() {
       active = false;
     };
   }, []);
+
+  // Load audit events whenever filters or the page change.
+  useEffect(() => {
+    let active = true;
+    setAuditLoading(true);
+    setAuditError('');
+    api
+      .getAdminLlmAudit(buildAuditFilters())
+      .then((data) => {
+        if (active) setAudit(data);
+      })
+      .catch((err) => {
+        if (active) {
+          setAuditError(err instanceof Error ? err.message : 'Failed to load audit events');
+        }
+      })
+      .finally(() => {
+        if (active) setAuditLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [buildAuditFilters]);
+
+  const handleExportCsv = async () => {
+    setExporting(true);
+    setAuditError('');
+    try {
+      const blob = await api.downloadAdminLlmAuditCsv(buildAuditFilters());
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'llm-audit-events.csv';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setAuditError(err instanceof Error ? err.message : 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!settings) return;
@@ -417,6 +513,164 @@ export default function AdminAISettingsPage() {
           )}
         </div>
       )}
+
+      {/* ====== Audit trail (issue #341) ====== */}
+      <div className="card" style={{ marginTop: '2rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+          <h2 style={{ marginTop: 0, marginBottom: 0 }}>Audit trail</h2>
+          <button
+            className="btn"
+            onClick={handleExportCsv}
+            disabled={exporting}
+          >
+            {exporting ? 'Exporting…' : 'Export CSV'}
+          </button>
+        </div>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: '0.5rem' }}>
+          Credential lifecycle events for every connector. Export honors the active filters.
+        </p>
+
+        {/* Filters */}
+        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginTop: '1rem' }}>
+          <div className="form-group" style={{ margin: 0 }}>
+            <label htmlFor="audit-event-type">Event type</label>
+            <select
+              id="audit-event-type"
+              className="input"
+              value={auditEventType}
+              onChange={(e) => {
+                setAuditPage(0);
+                setAuditEventType(e.target.value);
+              }}
+            >
+              <option value="">All event types</option>
+              {AUDIT_EVENT_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group" style={{ margin: 0 }}>
+            <label htmlFor="audit-actor">Actor user ID</label>
+            <input
+              id="audit-actor"
+              type="number"
+              min={1}
+              className="input"
+              style={{ maxWidth: '160px' }}
+              placeholder="Any"
+              value={auditActorId}
+              onChange={(e) => {
+                setAuditPage(0);
+                setAuditActorId(e.target.value);
+              }}
+            />
+          </div>
+
+          <div className="form-group" style={{ margin: 0 }}>
+            <label htmlFor="audit-connector">Connector</label>
+            <select
+              id="audit-connector"
+              className="input"
+              value={auditConnectorId}
+              onChange={(e) => {
+                setAuditPage(0);
+                setAuditConnectorId(e.target.value);
+              }}
+            >
+              <option value="">All connectors</option>
+              {connectors.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.dj_username} — {c.display_name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group" style={{ margin: 0 }}>
+            <label htmlFor="audit-days">Date range</label>
+            <select
+              id="audit-days"
+              className="input"
+              value={auditDays}
+              onChange={(e) => {
+                setAuditPage(0);
+                setAuditDays(parseInt(e.target.value, 10));
+              }}
+            >
+              {AUDIT_DAY_OPTIONS.map((d) => (
+                <option key={d.value} value={d.value}>{d.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {auditError && (
+          <div style={{ color: 'var(--color-danger)', marginTop: '1rem' }}>{auditError}</div>
+        )}
+
+        {auditLoading && !audit ? (
+          <p style={{ color: 'var(--text-secondary)', marginTop: '1rem' }}>Loading audit events…</p>
+        ) : audit && audit.rows.length === 0 ? (
+          <p style={{ color: 'var(--text-secondary)', marginTop: '1rem' }}>No audit events match these filters.</p>
+        ) : audit ? (
+          <>
+            <div style={{ overflowX: 'auto', marginTop: '1rem' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    {['Timestamp', 'Actor', 'Event type', 'Connector', 'Notes'].map((h) => (
+                      <th key={h} style={{ textAlign: 'left', padding: '0.5rem', borderBottom: '1px solid var(--border-color)' }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {audit.rows.map((row) => (
+                    <tr key={row.id}>
+                      <td style={{ padding: '0.5rem', color: 'var(--text-secondary)' }}>
+                        {new Date(row.created_at).toLocaleString()}
+                      </td>
+                      <td style={{ padding: '0.5rem' }}>{row.actor_username}</td>
+                      <td style={{ padding: '0.5rem' }}>{row.event_type}</td>
+                      <td style={{ padding: '0.5rem' }}>
+                        {row.target_connector_display_name ?? '—'}
+                      </td>
+                      <td style={{ padding: '0.5rem', color: 'var(--text-secondary)' }}>
+                        {row.notes ?? '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '1rem' }}>
+              <button
+                className="btn"
+                disabled={auditPage === 0 || auditLoading}
+                onClick={() => setAuditPage((p) => Math.max(0, p - 1))}
+              >
+                Previous
+              </button>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+                {audit.total === 0
+                  ? '0 events'
+                  : `${audit.offset + 1}–${Math.min(audit.offset + audit.rows.length, audit.total)} of ${audit.total}`}
+              </span>
+              <button
+                className="btn"
+                disabled={auditLoading || audit.offset + AUDIT_PAGE_SIZE >= audit.total}
+                onClick={() => setAuditPage((p) => p + 1)}
+              >
+                Next
+              </button>
+            </div>
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }

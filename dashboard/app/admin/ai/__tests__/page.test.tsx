@@ -179,6 +179,93 @@ describe('AdminAISettingsPage', () => {
     expect(screen.getByText(/Usage — last 30 days/)).toBeInTheDocument();
   });
 
+  it('renders the audit trail card with seeded events', async () => {
+    vi.spyOn(api, 'getAISettings').mockResolvedValue({
+      llm_enabled: true,
+      llm_model: 'claude-haiku-4-5-20251001',
+      llm_rate_limit_per_minute: 3,
+      api_key_configured: true,
+      api_key_masked: '...abcd',
+    });
+    vi.spyOn(api, 'getAIModels').mockResolvedValue({ models: [] });
+    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: true,
+      llm_default_connector_id: null,
+    });
+    vi.spyOn(api, 'listAllLlmConnectors').mockResolvedValue([]);
+    vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({ days: 30, rows: [] });
+    vi.spyOn(api, 'getAdminLlmAudit').mockResolvedValue({
+      rows: [
+        {
+          id: 1,
+          created_at: '2026-05-20T12:00:00Z',
+          event_type: 'connector_created',
+          actor_user_id: 42,
+          actor_username: 'someDJ',
+          target_connector_id: 7,
+          target_connector_display_name: 'My OpenAI',
+          notes: null,
+        },
+      ],
+      total: 1,
+      limit: 50,
+      offset: 0,
+    });
+
+    render(<AdminAISettingsPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText('Audit trail')).toBeInTheDocument(),
+    );
+    expect(screen.getByText('connector_created')).toBeInTheDocument();
+    expect(screen.getByText('My OpenAI')).toBeInTheDocument();
+    // someDJ appears in the audit row (no connectors table rows to collide)
+    expect(screen.getByText('someDJ')).toBeInTheDocument();
+    // Filter + export controls
+    expect(screen.getByLabelText('Event type')).toBeInTheDocument();
+    expect(screen.getByText('Export CSV')).toBeInTheDocument();
+  });
+
+  it('refetches audit events when the event-type filter changes', async () => {
+    vi.spyOn(api, 'getAISettings').mockResolvedValue({
+      llm_enabled: true,
+      llm_model: 'claude-haiku-4-5-20251001',
+      llm_rate_limit_per_minute: 3,
+      api_key_configured: true,
+      api_key_masked: '...abcd',
+    });
+    vi.spyOn(api, 'getAIModels').mockResolvedValue({ models: [] });
+    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: true,
+      llm_default_connector_id: null,
+    });
+    vi.spyOn(api, 'listAllLlmConnectors').mockResolvedValue([]);
+    vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({ days: 30, rows: [] });
+    const auditSpy = vi.spyOn(api, 'getAdminLlmAudit').mockResolvedValue({
+      rows: [],
+      total: 0,
+      limit: 50,
+      offset: 0,
+    });
+
+    render(<AdminAISettingsPage />);
+
+    await waitFor(() => expect(screen.getByText('Audit trail')).toBeInTheDocument());
+    auditSpy.mockClear();
+
+    fireEvent.change(screen.getByLabelText('Event type'), {
+      target: { value: 'connector_credentials_rotated' },
+    });
+
+    await waitFor(() =>
+      expect(auditSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ event_type: 'connector_credentials_rotated' }),
+      ),
+    );
+  });
+
   it('force-revokes a connector via the admin table', async () => {
     vi.spyOn(api, 'getAISettings').mockResolvedValue({
       llm_enabled: true,

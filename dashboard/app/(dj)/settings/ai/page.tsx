@@ -7,10 +7,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import type {
   AIModelInfo,
-  LlmAdminPolicy,
   LlmConnector,
   LlmConnectorCreate,
   LlmConnectorType,
+  LlmDjPolicy,
 } from '@/lib/api-types';
 import { useAuth } from '@/lib/auth';
 
@@ -69,7 +69,7 @@ export default function SettingsAIPage() {
   const router = useRouter();
   const { isAuthenticated, isLoading } = useAuth();
 
-  const [policy, setPolicy] = useState<LlmAdminPolicy | null>(null);
+  const [policy, setPolicy] = useState<LlmDjPolicy | null>(null);
   const [connectors, setConnectors] = useState<LlmConnector[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -125,22 +125,12 @@ export default function SettingsAIPage() {
       });
   }, [wantsOpenrouterModels, openrouterModelsLoaded]);
 
-  const allowedTypes = useMemo(() => {
-    if (!policy) return Object.keys(CONNECTOR_TYPE_LABELS) as LlmConnectorType[];
-    const out: LlmConnectorType[] = [];
-    if (policy.llm_apikey_connectors_enabled) {
-      out.push(
-        'openai_apikey',
-        'anthropic_apikey',
-        'openrouter_apikey',
-        'xai_apikey',
-        'bedrock',
-        'azure_openai',
-        'gemini_apikey',
-      );
-    }
-    if (policy.llm_compatible_connector_enabled) out.push('openai_compatible');
-    return out;
+  const allowedTypes = useMemo<LlmConnectorType[]>(() => {
+    // Fail closed: when the policy can't be read, offer no providers rather than
+    // surfacing every type and letting the DJ pick one the admin disabled (the
+    // create call would 403). The server is the source of truth for the set.
+    if (!policy) return [];
+    return policy.allowed_connector_types as LlmConnectorType[];
   }, [policy]);
 
   if (isLoading || !isAuthenticated) return null;
@@ -583,12 +573,13 @@ export default function SettingsAIPage() {
   );
 }
 
-async function fetchPolicySoft(): Promise<LlmAdminPolicy | null> {
-  // DJ users don't have access to the admin policy endpoint — return null so
-  // the UI falls back to "all types allowed" defaults. Admins get the real
-  // payload (the same component is used in the admin /admin/ai page).
+async function fetchPolicySoft(): Promise<LlmDjPolicy | null> {
+  // Read the DJ-scoped policy endpoint. On any failure we return null and the
+  // UI fails *closed* (no providers offered) — see `allowedTypes`. This avoids
+  // showing a DJ a provider the admin disabled, only to have the create call
+  // reject it with a 403.
   try {
-    return await api.getAdminLlmPolicy();
+    return await api.getLlmPolicy();
   } catch {
     return null;
   }

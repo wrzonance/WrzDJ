@@ -14,6 +14,7 @@ import type {
   LlmConnectorCredentialsRotate,
   LlmConnectorPatch,
   LlmConnectorTestResult,
+  LlmDjPolicy,
   ArchivedEvent,
   BeatportEventSettings,
   BeatportSearchResult,
@@ -69,6 +70,7 @@ export type {
   LlmConnectorStatus,
   LlmConnectorTestResult,
   LlmConnectorType,
+  LlmDjPolicy,
   LlmUsageRow,
   ArchivedEvent,
   BeatportEventSettings,
@@ -1148,6 +1150,13 @@ class ApiClient {
 
   async listLlmConnectors(): Promise<LlmConnector[]> {
     return this.fetch('/api/llm/connectors');
+  }
+
+  // DJ-readable connector policy (non-sensitive subset). The settings/ai page
+  // uses this to fail closed — hiding connector types the admin disabled —
+  // instead of falling back to "all types allowed" on the admin-only endpoint.
+  async getLlmPolicy(): Promise<LlmDjPolicy> {
+    return this.fetch('/api/llm/policy');
   }
 
   async listOpenRouterModels(): Promise<AIModelsResponse> {

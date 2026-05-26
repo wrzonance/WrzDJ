@@ -206,6 +206,35 @@ def build_user_prompt(
     return "\n".join(parts)
 
 
+def _parse_query_items(items: object) -> list[LLMSuggestionQuery]:
+    """Defensively convert a tool payload ``queries`` array into query objects.
+
+    The tool output comes from an external LLM provider — including custom
+    OpenAI-compatible endpoints (Ollama, vLLM) that may not enforce the
+    forced-tool JSON schema. Skip any malformed item rather than letting one bad
+    entry crash the whole recommendation flow.
+    """
+    if not isinstance(items, list):
+        return []
+    parsed: list[LLMSuggestionQuery] = []
+    for q in items:
+        if not isinstance(q, dict):
+            continue
+        search_query = q.get("search_query")
+        if not isinstance(search_query, str) or not search_query.strip():
+            continue
+        parsed.append(
+            LLMSuggestionQuery(
+                search_query=search_query,
+                target_bpm=q.get("target_bpm"),
+                target_key=q.get("target_key"),
+                target_genre=q.get("target_genre"),
+                reasoning=q.get("reasoning", "") if isinstance(q.get("reasoning"), str) else "",
+            )
+        )
+    return parsed
+
+
 def _parse_tool_response(response) -> LLMSuggestionResult:  # noqa: ANN001 — dual-shape input
     """Parse a gateway ``ChatResponse`` into an ``LLMSuggestionResult``.
 
@@ -226,17 +255,9 @@ def _parse_tool_response(response) -> LLMSuggestionResult:  # noqa: ANN001 — d
             raw_text += response.text
         for tc in response.tool_calls or []:
             if tc.name == SEARCH_QUERIES_TOOL_NAME:
-                raw_text += json.dumps(tc.input)
-                for q in tc.input.get("queries", []):
-                    queries.append(
-                        LLMSuggestionQuery(
-                            search_query=q["search_query"],
-                            target_bpm=q.get("target_bpm"),
-                            target_key=q.get("target_key"),
-                            target_genre=q.get("target_genre"),
-                            reasoning=q.get("reasoning", ""),
-                        )
-                    )
+                payload = tc.input if isinstance(tc.input, dict) else {}
+                raw_text += json.dumps(payload)
+                queries.extend(_parse_query_items(payload.get("queries", [])))
         return LLMSuggestionResult(queries=queries, raw_response=raw_text, model=response.model)
 
     # Path 2 — legacy Anthropic SDK Message-like object.
@@ -245,17 +266,9 @@ def _parse_tool_response(response) -> LLMSuggestionResult:  # noqa: ANN001 — d
         if btype == "text":
             raw_text += getattr(block, "text", "")
         elif btype == "tool_use" and getattr(block, "name", "") == SEARCH_QUERIES_TOOL_NAME:
-            raw_text += json.dumps(block.input)
-            for q in block.input.get("queries", []):
-                queries.append(
-                    LLMSuggestionQuery(
-                        search_query=q["search_query"],
-                        target_bpm=q.get("target_bpm"),
-                        target_key=q.get("target_key"),
-                        target_genre=q.get("target_genre"),
-                        reasoning=q.get("reasoning", ""),
-                    )
-                )
+            block_input = block.input if isinstance(block.input, dict) else {}
+            raw_text += json.dumps(block_input)
+            queries.extend(_parse_query_items(block_input.get("queries", [])))
 
     return LLMSuggestionResult(
         queries=queries, raw_response=raw_text, model=getattr(response, "model", None)

@@ -156,6 +156,106 @@ class TestParseToolResponse:
         assert "Here are my suggestions" in result.raw_response
 
 
+class TestParseToolResponseMalformedPayloads:
+    """Defensive parsing — a malformed provider payload must not crash the flow.
+
+    Custom OpenAI-compatible endpoints (Ollama, vLLM) may not enforce the forced
+    tool JSON schema. Regression for the CodeRabbit "harden tool payload parsing"
+    finding on PR #362: bad items are skipped, valid ones still parse.
+    """
+
+    def _tool_block(self, tool_input):
+        block = MagicMock()
+        block.type = "tool_use"
+        block.name = "search_queries"
+        block.input = tool_input
+        return block
+
+    def test_input_not_a_dict_is_skipped(self):
+        response = MagicMock()
+        response.content = [self._tool_block(["not", "a", "dict"])]
+        result = _parse_tool_response(response)
+        assert result.queries == []
+
+    def test_queries_not_a_list_is_skipped(self):
+        response = MagicMock()
+        response.content = [self._tool_block({"queries": "oops"})]
+        result = _parse_tool_response(response)
+        assert result.queries == []
+
+    def test_non_dict_query_item_is_skipped(self):
+        response = MagicMock()
+        response.content = [
+            self._tool_block(
+                {
+                    "queries": [
+                        "garbage",
+                        {"search_query": "valid query", "reasoning": "ok"},
+                    ]
+                }
+            )
+        ]
+        result = _parse_tool_response(response)
+        assert len(result.queries) == 1
+        assert result.queries[0].search_query == "valid query"
+
+    def test_missing_or_blank_search_query_is_skipped(self):
+        response = MagicMock()
+        response.content = [
+            self._tool_block(
+                {
+                    "queries": [
+                        {"reasoning": "no search_query key"},
+                        {"search_query": "", "reasoning": "blank"},
+                        {"search_query": "   ", "reasoning": "whitespace"},
+                        {"search_query": 123, "reasoning": "not a string"},
+                        {"search_query": "keep me", "reasoning": "good"},
+                    ]
+                }
+            )
+        ]
+        result = _parse_tool_response(response)
+        assert len(result.queries) == 1
+        assert result.queries[0].search_query == "keep me"
+
+    def test_non_string_reasoning_coerced_to_empty(self):
+        response = MagicMock()
+        response.content = [
+            self._tool_block(
+                {"queries": [{"search_query": "valid", "reasoning": {"unexpected": "dict"}}]}
+            )
+        ]
+        result = _parse_tool_response(response)
+        assert len(result.queries) == 1
+        assert result.queries[0].reasoning == ""
+
+    @pytest.mark.asyncio
+    @patch("app.services.recommendation.llm_client.Gateway")
+    async def test_chatresponse_path_skips_malformed_items(self, mock_gateway):
+        response = ChatResponse(
+            tool_calls=[
+                ToolCall(
+                    id="t1",
+                    name="search_queries",
+                    input={
+                        "queries": [
+                            "garbage",
+                            {"search_query": "good one", "reasoning": "ok"},
+                            {"reasoning": "missing search_query"},
+                        ]
+                    },
+                )
+            ],
+            stop_reason="tool_use",
+        )
+        mock_gateway.dispatch = AsyncMock(return_value=response)
+        result = await call_llm(
+            EventProfile(track_count=0), "test", db=MagicMock(), actor=MagicMock()
+        )
+        assert len(result.queries) == 1
+        assert result.queries[0].search_query == "good one"
+
+
 class TestCallLLM:
     """``call_llm`` always routes through the LLM Gateway.
 

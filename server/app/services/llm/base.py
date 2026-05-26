@@ -66,6 +66,16 @@ class ChatRequest(BaseModel):
     # Optional system prompt — adapters surface this as the provider's native
     # system role (Anthropic top-level system; OpenAI as the first system msg).
     system: str | None = None
+    # Automatic-fallback behaviour when the resolved connector fails with a
+    # transient/credential error (rate-limited, auth-expired, provider-down,
+    # quota-exceeded). Default "none" preserves the original fail-fast behaviour.
+    #   - "none": never fall back; surface the original error.
+    #   - "org_default": on a fallback-eligible error, retry once on the
+    #     org-default connector (if different from the one that failed).
+    #   - "retry_then_org_default": first retry once on the SAME connector, then
+    #     fall back to the org-default connector. Retries are bounded — at most
+    #     one same-connector retry and one org-default attempt; never loops.
+    fallback_policy: Literal["none", "org_default", "retry_then_org_default"] = "none"
 
 
 class ChatResponse(BaseModel):

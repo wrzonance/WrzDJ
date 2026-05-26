@@ -232,6 +232,346 @@ async def test_falls_back_to_system_default(db, admin_user_actor, gateway_reques
     assert resp.text == "ok"
 
 
+def _wire_system_default(db, connector: LlmConnector) -> None:
+    ss = db.query(SystemSettings).first()
+    if ss is None:
+        ss = SystemSettings(id=1, llm_default_connector_id=connector.id)
+        db.add(ss)
+    else:
+        ss.llm_default_connector_id = connector.id
+    db.commit()
+
+
+@pytest.mark.asyncio
+async def test_fallback_org_default_on_rate_limit(db, dj_user):
+    """429 on DJ connector → falls back to org default → audit event written."""
+    from app.models.llm_connector import LlmAuditEvent
+
+    _make_connector(db, dj_user, display_name="dj-primary")
+
+    org_owner = User(
+        username="orgowner",
+        password_hash=get_password_hash("password123"),
+        role="admin",
+    )
+    db.add(org_owner)
+    db.commit()
+    db.refresh(org_owner)
+    org_connector = _make_connector(db, org_owner, display_name="org-default")
+    _wire_system_default(db, org_connector)
+
+    fallback_response = ChatResponse(
+        text="from-fallback",
+        tool_calls=[],
+        stop_reason="end_turn",
+        usage=TokenUsage(prompt=3, completion=4),
+    )
+
+    # First call (DJ connector) → 429; second call (org default) → success.
+    chat_mock = AsyncMock(
+        side_effect=[RateLimited("slow", retry_after_seconds=5), fallback_response]
+    )
+    with patch.object(
+        __import__(
+            "app.services.llm.adapters.openai_apikey",
+            fromlist=["OpenAIApiKeyAdapter"],
+        ).OpenAIApiKeyAdapter,
+        "chat",
+        new=chat_mock,
+    ):
+        req = ChatRequest(
+            messages=[Message(role="user", content="hi")],
+            fallback_policy="org_default",
+        )
+        resp = await Gateway.dispatch(db, dj_user, req, purpose="test")
+
+    assert resp.text == "from-fallback"
+    assert chat_mock.await_count == 2
+
+    # A fallback_triggered audit event referencing the fallback connector + trigger.
+    audit = (
+        db.query(LlmAuditEvent).filter(LlmAuditEvent.event_type.like("fallback_triggered%")).one()
+    )
+    assert audit.event_type == "fallback_triggered:rate_limited"
+    assert audit.target_connector_id == org_connector.id
+    assert audit.actor_user_id == dj_user.id
+
+
+@pytest.mark.asyncio
+async def test_fallback_none_surfaces_original_error(db, dj_user):
+    """fallback_policy='none' (default) surfaces the original error, no fallback."""
+    from app.models.llm_connector import LlmAuditEvent
+
+    _make_connector(db, dj_user, display_name="dj-primary")
+
+    org_owner = User(
+        username="orgowner2",
+        password_hash=get_password_hash("password123"),
+        role="admin",
+    )
+    db.add(org_owner)
+    db.commit()
+    db.refresh(org_owner)
+    org_connector = _make_connector(db, org_owner, display_name="org-default")
+    _wire_system_default(db, org_connector)
+
+    chat_mock = AsyncMock(side_effect=RateLimited("slow", retry_after_seconds=5))
+    with patch.object(
+        __import__(
+            "app.services.llm.adapters.openai_apikey",
+            fromlist=["OpenAIApiKeyAdapter"],
+        ).OpenAIApiKeyAdapter,
+        "chat",
+        new=chat_mock,
+    ):
+        req = ChatRequest(
+            messages=[Message(role="user", content="hi")],
+            fallback_policy="none",
+        )
+        with pytest.raises(RateLimited):
+            await Gateway.dispatch(db, dj_user, req, purpose="test")
+
+    # Only one attempt — no fallback.
+    assert chat_mock.await_count == 1
+    assert (
+        db.query(LlmAuditEvent).filter(LlmAuditEvent.event_type.like("fallback_triggered%")).count()
+        == 0
+    )
+
+
+@pytest.mark.asyncio
+async def test_fallback_org_default_when_no_default_reraises(db, dj_user):
+    """org_default policy with no org default configured → original error surfaces."""
+    _make_connector(db, dj_user, display_name="dj-primary")
+
+    chat_mock = AsyncMock(side_effect=ProviderUnavailable("down"))
+    with patch.object(
+        __import__(
+            "app.services.llm.adapters.openai_apikey",
+            fromlist=["OpenAIApiKeyAdapter"],
+        ).OpenAIApiKeyAdapter,
+        "chat",
+        new=chat_mock,
+    ):
+        req = ChatRequest(
+            messages=[Message(role="user", content="hi")],
+            fallback_policy="org_default",
+        )
+        with pytest.raises(ProviderUnavailable):
+            await Gateway.dispatch(db, dj_user, req, purpose="test")
+
+    assert chat_mock.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_fallback_skipped_when_primary_is_org_default(db, dj_user):
+    """If the failing connector IS the org default, there is nothing to fall back to."""
+    dj_connector = _make_connector(db, dj_user, display_name="dj-and-org-default")
+    _wire_system_default(db, dj_connector)
+
+    chat_mock = AsyncMock(side_effect=RateLimited("slow"))
+    with patch.object(
+        __import__(
+            "app.services.llm.adapters.openai_apikey",
+            fromlist=["OpenAIApiKeyAdapter"],
+        ).OpenAIApiKeyAdapter,
+        "chat",
+        new=chat_mock,
+    ):
+        req = ChatRequest(
+            messages=[Message(role="user", content="hi")],
+            fallback_policy="org_default",
+        )
+        with pytest.raises(RateLimited):
+            await Gateway.dispatch(db, dj_user, req, purpose="test")
+
+    assert chat_mock.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_retry_then_org_default_retries_same_then_falls_back(db, dj_user):
+    """retry_then_org_default: same connector retried once, then org default."""
+    _make_connector(db, dj_user, display_name="dj-primary")
+
+    org_owner = User(
+        username="orgowner3",
+        password_hash=get_password_hash("password123"),
+        role="admin",
+    )
+    db.add(org_owner)
+    db.commit()
+    db.refresh(org_owner)
+    org_connector = _make_connector(db, org_owner, display_name="org-default")
+    _wire_system_default(db, org_connector)
+
+    ok = ChatResponse(text="recovered", tool_calls=[], stop_reason="end_turn", usage=None)
+    # attempt 1 (primary) 429, attempt 2 (primary retry) 429, attempt 3 (org default) ok
+    chat_mock = AsyncMock(side_effect=[RateLimited("slow"), RateLimited("slow"), ok])
+    with patch.object(
+        __import__(
+            "app.services.llm.adapters.openai_apikey",
+            fromlist=["OpenAIApiKeyAdapter"],
+        ).OpenAIApiKeyAdapter,
+        "chat",
+        new=chat_mock,
+    ):
+        req = ChatRequest(
+            messages=[Message(role="user", content="hi")],
+            fallback_policy="retry_then_org_default",
+        )
+        resp = await Gateway.dispatch(db, dj_user, req, purpose="test")
+
+    assert resp.text == "recovered"
+    # Bounded: exactly 3 attempts (1 primary + 1 retry + 1 fallback). Never loops.
+    assert chat_mock.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_retry_then_org_default_succeeds_on_retry(db, dj_user):
+    """retry_then_org_default: same-connector retry succeeds → no fallback needed."""
+    _make_connector(db, dj_user, display_name="dj-primary")
+
+    ok = ChatResponse(text="retry-ok", tool_calls=[], stop_reason="end_turn", usage=None)
+    chat_mock = AsyncMock(side_effect=[ProviderUnavailable("blip"), ok])
+    with patch.object(
+        __import__(
+            "app.services.llm.adapters.openai_apikey",
+            fromlist=["OpenAIApiKeyAdapter"],
+        ).OpenAIApiKeyAdapter,
+        "chat",
+        new=chat_mock,
+    ):
+        req = ChatRequest(
+            messages=[Message(role="user", content="hi")],
+            fallback_policy="retry_then_org_default",
+        )
+        resp = await Gateway.dispatch(db, dj_user, req, purpose="test")
+
+    assert resp.text == "retry-ok"
+    assert chat_mock.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_fallback_not_triggered_for_auth_invalid_when_policy_org_default(db, dj_user):
+    """auth_invalid is fallback-eligible: marks primary invalid, falls back."""
+    from app.models.llm_connector import LlmAuditEvent
+
+    dj_connector = _make_connector(db, dj_user, display_name="dj-primary")
+
+    org_owner = User(
+        username="orgowner4",
+        password_hash=get_password_hash("password123"),
+        role="admin",
+    )
+    db.add(org_owner)
+    db.commit()
+    db.refresh(org_owner)
+    org_connector = _make_connector(db, org_owner, display_name="org-default")
+    _wire_system_default(db, org_connector)
+
+    ok = ChatResponse(text="recovered", tool_calls=[], stop_reason="end_turn", usage=None)
+    chat_mock = AsyncMock(side_effect=[AuthInvalid("expired"), ok])
+    with patch.object(
+        __import__(
+            "app.services.llm.adapters.openai_apikey",
+            fromlist=["OpenAIApiKeyAdapter"],
+        ).OpenAIApiKeyAdapter,
+        "chat",
+        new=chat_mock,
+    ):
+        req = ChatRequest(
+            messages=[Message(role="user", content="hi")],
+            fallback_policy="org_default",
+        )
+        resp = await Gateway.dispatch(db, dj_user, req, purpose="test")
+
+    assert resp.text == "recovered"
+    # Primary connector marked auth_invalid; fallback audit + the auth_invalid audit both present.
+    db.refresh(dj_connector)
+    assert dj_connector.status == "auth_invalid"
+    fallback_audit = (
+        db.query(LlmAuditEvent)
+        .filter(LlmAuditEvent.event_type == "fallback_triggered:auth_invalid")
+        .one()
+    )
+    assert fallback_audit.target_connector_id == org_connector.id
+
+
+@pytest.mark.asyncio
+async def test_fallback_not_eligible_for_tool_translation_error(db, dj_user):
+    """ToolTranslationError is NOT fallback-eligible — a different connector won't help."""
+    from app.services.llm.exceptions import ToolTranslationError
+
+    _make_connector(db, dj_user, display_name="dj-primary")
+
+    org_owner = User(
+        username="orgowner5",
+        password_hash=get_password_hash("password123"),
+        role="admin",
+    )
+    db.add(org_owner)
+    db.commit()
+    db.refresh(org_owner)
+    org_connector = _make_connector(db, org_owner, display_name="org-default")
+    _wire_system_default(db, org_connector)
+
+    chat_mock = AsyncMock(side_effect=ToolTranslationError("bad schema"))
+    with patch.object(
+        __import__(
+            "app.services.llm.adapters.openai_apikey",
+            fromlist=["OpenAIApiKeyAdapter"],
+        ).OpenAIApiKeyAdapter,
+        "chat",
+        new=chat_mock,
+    ):
+        req = ChatRequest(
+            messages=[Message(role="user", content="hi")],
+            fallback_policy="retry_then_org_default",
+        )
+        with pytest.raises(ToolTranslationError):
+            await Gateway.dispatch(db, dj_user, req, purpose="test")
+
+    assert chat_mock.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_fallback_failure_surfaces_fallback_error(db, dj_user):
+    """If the fallback connector also fails, the fallback's error surfaces."""
+    _make_connector(db, dj_user, display_name="dj-primary")
+
+    org_owner = User(
+        username="orgowner6",
+        password_hash=get_password_hash("password123"),
+        role="admin",
+    )
+    db.add(org_owner)
+    db.commit()
+    db.refresh(org_owner)
+    org_connector = _make_connector(db, org_owner, display_name="org-default")
+    _wire_system_default(db, org_connector)
+
+    chat_mock = AsyncMock(
+        side_effect=[RateLimited("primary-slow"), ProviderUnavailable("fallback-down")]
+    )
+    with patch.object(
+        __import__(
+            "app.services.llm.adapters.openai_apikey",
+            fromlist=["OpenAIApiKeyAdapter"],
+        ).OpenAIApiKeyAdapter,
+        "chat",
+        new=chat_mock,
+    ):
+        req = ChatRequest(
+            messages=[Message(role="user", content="hi")],
+            fallback_policy="org_default",
+        )
+        with pytest.raises(ProviderUnavailable):
+            await Gateway.dispatch(db, dj_user, req, purpose="test")
+
+    # primary + fallback, bounded.
+    assert chat_mock.await_count == 2
+
+
 @pytest.mark.asyncio
 async def test_mru_resolution_picks_recent(db, dj_user, gateway_request):
     """Resolver picks the connector with the most recent last_used_at."""

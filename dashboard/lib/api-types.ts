@@ -63,6 +63,9 @@ export type LlmAdminPolicy = Schemas['AdminPolicyOut'];
 export type LlmAdminPolicyPatch = Schemas['AdminPolicyPatch'];
 export type LlmAdminUsage = Schemas['AdminUsageOut'];
 export type LlmUsageRow = Schemas['UsageRow'];
+// LLM audit trail (issue #341)
+export type LlmAdminAudit = Schemas['AdminAuditOut'];
+export type LlmAuditRow = Schemas['AuditEventRow'];
 // Derive from schema so backend enum changes propagate to TS automatically.
 export type LlmConnectorType = Schemas['ConnectorOut']['connector_type'];
 export type LlmConnectorStatus = Schemas['ConnectorOut']['status'];

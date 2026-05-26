@@ -5,24 +5,12 @@ import io
 import re
 from datetime import UTC, datetime
 
+from app.core.csv_safe import sanitize_csv_value
 from app.models.event import Event
 from app.models.play_history import PlayHistory
 from app.models.request import Request
 
-
-def sanitize_csv_value(value: str | None) -> str:
-    """
-    Sanitize a value to prevent CSV formula injection.
-
-    Spreadsheet applications (Excel, Google Sheets) interpret cells starting with
-    =, +, -, @, \t, or \r as formulas, which can be exploited for attacks.
-    Prefixing with a single quote prevents formula execution.
-    """
-    if not value:
-        return ""
-    if value[0] in ("=", "+", "-", "@", "\t", "\r"):
-        return "'" + value
-    return value
+__all__ = ["sanitize_csv_value", "sanitize_filename"]
 
 
 def sanitize_filename(name: str) -> str:

@@ -169,6 +169,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/llm/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Audit Events
+         * @description Browse the LLM audit trail (admin-only).
+         *
+         *     Read-only view over ``llm_audit_event`` with optional filters and
+         *     pagination. The target connector's display name is joined in — credential
+         *     material is never read or returned.
+         */
+        get: operations["list_audit_events_api_admin_llm_audit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/llm/audit.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Audit Events Csv
+         * @description Export the (filtered) audit trail as CSV (admin-only).
+         *
+         *     Honors the same filters as ``GET /audit``. Capped at
+         *     ``_AUDIT_CSV_ROW_CAP`` rows to avoid unbounded streaming. Columns:
+         *     timestamp, actor, event_type, target_connector, notes. Never includes
+         *     credential material.
+         */
+        get: operations["export_audit_events_csv_api_admin_llm_audit_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/llm/connectors": {
         parameters: {
             query?: never;
@@ -2367,6 +2416,20 @@ export interface components {
             source: string;
         };
         /**
+         * AdminAuditOut
+         * @description Paginated audit-event browse response.
+         */
+        AdminAuditOut: {
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Rows */
+            rows: components["schemas"]["AuditEventRow"][];
+            /** Total */
+            total: number;
+        };
+        /**
          * AdminConnectorOut
          * @description Admin view — adds the DJ's username for display.
          */
@@ -2511,6 +2574,34 @@ export interface components {
             password?: string | null;
             /** Role */
             role?: string | null;
+        };
+        /**
+         * AuditEventRow
+         * @description A single audit-trail row with joined display labels.
+         *
+         *     Never includes credential material — only the target connector's
+         *     human-readable display name (joined from ``llm_connectors``).
+         */
+        AuditEventRow: {
+            /** Actor User Id */
+            actor_user_id: number;
+            /** Actor Username */
+            actor_username: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Event Type */
+            event_type: string;
+            /** Id */
+            id: number;
+            /** Notes */
+            notes: string | null;
+            /** Target Connector Display Name */
+            target_connector_display_name: string | null;
+            /** Target Connector Id */
+            target_connector_id: number | null;
         };
         /**
          * BeatportEventSettings
@@ -4638,6 +4729,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IntegrationCheckResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_audit_events_api_admin_llm_audit_get: {
+        parameters: {
+            query?: {
+                event_type?: string | null;
+                actor_user_id?: number | null;
+                target_connector_id?: number | null;
+                days?: number;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminAuditOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_audit_events_csv_api_admin_llm_audit_csv_get: {
+        parameters: {
+            query?: {
+                event_type?: string | null;
+                actor_user_id?: number | null;
+                target_connector_id?: number | null;
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV export of the filtered audit trail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
                 };
             };
             /** @description Validation Error */

@@ -5,6 +5,7 @@ import type {
   AISettings,
   AISettingsUpdate,
   ActivityLogEntry,
+  LlmAdminAudit,
   LlmAdminConnector,
   LlmAdminPolicy,
   LlmAdminPolicyPatch,
@@ -58,10 +59,12 @@ export type {
   AIModelsResponse,
   AISettings,
   AISettingsUpdate,
+  LlmAdminAudit,
   LlmAdminConnector,
   LlmAdminPolicy,
   LlmAdminPolicyPatch,
   LlmAdminUsage,
+  LlmAuditRow,
   LlmConnector,
   LlmConnectorCreate,
   LlmConnectorCredentialsRotate,
@@ -117,6 +120,17 @@ export type {
   TidalStatus,
   VoteResponse,
 } from './api-types';
+
+// ========== Admin LLM audit trail filters (issue #341) ==========
+
+export interface AdminLlmAuditFilters {
+  event_type?: string;
+  actor_user_id?: number;
+  target_connector_id?: number;
+  days?: number;
+  limit?: number;
+  offset?: number;
+}
 
 // ========== Pre-Event Collection Types ==========
 
@@ -1209,6 +1223,43 @@ class ApiClient {
 
   async getAdminLlmUsage(days = 30): Promise<LlmAdminUsage> {
     return this.fetch(`/api/admin/llm/usage?days=${days}`);
+  }
+
+  // ========== Admin LLM audit trail (issue #341) ==========
+
+  private buildAuditQuery(filters: AdminLlmAuditFilters = {}): URLSearchParams {
+    const params = new URLSearchParams();
+    if (filters.event_type) params.set('event_type', filters.event_type);
+    if (filters.actor_user_id != null) {
+      params.set('actor_user_id', String(filters.actor_user_id));
+    }
+    if (filters.target_connector_id != null) {
+      params.set('target_connector_id', String(filters.target_connector_id));
+    }
+    if (filters.days != null) params.set('days', String(filters.days));
+    if (filters.limit != null) params.set('limit', String(filters.limit));
+    if (filters.offset != null) params.set('offset', String(filters.offset));
+    return params;
+  }
+
+  async getAdminLlmAudit(filters: AdminLlmAuditFilters = {}): Promise<LlmAdminAudit> {
+    const params = this.buildAuditQuery(filters);
+    return this.fetch(`/api/admin/llm/audit?${params.toString()}`);
+  }
+
+  /**
+   * Download the (filtered) audit trail as a CSV Blob. Pagination params are
+   * ignored server-side for the export — it honors only the filter fields.
+   */
+  async downloadAdminLlmAuditCsv(filters: AdminLlmAuditFilters = {}): Promise<Blob> {
+    const params = this.buildAuditQuery({
+      event_type: filters.event_type,
+      actor_user_id: filters.actor_user_id,
+      target_connector_id: filters.target_connector_id,
+      days: filters.days,
+    });
+    const response = await this.rawFetch(`/api/admin/llm/audit.csv?${params.toString()}`);
+    return response.blob();
   }
 
   // ========== Kiosk Pairing ==========

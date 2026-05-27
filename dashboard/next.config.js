@@ -15,6 +15,13 @@ const csp = [
 const nextConfig = {
   output: 'standalone',
   allowedDevOrigins: ['192.168.*.*'],
+  async redirects() {
+    return [
+      // DJ AI connector/model settings moved into the account page (#357).
+      // Keep old bookmarks/links working with a permanent (308) redirect.
+      { source: '/settings/ai', destination: '/account', permanent: true },
+    ];
+  },
   async headers() {
     return [
       {

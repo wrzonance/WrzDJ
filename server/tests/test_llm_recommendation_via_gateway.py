@@ -1,8 +1,10 @@
-"""Regression: recommendation engine still produces identical output when
-routed through the LLM gateway.
+"""Regression: recommendation engine produces canonical output when routed
+through the LLM gateway.
 
-The legacy path (no ``db``/``actor``) and the gateway path receive equivalent
-mock responses; both must yield identical ``LLMSuggestionResult`` queries.
+The gateway is the sole credential path — the legacy direct-Anthropic env-var
+fallback was removed in #343. These tests pin that gateway-dispatched output is
+identical to a direct parse of the equivalent provider response, and that
+``call_llm`` now requires a ``db`` session.
 """
 
 from __future__ import annotations
@@ -87,12 +89,18 @@ def test_parse_tool_response_propagates_provider_model():
 
 
 @pytest.mark.asyncio
-async def test_gateway_path_matches_legacy_path_output(db, test_user, event_profile):
-    """The same model output, routed via gateway vs legacy env-var, yields the
-    same canonical ``LLMSuggestionResult``.
+async def test_gateway_path_matches_canonical_parse(db, test_user, event_profile):
+    """The gateway path yields the same canonical ``LLMSuggestionResult`` as a
+    direct parse of the equivalent provider response.
+
+    The legacy direct-Anthropic env-var path was removed in #343 — the connector
+    system is the sole credential source. This pins that the gateway-dispatched
+    output is identical to what ``_parse_tool_response`` produces for the same
+    model output regardless of the (defensive) input shape it receives.
     """
     # Insert a connector for the actor so the gateway has something to resolve.
     from app.models.llm_connector import LlmConnector
+    from app.services.recommendation.llm_client import _parse_tool_response
 
     connector = LlmConnector(
         user_id=test_user.id,
@@ -118,32 +126,25 @@ async def test_gateway_path_matches_legacy_path_output(db, test_user, event_prof
             actor=test_user,
         )
 
-    # Legacy path: mock AsyncAnthropic at module level.
-    legacy_mock = _legacy_anthropic_response()
-    with (
-        patch("app.services.recommendation.llm_client.AsyncAnthropic") as client_cls,
-        patch("app.services.recommendation.llm_client.get_settings") as settings_mock,
-    ):
-        settings_mock.return_value.anthropic_api_key = "sk-ant-fake"
-        settings_mock.return_value.anthropic_model = "claude-haiku-4-5-20251001"
-        settings_mock.return_value.anthropic_max_tokens = 1024
-        settings_mock.return_value.anthropic_timeout_seconds = 15
-        client_inst = client_cls.return_value
-        client_inst.messages.create = AsyncMock(return_value=legacy_mock)
+    # Canonical parse of the equivalent Anthropic-SDK-shaped response.
+    canonical_result = _parse_tool_response(_legacy_anthropic_response())
 
-        legacy_result = await call_llm(
-            event_profile,
-            "deeper progressive house",
-        )
+    # Identical structured output regardless of response shape.
+    assert len(gateway_result.queries) == len(canonical_result.queries) == 2
+    for gq, cq in zip(gateway_result.queries, canonical_result.queries):
+        assert gq.search_query == cq.search_query
+        assert gq.target_bpm == cq.target_bpm
+        assert gq.target_key == cq.target_key
+        assert gq.target_genre == cq.target_genre
+        assert gq.reasoning == cq.reasoning
 
-    # Identical structured output across both paths.
-    assert len(gateway_result.queries) == len(legacy_result.queries) == 2
-    for gq, lq in zip(gateway_result.queries, legacy_result.queries):
-        assert gq.search_query == lq.search_query
-        assert gq.target_bpm == lq.target_bpm
-        assert gq.target_key == lq.target_key
-        assert gq.target_genre == lq.target_genre
-        assert gq.reasoning == lq.reasoning
+
+@pytest.mark.asyncio
+async def test_call_llm_requires_db(event_profile):
+    """The legacy no-``db`` env-var fallback is gone (#343): callers must supply a
+    db session so the gateway can resolve a connector."""
+    with pytest.raises(ValueError, match="requires a db session"):
+        await call_llm(event_profile, "anything")
 
 
 @pytest.mark.asyncio

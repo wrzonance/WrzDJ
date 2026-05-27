@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.services.llm.base import ChatResponse, ToolCall
 from app.services.recommendation.llm_client import (
     SEARCH_QUERIES_TOOL,
     SYSTEM_PROMPT,
@@ -155,79 +156,176 @@ class TestParseToolResponse:
         assert "Here are my suggestions" in result.raw_response
 
 
-class TestCallLLM:
+class TestParseToolResponseMalformedPayloads:
+    """Defensive parsing — a malformed provider payload must not crash the flow.
+
+    Custom OpenAI-compatible endpoints (Ollama, vLLM) may not enforce the forced
+    tool JSON schema. Regression for the CodeRabbit "harden tool payload parsing"
+    finding on PR #362: bad items are skipped, valid ones still parse.
+    """
+
+    def _tool_block(self, tool_input):
+        block = MagicMock()
+        block.type = "tool_use"
+        block.name = "search_queries"
+        block.input = tool_input
+        return block
+
+    def test_input_not_a_dict_is_skipped(self):
+        response = MagicMock()
+        response.content = [self._tool_block(["not", "a", "dict"])]
+        result = _parse_tool_response(response)
+        assert result.queries == []
+
+    def test_queries_not_a_list_is_skipped(self):
+        response = MagicMock()
+        response.content = [self._tool_block({"queries": "oops"})]
+        result = _parse_tool_response(response)
+        assert result.queries == []
+
+    def test_non_dict_query_item_is_skipped(self):
+        response = MagicMock()
+        response.content = [
+            self._tool_block(
+                {
+                    "queries": [
+                        "garbage",
+                        {"search_query": "valid query", "reasoning": "ok"},
+                    ]
+                }
+            )
+        ]
+        result = _parse_tool_response(response)
+        assert len(result.queries) == 1
+        assert result.queries[0].search_query == "valid query"
+
+    def test_missing_or_blank_search_query_is_skipped(self):
+        response = MagicMock()
+        response.content = [
+            self._tool_block(
+                {
+                    "queries": [
+                        {"reasoning": "no search_query key"},
+                        {"search_query": "", "reasoning": "blank"},
+                        {"search_query": "   ", "reasoning": "whitespace"},
+                        {"search_query": 123, "reasoning": "not a string"},
+                        {"search_query": "keep me", "reasoning": "good"},
+                    ]
+                }
+            )
+        ]
+        result = _parse_tool_response(response)
+        assert len(result.queries) == 1
+        assert result.queries[0].search_query == "keep me"
+
+    def test_non_string_reasoning_coerced_to_empty(self):
+        response = MagicMock()
+        response.content = [
+            self._tool_block(
+                {"queries": [{"search_query": "valid", "reasoning": {"unexpected": "dict"}}]}
+            )
+        ]
+        result = _parse_tool_response(response)
+        assert len(result.queries) == 1
+        assert result.queries[0].reasoning == ""
+
     @pytest.mark.asyncio
-    @patch("app.services.recommendation.llm_client.AsyncAnthropic")
-    @patch("app.services.recommendation.llm_client.get_settings")
-    async def test_calls_api_correctly(self, mock_settings, mock_anthropic_cls):
-        settings = MagicMock()
-        settings.anthropic_api_key = "sk-ant-test-key"
-        settings.anthropic_model = "claude-haiku-4-5-20251001"
-        settings.anthropic_max_tokens = 1024
-        settings.anthropic_timeout_seconds = 15
-        mock_settings.return_value = settings
-
-        # Mock API response
-        tool_block = MagicMock()
-        tool_block.type = "tool_use"
-        tool_block.name = "search_queries"
-        tool_block.input = {
-            "queries": [{"search_query": "chill house", "reasoning": "DJ wants chill vibes"}]
-        }
-        mock_response = MagicMock()
-        mock_response.content = [tool_block]
-
-        mock_client = MagicMock()
-        mock_client.messages.create = AsyncMock(return_value=mock_response)
-        mock_anthropic_cls.return_value = mock_client
-
-        profile = EventProfile(
-            avg_bpm=120.0,
-            dominant_genres=["House"],
-            track_count=5,
+    @patch("app.services.recommendation.llm_client.Gateway")
+    async def test_chatresponse_path_skips_malformed_items(self, mock_gateway):
+        response = ChatResponse(
+            tool_calls=[
+                ToolCall(
+                    id="t1",
+                    name="search_queries",
+                    input={
+                        "queries": [
+                            "garbage",
+                            {"search_query": "good one", "reasoning": "ok"},
+                            {"reasoning": "missing search_query"},
+                        ]
+                    },
+                )
+            ],
+            stop_reason="tool_use",
         )
+        mock_gateway.dispatch = AsyncMock(return_value=response)
+        result = await call_llm(
+            EventProfile(track_count=0), "test", db=MagicMock(), actor=MagicMock()
+        )
+        assert len(result.queries) == 1
+        assert result.queries[0].search_query == "good one"
 
-        result = await call_llm(profile, "chill vibes")
+
+class TestCallLLM:
+    """``call_llm`` always routes through the LLM Gateway.
+
+    The legacy direct-Anthropic env-var fallback was removed in #343 — every
+    production caller supplies ``db`` + ``actor`` and the connector system is
+    the sole source of credentials. These tests patch ``Gateway.dispatch``.
+    """
+
+    @pytest.mark.asyncio
+    @patch("app.services.recommendation.llm_client.Gateway")
+    async def test_dispatches_via_gateway(self, mock_gateway):
+        response = ChatResponse(
+            tool_calls=[
+                ToolCall(
+                    id="t1",
+                    name="search_queries",
+                    input={
+                        "queries": [
+                            {"search_query": "chill house", "reasoning": "DJ wants chill vibes"}
+                        ]
+                    },
+                )
+            ],
+            stop_reason="tool_use",
+            model="claude-haiku-4-5-20251001",
+        )
+        mock_gateway.dispatch = AsyncMock(return_value=response)
+
+        db = MagicMock()
+        actor = MagicMock()
+        profile = EventProfile(avg_bpm=120.0, dominant_genres=["House"], track_count=5)
+
+        result = await call_llm(profile, "chill vibes", db=db, actor=actor)
 
         assert len(result.queries) == 1
         assert result.queries[0].search_query == "chill house"
+        assert result.model == "claude-haiku-4-5-20251001"
 
-        # Verify API call parameters
-        mock_client.messages.create.assert_called_once()
-        call_kwargs = mock_client.messages.create.call_args[1]
-        assert call_kwargs["model"] == "claude-haiku-4-5-20251001"
-        assert call_kwargs["max_tokens"] == 1024
-        assert call_kwargs["tool_choice"] == {"type": "tool", "name": "search_queries"}
+        mock_gateway.dispatch.assert_awaited_once()
+        # Positional args: (db, actor, chat_request); keyword: purpose.
+        args, kwargs = mock_gateway.dispatch.call_args
+        assert args[0] is db
+        assert args[1] is actor
+        chat_request = args[2]
+        assert chat_request.force_tool == "search_queries"
+        assert chat_request.max_tokens == 1024
+        assert kwargs["purpose"] == "recommendation"
 
     @pytest.mark.asyncio
-    @patch("app.services.recommendation.llm_client.AsyncAnthropic")
-    @patch("app.services.recommendation.llm_client.get_settings")
-    async def test_trims_to_max_queries(self, mock_settings, mock_anthropic_cls):
-        settings = MagicMock()
-        settings.anthropic_api_key = "sk-ant-test-key"
-        settings.anthropic_model = "claude-haiku-4-5-20251001"
-        settings.anthropic_max_tokens = 1024
-        settings.anthropic_timeout_seconds = 15
-        mock_settings.return_value = settings
-
-        # Return 5 queries, request max 2
-        tool_block = MagicMock()
-        tool_block.type = "tool_use"
-        tool_block.name = "search_queries"
-        tool_block.input = {
-            "queries": [
-                {"search_query": f"query {i}", "reasoning": f"reason {i}"} for i in range(5)
-            ]
-        }
-        mock_response = MagicMock()
-        mock_response.content = [tool_block]
-
-        mock_client = MagicMock()
-        mock_client.messages.create = AsyncMock(return_value=mock_response)
-        mock_anthropic_cls.return_value = mock_client
+    @patch("app.services.recommendation.llm_client.Gateway")
+    async def test_trims_to_max_queries(self, mock_gateway):
+        response = ChatResponse(
+            tool_calls=[
+                ToolCall(
+                    id="t1",
+                    name="search_queries",
+                    input={
+                        "queries": [
+                            {"search_query": f"query {i}", "reasoning": f"reason {i}"}
+                            for i in range(5)
+                        ]
+                    },
+                )
+            ],
+            stop_reason="tool_use",
+        )
+        mock_gateway.dispatch = AsyncMock(return_value=response)
 
         profile = EventProfile(track_count=0)
-        result = await call_llm(profile, "test", max_queries=2)
+        result = await call_llm(profile, "test", max_queries=2, db=MagicMock(), actor=MagicMock())
 
         assert len(result.queries) == 2
         assert result.queries[0].search_query == "query 0"

@@ -46,9 +46,9 @@ async def generate_llm_suggestions(
 ) -> LLMSuggestionResult:
     """Generate search queries via the LLM gateway.
 
-    The gateway routes to the actor DJ's connector (or org default). Existing
-    callers that don't pass ``db``/``actor`` fall through to the legacy
-    env-var Anthropic path inside ``call_llm`` — see ``llm_client.py``.
+    The gateway routes to the actor DJ's connector (or org default). ``db`` is
+    required by ``call_llm`` — the legacy direct-Anthropic env-var path was
+    removed in #343 now that the connector system is the source of truth.
     """
     from app.services.recommendation.llm_client import call_llm
 
@@ -75,41 +75,39 @@ def is_llm_available(db=None, actor=None) -> bool:
       connector (matches the per-DJ MRU lookup).
     - Otherwise (no actor or no actor-owned active connector): returns True
       when an active system-default connector is configured.
-    - As a last fallback, the legacy ``ANTHROPIC_API_KEY`` env var unlocks
-      the feature for callers that still take the env-var path.
+
+    Connector-backed only. Without ``db`` no connector can be resolved, so it
+    returns ``False`` — the legacy Anthropic env-var fallback was removed in #343.
     """
-    from app.core.config import get_settings
+    if db is None:
+        return False
 
-    if db is not None:
-        from app.models.llm_connector import STATUS_ACTIVE, LlmConnector
-        from app.models.system_settings import SystemSettings
-        from app.services.system_settings import get_system_settings
+    from app.models.llm_connector import STATUS_ACTIVE, LlmConnector
+    from app.models.system_settings import SystemSettings
+    from app.services.system_settings import get_system_settings
 
-        settings = get_system_settings(db)
-        if not settings.llm_enabled:
-            return False
+    settings = get_system_settings(db)
+    if not settings.llm_enabled:
+        return False
 
-        # Per-DJ active connector — matches gateway resolver step 1.
-        if actor is not None:
-            actor_active = (
-                db.query(LlmConnector.id)
-                .filter(
-                    LlmConnector.user_id == actor.id,
-                    LlmConnector.status == STATUS_ACTIVE,
-                )
-                .first()
+    # Per-DJ active connector — matches gateway resolver step 1.
+    if actor is not None:
+        actor_active = (
+            db.query(LlmConnector.id)
+            .filter(
+                LlmConnector.user_id == actor.id,
+                LlmConnector.status == STATUS_ACTIVE,
             )
-            if actor_active is not None:
-                return True
+            .first()
+        )
+        if actor_active is not None:
+            return True
 
-        # System default fallback — matches gateway resolver step 2.
-        sys_settings = db.query(SystemSettings).first()
-        if sys_settings and sys_settings.llm_default_connector_id:
-            default = db.get(LlmConnector, sys_settings.llm_default_connector_id)
-            if default is not None and default.status == STATUS_ACTIVE:
-                return True
+    # System default fallback — matches gateway resolver step 2.
+    sys_settings = db.query(SystemSettings).first()
+    if sys_settings and sys_settings.llm_default_connector_id:
+        default = db.get(LlmConnector, sys_settings.llm_default_connector_id)
+        if default is not None and default.status == STATUS_ACTIVE:
+            return True
 
-        # Final fallback: legacy env var (kept until env-var cleanup ships).
-        return bool(get_settings().anthropic_api_key)
-
-    return bool(get_settings().anthropic_api_key)
+    return False

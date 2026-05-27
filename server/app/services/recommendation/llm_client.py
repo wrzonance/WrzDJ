@@ -13,10 +13,8 @@ from __future__ import annotations
 import json
 import logging
 
-from anthropic import AsyncAnthropic
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.models.user import User
 from app.services.llm.base import ChatRequest, Message, ToolSpec
 from app.services.llm.gateway import Gateway
@@ -24,6 +22,11 @@ from app.services.recommendation.llm_hooks import LLMSuggestionQuery, LLMSuggest
 from app.services.recommendation.scorer import EventProfile, TrackProfile
 
 logger = logging.getLogger(__name__)
+
+# Default max output tokens for query generation. Was previously sourced from
+# the ``ANTHROPIC_MAX_TOKENS`` env var via settings; that legacy env-var path was
+# removed in #343 now that the connector system is the source of truth.
+DEFAULT_MAX_TOKENS = 1024
 
 SYSTEM_PROMPT = """\
 You are a DJ assistant helping curate song suggestions for a live event.
@@ -203,12 +206,42 @@ def build_user_prompt(
     return "\n".join(parts)
 
 
-def _parse_tool_response(response) -> LLMSuggestionResult:  # noqa: ANN001 — kept for back-compat
-    """Parse a gateway ``ChatResponse`` (or legacy Anthropic Message) into an
-    ``LLMSuggestionResult``.
+def _parse_query_items(items: object) -> list[LLMSuggestionQuery]:
+    """Defensively convert a tool payload ``queries`` array into query objects.
 
-    Accepts both shapes so existing test fixtures (which mock an Anthropic SDK
-    response object directly) keep working without modification.
+    The tool output comes from an external LLM provider — including custom
+    OpenAI-compatible endpoints (Ollama, vLLM) that may not enforce the
+    forced-tool JSON schema. Skip any malformed item rather than letting one bad
+    entry crash the whole recommendation flow.
+    """
+    if not isinstance(items, list):
+        return []
+    parsed: list[LLMSuggestionQuery] = []
+    for q in items:
+        if not isinstance(q, dict):
+            continue
+        search_query = q.get("search_query")
+        if not isinstance(search_query, str) or not search_query.strip():
+            continue
+        parsed.append(
+            LLMSuggestionQuery(
+                search_query=search_query,
+                target_bpm=q.get("target_bpm"),
+                target_key=q.get("target_key"),
+                target_genre=q.get("target_genre"),
+                reasoning=q.get("reasoning", "") if isinstance(q.get("reasoning"), str) else "",
+            )
+        )
+    return parsed
+
+
+def _parse_tool_response(response) -> LLMSuggestionResult:  # noqa: ANN001 — dual-shape input
+    """Parse a gateway ``ChatResponse`` into an ``LLMSuggestionResult``.
+
+    The gateway is the only producer of responses (the legacy direct-Anthropic
+    path was removed in #343). A defensive second path also handles an
+    Anthropic-SDK ``Message``-like object (``.content`` blocks) so any cached
+    ``tool_use`` traces or hand-constructed fixtures remain decodable.
     """
     from app.services.llm.base import ChatResponse
 
@@ -222,17 +255,9 @@ def _parse_tool_response(response) -> LLMSuggestionResult:  # noqa: ANN001 — k
             raw_text += response.text
         for tc in response.tool_calls or []:
             if tc.name == SEARCH_QUERIES_TOOL_NAME:
-                raw_text += json.dumps(tc.input)
-                for q in tc.input.get("queries", []):
-                    queries.append(
-                        LLMSuggestionQuery(
-                            search_query=q["search_query"],
-                            target_bpm=q.get("target_bpm"),
-                            target_key=q.get("target_key"),
-                            target_genre=q.get("target_genre"),
-                            reasoning=q.get("reasoning", ""),
-                        )
-                    )
+                payload = tc.input if isinstance(tc.input, dict) else {}
+                raw_text += json.dumps(payload)
+                queries.extend(_parse_query_items(payload.get("queries", [])))
         return LLMSuggestionResult(queries=queries, raw_response=raw_text, model=response.model)
 
     # Path 2 — legacy Anthropic SDK Message-like object.
@@ -241,17 +266,9 @@ def _parse_tool_response(response) -> LLMSuggestionResult:  # noqa: ANN001 — k
         if btype == "text":
             raw_text += getattr(block, "text", "")
         elif btype == "tool_use" and getattr(block, "name", "") == SEARCH_QUERIES_TOOL_NAME:
-            raw_text += json.dumps(block.input)
-            for q in block.input.get("queries", []):
-                queries.append(
-                    LLMSuggestionQuery(
-                        search_query=q["search_query"],
-                        target_bpm=q.get("target_bpm"),
-                        target_key=q.get("target_key"),
-                        target_genre=q.get("target_genre"),
-                        reasoning=q.get("reasoning", ""),
-                    )
-                )
+            block_input = block.input if isinstance(block.input, dict) else {}
+            raw_text += json.dumps(block_input)
+            queries.extend(_parse_query_items(block_input.get("queries", [])))
 
     return LLMSuggestionResult(
         queries=queries, raw_response=raw_text, model=getattr(response, "model", None)
@@ -271,13 +288,18 @@ async def call_llm(
 ) -> LLMSuggestionResult:
     """Generate structured search queries via the LLM gateway.
 
-    Compatibility shim: existing callers pass only the positional args. New
-    callers pass ``db`` and ``actor`` so the gateway can route to the DJ's
-    connector. When ``db`` is missing we fall back to the legacy env-var path
-    so unit tests that mock ``AsyncAnthropic`` directly keep passing.
+    Routes through ``Gateway.dispatch`` so credentials come from the actor DJ's
+    connector (or the org default). ``db`` is required; the legacy
+    direct-Anthropic env-var fallback was removed in #343 now that the connector
+    system is the sole source of truth.
 
     Returns at most ``max_queries`` queries.
     """
+    if db is None:
+        raise ValueError(
+            "call_llm requires a db session — the connector system is the source of truth"
+        )
+
     user_message = build_user_prompt(
         profile,
         dj_prompt,
@@ -286,25 +308,22 @@ async def call_llm(
         currently_playing=currently_playing,
     )
 
-    if db is None:
-        result = await _legacy_call(user_message)
-    else:
-        chat_request = ChatRequest(
-            messages=[Message(role="user", content=user_message)],
-            system=SYSTEM_PROMPT,
-            tools=[
-                ToolSpec(
-                    name=SEARCH_QUERIES_TOOL_NAME,
-                    description=SEARCH_QUERIES_TOOL["description"],
-                    input_schema=SEARCH_QUERIES_TOOL["input_schema"],
-                )
-            ],
-            force_tool=SEARCH_QUERIES_TOOL_NAME,
-            max_tokens=_resolve_max_tokens(),
-            temperature=None,
-        )
-        response = await Gateway.dispatch(db, actor, chat_request, purpose="recommendation")
-        result = _parse_tool_response(response)
+    chat_request = ChatRequest(
+        messages=[Message(role="user", content=user_message)],
+        system=SYSTEM_PROMPT,
+        tools=[
+            ToolSpec(
+                name=SEARCH_QUERIES_TOOL_NAME,
+                description=SEARCH_QUERIES_TOOL["description"],
+                input_schema=SEARCH_QUERIES_TOOL["input_schema"],
+            )
+        ],
+        force_tool=SEARCH_QUERIES_TOOL_NAME,
+        max_tokens=DEFAULT_MAX_TOKENS,
+        temperature=None,
+    )
+    response = await Gateway.dispatch(db, actor, chat_request, purpose="recommendation")
+    result = _parse_tool_response(response)
 
     if len(result.queries) > max_queries:
         result = LLMSuggestionResult(
@@ -320,31 +339,3 @@ async def call_llm(
     )
 
     return result
-
-
-def _resolve_max_tokens() -> int:
-    return get_settings().anthropic_max_tokens or 1024
-
-
-async def _legacy_call(user_message: str) -> LLMSuggestionResult:
-    """Direct-Anthropic fallback used when no ``db`` is supplied.
-
-    Kept so the legacy unit tests in ``server/tests/test_llm_client.py`` (which
-    patch ``AsyncAnthropic`` directly) still pass without modification.
-    """
-    settings = get_settings()
-    client = AsyncAnthropic(
-        api_key=settings.anthropic_api_key,
-        timeout=settings.anthropic_timeout_seconds,
-    )
-
-    response = await client.messages.create(
-        model=settings.anthropic_model,
-        max_tokens=settings.anthropic_max_tokens,
-        system=SYSTEM_PROMPT,
-        tools=[SEARCH_QUERIES_TOOL],
-        tool_choice={"type": "tool", "name": SEARCH_QUERIES_TOOL_NAME},
-        messages=[{"role": "user", "content": user_message}],
-    )
-
-    return _parse_tool_response(response)

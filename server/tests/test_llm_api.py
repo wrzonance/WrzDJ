@@ -696,6 +696,57 @@ class TestAdminLlm:
         )
         assert resp.status_code == 422
 
+    def test_policy_exposes_retention_default(self, client: TestClient, admin_headers):
+        # Issue #342: retention is surfaced via the policy endpoint and defaults to 30.
+        resp = client.get("/api/admin/llm/policy", headers=admin_headers)
+        assert resp.status_code == 200
+        assert resp.json()["llm_call_log_retention_days"] == 30
+
+    def test_patch_retention_persists(self, client: TestClient, admin_headers, db):
+        resp = client.patch(
+            "/api/admin/llm/policy",
+            json={"llm_call_log_retention_days": 90},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["llm_call_log_retention_days"] == 90
+
+        # Persisted to the DB-backed singleton, visible on a fresh GET.
+        resp = client.get("/api/admin/llm/policy", headers=admin_headers)
+        assert resp.json()["llm_call_log_retention_days"] == 90
+
+        from app.services.system_settings import get_system_settings
+
+        assert get_system_settings(db).llm_call_log_retention_days == 90
+
+    def test_patch_retention_below_min_rejected(self, client: TestClient, admin_headers):
+        # Sanity bound: minimum 7 days. Rejected at the API level (422).
+        resp = client.patch(
+            "/api/admin/llm/policy",
+            json={"llm_call_log_retention_days": 6},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 422
+
+    def test_patch_retention_above_max_rejected(self, client: TestClient, admin_headers):
+        # Sanity bound: maximum 365 days. Rejected at the API level (422).
+        resp = client.patch(
+            "/api/admin/llm/policy",
+            json={"llm_call_log_retention_days": 366},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 422
+
+    def test_patch_retention_accepts_boundaries(self, client: TestClient, admin_headers):
+        for value in (7, 365):
+            resp = client.patch(
+                "/api/admin/llm/policy",
+                json={"llm_call_log_retention_days": value},
+                headers=admin_headers,
+            )
+            assert resp.status_code == 200
+            assert resp.json()["llm_call_log_retention_days"] == value
+
     def test_list_connectors_admin_shows_all(
         self, client: TestClient, admin_headers, db, test_user
     ):

@@ -215,6 +215,7 @@ export default function AdminAISettingsPage() {
         llm_compatible_connector_enabled: optimistic.llm_compatible_connector_enabled,
         llm_default_connector_id: optimistic.llm_default_connector_id,
         clear_default: optimistic.llm_default_connector_id === null,
+        llm_call_log_retention_days: optimistic.llm_call_log_retention_days,
       });
       setPolicy(updated);
       setPolicyMessage('Policy saved');
@@ -430,6 +431,36 @@ export default function AdminAISettingsPage() {
                   </option>
                 ))}
             </select>
+          </div>
+
+          <div className="form-group" style={{ marginTop: '1.5rem' }}>
+            <label htmlFor="call-log-retention">Call log retention (days)</label>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
+              How long per-call telemetry (counts only, never prompt content) is kept before
+              the daily cleanup deletes it. Range: 7–365 days. Changes take effect within 24 hours.
+            </div>
+            <input
+              id="call-log-retention"
+              type="number"
+              className="input"
+              style={{ maxWidth: '200px' }}
+              min={7}
+              max={365}
+              value={policy.llm_call_log_retention_days}
+              onChange={(e) =>
+                setPolicy({
+                  ...policy,
+                  llm_call_log_retention_days: parseInt(e.target.value, 10) || policy.llm_call_log_retention_days,
+                })
+              }
+              onBlur={(e) => {
+                const raw = parseInt(e.target.value, 10);
+                const clamped = Number.isNaN(raw)
+                  ? policy.llm_call_log_retention_days
+                  : Math.min(365, Math.max(7, raw));
+                handlePolicyPatch({ llm_call_log_retention_days: clamped });
+              }}
+            />
           </div>
 
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: '1rem' }}>

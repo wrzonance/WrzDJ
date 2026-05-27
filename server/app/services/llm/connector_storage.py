@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Any
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, delete, func, select
 from sqlalchemy.orm import Session
 
 from app.models.llm_connector import (
@@ -523,6 +523,31 @@ def log_call(
     return row
 
 
+def purge_call_log_older_than(db: Session, *, retention_days: int) -> int:
+    """Delete llm_call_log rows older than ``retention_days``.
+
+    Returns the number of rows deleted. The caller owns the transaction
+    (commits). ``retention_days`` is supplied by the caller (which reads it
+    from system settings each run) so the retention window stays configurable
+    without a hardcoded constant.
+    """
+    from datetime import timedelta
+
+    from app.core.time import utcnow
+
+    # Fail closed on out-of-bounds windows. A non-positive value would push the
+    # cutoff to now/future and delete nearly all history; an oversized value is
+    # equally suspect. The admin UI/schema clamp to 7-365, so a value outside
+    # that range means a corrupt or tampered persisted setting — refuse rather
+    # than over-delete. The daily cleanup loop catches this and retries next pass.
+    if not 7 <= retention_days <= 365:
+        raise ValueError("retention_days must be between 7 and 365")
+
+    cutoff = utcnow() - timedelta(days=retention_days)
+    result = db.execute(delete(LlmCallLog).where(LlmCallLog.created_at < cutoff))
+    return result.rowcount or 0
+
+
 def get_user_label(db: Session, user_id: int) -> str:
     user = db.get(User, user_id)
     return user.username if user else f"user#{user_id}"
@@ -586,6 +611,7 @@ __all__ = [
     "list_all_connectors",
     "list_connectors_for_user",
     "log_call",
+    "purge_call_log_older_than",
     "revoke_connector",
     "rotate_credentials",
     "update_metadata",

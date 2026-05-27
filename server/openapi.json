@@ -386,6 +386,10 @@
             "title": "Llm Apikey Connectors Enabled",
             "type": "boolean"
           },
+          "llm_call_log_retention_days": {
+            "title": "Llm Call Log Retention Days",
+            "type": "integer"
+          },
           "llm_compatible_connector_enabled": {
             "title": "Llm Compatible Connector Enabled",
             "type": "boolean"
@@ -404,6 +408,7 @@
         },
         "required": [
           "llm_apikey_connectors_enabled",
+          "llm_call_log_retention_days",
           "llm_compatible_connector_enabled",
           "llm_default_connector_id"
         ],
@@ -427,6 +432,19 @@
               }
             ],
             "title": "Llm Apikey Connectors Enabled"
+          },
+          "llm_call_log_retention_days": {
+            "anyOf": [
+              {
+                "maximum": 365.0,
+                "minimum": 7.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Call Log Retention Days"
           },
           "llm_compatible_connector_enabled": {
             "anyOf": [

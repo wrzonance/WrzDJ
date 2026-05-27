@@ -199,6 +199,7 @@ class AdminPolicyOut(BaseModel):
     llm_apikey_connectors_enabled: bool
     llm_compatible_connector_enabled: bool
     llm_default_connector_id: int | None
+    llm_call_log_retention_days: int
 
 
 class DjPolicyOut(BaseModel):
@@ -226,6 +227,9 @@ class AdminPolicyPatch(BaseModel):
     # Use a sentinel sentinel: clients can send null to clear, or omit to leave unchanged
     llm_default_connector_id: int | None = None
     clear_default: bool = False
+    # Sanity bounds: minimum 7 days (data minimization floor), maximum 365 days
+    # (reporting ceiling). Out-of-range values are rejected at the API level.
+    llm_call_log_retention_days: int | None = Field(None, ge=7, le=365)
 
     @model_validator(mode="after")
     def _check_default_consistency(self) -> AdminPolicyPatch:

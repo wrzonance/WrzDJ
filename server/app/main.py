@@ -30,6 +30,42 @@ logger = logging.getLogger(__name__)
 CORS_ALLOW_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 
 TIDAL_COLLECTION_POLL_INTERVAL_SECONDS = 300  # 5 minutes
+LLM_CALL_LOG_CLEANUP_INTERVAL_SECONDS = 86400  # 24 hours
+
+
+def _run_llm_call_log_cleanup() -> None:
+    """Synchronous daily cleanup of expired llm_call_log rows.
+
+    Reads ``llm_call_log_retention_days`` from system settings each run, so an
+    admin change to the retention window takes effect on the next pass (within
+    24h) without a restart. Executed in a thread to avoid blocking the loop.
+    """
+    from app.db.session import SessionLocal
+    from app.services.llm.connector_storage import purge_call_log_older_than
+    from app.services.system_settings import get_system_settings
+
+    db = SessionLocal()
+    try:
+        retention_days = get_system_settings(db).llm_call_log_retention_days
+        deleted = purge_call_log_older_than(db, retention_days=retention_days)
+        db.commit()
+        if deleted:
+            logger.info(
+                "llm_call_log cleanup deleted %s rows older than %s days",
+                deleted,
+                retention_days,
+            )
+    finally:
+        db.close()
+
+
+async def _llm_call_log_cleanup_loop() -> None:
+    while True:
+        try:
+            await asyncio.to_thread(_run_llm_call_log_cleanup)
+        except Exception:
+            logger.exception("llm_call_log cleanup loop error")
+        await asyncio.sleep(LLM_CALL_LOG_CLEANUP_INTERVAL_SECONDS)
 
 
 def _run_tidal_collection_poll() -> None:
@@ -74,13 +110,18 @@ async def lifespan(app: FastAPI):
         lg = logging.getLogger(name)
         lg.handlers.clear()
         lg.propagate = True
-    task = asyncio.create_task(_tidal_collection_poll_loop())
+    tasks = [
+        asyncio.create_task(_tidal_collection_poll_loop()),
+        asyncio.create_task(_llm_call_log_cleanup_loop()),
+    ]
     try:
         yield
     finally:
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
 
 app = FastAPI(

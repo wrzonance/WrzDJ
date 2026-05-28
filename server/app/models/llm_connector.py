@@ -54,6 +54,29 @@ STATUS_ACTIVE = "active"
 STATUS_AUTH_INVALID = "auth_invalid"
 STATUS_DISABLED = "disabled"
 
+# Health-check status values written to ``last_health_check_status``. Kept here
+# so the API/background loop/admin UI all use the same vocabulary. These are
+# *outcomes*, not connector statuses — a single connector accumulates many
+# health-check rows over its lifetime; only the most recent outcome is stored
+# on the row itself (audit_event rows preserve the full history).
+HEALTH_CHECK_OK = "ok"
+HEALTH_CHECK_AUTH_INVALID = "auth_invalid"
+HEALTH_CHECK_RATE_LIMITED = "rate_limited"
+HEALTH_CHECK_QUOTA_EXCEEDED = "quota_exceeded"
+HEALTH_CHECK_PROVIDER_UNAVAILABLE = "provider_unavailable"
+HEALTH_CHECK_ERROR = "error"
+
+VALID_HEALTH_CHECK_STATUSES = frozenset(
+    {
+        HEALTH_CHECK_OK,
+        HEALTH_CHECK_AUTH_INVALID,
+        HEALTH_CHECK_RATE_LIMITED,
+        HEALTH_CHECK_QUOTA_EXCEEDED,
+        HEALTH_CHECK_PROVIDER_UNAVAILABLE,
+        HEALTH_CHECK_ERROR,
+    }
+)
+
 # Audit event types
 AUDIT_CREATED = "connector_created"
 AUDIT_CREDENTIALS_ROTATED = "connector_credentials_rotated"
@@ -64,6 +87,11 @@ AUDIT_POLICY_CHANGED = "policy_changed"
 AUDIT_HEALTH_CHECK = "connector_health_check"
 AUDIT_DEFAULT_SET = "connector_default_set"
 AUDIT_DEFAULT_UNSET = "connector_default_unset"
+# Emitted by the background monitor when a periodic health check flips a
+# previously-active connector into ``auth_invalid``. Distinct from
+# ``AUDIT_HEALTH_CHECK`` (which is fired on EVERY check, OK or not) so admins
+# can filter to the credential-lifecycle subset.
+AUDIT_HEALTH_CHECK_FAILED = "connector_health_check_failed"
 
 
 class LlmConnector(Base):
@@ -117,6 +145,13 @@ class LlmConnector(Base):
         default=False,
         server_default=text("false"),
     )
+
+    # Health-check observability (issue #346 + #340).
+    # ``last_health_check_at`` is written by every health-check invocation —
+    # the DJ-triggered Test button AND the background monitor. ``last_health_check_status``
+    # records the outcome (see HEALTH_CHECK_* constants).
+    last_health_check_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_health_check_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("user_id", "connector_type", "display_name", name="uq_dj_connector_label"),

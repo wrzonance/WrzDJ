@@ -29,6 +29,16 @@ def _provided(value: str | None) -> bool:
     return isinstance(value, str) and value.strip() != ""
 
 
+HealthCheckStatus = Literal[
+    "ok",
+    "auth_invalid",
+    "rate_limited",
+    "quota_exceeded",
+    "provider_unavailable",
+    "error",
+]
+
+
 class ConnectorOut(BaseModel):
     """Public-safe connector view — never includes the credential blob."""
 
@@ -49,6 +59,9 @@ class ConnectorOut(BaseModel):
     # routing to this connector for the owning DJ instead of falling back to
     # most-recently-used resolution.
     is_default: bool = False
+    # Health-check observability (issues #340 + #346).
+    last_health_check_at: datetime | None = None
+    last_health_check_status: HealthCheckStatus | None = None
 
 
 class AdminConnectorOut(ConnectorOut):

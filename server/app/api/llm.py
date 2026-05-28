@@ -20,7 +20,6 @@ from app.api.deps import get_current_active_user, get_db
 from app.core.rate_limit import limiter
 from app.models.llm_connector import (
     CONNECTOR_TYPE_OPENAI_COMPATIBLE,
-    STATUS_DISABLED,
     VALID_CONNECTOR_TYPES,
 )
 from app.models.user import User
@@ -39,7 +38,6 @@ from app.services.llm.connector_storage import (
     AUDIT_DEFAULT_SET,
     AUDIT_DEFAULT_UNSET,
     AUDIT_DELETED,
-    AUDIT_HEALTH_CHECK,
     audit_event,
     build_create_payload,
     create_connector,
@@ -51,16 +49,7 @@ from app.services.llm.connector_storage import (
     unset_default_for_user,
     update_metadata,
 )
-from app.services.llm.exceptions import (
-    AuthInvalid,
-    LlmError,
-    ProviderUnavailable,
-    QuotaExceeded,
-    RateLimited,
-    ToolTranslationError,
-)
 from app.services.llm.openrouter_models import get_openrouter_models
-from app.services.llm.registry import get_adapter_class
 from app.services.system_settings import get_system_settings
 
 logger = logging.getLogger(__name__)
@@ -105,26 +94,6 @@ def _check_connector_type_allowed(db: Session, connector_type: str) -> None:
                 status_code=403,
                 detail="API-key connectors are disabled by admin policy",
             )
-
-
-def _sanitize_error(exc: Exception) -> tuple[str, str]:
-    """Map an LLM exception to (error_code, user-friendly message).
-
-    Upstream error bodies / stack traces are deliberately NOT included.
-    """
-    if isinstance(exc, AuthInvalid):
-        return "auth_invalid", "Authentication failed against the provider"
-    if isinstance(exc, RateLimited):
-        return "rate_limited", "Provider rate limited the request"
-    if isinstance(exc, QuotaExceeded):
-        return "quota_exceeded", "Provider quota or billing failure"
-    if isinstance(exc, ProviderUnavailable):
-        return "provider_unavailable", "Provider unreachable or timed out"
-    if isinstance(exc, ToolTranslationError):
-        return "tool_translation_error", "Unexpected response shape"
-    if isinstance(exc, LlmError):
-        return "llm_error", "LLM error"
-    return "unknown", "Unknown error"
 
 
 @router.get("/connectors", response_model=list[ConnectorOut])
@@ -323,43 +292,38 @@ async def test_connector(
     user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ) -> ConnectorTestResult:
+    """Run a health check and return a sanitised result.
+
+    Behaviour identical to the background monitor (issue #340), so the
+    ``last_health_check_at`` / ``last_health_check_status`` columns and audit
+    rows are written the same way on every invocation regardless of trigger
+    source. See ``services/llm/health_check.py`` for the shared helper.
+    """
+    from app.services.llm.health_check import run_health_check
+
     row = get_connector_for_user(db, connector_id, user.id)
     if row is None:
         raise HTTPException(status_code=404, detail="Connector not found")
 
-    adapter_cls = get_adapter_class(row.connector_type)
-    adapter = adapter_cls(row)
-
-    audit_event(
-        db,
-        actor_user_id=user.id,
-        target_connector_id=row.id,
-        event_type=AUDIT_HEALTH_CHECK,
-    )
-
-    try:
-        await adapter.health_check()
-    except AuthInvalid as exc:
-        row.status = "auth_invalid"
-        row.last_error = "auth_invalid"
-        db.commit()
-        code, message = _sanitize_error(exc)
-        return ConnectorTestResult(ok=False, error_code=code, message=message)
-    except LlmError as exc:
-        # Don't flip status for transient errors — DJ will see message + retry.
-        code, message = _sanitize_error(exc)
-        db.commit()
-        return ConnectorTestResult(ok=False, error_code=code, message=message)
-    except Exception:  # noqa: BLE001 — sanitised
-        logger.exception("Connector health check failed unexpectedly")
-        db.commit()
-        return ConnectorTestResult(ok=False, error_code="unknown", message="Unknown error")
-
-    row.last_error = None
-    if row.status != STATUS_DISABLED:
-        row.status = "active"
+    outcome = await run_health_check(db, row, actor_user_id=user.id)
     db.commit()
-    return ConnectorTestResult(ok=True)
+
+    if outcome.ok:
+        return ConnectorTestResult(ok=True)
+    # Reuse the same code → message mapping the gateway uses for transient
+    # errors. The helper has already sanitised any upstream payload.
+    message = {
+        "auth_invalid": "Authentication failed against the provider",
+        "rate_limited": "Provider rate limited the request",
+        "quota_exceeded": "Provider quota or billing failure",
+        "provider_unavailable": "Provider unreachable or timed out",
+        "error": "Unknown error",
+    }.get(outcome.status, "Unknown error")
+    return ConnectorTestResult(
+        ok=False,
+        error_code=outcome.error_code or outcome.status,
+        message=message,
+    )
 
 
 @router.post(

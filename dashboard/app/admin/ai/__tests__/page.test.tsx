@@ -164,6 +164,8 @@ describe('AdminAISettingsPage', () => {
         last_used_at: null,
         last_error: null,
         is_default: false,
+        last_health_check_at: null,
+        last_health_check_status: null,
       },
     ]);
     vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({
@@ -321,6 +323,8 @@ describe('AdminAISettingsPage', () => {
         last_used_at: null,
         last_error: null,
         is_default: false,
+        last_health_check_at: null,
+        last_health_check_status: null,
       },
     ]);
     vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({ days: 30, rows: [] });
@@ -338,6 +342,8 @@ describe('AdminAISettingsPage', () => {
       last_used_at: null,
       last_error: null,
       is_default: false,
+      last_health_check_at: null,
+      last_health_check_status: null,
     });
     vi.spyOn(window, 'confirm').mockReturnValue(true);
 
@@ -469,5 +475,166 @@ describe('AdminAISettingsPage', () => {
         expect.objectContaining({ llm_call_log_retention_days: 7 }),
       ),
     );
+  });
+
+  // -------- issue #346: surface health-check columns in connectors table --------
+  it('renders last-health-check column with a status badge per connector', async () => {
+    vi.spyOn(api, 'getAISettings').mockResolvedValue({
+      llm_enabled: true,
+      llm_model: 'claude-haiku-4-5-20251001',
+      llm_rate_limit_per_minute: 3,
+      api_key_configured: true,
+      api_key_masked: '...abcd',
+    });
+    vi.spyOn(api, 'getAIModels').mockResolvedValue({ models: [] });
+    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: true,
+      llm_default_connector_id: null,
+      llm_call_log_retention_days: 30,
+    });
+    vi.spyOn(api, 'listAllLlmConnectors').mockResolvedValue([
+      {
+        id: 1,
+        user_id: 1,
+        dj_username: 'alpha',
+        connector_type: 'openai_apikey',
+        display_name: 'Alpha key',
+        status: 'active',
+        base_url_plain: null,
+        model_hint: null,
+        created_at: '2026-05-01T00:00:00Z',
+        updated_at: '2026-05-01T00:00:00Z',
+        last_used_at: null,
+        last_error: null,
+        is_default: false,
+        last_health_check_at: '2026-05-28T10:00:00Z',
+        last_health_check_status: 'ok',
+      },
+      {
+        id: 2,
+        user_id: 2,
+        dj_username: 'bravo',
+        connector_type: 'anthropic_apikey',
+        display_name: 'Bravo key',
+        status: 'auth_invalid',
+        base_url_plain: null,
+        model_hint: null,
+        created_at: '2026-05-01T00:00:00Z',
+        updated_at: '2026-05-01T00:00:00Z',
+        last_used_at: null,
+        last_error: 'auth_invalid',
+        is_default: false,
+        last_health_check_at: '2026-05-28T09:00:00Z',
+        last_health_check_status: 'auth_invalid',
+      },
+      {
+        id: 3,
+        user_id: 3,
+        dj_username: 'charlie',
+        connector_type: 'openai_apikey',
+        display_name: 'Charlie key',
+        status: 'active',
+        base_url_plain: null,
+        model_hint: null,
+        created_at: '2026-05-01T00:00:00Z',
+        updated_at: '2026-05-01T00:00:00Z',
+        last_used_at: null,
+        last_error: null,
+        is_default: false,
+        last_health_check_at: null,
+        last_health_check_status: null,
+      },
+    ]);
+    vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({ days: 30, rows: [] });
+
+    render(<AdminAISettingsPage />);
+
+    await waitFor(() => expect(screen.getByText('Alpha key')).toBeInTheDocument());
+    // Column header rendered with sortable affordance
+    expect(screen.getByText('Last health check')).toBeInTheDocument();
+    // Each badge visible
+    expect(screen.getByText('OK')).toBeInTheDocument();
+    expect(screen.getByText('Auth invalid')).toBeInTheDocument();
+    expect(screen.getByText('Never checked')).toBeInTheDocument();
+  });
+
+  it('toggles sort direction when clicking the last-health-check header', async () => {
+    vi.spyOn(api, 'getAISettings').mockResolvedValue({
+      llm_enabled: true,
+      llm_model: 'claude-haiku-4-5-20251001',
+      llm_rate_limit_per_minute: 3,
+      api_key_configured: true,
+      api_key_masked: '...abcd',
+    });
+    vi.spyOn(api, 'getAIModels').mockResolvedValue({ models: [] });
+    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: true,
+      llm_default_connector_id: null,
+      llm_call_log_retention_days: 30,
+    });
+    vi.spyOn(api, 'listAllLlmConnectors').mockResolvedValue([
+      {
+        id: 1,
+        user_id: 1,
+        dj_username: 'older',
+        connector_type: 'openai_apikey',
+        display_name: 'Older check',
+        status: 'active',
+        base_url_plain: null,
+        model_hint: null,
+        created_at: '2026-05-01T00:00:00Z',
+        updated_at: '2026-05-01T00:00:00Z',
+        last_used_at: null,
+        last_error: null,
+        is_default: false,
+        last_health_check_at: '2026-05-01T00:00:00Z',
+        last_health_check_status: 'ok',
+      },
+      {
+        id: 2,
+        user_id: 2,
+        dj_username: 'newer',
+        connector_type: 'openai_apikey',
+        display_name: 'Newer check',
+        status: 'active',
+        base_url_plain: null,
+        model_hint: null,
+        created_at: '2026-05-01T00:00:00Z',
+        updated_at: '2026-05-01T00:00:00Z',
+        last_used_at: null,
+        last_error: null,
+        is_default: false,
+        last_health_check_at: '2026-05-28T00:00:00Z',
+        last_health_check_status: 'ok',
+      },
+    ]);
+    vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({ days: 30, rows: [] });
+
+    render(<AdminAISettingsPage />);
+
+    await waitFor(() => expect(screen.getByText('Newer check')).toBeInTheDocument());
+
+    const findRow = (text: string) => {
+      const td = screen.getByText(text);
+      const tr = td.closest('tr');
+      if (!tr) throw new Error(`row for ${text} not found`);
+      return tr;
+    };
+
+    // Default sort = last_health_check_at DESC → newer first.
+    const tbody = findRow('Newer check').parentElement!;
+    const beforeRows = Array.from(tbody.querySelectorAll('tr'));
+    const beforeOrder = beforeRows.map((r) => r.querySelector('td')!.textContent);
+    expect(beforeOrder).toEqual(['newer', 'older']);
+
+    // Click the Last health check header → should flip to ASC (older first).
+    fireEvent.click(screen.getByText('Last health check'));
+    await waitFor(() => {
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+      const order = rows.map((r) => r.querySelector('td')!.textContent);
+      expect(order).toEqual(['older', 'newer']);
+    });
   });
 });

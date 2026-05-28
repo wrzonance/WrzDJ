@@ -7267,6 +7267,20 @@ export interface operations {
                     "application/json": components["schemas"]["ConnectorOut"];
                 };
             };
+            /** @description Connector cannot be set as default (e.g. disabled or auth_invalid). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Connector not found for current user. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -7297,6 +7311,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ConnectorOut"];
                 };
+            };
+            /** @description Connector not found for current user. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

@@ -362,7 +362,14 @@ async def test_connector(
     return ConnectorTestResult(ok=True)
 
 
-@router.post("/connectors/{connector_id}/default", response_model=ConnectorOut)
+@router.post(
+    "/connectors/{connector_id}/default",
+    response_model=ConnectorOut,
+    responses={
+        400: {"description": "Connector cannot be set as default (e.g. disabled or auth_invalid)."},
+        404: {"description": "Connector not found for current user."},
+    },
+)
 @limiter.limit("30/minute")
 def set_connector_as_default(
     request: FastAPIRequest,
@@ -406,7 +413,13 @@ def set_connector_as_default(
     return ConnectorOut.model_validate(row)
 
 
-@router.delete("/connectors/{connector_id}/default", response_model=ConnectorOut)
+@router.delete(
+    "/connectors/{connector_id}/default",
+    response_model=ConnectorOut,
+    responses={
+        404: {"description": "Connector not found for current user."},
+    },
+)
 @limiter.limit("30/minute")
 def unset_connector_as_default(
     request: FastAPIRequest,

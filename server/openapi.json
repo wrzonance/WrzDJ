@@ -10674,6 +10674,9 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "description": "Connector not found for current user."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -10719,6 +10722,12 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "description": "Connector cannot be set as default (e.g. disabled or auth_invalid)."
+          },
+          "404": {
+            "description": "Connector not found for current user."
           },
           "422": {
             "content": {

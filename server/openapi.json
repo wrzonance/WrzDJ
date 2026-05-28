@@ -265,6 +265,37 @@
             ],
             "title": "Last Error"
           },
+          "last_health_check_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Health Check At"
+          },
+          "last_health_check_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ok",
+                  "auth_invalid",
+                  "rate_limited",
+                  "quota_exceeded",
+                  "provider_unavailable",
+                  "error"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Health Check Status"
+          },
           "last_used_at": {
             "anyOf": [
               {
@@ -316,6 +347,8 @@
           "id",
           "is_default",
           "last_error",
+          "last_health_check_at",
+          "last_health_check_status",
           "last_used_at",
           "model_hint",
           "status",
@@ -2375,6 +2408,37 @@
             ],
             "title": "Last Error"
           },
+          "last_health_check_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Health Check At"
+          },
+          "last_health_check_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ok",
+                  "auth_invalid",
+                  "rate_limited",
+                  "quota_exceeded",
+                  "provider_unavailable",
+                  "error"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Health Check Status"
+          },
           "last_used_at": {
             "anyOf": [
               {
@@ -2425,6 +2489,8 @@
           "id",
           "is_default",
           "last_error",
+          "last_health_check_at",
+          "last_health_check_status",
           "last_used_at",
           "model_hint",
           "status",
@@ -10753,6 +10819,7 @@
     },
     "/api/llm/connectors/{connector_id}/test": {
       "post": {
+        "description": "Run a health check and return a sanitised result.\n\nBehaviour identical to the background monitor (issue #340), so the\n``last_health_check_at`` / ``last_health_check_status`` columns and audit\nrows are written the same way on every invocation regardless of trigger\nsource. See ``services/llm/health_check.py`` for the shared helper.",
         "operationId": "test_connector_api_llm_connectors__connector_id__test_post",
         "parameters": [
           {

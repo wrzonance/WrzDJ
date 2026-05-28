@@ -49,6 +49,151 @@ const AUDIT_EVENT_TYPES: Array<{ value: string; label: string }> = [
 
 const AUDIT_PAGE_SIZE = 50;
 
+// Map health-check status to a colour family. Active=green, transient/quota
+// issues=amber, auth/error=red. ``null`` (never checked) is treated as
+// "neutral" so the table doesn't scream red on first load.
+const HEALTH_BADGE_STYLES: Record<
+  string,
+  { background: string; color: string; label: string }
+> = {
+  ok: { background: 'var(--color-success-subtle)', color: 'var(--color-success)', label: 'OK' },
+  auth_invalid: {
+    background: 'var(--color-danger-subtle)',
+    color: 'var(--color-danger)',
+    label: 'Auth invalid',
+  },
+  error: {
+    background: 'var(--color-danger-subtle)',
+    color: 'var(--color-danger)',
+    label: 'Error',
+  },
+  rate_limited: {
+    background: 'var(--color-warning-subtle, #2a2418)',
+    color: 'var(--color-warning, #c08418)',
+    label: 'Rate limited',
+  },
+  quota_exceeded: {
+    background: 'var(--color-warning-subtle, #2a2418)',
+    color: 'var(--color-warning, #c08418)',
+    label: 'Quota exceeded',
+  },
+  provider_unavailable: {
+    background: 'var(--color-warning-subtle, #2a2418)',
+    color: 'var(--color-warning, #c08418)',
+    label: 'Provider down',
+  },
+};
+
+type ConnectorSortKey = 'dj_username' | 'last_used_at' | 'last_health_check_at';
+
+function sortConnectors(
+  rows: LlmAdminConnector[],
+  sort: { key: ConnectorSortKey; direction: 'asc' | 'desc' },
+): LlmAdminConnector[] {
+  const factor = sort.direction === 'asc' ? 1 : -1;
+  // Treat ``null`` timestamps as "always last" regardless of direction so an
+  // admin sorting by recency doesn't get a wall of "never checked" rows at
+  // the top — they live below the real signal.
+  const tsValue = (v: string | null | undefined): number => {
+    if (!v) return sort.direction === 'asc' ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+    return new Date(v).getTime();
+  };
+  const copy = [...rows];
+  copy.sort((a, b) => {
+    if (sort.key === 'dj_username') {
+      const cmp = a.dj_username.localeCompare(b.dj_username);
+      if (cmp !== 0) return cmp * factor;
+    } else {
+      const cmp = tsValue(a[sort.key]) - tsValue(b[sort.key]);
+      if (cmp !== 0) return cmp * factor;
+    }
+    // Stable tiebreak on id so re-renders don't reshuffle equal-keyed rows.
+    return a.id - b.id;
+  });
+  return copy;
+}
+
+function PlainHeader({ label }: { label: string }) {
+  return (
+    <th
+      style={{ textAlign: 'left', padding: '0.5rem', borderBottom: '1px solid var(--border-color)' }}
+    >
+      {label}
+    </th>
+  );
+}
+
+function SortableHeader({
+  label,
+  sortKey,
+  activeKey,
+  direction,
+  onSort,
+}: {
+  label: string;
+  sortKey: ConnectorSortKey;
+  activeKey: ConnectorSortKey;
+  direction: 'asc' | 'desc';
+  onSort: (key: ConnectorSortKey, direction: 'asc' | 'desc') => void;
+}) {
+  const isActive = activeKey === sortKey;
+  const arrow = isActive ? (direction === 'asc' ? '▲' : '▼') : '';
+  return (
+    <th
+      onClick={() => {
+        if (isActive) {
+          onSort(sortKey, direction === 'asc' ? 'desc' : 'asc');
+        } else {
+          // First click on a new column goes to descending — newest-first is
+          // the more useful default for both ``last_used_at`` and
+          // ``last_health_check_at``.
+          onSort(sortKey, 'desc');
+        }
+      }}
+      style={{
+        textAlign: 'left',
+        padding: '0.5rem',
+        borderBottom: '1px solid var(--border-color)',
+        cursor: 'pointer',
+        userSelect: 'none',
+      }}
+      aria-sort={isActive ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+    >
+      {label}
+      {arrow ? <span style={{ marginLeft: '0.25rem', fontSize: '0.75rem' }}>{arrow}</span> : null}
+    </th>
+  );
+}
+
+function HealthBadge({ status }: { status: string | null }) {
+  if (!status) {
+    return (
+      <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>Never checked</span>
+    );
+  }
+  const style = HEALTH_BADGE_STYLES[status] ?? {
+    background: 'var(--color-warning-subtle, #2a2418)',
+    color: 'var(--text-secondary)',
+    label: status,
+  };
+  return (
+    <span
+      style={{
+        display: 'inline-block',
+        padding: '0.15rem 0.6rem',
+        borderRadius: '9999px',
+        fontSize: '0.75rem',
+        fontWeight: 600,
+        background: style.background,
+        color: style.color,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {style.label}
+    </span>
+  );
+}
+
 const AUDIT_DAY_OPTIONS: Array<{ value: number; label: string }> = [
   { value: 7, label: 'Last 7 days' },
   { value: 30, label: 'Last 30 days' },
@@ -68,6 +213,14 @@ export default function AdminAISettingsPage() {
   const [connectors, setConnectors] = useState<LlmAdminConnector[]>([]);
   const [usage, setUsage] = useState<LlmAdminUsage | null>(null);
   const [policyMessage, setPolicyMessage] = useState('');
+
+  // Connectors-table sort state (issue #346)
+  // Default-sort by health-check-recency so an admin scanning the table sees
+  // the most-recently-verified rows up top — easiest first-pass triage.
+  const [connectorSort, setConnectorSort] = useState<{
+    key: ConnectorSortKey;
+    direction: 'asc' | 'desc';
+  }>({ key: 'last_health_check_at', direction: 'desc' });
 
   // Audit trail state (issue #341)
   const [audit, setAudit] = useState<LlmAdminAudit | null>(null);
@@ -473,6 +626,11 @@ export default function AdminAISettingsPage() {
       {/* ====== Per-DJ connectors table ====== */}
       <div className="card" style={{ marginTop: '2rem' }}>
         <h2 style={{ marginTop: 0 }}>Per-DJ connectors</h2>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: 0 }}>
+          Background monitor verifies each connector every {' '}
+          <code>LLM_HEALTH_CHECK_INTERVAL_HOURS</code> hours (default 6). DJ-triggered
+          tests update the same columns.
+        </p>
         {connectors.length === 0 ? (
           <p style={{ color: 'var(--text-secondary)' }}>No DJs have connected an LLM yet.</p>
         ) : (
@@ -480,15 +638,36 @@ export default function AdminAISettingsPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  {['DJ', 'Type', 'Name', 'Status', 'Last used', 'Actions'].map((h) => (
-                    <th key={h} style={{ textAlign: 'left', padding: '0.5rem', borderBottom: '1px solid var(--border-color)' }}>
-                      {h}
-                    </th>
-                  ))}
+                  <SortableHeader
+                    label="DJ"
+                    sortKey="dj_username"
+                    activeKey={connectorSort.key}
+                    direction={connectorSort.direction}
+                    onSort={(k, d) => setConnectorSort({ key: k, direction: d })}
+                  />
+                  <PlainHeader label="Type" />
+                  <PlainHeader label="Name" />
+                  <PlainHeader label="Status" />
+                  <SortableHeader
+                    label="Last used"
+                    sortKey="last_used_at"
+                    activeKey={connectorSort.key}
+                    direction={connectorSort.direction}
+                    onSort={(k, d) => setConnectorSort({ key: k, direction: d })}
+                  />
+                  <SortableHeader
+                    label="Last health check"
+                    sortKey="last_health_check_at"
+                    activeKey={connectorSort.key}
+                    direction={connectorSort.direction}
+                    onSort={(k, d) => setConnectorSort({ key: k, direction: d })}
+                  />
+                  <PlainHeader label="Result" />
+                  <PlainHeader label="Actions" />
                 </tr>
               </thead>
               <tbody>
-                {connectors.map((c) => (
+                {sortConnectors(connectors, connectorSort).map((c) => (
                   <tr key={c.id}>
                     <td style={{ padding: '0.5rem' }}>{c.dj_username}</td>
                     <td style={{ padding: '0.5rem' }}>
@@ -498,6 +677,14 @@ export default function AdminAISettingsPage() {
                     <td style={{ padding: '0.5rem' }}>{c.status}</td>
                     <td style={{ padding: '0.5rem', color: 'var(--text-secondary)' }}>
                       {c.last_used_at ? new Date(c.last_used_at).toLocaleString() : '—'}
+                    </td>
+                    <td style={{ padding: '0.5rem', color: 'var(--text-secondary)' }}>
+                      {c.last_health_check_at
+                        ? new Date(c.last_health_check_at).toLocaleString()
+                        : '—'}
+                    </td>
+                    <td style={{ padding: '0.5rem' }}>
+                      <HealthBadge status={c.last_health_check_status ?? null} />
                     </td>
                     <td style={{ padding: '0.5rem' }}>
                       {c.status !== 'disabled' && (

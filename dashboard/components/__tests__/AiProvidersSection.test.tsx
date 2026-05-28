@@ -47,6 +47,8 @@ function makeConnector(overrides: Partial<LlmConnector> = {}): LlmConnector {
     last_used_at: null,
     last_error: null,
     is_default: false,
+    last_health_check_at: null,
+    last_health_check_status: null,
     ...overrides,
   };
 }

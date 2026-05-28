@@ -1493,7 +1493,15 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Test Connector */
+        /**
+         * Test Connector
+         * @description Run a health check and return a sanitised result.
+         *
+         *     Behaviour identical to the background monitor (issue #340), so the
+         *     ``last_health_check_at`` / ``last_health_check_status`` columns and audit
+         *     rows are written the same way on every invocation regardless of trigger
+         *     source. See ``services/llm/health_check.py`` for the shared helper.
+         */
         post: operations["test_connector_api_llm_connectors__connector_id__test_post"];
         delete?: never;
         options?: never;
@@ -2523,6 +2531,10 @@ export interface components {
             is_default: boolean;
             /** Last Error */
             last_error: string | null;
+            /** Last Health Check At */
+            last_health_check_at: string | null;
+            /** Last Health Check Status */
+            last_health_check_status: ("ok" | "auth_invalid" | "rate_limited" | "quota_exceeded" | "provider_unavailable" | "error") | null;
             /** Last Used At */
             last_used_at: string | null;
             /** Model Hint */
@@ -3227,6 +3239,10 @@ export interface components {
             is_default: boolean;
             /** Last Error */
             last_error: string | null;
+            /** Last Health Check At */
+            last_health_check_at: string | null;
+            /** Last Health Check Status */
+            last_health_check_status: ("ok" | "auth_invalid" | "rate_limited" | "quota_exceeded" | "provider_unavailable" | "error") | null;
             /** Last Used At */
             last_used_at: string | null;
             /** Model Hint */

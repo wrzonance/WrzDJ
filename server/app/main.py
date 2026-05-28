@@ -110,9 +110,14 @@ async def lifespan(app: FastAPI):
         lg = logging.getLogger(name)
         lg.handlers.clear()
         lg.propagate = True
+    # Import lazily so test runs that mock out the loop module don't trigger
+    # adapter imports at startup-time.
+    from app.services.llm.health_monitor import health_monitor_loop
+
     tasks = [
         asyncio.create_task(_tidal_collection_poll_loop()),
         asyncio.create_task(_llm_call_log_cleanup_loop()),
+        asyncio.create_task(health_monitor_loop()),
     ]
     try:
         yield

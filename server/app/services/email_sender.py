@@ -78,3 +78,59 @@ def send_email_confirmation(to_address: str, confirmation_url: str) -> None:
         raise EmailSendError(str(exc)) from exc
 
     _logger.info("email.confirmation_sent to_hash=%s", to_address[:3] + "***")
+
+
+def send_connector_auth_invalid_notification(
+    to_address: str, display_name: str, connector_type: str
+) -> None:
+    """Notify a DJ that their LLM connector failed a background health check.
+
+    Triggered by the periodic connector health monitor (issue #340) when a
+    previously-active connector transitions to ``auth_invalid``. Never
+    includes credential material — only the display name and provider type
+    so the DJ can identify which key to rotate.
+    """
+    settings = get_settings()
+
+    if not settings.resend_api_key or not settings.email_from_address:
+        raise EmailNotConfiguredError("Resend API key or from address is not configured")
+
+    # Strip control characters defensively — display_name is user-supplied
+    # (DJ-set) and already validated at creation, but the connector_type comes
+    # from the registry. Belt-and-braces for an email body.
+    safe_display = "".join(c for c in (display_name or "") if c.isprintable())
+    safe_type = "".join(c for c in (connector_type or "") if c.isprintable())
+
+    resend.api_key = settings.resend_api_key
+
+    try:
+        resend.Emails.send(
+            {
+                "from": settings.email_from_address,
+                "to": [to_address],
+                "subject": "Your WrzDJ AI connector needs attention",
+                "text": (
+                    f'Your AI connector "{safe_display}" ({safe_type}) failed a '
+                    f"health check and was marked invalid.\n\n"
+                    f"This usually means the API key was revoked, expired, or the "
+                    f"upstream account is no longer in good standing.\n\n"
+                    f"To restore AI features, sign in to WrzDJ and rotate the "
+                    f"credentials on your AI Settings page.\n\n"
+                    f"If this looks wrong, you can re-test the connector from the "
+                    f"same page — a successful test restores its status automatically.\n"
+                ),
+            }
+        )
+    except Exception as exc:
+        _logger.error(
+            "email.connector_auth_invalid_send_failed to_hash=%s error=%s",
+            to_address[:3] + "***",
+            exc,
+        )
+        raise EmailSendError(str(exc)) from exc
+
+    _logger.info(
+        "email.connector_auth_invalid_sent to_hash=%s connector_type=%s",
+        to_address[:3] + "***",
+        safe_type,
+    )

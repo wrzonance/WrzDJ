@@ -93,15 +93,27 @@ class TestVerifyStatusEndpoint:
     def test_tampered_signature_returns_false(self, client: TestClient, db: Session):
         from fastapi import Response
 
-        from app.services.human_verification import COOKIE_NAME, issue_human_cookie
+        from app.services.human_verification import (
+            COOKIE_NAME,
+            _b64decode,
+            _b64encode,
+            issue_human_cookie,
+        )
 
         guest = _make_guest(db, "tamper")
         helper_resp = Response()
         issue_human_cookie(helper_resp, guest.id)
         raw = helper_resp.headers["set-cookie"]
         cookie_value = raw.split(f"{COOKIE_NAME}=", 1)[1].split(";", 1)[0]
-        # Flip the last char of the signature portion
-        bad = cookie_value[:-1] + ("A" if cookie_value[-1] != "A" else "B")
+        # Tamper at the decoded-bytes level so the mutation is guaranteed to
+        # change sig_bytes. Flipping the last base64url char only touches the
+        # high bits of the trailing byte (low bits are discarded on decode), so
+        # it frequently round-trips to the SAME signature — that was the flaky
+        # tamper vector. Flip a whole byte instead. (Regression for #364.)
+        payload_part, sig_part = cookie_value.rsplit(".", 1)
+        sig = bytearray(_b64decode(sig_part))
+        sig[0] ^= 0xFF
+        bad = f"{payload_part}.{_b64encode(bytes(sig))}"
 
         client.cookies.clear()
         client.cookies.set(COOKIE_NAME, bad)

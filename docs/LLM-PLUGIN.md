@@ -15,7 +15,7 @@ This document is the contract that third-party plug-ins write against.
 
 ## Architecture Overview
 
-```
+```text
 Caller (recommendation engine, agentic feature)
         │
         ▼

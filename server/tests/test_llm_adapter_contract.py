@@ -143,12 +143,11 @@ async def test_adapter_raises_typed_error_on_malformed_credentials(
 
     # We expect AuthInvalid (the most specific subtype). Some adapters with
     # additional credential fields might raise a different LlmError subclass —
-    # accept any of them, but never a non-LlmError.
-    with pytest.raises(LlmError) as exc_info:
+    # accept any of them, but never a non-LlmError. The pytest.raises(LlmError)
+    # context manager is the only assertion needed: a non-LlmError exception
+    # would propagate out and fail the test.
+    with pytest.raises(LlmError):
         await adapter.chat(request)
-    # Most adapters surface this as AuthInvalid. Make that the default
-    # expectation; sub-typing keeps the contract precise.
-    assert isinstance(exc_info.value, AuthInvalid | LlmError)
 
 
 # ---------------------------------------------------------------------------

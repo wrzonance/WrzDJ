@@ -79,7 +79,21 @@ def pooled_engine(monkeypatch):
 
 
 def _make_request(code: str) -> StarletteRequest:
-    """Minimal ASGI scope for a GET that reports as connected."""
+    """Minimal ASGI scope for a GET that reports as a live, idle client.
+
+    The nested ``receive`` callable must NOT return ``http.disconnect``: doing
+    so makes ``StarletteRequest.is_disconnected()`` true on the first generator
+    iteration and the SSE generator exits before it can ever await
+    ``queue.get()``. That would mean the concurrency test (below) is asserting
+    that *instantly-disconnected* streams hold zero pool connections — trivially
+    true and useless as a regression for issue #356.
+
+    Instead, ``receive`` suspends forever on a never-set ``asyncio.Event``,
+    which matches a real live, idle SSE client that has opened the connection
+    and is simply waiting for server-sent events. The handler then suspends on
+    ``queue.get()`` as intended, and we can meaningfully assert
+    ``pool.checkedout() == 0`` across N concurrent idle streams.
+    """
     scope = {
         "type": "http",
         "method": "GET",
@@ -88,7 +102,12 @@ def _make_request(code: str) -> StarletteRequest:
         "query_string": b"",
     }
 
-    async def receive():  # pragma: no cover - never drained in these tests
+    never_disconnect = asyncio.Event()
+
+    async def receive():  # pragma: no cover - suspended forever in these tests
+        await never_disconnect.wait()
+        # Unreachable: the event is never set. Return value satisfies type
+        # checkers; runtime suspends indefinitely above.
         return {"type": "http.disconnect"}
 
     return StarletteRequest(scope, receive)
@@ -134,11 +153,26 @@ def test_n_concurrent_idle_streams_hold_zero_pool_connections(pooled_engine):
         primer_tasks = [asyncio.ensure_future(g.__anext__()) for g in generators]
         await asyncio.sleep(0.05)
 
+        # Sanity-check that streams are actually suspended (not instantly
+        # exited). If receive() returns http.disconnect immediately, every
+        # primer would already be done here and the pool-connection assertion
+        # below would pass for the wrong reason.
+        assert any(not t.done() for t in primer_tasks), (
+            "streams did not remain open/idle — receive() must suspend, not "
+            "return http.disconnect immediately"
+        )
+
         checked_out = engine.pool.checkedout()
 
-        # Cancel the primers and close generators to release subscriptions.
+        # Cancel the primers, await their cancellation so the generators are
+        # no longer running, then close them to release subscriptions.
         for t in primer_tasks:
             t.cancel()
+        for t in primer_tasks:
+            try:
+                await t
+            except (asyncio.CancelledError, BaseException):  # noqa: BLE001
+                pass
         for g in generators:
             await g.aclose()
 

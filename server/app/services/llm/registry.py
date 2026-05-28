@@ -64,5 +64,15 @@ def _bootstrap() -> None:
         xai_apikey,
     )
 
+    # Optional third-party plug-in load: if LLM_PLUGIN_DIR is set, import every
+    # .py file in that directory. Built-in adapters are loaded first so a
+    # plug-in can never shadow a built-in (the registry refuses
+    # double-registration, surfacing a clear startup error instead of silently
+    # overriding the production adapter). Plug-in load failures are logged but
+    # never crash the backend — see app.services.llm.plugin_loader.
+    from app.services.llm.plugin_loader import load_plugins_from_env
+
+    load_plugins_from_env()
+
 
 _bootstrap()

@@ -11,6 +11,7 @@ See docs/superpowers/specs/2026-05-24-admin-ai-oauth-design.md §4.2.
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     ForeignKey,
     Index,
@@ -18,6 +19,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -60,6 +62,8 @@ AUDIT_REVOKED_BY_ADMIN = "connector_revoked_by_admin"
 AUDIT_AUTH_INVALID_OBSERVED = "auth_invalid_observed"
 AUDIT_POLICY_CHANGED = "policy_changed"
 AUDIT_HEALTH_CHECK = "connector_health_check"
+AUDIT_DEFAULT_SET = "connector_default_set"
+AUDIT_DEFAULT_UNSET = "connector_default_unset"
 
 
 class LlmConnector(Base):
@@ -102,9 +106,33 @@ class LlmConnector(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_error: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    # Per-DJ explicit default. At most one connector per user_id may have
+    # is_default=True — enforced at the DB layer via a partial unique index
+    # (Postgres) and at the service layer via clear-then-set semantics. When
+    # set, the gateway prefers this connector over the MRU heuristic. See
+    # issue #336.
+    is_default: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+
     __table_args__ = (
         UniqueConstraint("user_id", "connector_type", "display_name", name="uq_dj_connector_label"),
         Index("ix_user_active", "user_id", "status"),
+        # Partial unique index — only enforced on Postgres. SQLite ignores
+        # the postgresql_where clause but still creates an unfiltered index;
+        # since the service layer clears siblings before flipping a row to
+        # True, that is harmless. The migration uses the same clause so the
+        # CI ``alembic check`` step stays clean on Postgres.
+        Index(
+            "ix_llm_connectors_user_default_unique",
+            "user_id",
+            unique=True,
+            postgresql_where=text("is_default"),
+            sqlite_where=text("is_default"),
+        ),
     )
 
 

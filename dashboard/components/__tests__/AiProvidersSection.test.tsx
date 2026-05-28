@@ -46,6 +46,7 @@ function makeConnector(overrides: Partial<LlmConnector> = {}): LlmConnector {
     updated_at: NOW,
     last_used_at: null,
     last_error: null,
+    is_default: false,
     ...overrides,
   };
 }
@@ -329,6 +330,103 @@ describe('AiProvidersSection', () => {
         model_hint: 'openai/gpt-4o-mini',
       }),
     );
+  });
+
+  // ---------- per-DJ default (issue #336) ----------
+
+  it('shows the Default badge on the pinned connector', async () => {
+    vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([
+      makeConnector({ id: 1, display_name: 'Pinned', is_default: true }),
+      makeConnector({ id: 2, display_name: 'Other', is_default: false }),
+    ]);
+    vi.spyOn(api, 'getLlmPolicy').mockRejectedValue(new Error('forbidden'));
+
+    render(<AiProvidersSection />);
+
+    await waitFor(() => expect(screen.getByText('Pinned')).toBeInTheDocument());
+    // The badge is rendered next to the display name.
+    expect(screen.getByText('Default')).toBeInTheDocument();
+  });
+
+  it('clicking the radio on an unpinned connector calls setDefault', async () => {
+    vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([
+      makeConnector({ id: 1, display_name: 'A', is_default: true }),
+      makeConnector({ id: 2, display_name: 'B', is_default: false }),
+    ]);
+    vi.spyOn(api, 'getLlmPolicy').mockRejectedValue(new Error('forbidden'));
+    const setSpy = vi
+      .spyOn(api, 'setLlmConnectorDefault')
+      .mockResolvedValue(
+        makeConnector({ id: 2, display_name: 'B', is_default: true }),
+      );
+
+    render(<AiProvidersSection />);
+
+    await waitFor(() => expect(screen.getByText('B')).toBeInTheDocument());
+    // The radio for connector B is unchecked; click to pin it.
+    const radioB = screen.getByLabelText('Set as default');
+    fireEvent.click(radioB);
+
+    await waitFor(() => expect(setSpy).toHaveBeenCalledWith(2));
+  });
+
+  it('clicking Unpin on the pinned connector calls unsetDefault', async () => {
+    vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([
+      makeConnector({ id: 1, display_name: 'A', is_default: true }),
+    ]);
+    vi.spyOn(api, 'getLlmPolicy').mockRejectedValue(new Error('forbidden'));
+    const unsetSpy = vi
+      .spyOn(api, 'unsetLlmConnectorDefault')
+      .mockResolvedValue(makeConnector({ id: 1, display_name: 'A', is_default: false }));
+
+    render(<AiProvidersSection />);
+
+    await waitFor(() => expect(screen.getByText('A')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Unpin' }));
+
+    await waitFor(() => expect(unsetSpy).toHaveBeenCalledWith(1));
+  });
+
+  it('disables the radio on inactive connectors', async () => {
+    vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([
+      makeConnector({
+        id: 1,
+        display_name: 'Broken',
+        status: 'auth_invalid',
+        is_default: false,
+      }),
+    ]);
+    vi.spyOn(api, 'getLlmPolicy').mockRejectedValue(new Error('forbidden'));
+
+    render(<AiProvidersSection />);
+
+    await waitFor(() => expect(screen.getByText('Broken')).toBeInTheDocument());
+    const radio = screen.getByLabelText('Set as default') as HTMLInputElement;
+    expect(radio).toBeDisabled();
+  });
+
+  it('optimistically clears the previous default when pinning a new one', async () => {
+    vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([
+      makeConnector({ id: 1, user_id: 42, display_name: 'A', is_default: true }),
+      makeConnector({ id: 2, user_id: 42, display_name: 'B', is_default: false }),
+    ]);
+    vi.spyOn(api, 'getLlmPolicy').mockRejectedValue(new Error('forbidden'));
+    vi.spyOn(api, 'setLlmConnectorDefault').mockResolvedValue(
+      makeConnector({ id: 2, user_id: 42, display_name: 'B', is_default: true }),
+    );
+
+    render(<AiProvidersSection />);
+
+    await waitFor(() => expect(screen.getByText('B')).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText('Set as default'));
+
+    // After the optimistic update, the Default badge should sit next to B, not A.
+    await waitFor(() => {
+      const badge = screen.getByText('Default');
+      // Badge is right beside the display name — walk up to the card.
+      const card = badge.closest('.card');
+      expect(card?.textContent).toContain('B');
+    });
   });
 
   it('deletes after confirmation', async () => {

@@ -163,6 +163,7 @@ describe('AdminAISettingsPage', () => {
         updated_at: '2026-05-01T00:00:00Z',
         last_used_at: null,
         last_error: null,
+        is_default: false,
       },
     ]);
     vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({
@@ -319,6 +320,7 @@ describe('AdminAISettingsPage', () => {
         updated_at: '2026-05-01T00:00:00Z',
         last_used_at: null,
         last_error: null,
+        is_default: false,
       },
     ]);
     vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({ days: 30, rows: [] });
@@ -335,6 +337,7 @@ describe('AdminAISettingsPage', () => {
       updated_at: '2026-05-01T00:00:00Z',
       last_used_at: null,
       last_error: null,
+      is_default: false,
     });
     vi.spyOn(window, 'confirm').mockReturnValue(true);
 

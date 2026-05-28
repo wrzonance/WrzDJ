@@ -216,6 +216,35 @@ export default function AiProvidersSection() {
     }
   };
 
+  // Set / unset the per-DJ explicit default (issue #336). Optimistic update on
+  // the full list keeps the radio state consistent (exactly one row is default
+  // at any time) without waiting for a refetch.
+  const handleSetDefault = async (id: number) => {
+    try {
+      const updated = await api.setLlmConnectorDefault(id);
+      setConnectors((prev) =>
+        prev.map((c) =>
+          c.id === updated.id
+            ? updated
+            : c.user_id === updated.user_id
+            ? { ...c, is_default: false }
+            : c,
+        ),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to set default');
+    }
+  };
+
+  const handleUnsetDefault = async (id: number) => {
+    try {
+      const updated = await api.unsetLlmConnectorDefault(id);
+      setConnectors((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear default');
+    }
+  };
+
   return (
     <div>
       <h2 style={{ marginTop: 0, marginBottom: '1.25rem', fontSize: '1.1rem' }}>
@@ -244,11 +273,34 @@ export default function AiProvidersSection() {
         )}
         {connectors.map((c) => {
           const status = STATUS_LABELS[c.status] ?? { text: c.status, color: 'var(--text-secondary)' };
+          // Pin / unpin is only meaningful for active connectors — the gateway
+          // skips inactive defaults, so don't let the DJ pin a row that
+          // resolution would silently bypass.
+          const canPin = c.status === 'active';
+          const radioId = `connector-default-${c.id}`;
           return (
             <div key={c.id} className="card" style={{ marginTop: '1rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
                 <div>
-                  <div style={{ fontWeight: 600 }}>{c.display_name}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <div style={{ fontWeight: 600 }}>{c.display_name}</div>
+                    {c.is_default && (
+                      <span
+                        style={{
+                          fontSize: '0.7rem',
+                          padding: '0.125rem 0.5rem',
+                          borderRadius: '0.5rem',
+                          background: 'var(--color-success)',
+                          color: '#0a0a0a',
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em',
+                        }}
+                      >
+                        Default
+                      </span>
+                    )}
+                  </div>
                   <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
                     {CONNECTOR_TYPE_LABELS[c.connector_type as LlmConnectorType] ?? c.connector_type}
                     {c.model_hint ? ` · ${c.model_hint}` : ''}
@@ -258,6 +310,58 @@ export default function AiProvidersSection() {
                     {status.text}
                     {testStateById[c.id] ? ` · ${testStateById[c.id]}` : ''}
                   </div>
+                  {/* Radio for "Set as default" — exactly one connector per DJ may be pinned. */}
+                  <label
+                    htmlFor={radioId}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      marginTop: '0.5rem',
+                      fontSize: '0.85rem',
+                      color: canPin ? 'var(--text)' : 'var(--text-secondary)',
+                      cursor: canPin ? 'pointer' : 'not-allowed',
+                    }}
+                  >
+                    <input
+                      id={radioId}
+                      type="radio"
+                      name="llm-connector-default"
+                      checked={c.is_default}
+                      disabled={!canPin && !c.is_default}
+                      onChange={() => {
+                        if (canPin) {
+                          handleSetDefault(c.id);
+                        }
+                      }}
+                    />
+                    {c.is_default ? (
+                      <>
+                        Pinned as default ·{' '}
+                        <button
+                          type="button"
+                          className="btn-link"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleUnsetDefault(c.id);
+                          }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            color: 'var(--text-secondary)',
+                            textDecoration: 'underline',
+                            cursor: 'pointer',
+                            font: 'inherit',
+                          }}
+                        >
+                          Unpin
+                        </button>
+                      </>
+                    ) : (
+                      <span>Set as default</span>
+                    )}
+                  </label>
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                   <button className="btn btn-secondary" onClick={() => handleTest(c.id)}>

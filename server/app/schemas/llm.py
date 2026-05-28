@@ -45,6 +45,10 @@ class ConnectorOut(BaseModel):
     updated_at: datetime
     last_used_at: datetime | None = None
     last_error: str | None = None
+    # Per-DJ explicit default flag (issue #336). When True, the gateway pins
+    # routing to this connector for the owning DJ instead of falling back to
+    # most-recently-used resolution.
+    is_default: bool = False
 
 
 class AdminConnectorOut(ConnectorOut):

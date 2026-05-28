@@ -3,7 +3,10 @@
 See spec §4.3.
 
 Resolution order:
-1. If ``actor`` is not ``None``: most-recently-used active connector for the DJ.
+1. If ``actor`` is not ``None``:
+   a. The DJ's explicit default active connector if one is pinned
+      (``LlmConnector.is_default = True``) — issue #336.
+   b. Else: most-recently-used active connector for the DJ.
 2. Else: ``SystemSettings.llm_default_connector_id`` if set and active.
 3. Else: raise :class:`NoLlmConfigured`.
 
@@ -250,6 +253,22 @@ async def _attempt(
 
 def _resolve_connector(db: Session, actor: User | None) -> LlmConnector:
     if actor is not None:
+        # Per-DJ explicit default takes precedence over MRU (issue #336).
+        # Falls through to MRU if the DJ hasn't pinned a default or the pinned
+        # connector is no longer active (so DJs aren't silently broken when
+        # their default's status flips to ``auth_invalid`` / ``disabled``).
+        pinned = (
+            db.query(LlmConnector)
+            .filter(
+                LlmConnector.user_id == actor.id,
+                LlmConnector.status == STATUS_ACTIVE,
+                LlmConnector.is_default == True,  # noqa: E712 (SQLAlchemy comparison)
+            )
+            .first()
+        )
+        if pinned is not None:
+            return pinned
+
         row = (
             db.query(LlmConnector)
             .filter(

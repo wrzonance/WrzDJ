@@ -249,6 +249,11 @@
             "title": "Id",
             "type": "integer"
           },
+          "is_default": {
+            "default": false,
+            "title": "Is Default",
+            "type": "boolean"
+          },
           "last_error": {
             "anyOf": [
               {
@@ -309,6 +314,7 @@
           "display_name",
           "dj_username",
           "id",
+          "is_default",
           "last_error",
           "last_used_at",
           "model_hint",
@@ -2353,6 +2359,11 @@
             "title": "Id",
             "type": "integer"
           },
+          "is_default": {
+            "default": false,
+            "title": "Is Default",
+            "type": "boolean"
+          },
           "last_error": {
             "anyOf": [
               {
@@ -2412,6 +2423,7 @@
           "created_at",
           "display_name",
           "id",
+          "is_default",
           "last_error",
           "last_used_at",
           "model_hint",
@@ -10636,6 +10648,100 @@
         ]
       }
     },
+    "/api/llm/connectors/{connector_id}/default": {
+      "delete": {
+        "description": "Clear the explicit default \u2014 gateway resolution falls back to MRU.",
+        "operationId": "unset_connector_as_default_api_llm_connectors__connector_id__default_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_id",
+            "required": true,
+            "schema": {
+              "title": "Connector Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Unset Connector As Default",
+        "tags": [
+          "llm"
+        ]
+      },
+      "post": {
+        "description": "Pin this connector as the DJ's explicit default (issue #336).\n\nAtomically clears any other defaults the DJ owns before flipping this row,\nso the partial unique index never sees two True rows for the same user.\n\nSetting a disabled / auth_invalid connector as default is rejected with 400\nso DJs don't silently break their own routing \u2014 a default that the gateway\nwould skip anyway is a footgun.",
+        "operationId": "set_connector_as_default_api_llm_connectors__connector_id__default_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_id",
+            "required": true,
+            "schema": {
+              "title": "Connector Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Set Connector As Default",
+        "tags": [
+          "llm"
+        ]
+      }
+    },
     "/api/llm/connectors/{connector_id}/test": {
       "post": {
         "operationId": "test_connector_api_llm_connectors__connector_id__test_post",
@@ -11556,7 +11662,7 @@
     },
     "/api/public/events/{code}/stream": {
       "get": {
-        "description": "Public SSE endpoint for real-time event updates.\n\nSECURITY (CRIT-5): rate-limited and existence-checked. Before this fix,\nthe endpoint had no rate limit and no existence check, allowing\nunauthenticated DoS (unlimited long-lived connections exhausting FDs)\nand passive eavesdropping via 6-char event-code brute force.\n\nEvent types:\n- request_created: New request submitted\n- request_status_changed: Request status update\n- now_playing_changed: Now-playing track update\n- requests_bulk_update: Batch accept/reject\n- bridge_status_changed: Bridge connect/disconnect",
+        "description": "Public SSE endpoint for real-time event updates.\n\nSECURITY (CRIT-5): rate-limited and existence-checked. Before this fix,\nthe endpoint had no rate limit and no existence check, allowing\nunauthenticated DoS (unlimited long-lived connections exhausting FDs)\nand passive eavesdropping via 6-char event-code brute force.\n\nPOOL SAFETY (issue #356): the one-shot existence/auth check runs inside a\nshort-lived ``with SessionLocal()`` block whose pooled connection is\nreturned BEFORE the EventSourceResponse is returned. An EventSource\nconnection can stay open indefinitely, so we must NOT hold a\nrequest-scoped ``get_db`` session across the stream lifetime \u2014 doing so\npinned one pooled connection per open stream and exhausted the QueuePool\n(size 5 + overflow 10 = 15 connections) under modest guest load.\n\nEvent types:\n- request_created: New request submitted\n- request_status_changed: Request status update\n- now_playing_changed: Now-playing track update\n- requests_bulk_update: Batch accept/reject\n- bridge_status_changed: Bridge connect/disconnect",
         "operationId": "event_stream_api_public_events__code__stream_get",
         "parameters": [
           {

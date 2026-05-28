@@ -36,6 +36,8 @@ from app.schemas.llm import (
 from app.services.llm.connector_storage import (
     AUDIT_CREATED,
     AUDIT_CREDENTIALS_ROTATED,
+    AUDIT_DEFAULT_SET,
+    AUDIT_DEFAULT_UNSET,
     AUDIT_DELETED,
     AUDIT_HEALTH_CHECK,
     audit_event,
@@ -45,6 +47,8 @@ from app.services.llm.connector_storage import (
     get_connector_for_user,
     list_connectors_for_user,
     rotate_credentials,
+    set_default_for_user,
+    unset_default_for_user,
     update_metadata,
 )
 from app.services.llm.exceptions import (
@@ -356,6 +360,79 @@ async def test_connector(
         row.status = "active"
     db.commit()
     return ConnectorTestResult(ok=True)
+
+
+@router.post("/connectors/{connector_id}/default", response_model=ConnectorOut)
+@limiter.limit("30/minute")
+def set_connector_as_default(
+    request: FastAPIRequest,
+    connector_id: int,
+    user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+) -> ConnectorOut:
+    """Pin this connector as the DJ's explicit default (issue #336).
+
+    Atomically clears any other defaults the DJ owns before flipping this row,
+    so the partial unique index never sees two True rows for the same user.
+
+    Setting a disabled / auth_invalid connector as default is rejected with 400
+    so DJs don't silently break their own routing — a default that the gateway
+    would skip anyway is a footgun.
+    """
+    row = get_connector_for_user(db, connector_id, user.id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Connector not found")
+    if row.status != "active":
+        raise HTTPException(
+            status_code=400,
+            detail="Only an active connector can be set as default",
+        )
+
+    try:
+        set_default_for_user(db, connector=row)
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to set LLM connector as default")
+        raise HTTPException(status_code=500, detail="Failed to set default") from exc
+
+    audit_event(
+        db,
+        actor_user_id=user.id,
+        target_connector_id=row.id,
+        event_type=AUDIT_DEFAULT_SET,
+    )
+    db.commit()
+    db.refresh(row)
+    return ConnectorOut.model_validate(row)
+
+
+@router.delete("/connectors/{connector_id}/default", response_model=ConnectorOut)
+@limiter.limit("30/minute")
+def unset_connector_as_default(
+    request: FastAPIRequest,
+    connector_id: int,
+    user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+) -> ConnectorOut:
+    """Clear the explicit default — gateway resolution falls back to MRU."""
+    row = get_connector_for_user(db, connector_id, user.id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Connector not found")
+
+    # No-op fast path: don't write an audit row if nothing changed.
+    if not row.is_default:
+        return ConnectorOut.model_validate(row)
+
+    unset_default_for_user(db, connector=row)
+    audit_event(
+        db,
+        actor_user_id=user.id,
+        target_connector_id=row.id,
+        event_type=AUDIT_DEFAULT_UNSET,
+    )
+    db.commit()
+    db.refresh(row)
+    return ConnectorOut.model_validate(row)
 
 
 @router.delete("/connectors/{connector_id}", status_code=204)

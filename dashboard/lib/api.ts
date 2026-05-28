@@ -1209,6 +1209,17 @@ class ApiClient {
     await this.fetch(`/api/llm/connectors/${id}`, { method: 'DELETE' });
   }
 
+  // Pin / unpin a connector as the DJ's explicit default (issue #336). When
+  // pinned, the gateway routes through this connector regardless of which one
+  // is most-recently-used.
+  async setLlmConnectorDefault(id: number): Promise<LlmConnector> {
+    return this.fetch(`/api/llm/connectors/${id}/default`, { method: 'POST' });
+  }
+
+  async unsetLlmConnectorDefault(id: number): Promise<LlmConnector> {
+    return this.fetch(`/api/llm/connectors/${id}/default`, { method: 'DELETE' });
+  }
+
   // ========== Admin LLM policy + oversight ==========
 
   async getAdminLlmPolicy(): Promise<LlmAdminPolicy> {

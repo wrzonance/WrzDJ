@@ -1453,6 +1453,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/llm/connectors/{connector_id}/default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set Connector As Default
+         * @description Pin this connector as the DJ's explicit default (issue #336).
+         *
+         *     Atomically clears any other defaults the DJ owns before flipping this row,
+         *     so the partial unique index never sees two True rows for the same user.
+         *
+         *     Setting a disabled / auth_invalid connector as default is rejected with 400
+         *     so DJs don't silently break their own routing — a default that the gateway
+         *     would skip anyway is a footgun.
+         */
+        post: operations["set_connector_as_default_api_llm_connectors__connector_id__default_post"];
+        /**
+         * Unset Connector As Default
+         * @description Clear the explicit default — gateway resolution falls back to MRU.
+         */
+        delete: operations["unset_connector_as_default_api_llm_connectors__connector_id__default_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/llm/connectors/{connector_id}/test": {
         parameters: {
             query?: never;
@@ -1852,6 +1883,14 @@ export interface paths {
          *     the endpoint had no rate limit and no existence check, allowing
          *     unauthenticated DoS (unlimited long-lived connections exhausting FDs)
          *     and passive eavesdropping via 6-char event-code brute force.
+         *
+         *     POOL SAFETY (issue #356): the one-shot existence/auth check runs inside a
+         *     short-lived ``with SessionLocal()`` block whose pooled connection is
+         *     returned BEFORE the EventSourceResponse is returned. An EventSource
+         *     connection can stay open indefinitely, so we must NOT hold a
+         *     request-scoped ``get_db`` session across the stream lifetime — doing so
+         *     pinned one pooled connection per open stream and exhausted the QueuePool
+         *     (size 5 + overflow 10 = 15 connections) under modest guest load.
          *
          *     Event types:
          *     - request_created: New request submitted
@@ -2477,6 +2516,11 @@ export interface components {
             dj_username: string;
             /** Id */
             id: number;
+            /**
+             * Is Default
+             * @default false
+             */
+            is_default: boolean;
             /** Last Error */
             last_error: string | null;
             /** Last Used At */
@@ -3176,6 +3220,11 @@ export interface components {
             display_name: string;
             /** Id */
             id: number;
+            /**
+             * Is Default
+             * @default false
+             */
+            is_default: boolean;
             /** Last Error */
             last_error: string | null;
             /** Last Used At */
@@ -7177,6 +7226,68 @@ export interface operations {
                 "application/json": components["schemas"]["ConnectorCredentialsRotate"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_connector_as_default_api_llm_connectors__connector_id__default_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unset_connector_as_default_api_llm_connectors__connector_id__default_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

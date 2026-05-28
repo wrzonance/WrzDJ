@@ -13,6 +13,8 @@ from app.models.llm_connector import (
     AUDIT_AUTH_INVALID_OBSERVED,
     AUDIT_CREATED,
     AUDIT_CREDENTIALS_ROTATED,
+    AUDIT_DEFAULT_SET,
+    AUDIT_DEFAULT_UNSET,
     AUDIT_DELETED,
     AUDIT_HEALTH_CHECK,
     AUDIT_POLICY_CHANGED,
@@ -475,6 +477,37 @@ def delete_connector(db: Session, connector: LlmConnector) -> None:
     db.delete(connector)
 
 
+def set_default_for_user(db: Session, *, connector: LlmConnector) -> LlmConnector:
+    """Mark ``connector`` as the DJ's default and clear any sibling defaults.
+
+    Atomic clear-then-set: all other rows for ``connector.user_id`` are flipped
+    to ``is_default = False`` in a single UPDATE before the target row is
+    flipped to True. This sidesteps the partial unique index race that would
+    otherwise occur if two SET requests landed concurrently — the worst case
+    is the second request overwriting the first, which is the user's intent.
+    The caller commits and writes the audit event.
+
+    No-ops gracefully when ``connector.is_default`` is already True (the
+    sibling clear still runs to fix any drift, e.g. a stale row left behind
+    by an aborted migration backfill).
+    """
+    db.query(LlmConnector).filter(
+        LlmConnector.user_id == connector.user_id,
+        LlmConnector.id != connector.id,
+        LlmConnector.is_default == True,  # noqa: E712
+    ).update({LlmConnector.is_default: False}, synchronize_session=False)
+    connector.is_default = True
+    db.flush()
+    return connector
+
+
+def unset_default_for_user(db: Session, *, connector: LlmConnector) -> LlmConnector:
+    """Clear the explicit-default flag. Caller commits + audits."""
+    connector.is_default = False
+    db.flush()
+    return connector
+
+
 def revoke_connector(connector: LlmConnector) -> LlmConnector:
     """Admin-only: mark a connector disabled. Caller commits + audits."""
     connector.status = STATUS_DISABLED
@@ -595,6 +628,8 @@ __all__ = [
     "AUDIT_AUTH_INVALID_OBSERVED",
     "AUDIT_CREATED",
     "AUDIT_CREDENTIALS_ROTATED",
+    "AUDIT_DEFAULT_SET",
+    "AUDIT_DEFAULT_UNSET",
     "AUDIT_DELETED",
     "AUDIT_HEALTH_CHECK",
     "AUDIT_POLICY_CHANGED",
@@ -614,5 +649,7 @@ __all__ = [
     "purge_call_log_older_than",
     "revoke_connector",
     "rotate_credentials",
+    "set_default_for_user",
+    "unset_default_for_user",
     "update_metadata",
 ]

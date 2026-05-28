@@ -9,6 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.api import sse as _sse_module
 from app.api.deps import get_db
 from app.core.time import utcnow
 from app.main import app
@@ -28,6 +29,16 @@ engine = create_engine(
     poolclass=StaticPool,
 )
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# The SSE endpoint (``app.api.sse``) opens its own short-lived
+# ``with SessionLocal() as db:`` block for the existence check, bypassing the
+# FastAPI ``get_db`` dependency that other endpoints use. The
+# ``app.dependency_overrides[get_db]`` swap below never reaches it, so the SSE
+# handler would hit the real ``DATABASE_URL`` (Postgres in CI) instead of the
+# in-memory SQLite test DB and fail with "relation does not exist". Swap only
+# the SSE module's ``SessionLocal`` reference — scoped so we don't disturb
+# other modules that also import the production ``SessionLocal``.
+_sse_module.SessionLocal = TestingSessionLocal
 
 
 @pytest.fixture(scope="function")

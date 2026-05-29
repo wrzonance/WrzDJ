@@ -256,6 +256,30 @@ describe('AiProvidersSection', () => {
     });
   });
 
+  it('runs Stream test and renders the streamed text live', async () => {
+    const row = makeConnector();
+    vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([row]);
+    vi.spyOn(api, 'getLlmPolicy').mockResolvedValue(makePolicy(true, true));
+    const streamSpy = vi
+      .spyOn(api, 'streamConnectorTest')
+      .mockImplementation(async (_id, onChunk) => {
+        onChunk({ text_delta: 'Online' });
+        onChunk({ text_delta: ' and ready', done: false });
+        onChunk({ stop_reason: 'end_turn', done: true });
+      });
+
+    render(<AiProvidersSection />);
+
+    await waitFor(() => expect(screen.getByText('My OpenAI')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Stream test' }));
+    await waitFor(() => {
+      expect(streamSpy).toHaveBeenCalledWith(1, expect.any(Function));
+    });
+    await waitFor(() =>
+      expect(screen.getByText('Online and ready')).toBeInTheDocument(),
+    );
+  });
+
   it('offers OpenRouter and fetches its model dropdown', async () => {
     vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
     vi.spyOn(api, 'getLlmPolicy').mockResolvedValue(makePolicy(true, false));

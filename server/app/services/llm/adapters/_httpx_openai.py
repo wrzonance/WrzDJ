@@ -18,15 +18,14 @@ from typing import Any
 
 import httpx
 
+from app.services.llm.adapters._shared import raise_for_status
 from app.services.llm.base import ChatRequest, ChatResponse, Message
-from app.services.llm.exceptions import (
-    AuthInvalid,
-    ProviderUnavailable,
-    QuotaExceeded,
-    RateLimited,
-    ToolTranslationError,
+from app.services.llm.exceptions import ProviderUnavailable, ToolTranslationError
+from app.services.llm.tool_translation import (
+    content_to_text,
+    parse_openai_response,
+    to_openai_tools,
 )
-from app.services.llm.tool_translation import parse_openai_response, to_openai_tools
 
 logger = logging.getLogger(__name__)
 
@@ -41,32 +40,14 @@ def _messages_to_openai(req: ChatRequest) -> list[dict]:
         out.append({"role": "system", "content": req.system})
 
     for m in req.messages:
-        content = m.content
-        if isinstance(content, list):
-            # Concatenate text blocks — MVP is text-only. Blocks may be dicts
-            # (e.g. {"type": "text", "text": "..."}) or objects with a .text attr.
-            parts: list[str] = []
-            for b in content:
-                if isinstance(b, dict):
-                    parts.append(b.get("text") or "")
-                else:
-                    parts.append(getattr(b, "text", "") or "")
-            text = "".join(parts)
-        else:
-            text = content or ""
-
-        msg: dict[str, Any] = {"role": _normalise_role(m.role), "content": text}
+        # OpenAI uses identical role names for system/user/assistant/tool.
+        msg: dict[str, Any] = {"role": m.role, "content": content_to_text(m.content)}
         if m.role == "tool":
             if not m.tool_call_id:
                 raise ToolTranslationError("Tool result message missing tool_call_id")
             msg["tool_call_id"] = m.tool_call_id
         out.append(msg)
     return out
-
-
-def _normalise_role(role: str) -> str:
-    # OpenAI uses identical role names for system/user/assistant/tool.
-    return role
 
 
 def _build_payload(req: ChatRequest, model: str | None, *, max_tokens_field: str) -> dict:
@@ -133,7 +114,7 @@ async def call_openai_chat(
     except httpx.HTTPError as exc:
         raise ProviderUnavailable("Upstream network error") from exc
 
-    _raise_for_status(resp)
+    raise_for_status(resp)
 
     try:
         body = resp.json()
@@ -150,34 +131,6 @@ def _build_chat_endpoint(base_url: str) -> str:
     if base.endswith("/chat/completions"):
         return base
     return f"{base}/chat/completions"
-
-
-def _raise_for_status(resp: httpx.Response) -> None:
-    if 200 <= resp.status_code < 300:
-        return
-
-    code = resp.status_code
-    if code in (401, 403):
-        raise AuthInvalid(f"Auth failed (HTTP {code})")
-    if code == 402:
-        raise QuotaExceeded("Quota or billing failure (HTTP 402)")
-    if code == 429:
-        retry_after = _parse_retry_after(resp.headers.get("Retry-After"))
-        raise RateLimited("Rate limited (HTTP 429)", retry_after_seconds=retry_after)
-    if 500 <= code < 600:
-        raise ProviderUnavailable(f"Upstream error (HTTP {code})")
-    # 4xx other than the above → treat as a malformed input / translation error
-    # since the gateway only emits known shapes.
-    raise ToolTranslationError(f"Upstream rejected request (HTTP {code})")
-
-
-def _parse_retry_after(value: str | None) -> int | None:
-    if not value:
-        return None
-    try:
-        return int(float(value))
-    except ValueError:
-        return None
 
 
 def build_healthcheck_request() -> ChatRequest:

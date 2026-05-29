@@ -26,20 +26,17 @@ from typing import Any
 import httpx
 
 from app.core.time import utcnow
+from app.services.llm.adapters._shared import raise_for_status
 from app.services.llm.base import ChatRequest, ChatResponse, LlmAdapter, Message
-from app.services.llm.exceptions import (
-    AuthInvalid,
-    ProviderUnavailable,
-    QuotaExceeded,
-    RateLimited,
-    ToolTranslationError,
-)
+from app.services.llm.exceptions import AuthInvalid, ProviderUnavailable, ToolTranslationError
 from app.services.llm.registry import register_adapter
 from app.services.llm.sigv4 import sign_request
 from app.services.llm.tool_translation import (
+    content_to_text,
     parse_anthropic_response,
     parse_llama_response,
     render_llama_tool_instructions,
+    to_anthropic_messages,
     to_anthropic_tools,
 )
 
@@ -132,7 +129,7 @@ class BedrockAdapter(LlmAdapter):
         except httpx.HTTPError as exc:
             raise ProviderUnavailable("Upstream network error") from exc
 
-        _raise_for_status(resp)
+        raise_for_status(resp, throttle_detector=_is_throttle)
 
         try:
             response_body = resp.json()
@@ -162,7 +159,7 @@ class BedrockAdapter(LlmAdapter):
         body: dict[str, Any] = {
             "anthropic_version": ANTHROPIC_BEDROCK_VERSION,
             "max_tokens": request.max_tokens or DEFAULT_MAX_TOKENS,
-            "messages": self._anthropic_messages(request.messages),
+            "messages": to_anthropic_messages(request.messages),
         }
         if request.system:
             body["system"] = request.system
@@ -187,33 +184,6 @@ class BedrockAdapter(LlmAdapter):
             body["temperature"] = request.temperature
         return body, tool_names
 
-    @staticmethod
-    def _anthropic_messages(messages: list[Message]) -> list[dict]:
-        out: list[dict] = []
-        for m in messages:
-            if m.role == "system":
-                continue
-            text = _message_text(m)
-            if m.role == "tool":
-                if not m.tool_call_id:
-                    raise ToolTranslationError("Tool message missing tool_call_id")
-                out.append(
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": m.tool_call_id,
-                                "content": text,
-                            }
-                        ],
-                    }
-                )
-                continue
-            role = "assistant" if m.role == "assistant" else "user"
-            out.append({"role": role, "content": text})
-        return out
-
 
 def _render_llama_prompt(request: ChatRequest, tool_instructions: str | None) -> str:
     """Render canonical messages into Llama 3's instruction-tuned chat format."""
@@ -226,7 +196,7 @@ def _render_llama_prompt(request: ChatRequest, tool_instructions: str | None) ->
         system_chunks.append(tool_instructions)
     for m in request.messages:
         if m.role == "system":
-            system_chunks.append(_message_text(m))
+            system_chunks.append(content_to_text(m.content))
     if system_chunks:
         parts.append(
             "<|start_header_id|>system<|end_header_id|>\n\n"
@@ -238,43 +208,12 @@ def _render_llama_prompt(request: ChatRequest, tool_instructions: str | None) ->
         if m.role == "system":
             continue
         role = "assistant" if m.role == "assistant" else "user"
-        parts.append(f"<|start_header_id|>{role}<|end_header_id|>\n\n{_message_text(m)}<|eot_id|>")
+        parts.append(
+            f"<|start_header_id|>{role}<|end_header_id|>\n\n{content_to_text(m.content)}<|eot_id|>"
+        )
 
     parts.append("<|start_header_id|>assistant<|end_header_id|>\n\n")
     return "".join(parts)
-
-
-def _message_text(m: Message) -> str:
-    content = m.content
-    if isinstance(content, list):
-        # Blocks may be dicts (e.g. {"type": "text", "text": "..."}) or objects
-        # with a .text attr — handle both.
-        parts: list[str] = []
-        for b in content:
-            if isinstance(b, dict):
-                parts.append(b.get("text") or "")
-            else:
-                parts.append(getattr(b, "text", "") or "")
-        return "".join(parts)
-    return content or ""
-
-
-def _raise_for_status(resp: httpx.Response) -> None:
-    if 200 <= resp.status_code < 300:
-        return
-    code = resp.status_code
-    if code in (401, 403):
-        raise AuthInvalid(f"Auth failed (HTTP {code})")
-    if code == 402:
-        raise QuotaExceeded("Quota or billing failure (HTTP 402)")
-    # Bedrock throttling can arrive as 429, or as 400 with a ThrottlingException
-    # error-type header. Treat both as rate-limited so callers back off.
-    if code == 429 or (code == 400 and _is_throttle(resp)):
-        retry_after = _parse_retry_after(resp.headers.get("Retry-After"))
-        raise RateLimited("Rate limited (HTTP 429)", retry_after_seconds=retry_after)
-    if 500 <= code < 600:
-        raise ProviderUnavailable(f"Upstream error (HTTP {code})")
-    raise ToolTranslationError(f"Upstream rejected request (HTTP {code})")
 
 
 def _is_throttle(resp: httpx.Response) -> bool:
@@ -285,15 +224,6 @@ def _is_throttle(resp: httpx.Response) -> bool:
     """
     err_type = resp.headers.get("x-amzn-errortype") or resp.headers.get("X-Amzn-ErrorType") or ""
     return "throttl" in err_type.lower()
-
-
-def _parse_retry_after(value: str | None) -> int | None:
-    if not value:
-        return None
-    try:
-        return int(float(value))
-    except ValueError:
-        return None
 
 
 register_adapter("bedrock", BedrockAdapter)

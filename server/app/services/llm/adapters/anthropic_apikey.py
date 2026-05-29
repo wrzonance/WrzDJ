@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
@@ -14,6 +13,7 @@ from anthropic import (
     AsyncAnthropic,
 )
 
+from app.services.llm.adapters._shared import extract_api_key
 from app.services.llm.base import ChatRequest, ChatResponse, LlmAdapter, Message
 from app.services.llm.exceptions import (
     AuthInvalid,
@@ -25,6 +25,7 @@ from app.services.llm.exceptions import (
 from app.services.llm.registry import register_adapter
 from app.services.llm.tool_translation import (
     parse_anthropic_response,
+    to_anthropic_messages,
     to_anthropic_tools,
 )
 
@@ -40,15 +41,7 @@ class AnthropicApiKeyAdapter(LlmAdapter):
     connector_type = "anthropic_apikey"
 
     def _extract_api_key(self) -> str:
-        raw = self.connector.credentials or ""
-        try:
-            blob = json.loads(raw)
-        except (json.JSONDecodeError, TypeError) as exc:
-            raise AuthInvalid("Connector credentials are malformed") from exc
-        api_key = blob.get("api_key") if isinstance(blob, dict) else None
-        if not api_key:
-            raise AuthInvalid("Connector is missing an api_key")
-        return str(api_key)
+        return extract_api_key(self.connector.credentials or "")
 
     def _client(self, *, timeout: float) -> AsyncAnthropic:
         return AsyncAnthropic(api_key=self._extract_api_key(), timeout=timeout)
@@ -61,7 +54,7 @@ class AnthropicApiKeyAdapter(LlmAdapter):
             MAX_TIMEOUT_SECONDS,
         )
 
-        anthropic_messages = self._translate_messages(request.messages)
+        anthropic_messages = to_anthropic_messages(request.messages)
         tools, choice = to_anthropic_tools(request.tools, request.force_tool)
 
         kwargs: dict[str, Any] = {
@@ -100,54 +93,6 @@ class AnthropicApiKeyAdapter(LlmAdapter):
             temperature=0.0,
         )
         await self.chat(ping)
-
-    @staticmethod
-    def _translate_messages(messages: list[Message]) -> list[dict]:
-        """Translate canonical messages to Anthropic's user/assistant shape.
-
-        System messages are pulled out by the caller (``request.system``).
-        Tool-result messages map to ``role=user`` with a ``tool_result`` block.
-        """
-        out: list[dict] = []
-        for m in messages:
-            if m.role == "system":
-                # Ignored here — must be passed via request.system. We swallow
-                # it silently to avoid a hard error on legacy callers.
-                continue
-            content = m.content
-            if isinstance(content, list):
-                # Blocks may be dicts (e.g. {"type": "text", "text": "..."}) or
-                # objects with a .text attr — handle both.
-                parts: list[str] = []
-                for b in content:
-                    if isinstance(b, dict):
-                        parts.append(b.get("text") or "")
-                    else:
-                        parts.append(getattr(b, "text", "") or "")
-                text = "".join(parts)
-            else:
-                text = content or ""
-
-            if m.role == "tool":
-                if not m.tool_call_id:
-                    raise ToolTranslationError("Tool message missing tool_call_id")
-                out.append(
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": m.tool_call_id,
-                                "content": text,
-                            }
-                        ],
-                    }
-                )
-                continue
-
-            role = "assistant" if m.role == "assistant" else "user"
-            out.append({"role": role, "content": text})
-        return out
 
     @staticmethod
     def _raise_for_status(exc: APIStatusError) -> None:

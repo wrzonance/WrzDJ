@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import logging
 
 from app.services.llm.adapters._httpx_openai import (
     build_healthcheck_request,
     call_openai_chat,
 )
+from app.services.llm.adapters._shared import extract_api_key
 from app.services.llm.base import ChatRequest, ChatResponse, LlmAdapter
-from app.services.llm.exceptions import AuthInvalid
 from app.services.llm.registry import register_adapter
 
 logger = logging.getLogger(__name__)
@@ -29,15 +28,7 @@ class OpenAIApiKeyAdapter(LlmAdapter):
     connector_type = "openai_apikey"
 
     def _extract_api_key(self) -> str:
-        raw = self.connector.credentials or ""
-        try:
-            blob = json.loads(raw)
-        except (json.JSONDecodeError, TypeError) as exc:
-            raise AuthInvalid("Connector credentials are malformed") from exc
-        api_key = blob.get("api_key") if isinstance(blob, dict) else None
-        if not api_key:
-            raise AuthInvalid("Connector is missing an api_key")
-        return str(api_key)
+        return extract_api_key(self.connector.credentials or "")
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         api_key = self._extract_api_key()

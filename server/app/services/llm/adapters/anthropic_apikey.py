@@ -33,6 +33,7 @@ from app.services.llm.exceptions import (
 )
 from app.services.llm.registry import register_adapter
 from app.services.llm.tool_translation import (
+    normalise_anthropic_stop_reason,
     parse_anthropic_response,
     to_anthropic_messages,
     to_anthropic_tools,
@@ -44,15 +45,6 @@ DEFAULT_MODEL = "claude-opus-4-7"
 DEFAULT_MAX_TOKENS = 1024
 DEFAULT_TIMEOUT_SECONDS = 30.0
 MAX_TIMEOUT_SECONDS = 120.0
-
-# Anthropic native stop_reason → canonical. Any other value maps to "end_turn"
-# (Anthropic only emits the keys below for completed messages).
-_STREAM_FINISH_REASON = {
-    "end_turn": "end_turn",
-    "stop_sequence": "end_turn",
-    "tool_use": "tool_use",
-    "max_tokens": "max_tokens",
-}
 
 
 class AnthropicApiKeyAdapter(LlmAdapter):
@@ -144,7 +136,9 @@ class AnthropicApiKeyAdapter(LlmAdapter):
         except APIError as exc:
             raise ProviderUnavailable(f"Anthropic API error: {type(exc).__name__}") from exc
 
-        canonical_stop = _STREAM_FINISH_REASON.get(stop_reason or "", "end_turn")
+        # Same canonicalisation as the buffered path (parse_anthropic_response),
+        # so stream and chat never diverge on pause_turn / refusal / unknowns.
+        canonical_stop = normalise_anthropic_stop_reason(stop_reason)
         if saw_tool_use and canonical_stop != "tool_use":
             canonical_stop = "tool_use"
         # Anthropic streams output_tokens in message_delta but input_tokens only

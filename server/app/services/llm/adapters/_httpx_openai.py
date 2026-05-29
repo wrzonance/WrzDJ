@@ -211,9 +211,13 @@ async def stream_openai_chat(
                         break
                     try:
                         obj = json.loads(data)
-                    except json.JSONDecodeError:
-                        # Tolerate keepalive / comment frames.
-                        continue
+                    except json.JSONDecodeError as exc:
+                        # SSE comment / keepalive frames start with ":" (or are
+                        # blank) and never reach here — they fail the "data:"
+                        # prefix check above. A "data:" line that isn't "[DONE]"
+                        # yet won't parse is a genuine protocol fault; surface it
+                        # rather than silently truncating the stream.
+                        raise ToolTranslationError("Upstream returned malformed SSE JSON") from exc
                     chunk = parse_openai_stream_event(obj)
                     if chunk is not None:
                         yield chunk

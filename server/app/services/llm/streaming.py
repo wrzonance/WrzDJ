@@ -13,6 +13,21 @@ from app.services.llm.base import ChatResponseChunk, TokenUsage, ToolCallDelta
 
 CanonicalStopReason = Literal["end_turn", "tool_use", "max_tokens", "error"]
 
+
+def _as_int(value: object, default: int = 0) -> int:
+    """Coerce an external (provider-supplied) field to ``int``, tolerantly.
+
+    Streaming payloads come straight off the wire; a non-conforming provider can
+    send ``null`` or a non-numeric value for ``index`` / token counts. We never
+    want a malformed field to raise and abort an otherwise-usable stream, so fall
+    back to ``default`` instead of letting ``int()`` raise.
+    """
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+
+
 # OpenAI streaming finish_reason → canonical stop_reason. Mirrors the
 # non-streaming mapping in ``tool_translation._FINISH_REASON_OPENAI``; kept local
 # so this module owns no private cross-module imports. Any reason absent from the
@@ -45,7 +60,7 @@ def parse_openai_stream_event(payload: dict) -> ChatResponseChunk | None:
         fn = tc.get("function") if isinstance(tc.get("function"), dict) else {}
         tool_call_deltas.append(
             ToolCallDelta(
-                index=int(tc.get("index", 0)),
+                index=_as_int(tc.get("index", 0)),
                 id=tc.get("id"),
                 name=fn.get("name"),
                 input_json_fragment=fn.get("arguments") or "",
@@ -62,8 +77,8 @@ def parse_openai_stream_event(payload: dict) -> ChatResponseChunk | None:
         usage_payload = payload.get("usage") or {}
         if usage_payload:
             usage = TokenUsage(
-                prompt=int(usage_payload.get("prompt_tokens", 0)),
-                completion=int(usage_payload.get("completion_tokens", 0)),
+                prompt=_as_int(usage_payload.get("prompt_tokens", 0)),
+                completion=_as_int(usage_payload.get("completion_tokens", 0)),
             )
 
     if not text_delta and not tool_call_deltas and not done:

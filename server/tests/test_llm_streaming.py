@@ -149,6 +149,51 @@ def test_parse_openai_stream_line_unknown_finish_reason_maps_error():
     assert chunk.stop_reason == "error"
 
 
+def test_parse_openai_stream_tolerates_non_numeric_tool_index():
+    """A null/non-numeric tool-call ``index`` must not abort the stream (#379)."""
+    from app.services.llm.streaming import parse_openai_stream_event
+
+    chunk = parse_openai_stream_event(
+        {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": None,
+                                "id": "call_1",
+                                "function": {"name": "search", "arguments": "{}"},
+                            }
+                        ]
+                    },
+                    "finish_reason": None,
+                }
+            ]
+        }
+    )
+    assert chunk is not None
+    assert chunk.tool_call_deltas[0].index == 0  # fell back to default, no raise
+
+
+def test_parse_openai_stream_tolerates_non_numeric_usage():
+    """Malformed/null token counts must not abort the terminal chunk (#379)."""
+    from app.services.llm.streaming import parse_openai_stream_event
+
+    chunk = parse_openai_stream_event(
+        {
+            "choices": [{"delta": {}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": None, "completion_tokens": "oops"},
+        }
+    )
+    assert chunk is not None
+    assert chunk.done is True
+    # Non-numeric counts coerce to 0 rather than raising mid-stream; the terminal
+    # chunk is still delivered with a (zeroed) usage block.
+    assert chunk.usage is not None
+    assert chunk.usage.prompt == 0
+    assert chunk.usage.completion == 0
+
+
 # ---------------------------------------------------------------------------
 # Task 4 — httpx OpenAI streaming generator
 # ---------------------------------------------------------------------------
@@ -242,6 +287,34 @@ async def test_stream_openai_chat_maps_auth_error(monkeypatch):
             fallback_model="gpt-x",
         ):
             pass
+
+
+async def test_stream_openai_chat_malformed_data_raises(monkeypatch):
+    """A malformed ``data:`` frame surfaces a typed error, not a silent truncation (#379)."""
+    from app.services.llm.adapters import _httpx_openai
+    from app.services.llm.exceptions import ToolTranslationError
+
+    sse_lines = [
+        'data: {"choices":[{"delta":{"content":"Hi"},"finish_reason":null}]}',
+        "data: {not valid json",
+    ]
+    fake_resp = _FakeStreamResponse(sse_lines)
+    monkeypatch.setattr(
+        _httpx_openai.httpx, "AsyncClient", lambda *a, **k: _FakeStreamClient(fake_resp)
+    )
+
+    req = ChatRequest(messages=[Message(role="user", content="hi")], model="gpt-x")
+    collected = []
+    with pytest.raises(ToolTranslationError):
+        async for c in _httpx_openai.stream_openai_chat(
+            base_url="https://api.openai.com/v1",
+            api_key="sk-test",
+            request=req,
+            fallback_model="gpt-x",
+        ):
+            collected.append(c)
+    # The valid leading chunk was still delivered before the fault surfaced.
+    assert collected and collected[0].text_delta == "Hi"
 
 
 # ---------------------------------------------------------------------------
@@ -441,3 +514,39 @@ async def test_anthropic_adapter_stream_tool_use(monkeypatch):
     assert _json.loads(joined) == {"q": "house"}
     assert chunks[-1].done is True
     assert chunks[-1].stop_reason == "tool_use"
+
+
+@pytest.mark.parametrize("native_stop", ["refusal", "pause_turn", "something_new"])
+async def test_anthropic_stream_unmodelled_stop_matches_chat(monkeypatch, native_stop):
+    """Stream + chat must canonicalise unmodelled stop_reasons identically (#379).
+
+    Anthropic can emit ``pause_turn`` / ``refusal`` which we don't model
+    canonically; both paths must map them to ``"error"`` (not ``"end_turn"``).
+    """
+    from app.services.llm.adapters import anthropic_apikey
+    from app.services.llm.tool_translation import normalise_anthropic_stop_reason
+
+    events = [
+        _FakeEvent(type="message_start"),
+        _FakeEvent(
+            type="content_block_start", index=0, content_block=_FakeEvent(type="text", text="")
+        ),
+        _FakeEvent(
+            type="content_block_delta", index=0, delta=_FakeEvent(type="text_delta", text="x")
+        ),
+        _FakeEvent(
+            type="message_delta",
+            delta=_FakeEvent(stop_reason=native_stop),
+            usage=_FakeEvent(output_tokens=1),
+        ),
+        _FakeEvent(type="message_stop"),
+    ]
+    _patch_fake_anthropic(monkeypatch, events)
+    adapter = anthropic_apikey.AnthropicApiKeyAdapter(_anthropic_connector())
+    req = ChatRequest(messages=[Message(role="user", content="hi")])
+    chunks = [c async for c in adapter.stream(req)]
+
+    assert chunks[-1].done is True
+    # The streamed canonical stop_reason equals what the buffered path would give.
+    assert chunks[-1].stop_reason == normalise_anthropic_stop_reason(native_stop)
+    assert chunks[-1].stop_reason == "error"

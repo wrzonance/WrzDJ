@@ -1265,15 +1265,37 @@ class ApiClient {
         while ((sep = buffer.indexOf('\n\n')) !== -1) {
           const frame = buffer.slice(0, sep);
           buffer = buffer.slice(sep + 2);
+          // A frame may carry an `event:` name plus one or more `data:` lines.
+          // The backend emits `event: error` for typed gateway failures, so we
+          // must inspect the event type — not just blindly parse `data:`.
+          let eventType = 'message';
+          const dataLines: string[] = [];
           for (const line of frame.split('\n')) {
-            if (!line.startsWith('data:')) continue;
-            const data = line.slice('data:'.length).trim();
-            if (!data || data === '[DONE]') continue;
-            try {
-              onChunk(JSON.parse(data) as LlmStreamChunk);
-            } catch {
-              // Ignore unparseable keepalive frames.
+            if (line.startsWith('event:')) {
+              eventType = line.slice('event:'.length).trim();
+            } else if (line.startsWith('data:')) {
+              dataLines.push(line.slice('data:'.length).trim());
             }
+          }
+          const data = dataLines.join('\n').trim();
+          if (!data || data === '[DONE]') continue;
+
+          if (eventType === 'error') {
+            // Surface the sanitised backend error code as a thrown failure
+            // rather than passing it through as an inert chunk.
+            let code: string | undefined;
+            try {
+              code = (JSON.parse(data) as { code?: string }).code;
+            } catch {
+              code = undefined;
+            }
+            throw new ApiError(`Stream test failed${code ? `: ${code}` : ''}`, 500);
+          }
+
+          try {
+            onChunk(JSON.parse(data) as LlmStreamChunk);
+          } catch {
+            // Ignore unparseable keepalive frames.
           }
         }
       }

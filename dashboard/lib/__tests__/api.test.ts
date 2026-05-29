@@ -2387,5 +2387,34 @@ describe('ApiClient', () => {
       api.setToken('jwt-token');
       await expect(api.streamConnectorTest(7, () => {})).rejects.toBeInstanceOf(ApiError);
     });
+
+    it('surfaces an SSE event: error frame as a thrown ApiError (#379)', async () => {
+      // The backend emits `event: error` + a sanitised `{code}` data line for
+      // typed gateway failures; the consumer must reject, not swallow it.
+      const sse =
+        'data: {"text_delta":"partial","done":false}\n\n' +
+        'event: error\ndata: {"code":"ProviderUnavailable"}\n\n';
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(sse));
+          controller.close();
+        },
+      });
+      vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(stream, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      );
+
+      api.setToken('jwt-token');
+      const chunks: Array<{ text_delta?: string }> = [];
+      await expect(
+        api.streamConnectorTest(7, (c) => chunks.push(c)),
+      ).rejects.toThrowError(/ProviderUnavailable/);
+      // The leading valid chunk was still delivered before the error surfaced.
+      expect(chunks.map((c) => c.text_delta).join('')).toBe('partial');
+    });
   });
 });

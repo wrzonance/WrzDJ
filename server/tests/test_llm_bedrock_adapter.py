@@ -81,6 +81,15 @@ def _ok(json_body):
     )
 
 
+def _err(status, headers=None):
+    return httpx.Response(
+        status,
+        request=httpx.Request("POST", "https://bedrock-runtime.us-east-1.amazonaws.com/x"),
+        headers=headers or {},
+        json={"message": "x"},
+    )
+
+
 class _AsyncClient:
     def __init__(self, response):
         self._response = response
@@ -245,78 +254,36 @@ class TestBedrockLlama:
 # Error mapping (shared) — exercised via the Claude family
 # ---------------------------------------------------------------------------
 class TestBedrockErrorMapping:
-    def _err(self, status, headers=None):
-        return httpx.Response(
-            status,
-            request=httpx.Request("POST", "https://bedrock-runtime.us-east-1.amazonaws.com/x"),
-            headers=headers or {},
-            json={"message": "x"},
-        )
-
+    @pytest.mark.parametrize(
+        ("response", "expected"),
+        [
+            (_err(401), AuthInvalid),
+            (_err(403), AuthInvalid),
+            # 400 + ThrottlingException error-type header → treated as rate limiting.
+            (_err(400, {"x-amzn-errortype": "ThrottlingException"}), RateLimited),
+            (_err(402), QuotaExceeded),
+            (_err(503), ProviderUnavailable),
+            (httpx.TimeoutException("timeout"), ProviderUnavailable),
+            # 400 without a throttle header → malformed input.
+            (_err(400), ToolTranslationError),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_401_maps_to_auth_invalid(self):
+    async def test_status_maps_to_exception(self, response, expected):
         adapter = BedrockAdapter(_bedrock_connector())
-        client = _AsyncClient(self._err(401))
+        client = _AsyncClient(response)
         with patch(_HTTPX_PATH, return_value=client):
-            with pytest.raises(AuthInvalid):
+            with pytest.raises(expected):
                 await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
 
     @pytest.mark.asyncio
-    async def test_403_maps_to_auth_invalid(self):
+    async def test_429_maps_to_rate_limited_with_retry_after(self):
         adapter = BedrockAdapter(_bedrock_connector())
-        client = _AsyncClient(self._err(403))
-        with patch(_HTTPX_PATH, return_value=client):
-            with pytest.raises(AuthInvalid):
-                await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
-
-    @pytest.mark.asyncio
-    async def test_429_maps_to_rate_limited(self):
-        adapter = BedrockAdapter(_bedrock_connector())
-        client = _AsyncClient(self._err(429, headers={"Retry-After": "12"}))
+        client = _AsyncClient(_err(429, headers={"Retry-After": "12"}))
         with patch(_HTTPX_PATH, return_value=client):
             with pytest.raises(RateLimited) as info:
                 await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
         assert info.value.retry_after_seconds == 12
-
-    @pytest.mark.asyncio
-    async def test_throttling_exception_400_maps_to_rate_limited(self):
-        adapter = BedrockAdapter(_bedrock_connector())
-        client = _AsyncClient(self._err(400, headers={"x-amzn-errortype": "ThrottlingException"}))
-        with patch(_HTTPX_PATH, return_value=client):
-            with pytest.raises(RateLimited):
-                await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
-
-    @pytest.mark.asyncio
-    async def test_402_maps_to_quota_exceeded(self):
-        adapter = BedrockAdapter(_bedrock_connector())
-        client = _AsyncClient(self._err(402))
-        with patch(_HTTPX_PATH, return_value=client):
-            with pytest.raises(QuotaExceeded):
-                await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
-
-    @pytest.mark.asyncio
-    async def test_500_maps_to_provider_unavailable(self):
-        adapter = BedrockAdapter(_bedrock_connector())
-        client = _AsyncClient(self._err(503))
-        with patch(_HTTPX_PATH, return_value=client):
-            with pytest.raises(ProviderUnavailable):
-                await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
-
-    @pytest.mark.asyncio
-    async def test_timeout_maps_to_provider_unavailable(self):
-        adapter = BedrockAdapter(_bedrock_connector())
-        client = _AsyncClient(httpx.TimeoutException("timeout"))
-        with patch(_HTTPX_PATH, return_value=client):
-            with pytest.raises(ProviderUnavailable):
-                await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
-
-    @pytest.mark.asyncio
-    async def test_malformed_body_400_maps_to_tool_translation_error(self):
-        adapter = BedrockAdapter(_bedrock_connector())
-        client = _AsyncClient(self._err(400))  # no throttle header
-        with patch(_HTTPX_PATH, return_value=client):
-            with pytest.raises(ToolTranslationError):
-                await adapter.chat(ChatRequest(messages=[Message(role="user", content="x")]))
 
 
 # ---------------------------------------------------------------------------

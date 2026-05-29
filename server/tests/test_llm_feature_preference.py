@@ -55,3 +55,44 @@ def test_unique_constraint_one_pref_per_user_feature(db, dj_user):
     with pytest.raises(IntegrityError):
         db.commit()
     db.rollback()
+
+
+def test_set_feature_preference_upserts(db, dj_user):
+    from app.services.llm.connector_storage import (
+        get_feature_preferences_for_user,
+        set_feature_preference,
+    )
+
+    c1 = _make_connector(db, dj_user, display_name="A")
+    c2 = _make_connector(db, dj_user, display_name="B")
+
+    set_feature_preference(db, user_id=dj_user.id, feature="recommendation", connector_id=c1.id)
+    db.commit()
+    prefs = get_feature_preferences_for_user(db, dj_user.id)
+    assert {p.feature: p.connector_id for p in prefs} == {"recommendation": c1.id}
+
+    # Re-set the same feature → replace, not duplicate.
+    set_feature_preference(db, user_id=dj_user.id, feature="recommendation", connector_id=c2.id)
+    db.commit()
+    prefs = get_feature_preferences_for_user(db, dj_user.id)
+    assert {p.feature: p.connector_id for p in prefs} == {"recommendation": c2.id}
+
+
+def test_clear_feature_preference_removes_row(db, dj_user):
+    from app.services.llm.connector_storage import (
+        clear_feature_preference,
+        get_feature_preferences_for_user,
+        set_feature_preference,
+    )
+
+    c1 = _make_connector(db, dj_user, display_name="A")
+    set_feature_preference(db, user_id=dj_user.id, feature="recommendation", connector_id=c1.id)
+    db.commit()
+
+    removed = clear_feature_preference(db, user_id=dj_user.id, feature="recommendation")
+    db.commit()
+    assert removed is True
+    assert get_feature_preferences_for_user(db, dj_user.id) == []
+
+    # Clearing a non-existent preference is a no-op (returns False).
+    assert clear_feature_preference(db, user_id=dj_user.id, feature="recommendation") is False

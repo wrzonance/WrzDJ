@@ -28,6 +28,26 @@ const STATUS_LABELS: Record<string, { text: string; color: string }> = {
   disabled: { text: 'Disabled', color: 'var(--text-secondary)' },
 };
 
+// Provider-specific input placeholders. Missing entries fall back to the
+// per-field default below (openai_apikey for the key, openai_compatible for
+// the model hint), preserving the previous nested-ternary behavior.
+const API_KEY_PLACEHOLDERS: Partial<Record<LlmConnectorType, string>> = {
+  anthropic_apikey: 'sk-ant-…',
+  openrouter_apikey: 'sk-or-…',
+  xai_apikey: 'xai-…',
+  gemini_apikey: 'AIza…',
+};
+const API_KEY_PLACEHOLDER_DEFAULT = 'sk-proj-… / sk-…';
+
+const MODEL_HINT_PLACEHOLDERS: Partial<Record<LlmConnectorType, string>> = {
+  anthropic_apikey: 'claude-haiku-4-5-20251001',
+  openai_apikey: 'gpt-5-mini',
+  openrouter_apikey: 'e.g. openai/gpt-4o-mini',
+  xai_apikey: 'grok-3-mini',
+  gemini_apikey: 'gemini-2.5-flash',
+};
+const MODEL_HINT_PLACEHOLDER_DEFAULT = 'e.g. llama3';
+
 interface FormState {
   open: boolean;
   connector_type: LlmConnectorType;
@@ -128,6 +148,14 @@ export default function AiProvidersSection() {
     if (!policy) return [];
     return policy.allowed_connector_types as LlmConnectorType[];
   }, [policy]);
+
+  // onChange factory for the plain string form fields — every text input/select
+  // updates exactly one FormState key with the raw value. connector_type stays
+  // inline because it needs a cast to LlmConnectorType.
+  const handleField =
+    (key: Exclude<keyof FormState, 'open' | 'connector_type'>) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setForm((f) => ({ ...f, [key]: e.target.value }));
 
   const handleOpenForm = () => {
     if (allowedTypes.length === 0) {
@@ -416,7 +444,7 @@ export default function AiProvidersSection() {
                 id="display_name"
                 className="input"
                 value={form.display_name}
-                onChange={(e) => setForm({ ...form, display_name: e.target.value })}
+                onChange={handleField('display_name')}
                 placeholder="e.g. My OpenAI"
                 maxLength={80}
                 required
@@ -431,7 +459,7 @@ export default function AiProvidersSection() {
                     id="aws_access_key_id"
                     className="input"
                     value={form.aws_access_key_id}
-                    onChange={(e) => setForm({ ...form, aws_access_key_id: e.target.value })}
+                    onChange={handleField('aws_access_key_id')}
                     placeholder="AKIA…"
                     autoComplete="off"
                     required
@@ -444,7 +472,7 @@ export default function AiProvidersSection() {
                     className="input"
                     type="password"
                     value={form.aws_secret_access_key}
-                    onChange={(e) => setForm({ ...form, aws_secret_access_key: e.target.value })}
+                    onChange={handleField('aws_secret_access_key')}
                     autoComplete="off"
                     required
                   />
@@ -455,7 +483,7 @@ export default function AiProvidersSection() {
                     id="aws_region"
                     className="input"
                     value={form.aws_region}
-                    onChange={(e) => setForm({ ...form, aws_region: e.target.value })}
+                    onChange={handleField('aws_region')}
                     placeholder="us-east-1"
                     required
                   />
@@ -466,7 +494,7 @@ export default function AiProvidersSection() {
                     id="aws_model_id"
                     className="input"
                     value={form.aws_model_id}
-                    onChange={(e) => setForm({ ...form, aws_model_id: e.target.value })}
+                    onChange={handleField('aws_model_id')}
                     placeholder="anthropic.claude-3-5-sonnet-20241022-v2:0"
                     required
                   />
@@ -486,7 +514,7 @@ export default function AiProvidersSection() {
                     className="input"
                     type="password"
                     value={form.api_key}
-                    onChange={(e) => setForm({ ...form, api_key: e.target.value })}
+                    onChange={handleField('api_key')}
                     placeholder="Azure OpenAI key"
                     required
                   />
@@ -497,9 +525,7 @@ export default function AiProvidersSection() {
                     id="azure_resource_name"
                     className="input"
                     value={form.azure_resource_name}
-                    onChange={(e) =>
-                      setForm({ ...form, azure_resource_name: e.target.value })
-                    }
+                    onChange={handleField('azure_resource_name')}
                     placeholder="e.g. my-company"
                     required
                   />
@@ -514,9 +540,7 @@ export default function AiProvidersSection() {
                     id="azure_deployment_name"
                     className="input"
                     value={form.azure_deployment_name}
-                    onChange={(e) =>
-                      setForm({ ...form, azure_deployment_name: e.target.value })
-                    }
+                    onChange={handleField('azure_deployment_name')}
                     placeholder="e.g. gpt-4o-prod"
                     required
                   />
@@ -527,9 +551,7 @@ export default function AiProvidersSection() {
                     id="azure_api_version"
                     className="input"
                     value={form.azure_api_version}
-                    onChange={(e) =>
-                      setForm({ ...form, azure_api_version: e.target.value })
-                    }
+                    onChange={handleField('azure_api_version')}
                     placeholder="e.g. 2024-06-01"
                     required
                   />
@@ -543,17 +565,9 @@ export default function AiProvidersSection() {
                   className="input"
                   type="password"
                   value={form.api_key}
-                  onChange={(e) => setForm({ ...form, api_key: e.target.value })}
+                  onChange={handleField('api_key')}
                   placeholder={
-                    form.connector_type === 'anthropic_apikey'
-                      ? 'sk-ant-…'
-                      : form.connector_type === 'openrouter_apikey'
-                      ? 'sk-or-…'
-                      : form.connector_type === 'xai_apikey'
-                      ? 'xai-…'
-                      : form.connector_type === 'gemini_apikey'
-                      ? 'AIza…'
-                      : 'sk-proj-… / sk-…'
+                    API_KEY_PLACEHOLDERS[form.connector_type] ?? API_KEY_PLACEHOLDER_DEFAULT
                   }
                   required
                 />
@@ -566,7 +580,7 @@ export default function AiProvidersSection() {
                     id="base_url"
                     className="input"
                     value={form.base_url}
-                    onChange={(e) => setForm({ ...form, base_url: e.target.value })}
+                    onChange={handleField('base_url')}
                     placeholder="http://127.0.0.1:11434/v1"
                     required
                   />
@@ -582,7 +596,7 @@ export default function AiProvidersSection() {
                     className="input"
                     type="password"
                     value={form.bearer}
-                    onChange={(e) => setForm({ ...form, bearer: e.target.value })}
+                    onChange={handleField('bearer')}
                   />
                 </div>
                 <details style={{ marginTop: '1rem' }}>
@@ -615,7 +629,7 @@ export default function AiProvidersSection() {
                       id="model_hint"
                       className="input"
                       value={form.model_hint}
-                      onChange={(e) => setForm({ ...form, model_hint: e.target.value })}
+                      onChange={handleField('model_hint')}
                     >
                       <option value="">Default (openai/gpt-4o-mini)</option>
                       {openrouterModels.map((m) => (
@@ -634,19 +648,9 @@ export default function AiProvidersSection() {
                     id="model_hint"
                     className="input"
                     value={form.model_hint}
-                    onChange={(e) => setForm({ ...form, model_hint: e.target.value })}
+                    onChange={handleField('model_hint')}
                     placeholder={
-                      form.connector_type === 'anthropic_apikey'
-                        ? 'claude-haiku-4-5-20251001'
-                        : form.connector_type === 'openai_apikey'
-                        ? 'gpt-5-mini'
-                        : form.connector_type === 'openrouter_apikey'
-                        ? 'e.g. openai/gpt-4o-mini'
-                        : form.connector_type === 'xai_apikey'
-                        ? 'grok-3-mini'
-                        : form.connector_type === 'gemini_apikey'
-                        ? 'gemini-2.5-flash'
-                        : 'e.g. llama3'
+                      MODEL_HINT_PLACEHOLDERS[form.connector_type] ?? MODEL_HINT_PLACEHOLDER_DEFAULT
                     }
                   />
                 )}

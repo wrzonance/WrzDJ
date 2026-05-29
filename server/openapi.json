@@ -205,7 +205,7 @@
         "type": "object"
       },
       "AdminConnectorCapPatch": {
-        "description": "Admin set/clear a connector's monthly token cap (issue #339).\n\n``monthly_token_cap = null`` clears the cap (unlimited). A non-null value\nmust be a non-negative integer; ``0`` means \"no further calls this month\".\nThe upper bound is a sanity ceiling, not a billing limit.",
+        "description": "Admin set/clear a connector's monthly token cap (issue #339).\n\n``monthly_token_cap`` is **required** so intent is always explicit: an\ninteger sets the cap, ``null`` clears it (unlimited). Omitting the field\n(an empty ``{}`` body) is rejected with 422 rather than silently treated as\n``null`` \u2014 that would let an accidental no-field PATCH wipe a configured\ncap. A non-null value must be a non-negative integer; ``0`` means \"no\nfurther calls this month\". The upper bound is a sanity ceiling, not a\nbilling limit.",
         "properties": {
           "monthly_token_cap": {
             "anyOf": [
@@ -221,6 +221,9 @@
             "title": "Monthly Token Cap"
           }
         },
+        "required": [
+          "monthly_token_cap"
+        ],
         "title": "AdminConnectorCapPatch",
         "type": "object"
       },

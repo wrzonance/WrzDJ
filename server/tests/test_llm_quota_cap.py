@@ -16,6 +16,7 @@ from app.services.llm.adapters.openai_apikey import OpenAIApiKeyAdapter
 from app.services.llm.base import ChatRequest, ChatResponse, Message, TokenUsage
 from app.services.llm.connector_storage import (
     current_month_token_usage,
+    current_month_token_usage_bulk,
     set_monthly_cap,
 )
 from app.services.llm.exceptions import LlmError, QuotaCapReached
@@ -30,11 +31,11 @@ def _make_dj(db, username="capdj"):
     return user
 
 
-def _make_connector(db, user, *, monthly_token_cap=None):
+def _make_connector(db, user, *, monthly_token_cap=None, display_name="Cap connector"):
     row = LlmConnector(
         user_id=user.id,
         connector_type="openai_apikey",
-        display_name="Cap connector",
+        display_name=display_name,
         status="active",
         credentials=json.dumps({"api_key": "sk-fake-key"}),
         model_hint="gpt-5-mini",
@@ -124,6 +125,33 @@ def test_current_month_usage_zero_when_no_rows(db):
     user = _make_dj(db, username="usagedj4")
     connector = _make_connector(db, user)
     assert current_month_token_usage(db, connector.id) == 0
+
+
+def test_bulk_usage_aggregates_per_connector(db):
+    # The bulk helper backs the admin list endpoint: one grouped query for many
+    # connectors instead of N+1 (CodeRabbit #377). It must match the per-row
+    # helper, scope to the current month, and key results by connector id.
+    user = _make_dj(db, username="bulkdj")
+    c1 = _make_connector(db, user, display_name="bulk-c1")
+    c2 = _make_connector(db, user, display_name="bulk-c2")
+    c3 = _make_connector(db, user, display_name="bulk-c3")  # no rows this month
+    _log(db, c1.id, tokens_in=100, tokens_out=50)
+    _log(db, c1.id, tokens_in=10, tokens_out=5)
+    _log(db, c2.id, tokens_in=7, tokens_out=3)
+    # Prior-month row on c2 must be excluded.
+    _log(db, c2.id, tokens_in=999, tokens_out=999, when=utcnow() - timedelta(days=40))
+
+    usage = current_month_token_usage_bulk(db, [c1.id, c2.id, c3.id])
+    assert usage[c1.id] == 165
+    assert usage[c2.id] == 10
+    # Connectors with no current-month rows are absent (caller defaults to 0).
+    assert c3.id not in usage
+    # Parity with the per-row helper.
+    assert usage[c1.id] == current_month_token_usage(db, c1.id)
+
+
+def test_bulk_usage_empty_input_returns_empty_dict(db):
+    assert current_month_token_usage_bulk(db, []) == {}
 
 
 def test_set_monthly_cap_accepts_positive_int(db):

@@ -661,6 +661,35 @@ def current_month_token_usage(db: Session, connector_id: int) -> int:
     return int(total or 0)
 
 
+def current_month_token_usage_bulk(db: Session, connector_ids: list[int]) -> dict[int, int]:
+    """Sum current-month tokens (tokens_in + tokens_out) for many connectors.
+
+    Single grouped aggregate over the indexed ``llm_call_log.created_at`` column
+    — avoids the N+1 of calling :func:`current_month_token_usage` per connector
+    in the admin list endpoint. Returns a ``{connector_id: total}`` map;
+    connectors with no rows this month are simply absent (callers default to 0).
+    Returns an empty dict when ``connector_ids`` is empty.
+    """
+    if not connector_ids:
+        return {}
+    month_start = _calendar_month_start()
+    rows = db.execute(
+        select(
+            LlmCallLog.connector_id,
+            (
+                func.coalesce(func.sum(LlmCallLog.tokens_in), 0)
+                + func.coalesce(func.sum(LlmCallLog.tokens_out), 0)
+            ).label("total"),
+        )
+        .where(
+            LlmCallLog.connector_id.in_(connector_ids),
+            LlmCallLog.created_at >= month_start,
+        )
+        .group_by(LlmCallLog.connector_id)
+    ).all()
+    return {int(r.connector_id): int(r.total or 0) for r in rows}
+
+
 def set_monthly_cap(connector: LlmConnector, cap: int | None) -> LlmConnector:
     """Set (or clear) the connector's monthly token cap. Caller commits.
 
@@ -690,6 +719,7 @@ __all__ = [
     "build_create_payload",
     "create_connector",
     "current_month_token_usage",
+    "current_month_token_usage_bulk",
     "delete_connector",
     "get_connector",
     "get_connector_for_user",

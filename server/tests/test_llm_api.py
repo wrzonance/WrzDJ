@@ -948,6 +948,32 @@ class TestAdminLlm:
         )
         assert resp.status_code == 422  # Pydantic ge=0 rejection
 
+    def test_set_cap_rejects_empty_body(self, client: TestClient, admin_headers, db, test_user):
+        # monthly_token_cap is required: an empty {} body must be rejected (422),
+        # not silently treated as null — otherwise an accidental no-field PATCH
+        # would wipe a configured cap (CodeRabbit #377).
+        row = LlmConnector(
+            user_id=test_user.id,
+            connector_type="openai_apikey",
+            display_name="EmptyBody",
+            status="active",
+            credentials=json.dumps({"api_key": "sk-x"}),
+            monthly_token_cap=1000,
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+
+        resp = client.patch(
+            f"/api/admin/llm/connectors/{row.id}/cap",
+            headers=admin_headers,
+            json={},
+        )
+        assert resp.status_code == 422
+        # The cap must be untouched by the rejected request.
+        db.refresh(row)
+        assert row.monthly_token_cap == 1000
+
     def test_set_cap_404_for_missing_connector(self, client: TestClient, admin_headers):
         resp = client.patch(
             "/api/admin/llm/connectors/999999/cap",

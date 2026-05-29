@@ -39,6 +39,7 @@ from app.services.llm.connector_storage import (
     AUDIT_REVOKED_BY_ADMIN,
     audit_event,
     current_month_token_usage,
+    current_month_token_usage_bulk,
     get_connector,
     get_usage_stats,
     get_user_label,
@@ -197,11 +198,14 @@ def list_connectors_admin(
         users = db.query(User).filter(User.id.in_(user_ids)).all()
         usernames = {u.id: u.username for u in users}
 
+    # One grouped aggregate for all connectors instead of an N+1 per-row query.
+    usage_by_connector = current_month_token_usage_bulk(db, [r.id for r in rows])
+
     return [
         _connector_to_admin_out(
             r,
             usernames.get(r.user_id) or f"user#{r.user_id}",
-            current_month_token_usage(db, r.id),
+            usage_by_connector.get(r.id, 0),
         )
         for r in rows
     ]

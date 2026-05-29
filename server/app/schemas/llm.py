@@ -266,12 +266,16 @@ class AdminPolicyPatch(BaseModel):
 class AdminConnectorCapPatch(BaseModel):
     """Admin set/clear a connector's monthly token cap (issue #339).
 
-    ``monthly_token_cap = null`` clears the cap (unlimited). A non-null value
-    must be a non-negative integer; ``0`` means "no further calls this month".
-    The upper bound is a sanity ceiling, not a billing limit.
+    ``monthly_token_cap`` is **required** so intent is always explicit: an
+    integer sets the cap, ``null`` clears it (unlimited). Omitting the field
+    (an empty ``{}`` body) is rejected with 422 rather than silently treated as
+    ``null`` — that would let an accidental no-field PATCH wipe a configured
+    cap. A non-null value must be a non-negative integer; ``0`` means "no
+    further calls this month". The upper bound is a sanity ceiling, not a
+    billing limit.
     """
 
-    monthly_token_cap: int | None = Field(default=None, ge=0, le=1_000_000_000)
+    monthly_token_cap: int | None = Field(..., ge=0, le=1_000_000_000)
 
 
 class UsageRow(BaseModel):

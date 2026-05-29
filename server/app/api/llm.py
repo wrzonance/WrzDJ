@@ -21,6 +21,7 @@ from app.core.rate_limit import limiter
 from app.models.llm_connector import (
     CONNECTOR_TYPE_OPENAI_COMPATIBLE,
     VALID_CONNECTOR_TYPES,
+    LlmConnector,
 )
 from app.models.user import User
 from app.schemas.ai_settings import AIModelsResponse
@@ -94,6 +95,41 @@ def _check_connector_type_allowed(db: Session, connector_type: str) -> None:
                 status_code=403,
                 detail="API-key connectors are disabled by admin policy",
             )
+
+
+def _get_owned_connector_or_404(db: Session, connector_id: int, user_id: int) -> LlmConnector:
+    """Fetch a connector scoped to its owner, or raise 404.
+
+    Returns 404 (not 403) for IDs the DJ doesn't own so the existence of another
+    DJ's connectors is never leaked.
+    """
+    row = get_connector_for_user(db, connector_id, user_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Connector not found")
+    return row
+
+
+def _audit_and_return(
+    db: Session, row: LlmConnector, *, actor_user_id: int, event_type: str
+) -> ConnectorOut:
+    """Shared write-side epilogue: audit row → commit → refresh → public view.
+
+    The create / rotate / set-default / unset-default endpoints all finish with
+    this identical sequence.
+    """
+    audit_event(db, actor_user_id=actor_user_id, target_connector_id=row.id, event_type=event_type)
+    db.commit()
+    db.refresh(row)
+    return ConnectorOut.model_validate(row)
+
+
+def _raise_if_duplicate_label(exc: Exception) -> None:
+    """Translate the per-DJ (display_name, type) unique violation into a 409."""
+    if "uq_dj_connector_label" in str(exc):
+        raise HTTPException(
+            status_code=409,
+            detail="You already have a connector with that display name and type",
+        ) from exc
 
 
 @router.get("/connectors", response_model=list[ConnectorOut])
@@ -190,23 +226,11 @@ def create_connector_endpoint(
         row = create_connector(db, user_id=user.id, payload=built)
     except Exception as exc:  # likely a UniqueConstraint collision
         db.rollback()
-        if "uq_dj_connector_label" in str(exc):
-            raise HTTPException(
-                status_code=409,
-                detail="You already have a connector with that display name and type",
-            ) from exc
+        _raise_if_duplicate_label(exc)
         logger.exception("Failed to create LLM connector")
         raise HTTPException(status_code=500, detail="Failed to create connector") from exc
 
-    audit_event(
-        db,
-        actor_user_id=user.id,
-        target_connector_id=row.id,
-        event_type=AUDIT_CREATED,
-    )
-    db.commit()
-    db.refresh(row)
-    return ConnectorOut.model_validate(row)
+    return _audit_and_return(db, row, actor_user_id=user.id, event_type=AUDIT_CREATED)
 
 
 @router.patch("/connectors/{connector_id}", response_model=ConnectorOut)
@@ -218,9 +242,7 @@ def update_connector_metadata(
     user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ) -> ConnectorOut:
-    row = get_connector_for_user(db, connector_id, user.id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Connector not found")
+    row = _get_owned_connector_or_404(db, connector_id, user.id)
 
     try:
         update_metadata(row, display_name=payload.display_name, model_hint=payload.model_hint)
@@ -231,11 +253,7 @@ def update_connector_metadata(
         db.commit()
     except Exception as exc:  # likely a UniqueConstraint collision on rename
         db.rollback()
-        if "uq_dj_connector_label" in str(exc):
-            raise HTTPException(
-                status_code=409,
-                detail="You already have a connector with that display name and type",
-            ) from exc
+        _raise_if_duplicate_label(exc)
         logger.exception("Failed to update LLM connector metadata")
         raise HTTPException(status_code=500, detail="Failed to update connector metadata") from exc
     db.refresh(row)
@@ -251,9 +269,7 @@ def rotate_connector_credentials(
     user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ) -> ConnectorOut:
-    row = get_connector_for_user(db, connector_id, user.id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Connector not found")
+    row = _get_owned_connector_or_404(db, connector_id, user.id)
 
     try:
         rotate_credentials(
@@ -273,15 +289,7 @@ def rotate_connector_credentials(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    audit_event(
-        db,
-        actor_user_id=user.id,
-        target_connector_id=row.id,
-        event_type=AUDIT_CREDENTIALS_ROTATED,
-    )
-    db.commit()
-    db.refresh(row)
-    return ConnectorOut.model_validate(row)
+    return _audit_and_return(db, row, actor_user_id=user.id, event_type=AUDIT_CREDENTIALS_ROTATED)
 
 
 @router.post("/connectors/{connector_id}/test", response_model=ConnectorTestResult)
@@ -301,9 +309,7 @@ async def test_connector(
     """
     from app.services.llm.health_check import run_health_check
 
-    row = get_connector_for_user(db, connector_id, user.id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Connector not found")
+    row = _get_owned_connector_or_404(db, connector_id, user.id)
 
     outcome = await run_health_check(db, row, actor_user_id=user.id)
     db.commit()
@@ -350,9 +356,7 @@ def set_connector_as_default(
     so DJs don't silently break their own routing — a default that the gateway
     would skip anyway is a footgun.
     """
-    row = get_connector_for_user(db, connector_id, user.id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Connector not found")
+    row = _get_owned_connector_or_404(db, connector_id, user.id)
     if row.status != "active":
         raise HTTPException(
             status_code=400,
@@ -366,15 +370,7 @@ def set_connector_as_default(
         logger.exception("Failed to set LLM connector as default")
         raise HTTPException(status_code=500, detail="Failed to set default") from exc
 
-    audit_event(
-        db,
-        actor_user_id=user.id,
-        target_connector_id=row.id,
-        event_type=AUDIT_DEFAULT_SET,
-    )
-    db.commit()
-    db.refresh(row)
-    return ConnectorOut.model_validate(row)
+    return _audit_and_return(db, row, actor_user_id=user.id, event_type=AUDIT_DEFAULT_SET)
 
 
 @router.delete(
@@ -392,24 +388,14 @@ def unset_connector_as_default(
     db: Session = Depends(get_db),
 ) -> ConnectorOut:
     """Clear the explicit default — gateway resolution falls back to MRU."""
-    row = get_connector_for_user(db, connector_id, user.id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Connector not found")
+    row = _get_owned_connector_or_404(db, connector_id, user.id)
 
     # No-op fast path: don't write an audit row if nothing changed.
     if not row.is_default:
         return ConnectorOut.model_validate(row)
 
     unset_default_for_user(db, connector=row)
-    audit_event(
-        db,
-        actor_user_id=user.id,
-        target_connector_id=row.id,
-        event_type=AUDIT_DEFAULT_UNSET,
-    )
-    db.commit()
-    db.refresh(row)
-    return ConnectorOut.model_validate(row)
+    return _audit_and_return(db, row, actor_user_id=user.id, event_type=AUDIT_DEFAULT_UNSET)
 
 
 @router.delete("/connectors/{connector_id}", status_code=204)
@@ -420,9 +406,7 @@ def delete_connector_endpoint(
     user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ) -> None:
-    row = get_connector_for_user(db, connector_id, user.id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Connector not found")
+    row = _get_owned_connector_or_404(db, connector_id, user.id)
     audit_event(
         db,
         actor_user_id=user.id,

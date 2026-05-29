@@ -54,6 +54,21 @@ router = APIRouter()
 _AUDIT_CSV_ROW_CAP = 10_000
 
 
+def _connector_to_admin_out(row: LlmConnector, dj_username: str) -> AdminConnectorOut:
+    """Reflect a connector row + its owner's display name into the admin view.
+
+    ``AdminConnectorOut`` adds ``dj_username``, which isn't a column on the row,
+    so the model is validated from a column-reflection dict rather than the ORM
+    object directly.
+    """
+    return AdminConnectorOut.model_validate(
+        {
+            **{c.name: getattr(row, c.name) for c in LlmConnector.__table__.columns},
+            "dj_username": dj_username,
+        }
+    )
+
+
 def _audit_query(
     db: Session,
     *,
@@ -175,16 +190,9 @@ def list_connectors_admin(
         users = db.query(User).filter(User.id.in_(user_ids)).all()
         usernames = {u.id: u.username for u in users}
 
-    out: list[AdminConnectorOut] = []
-    for r in rows:
-        payload = AdminConnectorOut.model_validate(
-            {
-                **{c.name: getattr(r, c.name) for c in LlmConnector.__table__.columns},
-                "dj_username": usernames.get(r.user_id) or f"user#{r.user_id}",
-            }
-        )
-        out.append(payload)
-    return out
+    return [
+        _connector_to_admin_out(r, usernames.get(r.user_id) or f"user#{r.user_id}") for r in rows
+    ]
 
 
 @router.post("/connectors/{connector_id}/revoke", response_model=AdminConnectorOut)
@@ -214,12 +222,7 @@ def revoke_connector_admin(
 
     db.commit()
     db.refresh(row)
-    return AdminConnectorOut.model_validate(
-        {
-            **{c.name: getattr(row, c.name) for c in LlmConnector.__table__.columns},
-            "dj_username": get_user_label(db, row.user_id),
-        }
-    )
+    return _connector_to_admin_out(row, get_user_label(db, row.user_id))
 
 
 @router.get("/usage", response_model=AdminUsageOut)

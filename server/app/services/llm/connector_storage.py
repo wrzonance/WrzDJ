@@ -73,6 +73,41 @@ def get_connector(db: Session, connector_id: int) -> LlmConnector | None:
     return db.get(LlmConnector, connector_id)
 
 
+# API-key connector types (shared by the create + rotate validation dispatch).
+_APIKEY_CONNECTOR_TYPES = (
+    CONNECTOR_TYPE_OPENAI_APIKEY,
+    CONNECTOR_TYPE_ANTHROPIC_APIKEY,
+    CONNECTOR_TYPE_OPENROUTER_APIKEY,
+    CONNECTOR_TYPE_XAI_APIKEY,
+    CONNECTOR_TYPE_GEMINI_APIKEY,
+)
+
+
+def _normalise_model_hint(value: str | None, *, invalid_msg: str) -> str | None:
+    """Strip + validate a model_hint (≤80 chars, safe charset). ``invalid_msg``
+    stays caller-supplied so create vs update keep their distinct error text."""
+    if value is None:
+        return None
+    value = value.strip() or None
+    if value is not None:
+        if len(value) > 80:
+            raise ValueError("model_hint must be 80 characters or fewer")
+        if not _is_safe_model_hint(value):
+            raise ValueError(invalid_msg)
+    return value
+
+
+def _validate_api_key_blob(connector_type: str, api_key: str | None, *, required_msg: str) -> dict:
+    """Validate + assemble an ``{"api_key": ...}`` blob. ``required_msg`` differs
+    between create and rotate, so it stays caller-supplied."""
+    if not api_key:
+        raise ValueError(required_msg)
+    api_key = api_key.strip()
+    if not _looks_like_api_key(connector_type, api_key):
+        raise ValueError("api_key format is invalid")
+    return {"api_key": api_key}
+
+
 class CreateConnectorPayload:
     """Validated creation payload — see :func:`create_connector`."""
 
@@ -126,32 +161,18 @@ def build_create_payload(
     if any(ord(c) < 0x20 for c in display_name):
         raise ValueError("display_name must not contain control characters")
 
-    if model_hint is not None:
-        model_hint = model_hint.strip() or None
-        if model_hint is not None:
-            if len(model_hint) > 80:
-                raise ValueError("model_hint must be 80 characters or fewer")
-            if not _is_safe_model_hint(model_hint):
-                raise ValueError(
-                    "model_hint may only contain letters, digits, dot, underscore, hyphen, or slash"
-                )
+    model_hint = _normalise_model_hint(
+        model_hint,
+        invalid_msg=(
+            "model_hint may only contain letters, digits, dot, underscore, hyphen, or slash"
+        ),
+    )
 
     creds: dict[str, Any]
     plain_base_url: str | None = None
 
-    if connector_type in (
-        CONNECTOR_TYPE_OPENAI_APIKEY,
-        CONNECTOR_TYPE_ANTHROPIC_APIKEY,
-        CONNECTOR_TYPE_OPENROUTER_APIKEY,
-        CONNECTOR_TYPE_XAI_APIKEY,
-        CONNECTOR_TYPE_GEMINI_APIKEY,
-    ):
-        if not api_key:
-            raise ValueError("api_key is required")
-        api_key = api_key.strip()
-        if not _looks_like_api_key(connector_type, api_key):
-            raise ValueError("api_key format is invalid")
-        creds = {"api_key": api_key}
+    if connector_type in _APIKEY_CONNECTOR_TYPES:
+        creds = _validate_api_key_blob(connector_type, api_key, required_msg="api_key is required")
     elif connector_type == CONNECTOR_TYPE_OPENAI_COMPATIBLE:
         if not base_url:
             raise ValueError("base_url is required")
@@ -374,19 +395,10 @@ def rotate_credentials(
 ) -> LlmConnector:
     """Rotate the credential blob in-place. Caller commits."""
     blob: dict[str, Any]
-    if connector.connector_type in (
-        CONNECTOR_TYPE_OPENAI_APIKEY,
-        CONNECTOR_TYPE_ANTHROPIC_APIKEY,
-        CONNECTOR_TYPE_OPENROUTER_APIKEY,
-        CONNECTOR_TYPE_XAI_APIKEY,
-        CONNECTOR_TYPE_GEMINI_APIKEY,
-    ):
-        if not api_key:
-            raise ValueError("api_key is required for rotation")
-        api_key = api_key.strip()
-        if not _looks_like_api_key(connector.connector_type, api_key):
-            raise ValueError("api_key format is invalid")
-        blob = {"api_key": api_key}
+    if connector.connector_type in _APIKEY_CONNECTOR_TYPES:
+        blob = _validate_api_key_blob(
+            connector.connector_type, api_key, required_msg="api_key is required for rotation"
+        )
     elif connector.connector_type == CONNECTOR_TYPE_OPENAI_COMPATIBLE:
         if not base_url:
             raise ValueError("base_url is required for rotation")
@@ -463,13 +475,9 @@ def update_metadata(
             raise ValueError("display_name must not contain control characters")
         connector.display_name = display_name
     if model_hint is not None:
-        model_hint = model_hint.strip() or None
-        if model_hint is not None:
-            if len(model_hint) > 80:
-                raise ValueError("model_hint must be 80 characters or fewer")
-            if not _is_safe_model_hint(model_hint):
-                raise ValueError("model_hint contains invalid characters")
-        connector.model_hint = model_hint
+        connector.model_hint = _normalise_model_hint(
+            model_hint, invalid_msg="model_hint contains invalid characters"
+        )
     return connector
 
 

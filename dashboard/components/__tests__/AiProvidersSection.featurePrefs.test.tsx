@@ -23,6 +23,7 @@ function makeConnector(overrides: Partial<LlmConnector> = {}): LlmConnector {
     is_default: false,
     last_health_check_at: null,
     last_health_check_status: null,
+    monthly_token_cap: null,
     ...overrides,
   };
 }

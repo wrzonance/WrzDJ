@@ -7,6 +7,8 @@ import logging
 from typing import Any
 
 from sqlalchemy import case, delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.models.llm_connector import (
@@ -35,6 +37,7 @@ from app.models.llm_connector import (
     LlmCallLog,
     LlmConnector,
 )
+from app.models.llm_feature_preference import LlmFeaturePreference
 from app.models.user import User
 from app.services.llm.url_validator import (
     InvalidBaseUrlError,
@@ -522,6 +525,76 @@ def revoke_connector(connector: LlmConnector) -> LlmConnector:
     return connector
 
 
+def get_feature_preferences_for_user(db: Session, user_id: int) -> list[LlmFeaturePreference]:
+    """Return all of a DJ's per-feature connector pins (issue #337)."""
+    return (
+        db.query(LlmFeaturePreference)
+        .filter(LlmFeaturePreference.user_id == user_id)
+        .order_by(LlmFeaturePreference.feature.asc())
+        .all()
+    )
+
+
+def get_feature_preference(
+    db: Session, *, user_id: int, feature: str
+) -> LlmFeaturePreference | None:
+    """Return the DJ's pin for ``feature``, or ``None`` if unset."""
+    return (
+        db.query(LlmFeaturePreference)
+        .filter(
+            LlmFeaturePreference.user_id == user_id,
+            LlmFeaturePreference.feature == feature,
+        )
+        .one_or_none()
+    )
+
+
+def set_feature_preference(
+    db: Session, *, user_id: int, feature: str, connector_id: int
+) -> LlmFeaturePreference:
+    """Upsert the DJ's pin for ``feature`` → ``connector_id``. Caller commits.
+
+    Replace-in-place when a row already exists so the UNIQUE constraint on
+    ``(user_id, feature)`` is never violated.
+
+    Concurrency-safe via a DB-native ``ON CONFLICT … DO UPDATE`` upsert keyed on
+    ``(user_id, feature)``. Two requests racing to pin the same feature resolve
+    deterministically (last writer wins) in a single atomic statement, instead
+    of one of them tripping ``uq_llm_feature_pref_user_feature`` and bubbling a
+    500. Works on both Postgres (prod) and SQLite (tests).
+    """
+    table = LlmFeaturePreference.__table__
+    dialect = db.bind.dialect.name if db.bind is not None else ""
+    insert_fn = pg_insert if dialect == "postgresql" else sqlite_insert
+    stmt = insert_fn(table).values(user_id=user_id, feature=feature, connector_id=connector_id)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[table.c.user_id, table.c.feature],
+        set_={"connector_id": connector_id},
+    )
+    db.execute(stmt)
+    db.flush()
+    row = get_feature_preference(db, user_id=user_id, feature=feature)
+    if row is None:  # pragma: no cover - the upsert guarantees the row exists
+        raise RuntimeError("feature preference upsert did not persist a row")
+    # ON CONFLICT DO UPDATE bypasses the ORM, so an already-loaded row may hold a
+    # stale connector_id — refresh just this instance, not the whole session.
+    db.refresh(row)
+    return row
+
+
+def clear_feature_preference(db: Session, *, user_id: int, feature: str) -> bool:
+    """Delete the DJ's pin for ``feature``. Returns True iff a row was removed.
+
+    Caller commits.
+    """
+    existing = get_feature_preference(db, user_id=user_id, feature=feature)
+    if existing is None:
+        return False
+    db.delete(existing)
+    db.flush()
+    return True
+
+
 def audit_event(
     db: Session,
     *,
@@ -645,10 +718,13 @@ __all__ = [
     "CreateConnectorPayload",
     "audit_event",
     "build_create_payload",
+    "clear_feature_preference",
     "create_connector",
     "delete_connector",
     "get_connector",
     "get_connector_for_user",
+    "get_feature_preference",
+    "get_feature_preferences_for_user",
     "get_usage_stats",
     "get_user_label",
     "list_all_connectors",
@@ -658,6 +734,7 @@ __all__ = [
     "revoke_connector",
     "rotate_credentials",
     "set_default_for_user",
+    "set_feature_preference",
     "unset_default_for_user",
     "update_metadata",
 ]

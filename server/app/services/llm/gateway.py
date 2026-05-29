@@ -4,9 +4,12 @@ See spec §4.3.
 
 Resolution order:
 1. If ``actor`` is not ``None``:
-   a. The DJ's explicit default active connector if one is pinned
+   a. The DJ's per-feature pin for ``purpose`` if set and the pinned connector
+      is active (``LlmFeaturePreference`` — issue #337). Skipped gracefully when
+      the pinned connector was deleted or is no longer active.
+   b. Else: the DJ's explicit default active connector if one is pinned
       (``LlmConnector.is_default = True``) — issue #336.
-   b. Else: most-recently-used active connector for the DJ.
+   c. Else: most-recently-used active connector for the DJ.
 2. Else: ``SystemSettings.llm_default_connector_id`` if set and active.
 3. Else: raise :class:`NoLlmConfigured`.
 
@@ -38,7 +41,7 @@ from app.models.llm_connector import (
 from app.models.system_settings import SystemSettings
 from app.models.user import User
 from app.services.llm.base import ChatRequest, ChatResponse, ChatResponseChunk
-from app.services.llm.connector_storage import audit_event, log_call
+from app.services.llm.connector_storage import audit_event, get_feature_preference, log_call
 from app.services.llm.exceptions import (
     AuthInvalid,
     LlmError,
@@ -88,7 +91,7 @@ class Gateway:
         *,
         purpose: str,
     ) -> ChatResponse:
-        primary = _resolve_connector(db, actor)
+        primary = _resolve_connector(db, actor, purpose=purpose)
         actor_id = actor.id if actor else _system_actor_id(db, primary)
 
         # Attempt 1: primary connector.
@@ -147,8 +150,8 @@ class Gateway:
     ) -> AsyncIterator[ChatResponseChunk]:
         """Stream a chat response, mirroring ``dispatch`` resolution + logging.
 
-        Connector resolution is identical to ``dispatch`` (per-DJ default → MRU →
-        org default). Logging differs only in timing: a single counts-only
+        Connector resolution is identical to ``dispatch`` (per-feature pin → per-DJ
+        default → MRU → org default). Logging differs only in timing: a single counts-only
         ``llm_call_log`` row is written when the stream finishes (success),
         errors, or is cancelled by the consumer. Consumer cancellation (e.g. an
         SSE client disconnect closing the generator) raises ``GeneratorExit``
@@ -160,7 +163,7 @@ class Gateway:
         by the time a mid-stream error surfaces, so transparently restarting on
         another connector would corrupt the output. Streaming always fails fast.
         """
-        primary = _resolve_connector(db, actor)
+        primary = _resolve_connector(db, actor, purpose=purpose)
         actor_id = actor.id if actor else _system_actor_id(db, primary)
         inner = _attempt_stream(db, primary, request, purpose=purpose, actor_id=actor_id)
         try:
@@ -380,8 +383,23 @@ async def _attempt_stream(
         db.commit()
 
 
-def _resolve_connector(db: Session, actor: User | None) -> LlmConnector:
+def _resolve_connector(db: Session, actor: User | None, *, purpose: str) -> LlmConnector:
     if actor is not None:
+        # 0. Per-feature pin (issue #337) takes precedence over the per-DJ
+        #    default and MRU. Skipped gracefully when the pinned connector was
+        #    deleted (FK row gone) or is no longer active, so a stale/broken
+        #    pin never silently breaks the DJ — resolution falls through to the
+        #    per-DJ default / MRU / org-default chain below.
+        pref = get_feature_preference(db, user_id=actor.id, feature=purpose)
+        if pref is not None:
+            pinned_feature = db.get(LlmConnector, pref.connector_id)
+            if (
+                pinned_feature is not None
+                and pinned_feature.user_id == actor.id
+                and pinned_feature.status == STATUS_ACTIVE
+            ):
+                return pinned_feature
+
         # Per-DJ explicit default takes precedence over MRU (issue #336).
         # Falls through to MRU if the DJ hasn't pinned a default or the pinned
         # connector is no longer active (so DJs aren't silently broken when

@@ -16,6 +16,9 @@ import type {
   LlmConnectorPatch,
   LlmConnectorTestResult,
   LlmDjPolicy,
+  LlmFeatureKey,
+  LlmFeaturePreferences,
+  LlmFeaturePreferenceSet,
   ArchivedEvent,
   BeatportEventSettings,
   BeatportSearchResult,
@@ -74,6 +77,10 @@ export type {
   LlmConnectorTestResult,
   LlmConnectorType,
   LlmDjPolicy,
+  LlmFeatureKey,
+  LlmFeaturePreference,
+  LlmFeaturePreferences,
+  LlmFeaturePreferenceSet,
   LlmUsageRow,
   ArchivedEvent,
   BeatportEventSettings,
@@ -1317,6 +1324,25 @@ class ApiClient {
 
   async unsetLlmConnectorDefault(id: number): Promise<LlmConnector> {
     return this.fetch(`/api/llm/connectors/${id}/default`, { method: 'DELETE' });
+  }
+
+  // ========== Per-feature connector preferences (issue #337) ==========
+
+  async listLlmFeaturePreferences(): Promise<LlmFeaturePreferences> {
+    return this.fetch('/api/llm/feature-preferences');
+  }
+
+  async setLlmFeaturePreference(data: LlmFeaturePreferenceSet): Promise<LlmFeaturePreferences> {
+    return this.fetch('/api/llm/feature-preferences', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async clearLlmFeaturePreference(feature: LlmFeatureKey): Promise<LlmFeaturePreferences> {
+    return this.fetch(`/api/llm/feature-preferences/${feature}`, {
+      method: 'DELETE',
+    });
   }
 
   // ========== Admin LLM policy + oversight ==========

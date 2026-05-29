@@ -61,6 +61,8 @@ export type LlmConnectorCredentialsRotate = Schemas['ConnectorCredentialsRotate'
 export type LlmConnectorTestResult = Schemas['ConnectorTestResult'];
 export type LlmAdminPolicy = Schemas['AdminPolicyOut'];
 export type LlmAdminPolicyPatch = Schemas['AdminPolicyPatch'];
+// Monthly token cap (issue #339)
+export type LlmAdminConnectorCapPatch = Schemas['AdminConnectorCapPatch'];
 export type LlmDjPolicy = Schemas['DjPolicyOut'];
 export type LlmAdminUsage = Schemas['AdminUsageOut'];
 export type LlmUsageRow = Schemas['UsageRow'];

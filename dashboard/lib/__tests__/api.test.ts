@@ -613,6 +613,32 @@ describe('ApiClient', () => {
       const [url] = mockFetch.mock.calls[0];
       expect(url).toContain('/api/admin/llm/usage?days=30');
     });
+
+    it('sets a connector monthly cap via PATCH', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 7, monthly_token_cap: 5000, current_month_tokens: 200 }),
+      });
+
+      const result = await api.setAdminLlmConnectorCap(7, 5000);
+      expect(result.monthly_token_cap).toBe(5000);
+
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/admin/llm/connectors/7/cap');
+      expect(options.method).toBe('PATCH');
+      expect(JSON.parse(options.body)).toEqual({ monthly_token_cap: 5000 });
+    });
+
+    it('clears a connector cap by passing null', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 7, monthly_token_cap: null, current_month_tokens: 0 }),
+      });
+
+      await api.setAdminLlmConnectorCap(7, null);
+      const [, options] = mockFetch.mock.calls[0];
+      expect(JSON.parse(options.body)).toEqual({ monthly_token_cap: null });
+    });
   });
 
   describe('Activity Log API', () => {

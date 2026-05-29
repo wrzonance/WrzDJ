@@ -118,6 +118,22 @@ function formatTimestamp(ts: string | null | undefined): string {
   return ts ? new Date(ts).toLocaleString() : '—';
 }
 
+// Percent of the monthly cap consumed (issue #339). Returns null when there is
+// no cap (unlimited) so the UI renders no bar. Clamps to 0–100 so an over-cap
+// connector (possible when a cap is lowered mid-month) shows a full bar.
+function capPercent(used: number, cap: number | null | undefined): number | null {
+  if (cap == null) return null;
+  if (cap === 0) return 100;
+  return Math.min(100, Math.max(0, Math.round((used / cap) * 100)));
+}
+
+// Bar colour escalates with consumption: green < 80% < amber < 100% red.
+function capBarColor(percent: number): string {
+  if (percent >= 100) return 'var(--color-danger)';
+  if (percent >= 80) return 'var(--color-warning, #c08418)';
+  return 'var(--color-success)';
+}
+
 function PlainHeader({ label }: { label: string }) {
   return (
     <th
@@ -388,6 +404,31 @@ export default function AdminAISettingsPage() {
     } catch (err) {
       setPolicy(prev);
       setPolicyMessage(err instanceof Error ? err.message : 'Save failed');
+    }
+  };
+
+  const handleCapBlur = async (connector: LlmAdminConnector, raw: string) => {
+    const trimmed = raw.trim();
+    // Empty input clears the cap (unlimited).
+    let next: number | null;
+    if (trimmed === '') {
+      next = null;
+    } else {
+      const parsed = parseInt(trimmed, 10);
+      if (Number.isNaN(parsed) || parsed < 0) {
+        setError('Monthly cap must be a non-negative whole number.');
+        return;
+      }
+      next = parsed;
+    }
+    // No-op when unchanged.
+    if (next === (connector.monthly_token_cap ?? null)) return;
+    try {
+      const updated = await api.setAdminLlmConnectorCap(connector.id, next);
+      setConnectors((prev) => prev.map((c) => (c.id === connector.id ? updated : c)));
+      setError('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update cap');
     }
   };
 
@@ -675,6 +716,7 @@ export default function AdminAISettingsPage() {
                     onSort={(k, d) => setConnectorSort({ key: k, direction: d })}
                   />
                   <PlainHeader label="Result" />
+                  <PlainHeader label="Monthly cap" />
                   <PlainHeader label="Actions" />
                 </tr>
               </thead>
@@ -695,6 +737,51 @@ export default function AdminAISettingsPage() {
                     </td>
                     <td style={{ padding: '0.5rem' }}>
                       <HealthBadge status={c.last_health_check_status ?? null} />
+                    </td>
+                    <td style={{ padding: '0.5rem', minWidth: '180px' }}>
+                      <input
+                        type="number"
+                        className="input"
+                        style={{ width: '110px' }}
+                        min={0}
+                        placeholder="∞"
+                        defaultValue={c.monthly_token_cap ?? ''}
+                        onBlur={(e) => handleCapBlur(c, e.target.value)}
+                        aria-label={`Monthly token cap for ${c.dj_username} ${c.display_name}`}
+                      />
+                      <div
+                        style={{
+                          marginTop: '0.35rem',
+                          fontSize: '0.75rem',
+                          color: 'var(--text-secondary)',
+                        }}
+                      >
+                        {c.monthly_token_cap == null
+                          ? `${c.current_month_tokens.toLocaleString()} this month · unlimited`
+                          : `${c.current_month_tokens.toLocaleString()} / ${c.monthly_token_cap.toLocaleString()}`}
+                      </div>
+                      {c.monthly_token_cap != null && (
+                        <div
+                          aria-hidden
+                          style={{
+                            marginTop: '0.25rem',
+                            height: '6px',
+                            borderRadius: '9999px',
+                            background: 'var(--border-color)',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: `${capPercent(c.current_month_tokens, c.monthly_token_cap) ?? 0}%`,
+                              height: '100%',
+                              background: capBarColor(
+                                capPercent(c.current_month_tokens, c.monthly_token_cap) ?? 0,
+                              ),
+                            }}
+                          />
+                        </div>
+                      )}
                     </td>
                     <td style={{ padding: '0.5rem' }}>
                       {c.status !== 'disabled' && (

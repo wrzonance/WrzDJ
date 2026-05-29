@@ -235,6 +235,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/llm/connectors/{connector_id}/cap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set Connector Cap Admin
+         * @description Set or clear a connector's monthly token cap (admin-only, issue #339).
+         *
+         *     ``monthly_token_cap = null`` clears the cap (unlimited). The change is
+         *     pre-flight only: an in-flight gateway call already past its cap check is
+         *     unaffected. Pydantic enforces the non-negative bound (``ge=0``); the
+         *     service layer re-validates defensively.
+         */
+        patch: operations["set_connector_cap_admin_api_admin_llm_connectors__connector_id__cap_patch"];
+        trace?: never;
+    };
     "/api/admin/llm/connectors/{connector_id}/revoke": {
         parameters: {
             query?: never;
@@ -2502,6 +2527,18 @@ export interface components {
             total: number;
         };
         /**
+         * AdminConnectorCapPatch
+         * @description Admin set/clear a connector's monthly token cap (issue #339).
+         *
+         *     ``monthly_token_cap = null`` clears the cap (unlimited). A non-null value
+         *     must be a non-negative integer; ``0`` means "no further calls this month".
+         *     The upper bound is a sanity ceiling, not a billing limit.
+         */
+        AdminConnectorCapPatch: {
+            /** Monthly Token Cap */
+            monthly_token_cap?: number | null;
+        };
+        /**
          * AdminConnectorOut
          * @description Admin view — adds the DJ's username for display.
          */
@@ -2518,6 +2555,11 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Current Month Tokens
+             * @default 0
+             */
+            current_month_tokens: number;
             /** Display Name */
             display_name: string;
             /** Dj Username */
@@ -2539,6 +2581,8 @@ export interface components {
             last_used_at: string | null;
             /** Model Hint */
             model_hint: string | null;
+            /** Monthly Token Cap */
+            monthly_token_cap: number | null;
             /**
              * Status
              * @enum {string}
@@ -2800,10 +2844,7 @@ export interface components {
         };
         /** Body_upload_banner_api_events__code__banner_post */
         Body_upload_banner_api_events__code__banner_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
         };
         /** BridgeApiKeyResponse */
@@ -3247,6 +3288,8 @@ export interface components {
             last_used_at: string | null;
             /** Model Hint */
             model_hint: string | null;
+            /** Monthly Token Cap */
+            monthly_token_cap: number | null;
             /**
              * Status
              * @enum {string}
@@ -4944,6 +4987,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminConnectorOut"][];
+                };
+            };
+        };
+    };
+    set_connector_cap_admin_api_admin_llm_connectors__connector_id__cap_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminConnectorCapPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminConnectorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -204,6 +204,26 @@
         "title": "AdminAuditOut",
         "type": "object"
       },
+      "AdminConnectorCapPatch": {
+        "description": "Admin set/clear a connector's monthly token cap (issue #339).\n\n``monthly_token_cap = null`` clears the cap (unlimited). A non-null value\nmust be a non-negative integer; ``0`` means \"no further calls this month\".\nThe upper bound is a sanity ceiling, not a billing limit.",
+        "properties": {
+          "monthly_token_cap": {
+            "anyOf": [
+              {
+                "maximum": 1000000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Token Cap"
+          }
+        },
+        "title": "AdminConnectorCapPatch",
+        "type": "object"
+      },
       "AdminConnectorOut": {
         "description": "Admin view \u2014 adds the DJ's username for display.",
         "properties": {
@@ -236,6 +256,11 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "current_month_tokens": {
+            "default": 0,
+            "title": "Current Month Tokens",
+            "type": "integer"
           },
           "display_name": {
             "title": "Display Name",
@@ -319,6 +344,17 @@
             ],
             "title": "Model Hint"
           },
+          "monthly_token_cap": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Token Cap"
+          },
           "status": {
             "enum": [
               "active",
@@ -342,6 +378,7 @@
           "base_url_plain",
           "connector_type",
           "created_at",
+          "current_month_tokens",
           "display_name",
           "dj_username",
           "id",
@@ -351,6 +388,7 @@
           "last_health_check_status",
           "last_used_at",
           "model_hint",
+          "monthly_token_cap",
           "status",
           "updated_at",
           "user_id"
@@ -1023,7 +1061,7 @@
       "Body_upload_banner_api_events__code__banner_post": {
         "properties": {
           "file": {
-            "format": "binary",
+            "contentMediaType": "application/octet-stream",
             "title": "File",
             "type": "string"
           }
@@ -2462,6 +2500,17 @@
             ],
             "title": "Model Hint"
           },
+          "monthly_token_cap": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Token Cap"
+          },
           "status": {
             "enum": [
               "active",
@@ -2493,6 +2542,7 @@
           "last_health_check_status",
           "last_used_at",
           "model_hint",
+          "monthly_token_cap",
           "status",
           "updated_at",
           "user_id"
@@ -7121,6 +7171,65 @@
           }
         ],
         "summary": "List Connectors Admin",
+        "tags": [
+          "admin",
+          "llm"
+        ]
+      }
+    },
+    "/api/admin/llm/connectors/{connector_id}/cap": {
+      "patch": {
+        "description": "Set or clear a connector's monthly token cap (admin-only, issue #339).\n\n``monthly_token_cap = null`` clears the cap (unlimited). The change is\npre-flight only: an in-flight gateway call already past its cap check is\nunaffected. Pydantic enforces the non-negative bound (``ge=0``); the\nservice layer re-validates defensively.",
+        "operationId": "set_connector_cap_admin_api_admin_llm_connectors__connector_id__cap_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_id",
+            "required": true,
+            "schema": {
+              "title": "Connector Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminConnectorCapPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminConnectorOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Set Connector Cap Admin",
         "tags": [
           "admin",
           "llm"

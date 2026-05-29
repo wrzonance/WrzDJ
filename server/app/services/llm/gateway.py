@@ -41,12 +41,18 @@ from app.models.llm_connector import (
 from app.models.system_settings import SystemSettings
 from app.models.user import User
 from app.services.llm.base import ChatRequest, ChatResponse, ChatResponseChunk
-from app.services.llm.connector_storage import audit_event, get_feature_preference, log_call
+from app.services.llm.connector_storage import (
+    audit_event,
+    current_month_token_usage,
+    get_feature_preference,
+    log_call,
+)
 from app.services.llm.exceptions import (
     AuthInvalid,
     LlmError,
     NoLlmConfigured,
     ProviderUnavailable,
+    QuotaCapReached,
     QuotaExceeded,
     RateLimited,
     ToolTranslationError,
@@ -80,6 +86,26 @@ def _fallback_trigger(exc: LlmError) -> str | None:
     return None
 
 
+def _enforce_monthly_cap(db: Session, connector: LlmConnector) -> None:
+    """Pre-flight: refuse dispatch when the connector's monthly cap is reached.
+
+    No-op when the connector has no cap (``monthly_token_cap is None``).
+    Compares the current calendar month's summed token usage against the cap;
+    refuses when usage already meets or exceeds it. Raised BEFORE any provider
+    call, so no tokens are spent and editing the cap never disrupts an
+    already-dispatched (in-flight) call (issue #339).
+
+    The error message is fixed and leaks no internals (usage totals, cap value,
+    connector id) — see the issue's security note.
+    """
+    cap = connector.monthly_token_cap
+    if cap is None:
+        return
+    used = current_month_token_usage(db, connector.id)
+    if used >= cap:
+        raise QuotaCapReached("Your monthly token cap is reached. Contact your admin to raise it.")
+
+
 class Gateway:
     """Single dispatch entrypoint."""
 
@@ -93,6 +119,13 @@ class Gateway:
     ) -> ChatResponse:
         primary = _resolve_connector(db, actor, purpose=purpose)
         actor_id = actor.id if actor else _system_actor_id(db, primary)
+
+        # Pre-flight: refuse if the resolved connector's monthly cap is reached
+        # (issue #339). Raised before any provider call — no tokens spent, and
+        # a cap edit never disrupts an in-flight call. QuotaCapReached is not in
+        # _FALLBACK_TRIGGERS, so it short-circuits to the caller (a cap is not a
+        # transient/credential error a different connector would dodge).
+        _enforce_monthly_cap(db, primary)
 
         # Attempt 1: primary connector.
         try:
@@ -120,6 +153,10 @@ class Gateway:
             if fallback is None or fallback.id == primary.id:
                 # No distinct org default to fall back to — surface the original.
                 raise
+
+            # The fallback connector may itself be capped — refuse rather than
+            # silently spending another DJ's budget (issue #339).
+            _enforce_monthly_cap(db, fallback)
 
             logger.info(
                 "llm fallback: primary connector %s failed (%s); "

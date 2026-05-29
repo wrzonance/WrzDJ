@@ -953,8 +953,13 @@ async def get_llm_recommendations(
             detail="No music services connected. Link Tidal or Beatport to get recommendations.",
         )
 
+    from app.services.llm.exceptions import QuotaCapReached
+
     try:
         result = await generate_recommendations_from_llm(db, user, event, prompt_request.prompt)
+    except QuotaCapReached as exc:
+        # DJ-facing message only — no internal usage/cap details leaked (issue #339).
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     except Exception:
         import logging
 

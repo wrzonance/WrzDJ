@@ -166,6 +166,8 @@ describe('AdminAISettingsPage', () => {
         is_default: false,
         last_health_check_at: null,
         last_health_check_status: null,
+        monthly_token_cap: null,
+        current_month_tokens: 0,
       },
     ]);
     vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({
@@ -325,6 +327,8 @@ describe('AdminAISettingsPage', () => {
         is_default: false,
         last_health_check_at: null,
         last_health_check_status: null,
+        monthly_token_cap: null,
+        current_month_tokens: 0,
       },
     ]);
     vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({ days: 30, rows: [] });
@@ -344,6 +348,8 @@ describe('AdminAISettingsPage', () => {
       is_default: false,
       last_health_check_at: null,
       last_health_check_status: null,
+      monthly_token_cap: null,
+      current_month_tokens: 0,
     });
     vi.spyOn(window, 'confirm').mockReturnValue(true);
 
@@ -510,6 +516,8 @@ describe('AdminAISettingsPage', () => {
         is_default: false,
         last_health_check_at: '2026-05-28T10:00:00Z',
         last_health_check_status: 'ok',
+        monthly_token_cap: null,
+        current_month_tokens: 0,
       },
       {
         id: 2,
@@ -527,6 +535,8 @@ describe('AdminAISettingsPage', () => {
         is_default: false,
         last_health_check_at: '2026-05-28T09:00:00Z',
         last_health_check_status: 'auth_invalid',
+        monthly_token_cap: null,
+        current_month_tokens: 0,
       },
       {
         id: 3,
@@ -544,6 +554,8 @@ describe('AdminAISettingsPage', () => {
         is_default: false,
         last_health_check_at: null,
         last_health_check_status: null,
+        monthly_token_cap: null,
+        current_month_tokens: 0,
       },
     ]);
     vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({ days: 30, rows: [] });
@@ -591,6 +603,8 @@ describe('AdminAISettingsPage', () => {
         is_default: false,
         last_health_check_at: '2026-05-01T00:00:00Z',
         last_health_check_status: 'ok',
+        monthly_token_cap: null,
+        current_month_tokens: 0,
       },
       {
         id: 2,
@@ -608,6 +622,8 @@ describe('AdminAISettingsPage', () => {
         is_default: false,
         last_health_check_at: '2026-05-28T00:00:00Z',
         last_health_check_status: 'ok',
+        monthly_token_cap: null,
+        current_month_tokens: 0,
       },
     ]);
     vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({ days: 30, rows: [] });

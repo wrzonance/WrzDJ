@@ -1370,6 +1370,20 @@ class ApiClient {
     return this.fetch(`/api/admin/llm/usage?days=${days}`);
   }
 
+  /**
+   * Set or clear a connector's monthly token cap (admin-only, issue #339).
+   * Pass `null` to clear the cap (unlimited).
+   */
+  async setAdminLlmConnectorCap(
+    id: number,
+    monthlyTokenCap: number | null,
+  ): Promise<LlmAdminConnector> {
+    return this.fetch(`/api/admin/llm/connectors/${id}/cap`, {
+      method: 'PATCH',
+      body: JSON.stringify({ monthly_token_cap: monthlyTokenCap }),
+    });
+  }
+
   // ========== Admin LLM audit trail (issue #341) ==========
 
   private buildAuditQuery(filters: AdminLlmAuditFilters = {}): URLSearchParams {

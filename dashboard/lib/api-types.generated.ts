@@ -235,6 +235,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/llm/connectors/{connector_id}/cap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set Connector Cap Admin
+         * @description Set or clear a connector's monthly token cap (admin-only, issue #339).
+         *
+         *     ``monthly_token_cap = null`` clears the cap (unlimited). The change is
+         *     pre-flight only: an in-flight gateway call already past its cap check is
+         *     unaffected. Pydantic enforces the non-negative bound (``ge=0``); the
+         *     service layer re-validates defensively.
+         */
+        patch: operations["set_connector_cap_admin_api_admin_llm_connectors__connector_id__cap_patch"];
+        trace?: never;
+    };
     "/api/admin/llm/connectors/{connector_id}/revoke": {
         parameters: {
             query?: never;
@@ -1484,6 +1509,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/llm/connectors/{connector_id}/stream-test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stream Test Connector
+         * @description Stream a short sentence through the connector as ``text/event-stream``.
+         *
+         *     Validates ownership up front (404 for connectors the DJ doesn't own — never
+         *     leaks existence). Each SSE ``data:`` frame is a JSON ``ChatResponseChunk``.
+         *     On a typed gateway error an ``event: error`` frame is emitted carrying only a
+         *     sanitised code (never the upstream payload), then the stream ends. Client
+         *     disconnect cancels the upstream provider request — the gateway generator's
+         *     ``finally`` writes the counts-only call log and closes the adapter.
+         *
+         *     Unlike the public guest SSE stream (``api/sse.py``), this endpoint is
+         *     authenticated, rate-limited (10/min), and strictly bounded (max 64 output
+         *     tokens), so it holds the request-scoped DB session for the brief stream
+         *     lifetime rather than opening a detached ``SessionLocal`` — the pool-pinning
+         *     concern that drove ``api/sse.py``'s pattern applies to unauthenticated,
+         *     indefinitely-open guest connections, not a short admin health probe.
+         */
+        post: operations["stream_test_connector_api_llm_connectors__connector_id__stream_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/llm/connectors/{connector_id}/test": {
         parameters: {
             query?: never;
@@ -2551,6 +2610,22 @@ export interface components {
             total: number;
         };
         /**
+         * AdminConnectorCapPatch
+         * @description Admin set/clear a connector's monthly token cap (issue #339).
+         *
+         *     ``monthly_token_cap`` is **required** so intent is always explicit: an
+         *     integer sets the cap, ``null`` clears it (unlimited). Omitting the field
+         *     (an empty ``{}`` body) is rejected with 422 rather than silently treated as
+         *     ``null`` — that would let an accidental no-field PATCH wipe a configured
+         *     cap. A non-null value must be a non-negative integer; ``0`` means "no
+         *     further calls this month". The upper bound is a sanity ceiling, not a
+         *     billing limit.
+         */
+        AdminConnectorCapPatch: {
+            /** Monthly Token Cap */
+            monthly_token_cap: number | null;
+        };
+        /**
          * AdminConnectorOut
          * @description Admin view — adds the DJ's username for display.
          */
@@ -2567,6 +2642,11 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Current Month Tokens
+             * @default 0
+             */
+            current_month_tokens: number;
             /** Display Name */
             display_name: string;
             /** Dj Username */
@@ -2588,6 +2668,8 @@ export interface components {
             last_used_at: string | null;
             /** Model Hint */
             model_hint: string | null;
+            /** Monthly Token Cap */
+            monthly_token_cap: number | null;
             /**
              * Status
              * @enum {string}
@@ -3293,6 +3375,8 @@ export interface components {
             last_used_at: string | null;
             /** Model Hint */
             model_hint: string | null;
+            /** Monthly Token Cap */
+            monthly_token_cap: number | null;
             /**
              * Status
              * @enum {string}
@@ -5026,6 +5110,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminConnectorOut"][];
+                };
+            };
+        };
+    };
+    set_connector_cap_admin_api_admin_llm_connectors__connector_id__cap_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminConnectorCapPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminConnectorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -7416,6 +7535,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stream_test_connector_api_llm_connectors__connector_id__stream_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
             };
             /** @description Validation Error */
             422: {

@@ -204,6 +204,29 @@
         "title": "AdminAuditOut",
         "type": "object"
       },
+      "AdminConnectorCapPatch": {
+        "description": "Admin set/clear a connector's monthly token cap (issue #339).\n\n``monthly_token_cap`` is **required** so intent is always explicit: an\ninteger sets the cap, ``null`` clears it (unlimited). Omitting the field\n(an empty ``{}`` body) is rejected with 422 rather than silently treated as\n``null`` \u2014 that would let an accidental no-field PATCH wipe a configured\ncap. A non-null value must be a non-negative integer; ``0`` means \"no\nfurther calls this month\". The upper bound is a sanity ceiling, not a\nbilling limit.",
+        "properties": {
+          "monthly_token_cap": {
+            "anyOf": [
+              {
+                "maximum": 1000000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Token Cap"
+          }
+        },
+        "required": [
+          "monthly_token_cap"
+        ],
+        "title": "AdminConnectorCapPatch",
+        "type": "object"
+      },
       "AdminConnectorOut": {
         "description": "Admin view \u2014 adds the DJ's username for display.",
         "properties": {
@@ -236,6 +259,11 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "current_month_tokens": {
+            "default": 0,
+            "title": "Current Month Tokens",
+            "type": "integer"
           },
           "display_name": {
             "title": "Display Name",
@@ -319,6 +347,17 @@
             ],
             "title": "Model Hint"
           },
+          "monthly_token_cap": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Token Cap"
+          },
           "status": {
             "enum": [
               "active",
@@ -342,6 +381,7 @@
           "base_url_plain",
           "connector_type",
           "created_at",
+          "current_month_tokens",
           "display_name",
           "dj_username",
           "id",
@@ -351,6 +391,7 @@
           "last_health_check_status",
           "last_used_at",
           "model_hint",
+          "monthly_token_cap",
           "status",
           "updated_at",
           "user_id"
@@ -2462,6 +2503,17 @@
             ],
             "title": "Model Hint"
           },
+          "monthly_token_cap": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Token Cap"
+          },
           "status": {
             "enum": [
               "active",
@@ -2493,6 +2545,7 @@
           "last_health_check_status",
           "last_used_at",
           "model_hint",
+          "monthly_token_cap",
           "status",
           "updated_at",
           "user_id"
@@ -7203,6 +7256,65 @@
         ]
       }
     },
+    "/api/admin/llm/connectors/{connector_id}/cap": {
+      "patch": {
+        "description": "Set or clear a connector's monthly token cap (admin-only, issue #339).\n\n``monthly_token_cap = null`` clears the cap (unlimited). The change is\npre-flight only: an in-flight gateway call already past its cap check is\nunaffected. Pydantic enforces the non-negative bound (``ge=0``); the\nservice layer re-validates defensively.",
+        "operationId": "set_connector_cap_admin_api_admin_llm_connectors__connector_id__cap_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_id",
+            "required": true,
+            "schema": {
+              "title": "Connector Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminConnectorCapPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminConnectorOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Set Connector Cap Admin",
+        "tags": [
+          "admin",
+          "llm"
+        ]
+      }
+    },
     "/api/admin/llm/connectors/{connector_id}/revoke": {
       "post": {
         "operationId": "revoke_connector_admin_api_admin_llm_connectors__connector_id__revoke_post",
@@ -10888,6 +11000,52 @@
           }
         ],
         "summary": "Set Connector As Default",
+        "tags": [
+          "llm"
+        ]
+      }
+    },
+    "/api/llm/connectors/{connector_id}/stream-test": {
+      "post": {
+        "description": "Stream a short sentence through the connector as ``text/event-stream``.\n\nValidates ownership up front (404 for connectors the DJ doesn't own \u2014 never\nleaks existence). Each SSE ``data:`` frame is a JSON ``ChatResponseChunk``.\nOn a typed gateway error an ``event: error`` frame is emitted carrying only a\nsanitised code (never the upstream payload), then the stream ends. Client\ndisconnect cancels the upstream provider request \u2014 the gateway generator's\n``finally`` writes the counts-only call log and closes the adapter.\n\nUnlike the public guest SSE stream (``api/sse.py``), this endpoint is\nauthenticated, rate-limited (10/min), and strictly bounded (max 64 output\ntokens), so it holds the request-scoped DB session for the brief stream\nlifetime rather than opening a detached ``SessionLocal`` \u2014 the pool-pinning\nconcern that drove ``api/sse.py``'s pattern applies to unauthenticated,\nindefinitely-open guest connections, not a short admin health probe.",
+        "operationId": "stream_test_connector_api_llm_connectors__connector_id__stream_test_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_id",
+            "required": true,
+            "schema": {
+              "title": "Connector Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Stream Test Connector",
         "tags": [
           "llm"
         ]

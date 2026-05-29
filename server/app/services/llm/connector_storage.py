@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import case, delete, func, select
@@ -704,6 +705,77 @@ def get_usage_stats(db: Session, *, days: int = 30) -> list[dict]:
     ]
 
 
+def _calendar_month_start() -> datetime:
+    """First instant (UTC, naive) of the current calendar month."""
+    from app.core.time import utcnow
+
+    now = utcnow()
+    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def current_month_token_usage(db: Session, connector_id: int) -> int:
+    """Sum tokens_in + tokens_out for ``connector_id`` in the current month.
+
+    Direct aggregation against the indexed ``llm_call_log.created_at`` column.
+    NULL token counts are coalesced to 0. Returns 0 when there are no rows.
+    Used by the gateway pre-flight cap check + the admin usage-vs-cap display
+    (issue #339).
+    """
+    month_start = _calendar_month_start()
+    total = db.execute(
+        select(
+            func.coalesce(func.sum(LlmCallLog.tokens_in), 0)
+            + func.coalesce(func.sum(LlmCallLog.tokens_out), 0)
+        ).where(
+            LlmCallLog.connector_id == connector_id,
+            LlmCallLog.created_at >= month_start,
+        )
+    ).scalar_one()
+    return int(total or 0)
+
+
+def current_month_token_usage_bulk(db: Session, connector_ids: list[int]) -> dict[int, int]:
+    """Sum current-month tokens (tokens_in + tokens_out) for many connectors.
+
+    Single grouped aggregate over the indexed ``llm_call_log.created_at`` column
+    — avoids the N+1 of calling :func:`current_month_token_usage` per connector
+    in the admin list endpoint. Returns a ``{connector_id: total}`` map;
+    connectors with no rows this month are simply absent (callers default to 0).
+    Returns an empty dict when ``connector_ids`` is empty.
+    """
+    if not connector_ids:
+        return {}
+    month_start = _calendar_month_start()
+    rows = db.execute(
+        select(
+            LlmCallLog.connector_id,
+            (
+                func.coalesce(func.sum(LlmCallLog.tokens_in), 0)
+                + func.coalesce(func.sum(LlmCallLog.tokens_out), 0)
+            ).label("total"),
+        )
+        .where(
+            LlmCallLog.connector_id.in_(connector_ids),
+            LlmCallLog.created_at >= month_start,
+        )
+        .group_by(LlmCallLog.connector_id)
+    ).all()
+    return {int(r.connector_id): int(r.total or 0) for r in rows}
+
+
+def set_monthly_cap(connector: LlmConnector, cap: int | None) -> LlmConnector:
+    """Set (or clear) the connector's monthly token cap. Caller commits.
+
+    ``cap=None`` clears the cap (unlimited). A non-None cap must be a
+    non-negative integer; negative values are rejected with ``ValueError``
+    (→ HTTP 400 at the API boundary).
+    """
+    if cap is not None and cap < 0:
+        raise ValueError("monthly_token_cap must be a non-negative integer or null")
+    connector.monthly_token_cap = cap
+    return connector
+
+
 # Re-export audit event constants for callers
 __all__ = [
     "AUDIT_AUTH_INVALID_OBSERVED",
@@ -720,6 +792,8 @@ __all__ = [
     "build_create_payload",
     "clear_feature_preference",
     "create_connector",
+    "current_month_token_usage",
+    "current_month_token_usage_bulk",
     "delete_connector",
     "get_connector",
     "get_connector_for_user",
@@ -735,6 +809,7 @@ __all__ = [
     "rotate_credentials",
     "set_default_for_user",
     "set_feature_preference",
+    "set_monthly_cap",
     "unset_default_for_user",
     "update_metadata",
 ]

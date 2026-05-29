@@ -74,12 +74,18 @@ class ConnectorOut(BaseModel):
     # Health-check observability (issues #340 + #346).
     last_health_check_at: datetime | None = None
     last_health_check_status: HealthCheckStatus | None = None
+    # Admin-set monthly token cap (issue #339). None = unlimited.
+    monthly_token_cap: int | None = None
 
 
 class AdminConnectorOut(ConnectorOut):
     """Admin view — adds the DJ's username for display."""
 
     dj_username: str
+    # Current calendar-month token usage (tokens_in + tokens_out), so the admin
+    # UI can render a usage-vs-cap progress bar without a second round-trip
+    # (issue #339).
+    current_month_tokens: int = 0
 
 
 class ConnectorCreate(BaseModel):
@@ -267,6 +273,21 @@ class AdminPolicyPatch(BaseModel):
                 "clear_default cannot be combined with a non-null llm_default_connector_id"
             )
         return self
+
+
+class AdminConnectorCapPatch(BaseModel):
+    """Admin set/clear a connector's monthly token cap (issue #339).
+
+    ``monthly_token_cap`` is **required** so intent is always explicit: an
+    integer sets the cap, ``null`` clears it (unlimited). Omitting the field
+    (an empty ``{}`` body) is rejected with 422 rather than silently treated as
+    ``null`` — that would let an accidental no-field PATCH wipe a configured
+    cap. A non-null value must be a non-negative integer; ``0`` means "no
+    further calls this month". The upper bound is a sanity ceiling, not a
+    billing limit.
+    """
+
+    monthly_token_cap: int | None = Field(..., ge=0, le=1_000_000_000)
 
 
 class UsageRow(BaseModel):

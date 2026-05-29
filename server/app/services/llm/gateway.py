@@ -25,6 +25,7 @@ attempt; the chain never loops.
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from time import monotonic
 
 from sqlalchemy import desc, nulls_last
@@ -39,7 +40,7 @@ from app.models.llm_connector import (
 )
 from app.models.system_settings import SystemSettings
 from app.models.user import User
-from app.services.llm.base import ChatRequest, ChatResponse
+from app.services.llm.base import ChatRequest, ChatResponse, ChatResponseChunk
 from app.services.llm.connector_storage import audit_event, get_feature_preference, log_call
 from app.services.llm.exceptions import (
     AuthInvalid,
@@ -138,6 +139,42 @@ class Gateway:
             db.commit()
             # A failure here surfaces the fallback's own error (no further retry).
             return await _attempt(db, fallback, request, purpose=purpose, actor_id=actor_id)
+
+    @staticmethod
+    async def stream(
+        db: Session,
+        actor: User | None,
+        request: ChatRequest,
+        *,
+        purpose: str,
+    ) -> AsyncIterator[ChatResponseChunk]:
+        """Stream a chat response, mirroring ``dispatch`` resolution + logging.
+
+        Connector resolution is identical to ``dispatch`` (per-feature pin → per-DJ
+        default → MRU → org default). Logging differs only in timing: a single counts-only
+        ``llm_call_log`` row is written when the stream finishes (success),
+        errors, or is cancelled by the consumer. Consumer cancellation (e.g. an
+        SSE client disconnect closing the generator) raises ``GeneratorExit``
+        into ``_attempt_stream``, whose ``finally`` writes the log and lets the
+        adapter's own ``async with`` cleanup close the upstream connection.
+
+        Auto-fallback (``ChatRequest.fallback_policy``) is intentionally NOT
+        applied to streaming: chunks have already been delivered to the consumer
+        by the time a mid-stream error surfaces, so transparently restarting on
+        another connector would corrupt the output. Streaming always fails fast.
+        """
+        primary = _resolve_connector(db, actor, purpose=purpose)
+        actor_id = actor.id if actor else _system_actor_id(db, primary)
+        inner = _attempt_stream(db, primary, request, purpose=purpose, actor_id=actor_id)
+        try:
+            async for chunk in inner:
+                yield chunk
+        finally:
+            # Closing the outer generator (e.g. SSE client disconnect) must
+            # synchronously close the inner one so ``_attempt_stream``'s finally
+            # fires now — writing the call log + closing the upstream connection —
+            # rather than waiting for garbage collection.
+            await inner.aclose()
 
 
 async def _attempt(
@@ -252,6 +289,98 @@ async def _attempt(
     )
     db.commit()
     return response
+
+
+async def _attempt_stream(
+    db: Session,
+    connector: LlmConnector,
+    request: ChatRequest,
+    *,
+    purpose: str,
+    actor_id: int,
+) -> AsyncIterator[ChatResponseChunk]:
+    """Run a single adapter stream, logging exactly one outcome row.
+
+    The call log is written in a ``finally`` so it fires on success, on a typed
+    error, AND on consumer cancellation (``GeneratorExit`` raised into the
+    generator when the SSE client disconnects). The status reflects which path
+    fired; token counts come only from a terminal chunk's ``usage`` (never
+    prompt/completion content). Auth failures additionally mark the connector
+    ``auth_invalid`` and write an audit row, mirroring the non-stream ``_attempt``.
+    """
+    adapter_cls = get_adapter_class(connector.connector_type)
+    adapter = adapter_cls(connector)
+
+    started = monotonic()
+    status = "ok"
+    error_code: str | None = None
+    tokens_in: int | None = None
+    tokens_out: int | None = None
+    auth_failed = False
+
+    try:
+        async for chunk in adapter.stream(request):
+            if chunk.usage is not None:
+                tokens_in = chunk.usage.prompt
+                tokens_out = chunk.usage.completion
+            yield chunk
+    except GeneratorExit:
+        # Consumer disconnected — record as cancelled and re-raise so the
+        # adapter's own context-manager cleanup closes the upstream connection.
+        status = "cancelled"
+        error_code = "client_disconnect"
+        raise
+    except AuthInvalid:
+        status = "auth_invalid"
+        error_code = "401"
+        auth_failed = True
+        raise
+    except RateLimited as exc:
+        status = "rate_limited"
+        error_code = str(exc.retry_after_seconds or "")
+        raise
+    except QuotaExceeded:
+        status = "quota_exceeded"
+        error_code = "402"
+        raise
+    except ProviderUnavailable as exc:
+        status = "provider_unavailable"
+        error_code = type(exc).__name__
+        raise
+    except ToolTranslationError:
+        status = "tool_translation_error"
+        error_code = "translation"
+        raise
+    except LlmError:
+        status = "error"
+        error_code = "llm_error"
+        raise
+    finally:
+        latency_ms = int((monotonic() - started) * 1000)
+        if status == "ok":
+            connector.last_used_at = utcnow()
+            connector.last_error = None
+        if auth_failed:
+            connector.status = STATUS_AUTH_INVALID
+            connector.last_error = "auth_invalid"
+        log_call(
+            db,
+            connector_id=connector.id,
+            purpose=purpose,
+            status=status,
+            latency_ms=latency_ms,
+            tokens_in=tokens_in if status == "ok" else None,
+            tokens_out=tokens_out if status == "ok" else None,
+            error_code=error_code,
+        )
+        if auth_failed:
+            audit_event(
+                db,
+                actor_user_id=actor_id,
+                target_connector_id=connector.id,
+                event_type=AUDIT_AUTH_INVALID_OBSERVED,
+            )
+        db.commit()
 
 
 def _resolve_connector(db: Session, actor: User | None, *, purpose: str) -> LlmConnector:

@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 
 from app.services.llm.adapters._httpx_openai import (
     build_healthcheck_request,
     call_openai_chat,
+    stream_openai_chat,
 )
 from app.services.llm.adapters._shared import extract_api_key
-from app.services.llm.base import ChatRequest, ChatResponse, LlmAdapter
+from app.services.llm.base import ChatRequest, ChatResponse, ChatResponseChunk, LlmAdapter
 from app.services.llm.registry import register_adapter
 
 logger = logging.getLogger(__name__)
@@ -51,6 +53,17 @@ class OpenAIApiKeyAdapter(LlmAdapter):
             fallback_model=self.connector.model_hint or DEFAULT_MODEL,
             max_tokens_field=_MAX_TOKENS_FIELD,
         )
+
+    async def stream(self, request: ChatRequest) -> AsyncIterator[ChatResponseChunk]:
+        api_key = self._extract_api_key()
+        async for chunk in stream_openai_chat(
+            base_url=OPENAI_BASE_URL,
+            api_key=api_key,
+            request=request,
+            fallback_model=self.connector.model_hint or DEFAULT_MODEL,
+            max_tokens_field=_MAX_TOKENS_FIELD,
+        ):
+            yield chunk
 
 
 register_adapter("openai_apikey", OpenAIApiKeyAdapter)

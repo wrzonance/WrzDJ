@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import AsyncIterator
 
 from app.services.llm.adapters._httpx_openai import (
     build_healthcheck_request,
     call_openai_chat,
+    stream_openai_chat,
 )
-from app.services.llm.base import ChatRequest, ChatResponse, LlmAdapter
+from app.services.llm.base import ChatRequest, ChatResponse, ChatResponseChunk, LlmAdapter
 from app.services.llm.exceptions import AuthInvalid
 from app.services.llm.registry import register_adapter
 from app.services.llm.url_validator import InvalidBaseUrlError, validate_compatible_base_url
@@ -65,6 +67,16 @@ class OpenAICompatibleAdapter(LlmAdapter):
             request=ping,
             fallback_model=self.connector.model_hint or DEFAULT_MODEL,
         )
+
+    async def stream(self, request: ChatRequest) -> AsyncIterator[ChatResponseChunk]:
+        base_url, bearer = self._extract_credentials()
+        async for chunk in stream_openai_chat(
+            base_url=base_url,
+            api_key=bearer,
+            request=request,
+            fallback_model=self.connector.model_hint or DEFAULT_MODEL,
+        ):
+            yield chunk
 
 
 register_adapter("openai_compatible", OpenAICompatibleAdapter)

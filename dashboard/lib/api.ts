@@ -265,6 +265,26 @@ export class HumanVerificationRequiredError extends ApiError {
 }
 
 /**
+ * One incremental chunk of a streamed LLM response (mirrors the backend
+ * `ChatResponseChunk`). Non-final chunks carry `text_delta` and/or
+ * `tool_call_deltas`; the final chunk has `done: true` plus `stop_reason` and
+ * (when reported) `usage`. Hand-written client type — SSE chunks are not part of
+ * the REST OpenAPI schema.
+ */
+export interface LlmStreamChunk {
+  text_delta?: string;
+  tool_call_deltas?: Array<{
+    index: number;
+    id?: string | null;
+    name?: string | null;
+    input_json_fragment?: string;
+  }>;
+  stop_reason?: 'end_turn' | 'tool_use' | 'max_tokens' | 'error' | null;
+  usage?: { prompt: number; completion: number } | null;
+  done?: boolean;
+}
+
+/**
  * Wrap a guest-public fetch in 403-human-verification-required retry logic.
  * Caller passes a `reverify` async function that re-runs the Turnstile
  * bootstrap and resolves once `wrzdj_human` cookie is set. On a 403 with
@@ -1210,6 +1230,85 @@ class ApiClient {
 
   async testLlmConnector(id: number): Promise<LlmConnectorTestResult> {
     return this.fetch(`/api/llm/connectors/${id}/test`, { method: 'POST' });
+  }
+
+  /**
+   * Stream a short health-check sentence through a connector via SSE.
+   *
+   * Uses fetch + ReadableStream rather than EventSource because EventSource
+   * cannot send the Authorization header this authenticated endpoint requires.
+   * Pass an AbortSignal to cancel — aborting closes the connection, which the
+   * backend treats as a client disconnect and cancels the upstream provider
+   * request. `onChunk` is invoked for every parsed SSE data frame.
+   */
+  async streamConnectorTest(
+    id: number,
+    onChunk: (chunk: LlmStreamChunk) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const headers = new Headers({ Accept: 'text/event-stream' });
+    if (this.token) headers.set('Authorization', `Bearer ${this.token}`);
+
+    const response = await fetch(`${getApiUrl()}/api/llm/connectors/${id}/stream-test`, {
+      method: 'POST',
+      headers,
+      signal,
+    });
+    if (!response.ok || !response.body) {
+      if (response.status === 401 && this.onUnauthorized) this.onUnauthorized();
+      throw new ApiError('Stream test failed', response.status);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // SSE frames are separated by a blank line.
+        let sep: number;
+        while ((sep = buffer.indexOf('\n\n')) !== -1) {
+          const frame = buffer.slice(0, sep);
+          buffer = buffer.slice(sep + 2);
+          // A frame may carry an `event:` name plus one or more `data:` lines.
+          // The backend emits `event: error` for typed gateway failures, so we
+          // must inspect the event type — not just blindly parse `data:`.
+          let eventType = 'message';
+          const dataLines: string[] = [];
+          for (const line of frame.split('\n')) {
+            if (line.startsWith('event:')) {
+              eventType = line.slice('event:'.length).trim();
+            } else if (line.startsWith('data:')) {
+              dataLines.push(line.slice('data:'.length).trim());
+            }
+          }
+          const data = dataLines.join('\n').trim();
+          if (!data || data === '[DONE]') continue;
+
+          if (eventType === 'error') {
+            // Surface the sanitised backend error code as a thrown failure
+            // rather than passing it through as an inert chunk.
+            let code: string | undefined;
+            try {
+              code = (JSON.parse(data) as { code?: string }).code;
+            } catch {
+              code = undefined;
+            }
+            throw new ApiError(`Stream test failed${code ? `: ${code}` : ''}`, 500);
+          }
+
+          try {
+            onChunk(JSON.parse(data) as LlmStreamChunk);
+          } catch {
+            // Ignore unparseable keepalive frames.
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
   }
 
   async deleteLlmConnector(id: number): Promise<void> {

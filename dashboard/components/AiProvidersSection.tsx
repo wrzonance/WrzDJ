@@ -111,6 +111,10 @@ export default function AiProvidersSection() {
   const [submitMessage, setSubmitMessage] = useState('');
   const [submitError, setSubmitError] = useState('');
   const [testStateById, setTestStateById] = useState<Record<number, string>>({});
+  // Live streamed text per connector for the "Stream test" button, plus the id
+  // currently streaming (drives the disabled state + label).
+  const [streamTextById, setStreamTextById] = useState<Record<number, string>>({});
+  const [streamingId, setStreamingId] = useState<number | null>(null);
   const [openrouterModels, setOpenrouterModels] = useState<AIModelInfo[]>([]);
   const [openrouterModelsLoaded, setOpenrouterModelsLoaded] = useState(false);
   const [featurePrefs, setFeaturePrefs] = useState<LlmFeaturePreferences | null>(null);
@@ -243,6 +247,25 @@ export default function AiProvidersSection() {
         ...s,
         [id]: err instanceof Error ? err.message : 'Test failed',
       }));
+    }
+  };
+
+  const handleStreamTest = async (id: number) => {
+    setStreamTextById((s) => ({ ...s, [id]: '' }));
+    setStreamingId(id);
+    try {
+      await api.streamConnectorTest(id, (chunk) => {
+        if (chunk.text_delta) {
+          setStreamTextById((s) => ({ ...s, [id]: (s[id] ?? '') + chunk.text_delta }));
+        }
+      });
+    } catch (err) {
+      setStreamTextById((s) => ({
+        ...s,
+        [id]: err instanceof Error ? `(stream test failed: ${err.message})` : '(stream test failed)',
+      }));
+    } finally {
+      setStreamingId(null);
     }
   };
 
@@ -423,10 +446,29 @@ export default function AiProvidersSection() {
                   <button className="btn btn-secondary" onClick={() => handleTest(c.id)}>
                     Test
                   </button>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => handleStreamTest(c.id)}
+                    disabled={streamingId !== null}
+                  >
+                    {streamingId === c.id ? 'Streaming…' : 'Stream test'}
+                  </button>
                   <button className="btn btn-danger" onClick={() => handleDelete(c.id)}>
                     Delete
                   </button>
                 </div>
+                {streamTextById[c.id] !== undefined && streamTextById[c.id] !== '' && (
+                  <div
+                    style={{
+                      marginTop: '0.5rem',
+                      fontSize: '0.875rem',
+                      color: 'var(--text-secondary)',
+                      fontStyle: 'italic',
+                    }}
+                  >
+                    {streamTextById[c.id]}
+                  </div>
+                )}
               </div>
             </div>
           );

@@ -10,11 +10,13 @@ leaking the existence of another DJ's connectors.
 
 from __future__ import annotations
 
+import json as _json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi import Request as FastAPIRequest
 from sqlalchemy.orm import Session
+from sse_starlette.sse import EventSourceResponse
 
 from app.api.deps import get_current_active_user, get_db
 from app.core.rate_limit import limiter
@@ -38,6 +40,8 @@ from app.schemas.llm import (
     FeaturePreferenceSet,
     FeaturePreferencesListOut,
 )
+from app.services.llm.base import ChatRequest as LlmChatRequest
+from app.services.llm.base import Message as LlmMessage
 from app.services.llm.connector_storage import (
     AUDIT_CREATED,
     AUDIT_CREDENTIALS_ROTATED,
@@ -58,6 +62,8 @@ from app.services.llm.connector_storage import (
     unset_default_for_user,
     update_metadata,
 )
+from app.services.llm.exceptions import LlmError, NoLlmConfigured
+from app.services.llm.gateway import Gateway
 from app.services.llm.openrouter_models import get_openrouter_models
 from app.services.system_settings import get_system_settings
 
@@ -346,6 +352,64 @@ async def test_connector(
         ok=False,
         error_code=outcome.error_code or outcome.status,
         message=message,
+    )
+
+
+# A short, fixed prompt for the streaming health probe. Streams a single
+# sentence so the DJ sees tokens arrive in real time, exercising the full
+# resolve → adapter.stream → SSE path end-to-end.
+_STREAM_TEST_PROMPT = "Reply with one short friendly sentence confirming you are online."
+
+
+@router.post("/connectors/{connector_id}/stream-test")
+@limiter.limit("10/minute")
+async def stream_test_connector(
+    request: FastAPIRequest,
+    connector_id: int,
+    user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+) -> EventSourceResponse:
+    """Stream a short sentence through the connector as ``text/event-stream``.
+
+    Validates ownership up front (404 for connectors the DJ doesn't own — never
+    leaks existence). Each SSE ``data:`` frame is a JSON ``ChatResponseChunk``.
+    On a typed gateway error an ``event: error`` frame is emitted carrying only a
+    sanitised code (never the upstream payload), then the stream ends. Client
+    disconnect cancels the upstream provider request — the gateway generator's
+    ``finally`` writes the counts-only call log and closes the adapter.
+
+    Unlike the public guest SSE stream (``api/sse.py``), this endpoint is
+    authenticated, rate-limited (10/min), and strictly bounded (max 64 output
+    tokens), so it holds the request-scoped DB session for the brief stream
+    lifetime rather than opening a detached ``SessionLocal`` — the pool-pinning
+    concern that drove ``api/sse.py``'s pattern applies to unauthenticated,
+    indefinitely-open guest connections, not a short admin health probe.
+    """
+    row = _get_owned_connector_or_404(db, connector_id, user.id)
+
+    chat_request = LlmChatRequest(
+        messages=[LlmMessage(role="user", content=_STREAM_TEST_PROMPT)],
+        max_tokens=64,
+        temperature=0.0,
+        model=row.model_hint or None,
+    )
+
+    async def _publisher():
+        try:
+            async for chunk in Gateway.stream(db, user, chat_request, purpose="stream_test"):
+                yield {"data": _json.dumps(chunk.model_dump())}
+        except NoLlmConfigured:
+            yield {"event": "error", "data": _json.dumps({"code": "no_connector"})}
+        except LlmError as exc:
+            # Map to a sanitised, stable code — never echo the provider message.
+            code = type(exc).__name__
+            logger.info("stream-test failed for connector %s: %s", connector_id, code)
+            yield {"event": "error", "data": _json.dumps({"code": code})}
+
+    return EventSourceResponse(
+        _publisher(),
+        media_type="text/event-stream",
+        headers={"X-Accel-Buffering": "no"},
     )
 
 

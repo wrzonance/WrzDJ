@@ -113,6 +113,11 @@ function sortConnectors(
   return copy;
 }
 
+// Format a nullable ISO timestamp for table cells; em-dash when absent.
+function formatTimestamp(ts: string | null | undefined): string {
+  return ts ? new Date(ts).toLocaleString() : '—';
+}
+
 function PlainHeader({ label }: { label: string }) {
   return (
     <th
@@ -314,6 +319,13 @@ export default function AdminAISettingsPage() {
       active = false;
     };
   }, [buildAuditFilters]);
+
+  // Any audit-filter change resets pagination to the first page before applying
+  // the new value, so the offset never points past a now-shorter result set.
+  const onAuditFilterChange = (apply: () => void) => {
+    setAuditPage(0);
+    apply();
+  };
 
   const handleExportCsv = async () => {
     setExporting(true);
@@ -676,12 +688,10 @@ export default function AdminAISettingsPage() {
                     <td style={{ padding: '0.5rem' }}>{c.display_name}</td>
                     <td style={{ padding: '0.5rem' }}>{c.status}</td>
                     <td style={{ padding: '0.5rem', color: 'var(--text-secondary)' }}>
-                      {c.last_used_at ? new Date(c.last_used_at).toLocaleString() : '—'}
+                      {formatTimestamp(c.last_used_at)}
                     </td>
                     <td style={{ padding: '0.5rem', color: 'var(--text-secondary)' }}>
-                      {c.last_health_check_at
-                        ? new Date(c.last_health_check_at).toLocaleString()
-                        : '—'}
+                      {formatTimestamp(c.last_health_check_at)}
                     </td>
                     <td style={{ padding: '0.5rem' }}>
                       <HealthBadge status={c.last_health_check_status ?? null} />
@@ -713,9 +723,7 @@ export default function AdminAISettingsPage() {
                 <thead>
                   <tr>
                     {['DJ', 'Connector', 'Calls', 'Tokens in', 'Tokens out', 'Error rate'].map((h) => (
-                      <th key={h} style={{ textAlign: 'left', padding: '0.5rem', borderBottom: '1px solid var(--border-color)' }}>
-                        {h}
-                      </th>
+                      <PlainHeader key={h} label={h} />
                     ))}
                   </tr>
                 </thead>
@@ -763,10 +771,7 @@ export default function AdminAISettingsPage() {
               id="audit-event-type"
               className="input"
               value={auditEventType}
-              onChange={(e) => {
-                setAuditPage(0);
-                setAuditEventType(e.target.value);
-              }}
+              onChange={(e) => onAuditFilterChange(() => setAuditEventType(e.target.value))}
             >
               <option value="">All event types</option>
               {AUDIT_EVENT_TYPES.map((t) => (
@@ -785,10 +790,7 @@ export default function AdminAISettingsPage() {
               style={{ maxWidth: '160px' }}
               placeholder="Any"
               value={auditActorId}
-              onChange={(e) => {
-                setAuditPage(0);
-                setAuditActorId(e.target.value);
-              }}
+              onChange={(e) => onAuditFilterChange(() => setAuditActorId(e.target.value))}
             />
           </div>
 
@@ -798,10 +800,7 @@ export default function AdminAISettingsPage() {
               id="audit-connector"
               className="input"
               value={auditConnectorId}
-              onChange={(e) => {
-                setAuditPage(0);
-                setAuditConnectorId(e.target.value);
-              }}
+              onChange={(e) => onAuditFilterChange(() => setAuditConnectorId(e.target.value))}
             >
               <option value="">All connectors</option>
               {connectors.map((c) => (
@@ -818,10 +817,7 @@ export default function AdminAISettingsPage() {
               id="audit-days"
               className="input"
               value={auditDays}
-              onChange={(e) => {
-                setAuditPage(0);
-                setAuditDays(parseInt(e.target.value, 10));
-              }}
+              onChange={(e) => onAuditFilterChange(() => setAuditDays(parseInt(e.target.value, 10)))}
             >
               {AUDIT_DAY_OPTIONS.map((d) => (
                 <option key={d.value} value={d.value}>{d.label}</option>
@@ -845,9 +841,7 @@ export default function AdminAISettingsPage() {
                 <thead>
                   <tr>
                     {['Timestamp', 'Actor', 'Event type', 'Connector', 'Notes'].map((h) => (
-                      <th key={h} style={{ textAlign: 'left', padding: '0.5rem', borderBottom: '1px solid var(--border-color)' }}>
-                        {h}
-                      </th>
+                      <PlainHeader key={h} label={h} />
                     ))}
                   </tr>
                 </thead>
@@ -855,7 +849,7 @@ export default function AdminAISettingsPage() {
                   {audit.rows.map((row) => (
                     <tr key={row.id}>
                       <td style={{ padding: '0.5rem', color: 'var(--text-secondary)' }}>
-                        {new Date(row.created_at).toLocaleString()}
+                        {formatTimestamp(row.created_at)}
                       </td>
                       <td style={{ padding: '0.5rem' }}>{row.actor_username}</td>
                       <td style={{ padding: '0.5rem' }}>{row.event_type}</td>

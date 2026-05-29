@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -11,6 +12,9 @@ from app.models.llm_connector import LlmConnector
 from app.models.llm_feature_preference import KNOWN_FEATURES, LlmFeaturePreference
 from app.models.user import User
 from app.services.auth import get_password_hash
+from app.services.llm.adapters.openai_apikey import OpenAIApiKeyAdapter
+from app.services.llm.base import ChatRequest, ChatResponse, Message, TokenUsage
+from app.services.llm.gateway import Gateway
 
 
 @pytest.fixture
@@ -96,3 +100,127 @@ def test_clear_feature_preference_removes_row(db, dj_user):
 
     # Clearing a non-existent preference is a no-op (returns False).
     assert clear_feature_preference(db, user_id=dj_user.id, feature="recommendation") is False
+
+
+# ---------- gateway resolution ----------
+def _ok_response() -> ChatResponse:
+    return ChatResponse(
+        text="ok",
+        tool_calls=[],
+        stop_reason="end_turn",
+        usage=TokenUsage(prompt=1, completion=1),
+    )
+
+
+@pytest.mark.asyncio
+async def test_gateway_prefers_feature_pin_over_default(db, dj_user):
+    from app.services.llm.connector_storage import set_default_for_user, set_feature_preference
+
+    pinned = _make_connector(db, dj_user, display_name="pinned")
+    other = _make_connector(db, dj_user, display_name="default")
+    set_default_for_user(db, connector=other)  # per-DJ default points elsewhere
+    set_feature_preference(db, user_id=dj_user.id, feature="recommendation", connector_id=pinned.id)
+    db.commit()
+
+    captured = {}
+
+    async def fake_chat(self, request):  # noqa: ANN001
+        captured["connector_id"] = self.connector.id
+        return _ok_response()
+
+    with patch.object(OpenAIApiKeyAdapter, "chat", new=fake_chat):
+        await Gateway.dispatch(
+            db,
+            dj_user,
+            ChatRequest(messages=[Message(role="user", content="hi")]),
+            purpose="recommendation",
+        )
+    assert captured["connector_id"] == pinned.id
+
+
+@pytest.mark.asyncio
+async def test_gateway_falls_back_when_pinned_connector_auth_invalid(db, dj_user):
+    from app.services.llm.connector_storage import set_default_for_user, set_feature_preference
+
+    pinned = _make_connector(db, dj_user, display_name="pinned", status="auth_invalid")
+    fallback = _make_connector(db, dj_user, display_name="fallback")
+    set_default_for_user(db, connector=fallback)
+    set_feature_preference(db, user_id=dj_user.id, feature="recommendation", connector_id=pinned.id)
+    db.commit()
+
+    captured = {}
+
+    async def fake_chat(self, request):  # noqa: ANN001
+        captured["connector_id"] = self.connector.id
+        return _ok_response()
+
+    with patch.object(OpenAIApiKeyAdapter, "chat", new=fake_chat):
+        await Gateway.dispatch(
+            db,
+            dj_user,
+            ChatRequest(messages=[Message(role="user", content="hi")]),
+            purpose="recommendation",
+        )
+    # Skips the auth_invalid pin, falls through to the per-DJ default.
+    assert captured["connector_id"] == fallback.id
+
+
+@pytest.mark.asyncio
+async def test_gateway_falls_back_when_pinned_connector_deleted(db, dj_user):
+    """A pin whose connector was deleted is skipped (graceful fallback)."""
+    from app.services.llm.connector_storage import set_default_for_user, set_feature_preference
+
+    pinned = _make_connector(db, dj_user, display_name="pinned")
+    fallback = _make_connector(db, dj_user, display_name="fallback")
+    set_default_for_user(db, connector=fallback)
+    set_feature_preference(db, user_id=dj_user.id, feature="recommendation", connector_id=pinned.id)
+    db.commit()
+
+    # Delete the pinned connector directly (simulating a stale FK target). The
+    # ON DELETE CASCADE removes the preference row too, so this exercises the
+    # "pref row gone" path; the status-flip test above covers "pref points at
+    # an inactive connector".
+    db.delete(pinned)
+    db.commit()
+
+    captured = {}
+
+    async def fake_chat(self, request):  # noqa: ANN001
+        captured["connector_id"] = self.connector.id
+        return _ok_response()
+
+    with patch.object(OpenAIApiKeyAdapter, "chat", new=fake_chat):
+        await Gateway.dispatch(
+            db,
+            dj_user,
+            ChatRequest(messages=[Message(role="user", content="hi")]),
+            purpose="recommendation",
+        )
+    assert captured["connector_id"] == fallback.id
+
+
+@pytest.mark.asyncio
+async def test_gateway_ignores_pin_for_unknown_feature(db, dj_user):
+    """A pin set for one feature must not leak into another purpose."""
+    from app.services.llm.connector_storage import set_feature_preference
+
+    pinned = _make_connector(db, dj_user, display_name="pinned")
+    mru = _make_connector(db, dj_user, display_name="mru")
+    set_feature_preference(db, user_id=dj_user.id, feature="recommendation", connector_id=pinned.id)
+    db.commit()
+
+    captured = {}
+
+    async def fake_chat(self, request):  # noqa: ANN001
+        captured["connector_id"] = self.connector.id
+        return _ok_response()
+
+    with patch.object(OpenAIApiKeyAdapter, "chat", new=fake_chat):
+        await Gateway.dispatch(
+            db,
+            dj_user,
+            ChatRequest(messages=[Message(role="user", content="hi")]),
+            purpose="set_builder",
+        )
+    # No pin for set_builder → MRU resolution (most recently created here is `mru`).
+    assert captured["connector_id"] == mru.id

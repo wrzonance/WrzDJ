@@ -2346,4 +2346,75 @@ describe('ApiClient', () => {
       });
     });
   });
+
+  describe('streamConnectorTest', () => {
+    it('parses SSE data frames and invokes onChunk per frame', async () => {
+      const sse =
+        'data: {"text_delta":"Hi","done":false}\n\n' +
+        'data: {"text_delta":" there","done":false}\n\n' +
+        'data: {"text_delta":"","stop_reason":"end_turn","done":true}\n\n';
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(sse));
+          controller.close();
+        },
+      });
+      const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(stream, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      );
+
+      api.setToken('jwt-token');
+      const chunks: Array<{ text_delta?: string; done?: boolean }> = [];
+      await api.streamConnectorTest(7, (c) => chunks.push(c));
+
+      expect(chunks.map((c) => c.text_delta).join('')).toBe('Hi there');
+      expect(chunks.at(-1)?.done).toBe(true);
+
+      const init = fetchMock.mock.calls[0][1] as RequestInit;
+      const headers = new Headers(init.headers);
+      expect(headers.get('Authorization')).toBe('Bearer jwt-token');
+      expect(init.method).toBe('POST');
+    });
+
+    it('throws ApiError on non-OK response', async () => {
+      vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response('nope', { status: 500 }),
+      );
+      api.setToken('jwt-token');
+      await expect(api.streamConnectorTest(7, () => {})).rejects.toBeInstanceOf(ApiError);
+    });
+
+    it('surfaces an SSE event: error frame as a thrown ApiError (#379)', async () => {
+      // The backend emits `event: error` + a sanitised `{code}` data line for
+      // typed gateway failures; the consumer must reject, not swallow it.
+      const sse =
+        'data: {"text_delta":"partial","done":false}\n\n' +
+        'event: error\ndata: {"code":"ProviderUnavailable"}\n\n';
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(sse));
+          controller.close();
+        },
+      });
+      vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(stream, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      );
+
+      api.setToken('jwt-token');
+      const chunks: Array<{ text_delta?: string }> = [];
+      await expect(
+        api.streamConnectorTest(7, (c) => chunks.push(c)),
+      ).rejects.toThrowError(/ProviderUnavailable/);
+      // The leading valid chunk was still delivered before the error surfaced.
+      expect(chunks.map((c) => c.text_delta).join('')).toBe('partial');
+    });
+  });
 });

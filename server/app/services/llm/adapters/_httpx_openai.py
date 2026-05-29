@@ -14,13 +14,21 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
 
 from app.services.llm.adapters._shared import raise_for_status
-from app.services.llm.base import ChatRequest, ChatResponse, Message
-from app.services.llm.exceptions import ProviderUnavailable, ToolTranslationError
+from app.services.llm.base import ChatRequest, ChatResponse, ChatResponseChunk, Message
+from app.services.llm.exceptions import (
+    AuthInvalid,
+    ProviderUnavailable,
+    QuotaExceeded,
+    RateLimited,
+    ToolTranslationError,
+)
+from app.services.llm.streaming import parse_openai_stream_event
 from app.services.llm.tool_translation import (
     content_to_text,
     parse_openai_response,
@@ -124,6 +132,99 @@ async def call_openai_chat(
         raise ToolTranslationError("Upstream returned non-JSON body") from exc
 
     return parse_openai_response(body)
+
+
+def _map_stream_status(status_code: int) -> None:
+    """Raise the canonical typed error for a non-2xx streaming status.
+
+    Mirrors ``_shared.raise_for_status`` but operates on a bare status code
+    (the streaming path reads the status before consuming the body).
+    """
+    if status_code in (401, 403):
+        raise AuthInvalid(f"Auth failed (HTTP {status_code})")
+    if status_code == 402:
+        raise QuotaExceeded("Quota or billing failure (HTTP 402)")
+    if status_code == 429:
+        raise RateLimited("Rate limited (HTTP 429)")
+    if 500 <= status_code < 600:
+        raise ProviderUnavailable(f"Upstream error (HTTP {status_code})")
+    raise ToolTranslationError(f"Upstream rejected request (HTTP {status_code})")
+
+
+async def stream_openai_chat(
+    *,
+    base_url: str,
+    api_key: str | None,
+    request: ChatRequest,
+    fallback_model: str | None,
+    extra_headers: dict | None = None,
+    max_tokens_field: str = "max_tokens",
+) -> AsyncIterator[ChatResponseChunk]:
+    """Issue a streaming Chat Completions request, yielding canonical chunks.
+
+    Cancellation: if the consumer stops iterating (e.g. an SSE client
+    disconnect closes the async generator), the ``async with client.stream(...)``
+    context exits and httpx closes the upstream connection, cancelling the
+    provider request. Non-2xx statuses are mapped to canonical typed exceptions
+    before the first chunk; mid-stream network drops surface as
+    ``ProviderUnavailable``.
+    """
+    model = request.model or fallback_model
+    if not model:
+        raise ToolTranslationError(
+            "model is required (set ChatRequest.model or LlmConnector.model_hint)"
+        )
+
+    endpoint = _build_chat_endpoint(base_url)
+
+    headers: dict[str, str] = {
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+    }
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"  # nosec B106
+    if extra_headers:
+        headers.update(extra_headers)
+
+    timeout = request.timeout_seconds or DEFAULT_TIMEOUT_SECONDS
+    timeout = min(max(timeout, 1.0), MAX_TIMEOUT_SECONDS)
+
+    payload = _build_payload(request, model, max_tokens_field=max_tokens_field)
+    payload["stream"] = True
+    # Ask OpenAI to include token usage in the terminal stream event. Harmless to
+    # OpenAI-compatible servers that ignore unknown fields.
+    payload["stream_options"] = {"include_usage": True}
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream("POST", endpoint, json=payload, headers=headers) as resp:
+                if resp.status_code >= 300:
+                    # Drain the (small) error body so the connection releases,
+                    # then map to a typed error. The body is never surfaced.
+                    await resp.aread()
+                    _map_stream_status(resp.status_code)
+                async for line in resp.aiter_lines():
+                    if not line or not line.startswith("data:"):
+                        continue
+                    data = line[len("data:") :].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        obj = json.loads(data)
+                    except json.JSONDecodeError as exc:
+                        # SSE comment / keepalive frames start with ":" (or are
+                        # blank) and never reach here — they fail the "data:"
+                        # prefix check above. A "data:" line that isn't "[DONE]"
+                        # yet won't parse is a genuine protocol fault; surface it
+                        # rather than silently truncating the stream.
+                        raise ToolTranslationError("Upstream returned malformed SSE JSON") from exc
+                    chunk = parse_openai_stream_event(obj)
+                    if chunk is not None:
+                        yield chunk
+    except httpx.TimeoutException as exc:
+        raise ProviderUnavailable("Upstream timeout") from exc
+    except httpx.HTTPError as exc:
+        raise ProviderUnavailable("Upstream network error") from exc
 
 
 def _build_chat_endpoint(base_url: str) -> str:

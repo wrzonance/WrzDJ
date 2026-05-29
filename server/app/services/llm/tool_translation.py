@@ -44,6 +44,18 @@ def _normalise_finish_reason(reason: str | None, mapping: dict[str, str]) -> Can
     return mapping.get(reason, "error")  # type: ignore[return-value]
 
 
+def normalise_anthropic_stop_reason(reason: str | None) -> CanonicalStopReason:
+    """Canonicalise an Anthropic ``stop_reason`` (shared by chat + streaming).
+
+    Single source of truth so the buffered (``parse_anthropic_response``) and
+    streamed (``AnthropicApiKeyAdapter.stream``) paths can never diverge. ``None``
+    → ``end_turn``; values Anthropic may emit but we don't model canonically
+    (``pause_turn``, ``refusal``) fall through to ``error``, matching the
+    non-stream path.
+    """
+    return _normalise_finish_reason(reason, _FINISH_REASON_ANTHROPIC)
+
+
 def _validate_force(tools: list[ToolSpec], force: str | None) -> None:
     """Raise if ``force`` names a tool not present in ``tools`` (no-op when None)."""
     if force is not None and not any(t.name == force for t in tools):

@@ -26,6 +26,7 @@ from app.models.llm_connector import LlmAuditEvent, LlmConnector
 from app.models.user import User
 from app.schemas.llm import (
     AdminAuditOut,
+    AdminConnectorCapPatch,
     AdminConnectorOut,
     AdminPolicyOut,
     AdminPolicyPatch,
@@ -37,11 +38,13 @@ from app.services.llm.connector_storage import (
     AUDIT_POLICY_CHANGED,
     AUDIT_REVOKED_BY_ADMIN,
     audit_event,
+    current_month_token_usage,
     get_connector,
     get_usage_stats,
     get_user_label,
     list_all_connectors,
     revoke_connector,
+    set_monthly_cap,
 )
 from app.services.system_settings import get_system_settings, update_system_settings
 
@@ -54,17 +57,21 @@ router = APIRouter()
 _AUDIT_CSV_ROW_CAP = 10_000
 
 
-def _connector_to_admin_out(row: LlmConnector, dj_username: str) -> AdminConnectorOut:
+def _connector_to_admin_out(
+    row: LlmConnector, dj_username: str, current_month_tokens: int = 0
+) -> AdminConnectorOut:
     """Reflect a connector row + its owner's display name into the admin view.
 
-    ``AdminConnectorOut`` adds ``dj_username``, which isn't a column on the row,
-    so the model is validated from a column-reflection dict rather than the ORM
-    object directly.
+    ``AdminConnectorOut`` adds ``dj_username`` and ``current_month_tokens``,
+    which aren't columns on the row, so the model is validated from a
+    column-reflection dict plus those extras rather than the ORM object
+    directly.
     """
     return AdminConnectorOut.model_validate(
         {
             **{c.name: getattr(row, c.name) for c in LlmConnector.__table__.columns},
             "dj_username": dj_username,
+            "current_month_tokens": current_month_tokens,
         }
     )
 
@@ -191,7 +198,12 @@ def list_connectors_admin(
         usernames = {u.id: u.username for u in users}
 
     return [
-        _connector_to_admin_out(r, usernames.get(r.user_id) or f"user#{r.user_id}") for r in rows
+        _connector_to_admin_out(
+            r,
+            usernames.get(r.user_id) or f"user#{r.user_id}",
+            current_month_token_usage(db, r.id),
+        )
+        for r in rows
     ]
 
 
@@ -222,7 +234,47 @@ def revoke_connector_admin(
 
     db.commit()
     db.refresh(row)
-    return _connector_to_admin_out(row, get_user_label(db, row.user_id))
+    return _connector_to_admin_out(
+        row, get_user_label(db, row.user_id), current_month_token_usage(db, row.id)
+    )
+
+
+@router.patch("/connectors/{connector_id}/cap", response_model=AdminConnectorOut)
+@limiter.limit("30/minute")
+def set_connector_cap_admin(
+    request: FastAPIRequest,
+    connector_id: int,
+    payload: AdminConnectorCapPatch,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+) -> AdminConnectorOut:
+    """Set or clear a connector's monthly token cap (admin-only, issue #339).
+
+    ``monthly_token_cap = null`` clears the cap (unlimited). The change is
+    pre-flight only: an in-flight gateway call already past its cap check is
+    unaffected. Pydantic enforces the non-negative bound (``ge=0``); the
+    service layer re-validates defensively.
+    """
+    row = get_connector(db, connector_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Connector not found")
+
+    try:
+        set_monthly_cap(row, payload.monthly_token_cap)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    audit_event(
+        db,
+        actor_user_id=admin.id,
+        target_connector_id=row.id,
+        event_type=AUDIT_POLICY_CHANGED,
+    )
+    db.commit()
+    db.refresh(row)
+    return _connector_to_admin_out(
+        row, get_user_label(db, row.user_id), current_month_token_usage(db, row.id)
+    )
 
 
 @router.get("/usage", response_model=AdminUsageOut)

@@ -833,6 +833,149 @@ class TestAdminLlm:
         assert data["days"] == 30
         assert any(r["connector_id"] == row.id for r in data["rows"])
 
+    # ---------- Monthly token cap (issue #339) ----------
+
+    def test_connectors_listing_includes_cap_and_usage(
+        self, client: TestClient, admin_headers, db, test_user
+    ):
+        row = LlmConnector(
+            user_id=test_user.id,
+            connector_type="openai_apikey",
+            display_name="Capped",
+            status="active",
+            credentials=json.dumps({"api_key": "sk-x"}),
+            monthly_token_cap=1000,
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        from app.services.llm.connector_storage import log_call
+
+        log_call(
+            db,
+            connector_id=row.id,
+            purpose="recommendation",
+            status="ok",
+            latency_ms=10,
+            tokens_in=120,
+            tokens_out=80,
+        )
+        db.commit()
+
+        resp = client.get("/api/admin/llm/connectors", headers=admin_headers)
+        assert resp.status_code == 200
+        listed = next(r for r in resp.json() if r["id"] == row.id)
+        assert listed["monthly_token_cap"] == 1000
+        assert listed["current_month_tokens"] == 200
+
+    def test_set_connector_cap(self, client: TestClient, admin_headers, db, test_user):
+        row = LlmConnector(
+            user_id=test_user.id,
+            connector_type="openai_apikey",
+            display_name="C",
+            status="active",
+            credentials=json.dumps({"api_key": "sk-x"}),
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+
+        resp = client.patch(
+            f"/api/admin/llm/connectors/{row.id}/cap",
+            headers=admin_headers,
+            json={"monthly_token_cap": 50000},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["monthly_token_cap"] == 50000
+
+        # Clearing it (null) returns it to unlimited.
+        resp = client.patch(
+            f"/api/admin/llm/connectors/{row.id}/cap",
+            headers=admin_headers,
+            json={"monthly_token_cap": None},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["monthly_token_cap"] is None
+
+        # Audit row written (reuses policy_changed event type).
+        assert (
+            db.query(LlmAuditEvent)
+            .filter(
+                LlmAuditEvent.event_type == "policy_changed",
+                LlmAuditEvent.target_connector_id == row.id,
+            )
+            .count()
+            == 2
+        )
+
+    def test_set_cap_zero_allowed(self, client: TestClient, admin_headers, db, test_user):
+        # 0 is a valid cap meaning "no further calls this month".
+        row = LlmConnector(
+            user_id=test_user.id,
+            connector_type="openai_apikey",
+            display_name="Zero",
+            status="active",
+            credentials=json.dumps({"api_key": "sk-x"}),
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+
+        resp = client.patch(
+            f"/api/admin/llm/connectors/{row.id}/cap",
+            headers=admin_headers,
+            json={"monthly_token_cap": 0},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["monthly_token_cap"] == 0
+
+    def test_set_cap_rejects_negative(self, client: TestClient, admin_headers, db, test_user):
+        row = LlmConnector(
+            user_id=test_user.id,
+            connector_type="openai_apikey",
+            display_name="Neg",
+            status="active",
+            credentials=json.dumps({"api_key": "sk-x"}),
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+
+        resp = client.patch(
+            f"/api/admin/llm/connectors/{row.id}/cap",
+            headers=admin_headers,
+            json={"monthly_token_cap": -5},
+        )
+        assert resp.status_code == 422  # Pydantic ge=0 rejection
+
+    def test_set_cap_404_for_missing_connector(self, client: TestClient, admin_headers):
+        resp = client.patch(
+            "/api/admin/llm/connectors/999999/cap",
+            headers=admin_headers,
+            json={"monthly_token_cap": 100},
+        )
+        assert resp.status_code == 404
+
+    def test_set_cap_requires_admin(self, client: TestClient, auth_headers, db, test_user):
+        # A non-admin (plain DJ) must be rejected even for their own connector.
+        row = LlmConnector(
+            user_id=test_user.id,
+            connector_type="openai_apikey",
+            display_name="C3",
+            status="active",
+            credentials=json.dumps({"api_key": "sk-x"}),
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+
+        resp = client.patch(
+            f"/api/admin/llm/connectors/{row.id}/cap",
+            headers=auth_headers,
+            json={"monthly_token_cap": 100},
+        )
+        assert resp.status_code == 403
+
 
 # ---------- DJ-readable policy endpoint (issue #355) ----------
 class TestDjPolicyEndpoint:

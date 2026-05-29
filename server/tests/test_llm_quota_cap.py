@@ -196,3 +196,39 @@ async def test_dispatch_unlimited_when_cap_none(db):
     with patch.object(OpenAIApiKeyAdapter, "chat", new=AsyncMock(return_value=fake)):
         resp = await Gateway.dispatch(db, user, _req(), purpose="test")
     assert resp.text == "ok"
+
+
+# --- API endpoint surfaces QuotaCapReached as a 429 with DJ-facing message ---
+
+
+def test_llm_recommendation_endpoint_returns_429_when_cap_reached(
+    client, db, test_user, test_event, auth_headers
+):
+    """The /recommendations/llm endpoint maps QuotaCapReached to a 429 with the
+    fixed DJ-facing message (issue #339), not the generic 502 catch-all."""
+    # The endpoint requires a connected music service on the event owner.
+    test_user.tidal_access_token = "fake-tidal-token"  # noqa: S105 (test stub)
+    db.commit()
+
+    with (
+        patch(
+            "app.services.recommendation.llm_hooks.is_llm_available",
+            return_value=True,
+        ),
+        patch(
+            "app.services.recommendation.service.generate_recommendations_from_llm",
+            new=AsyncMock(
+                side_effect=QuotaCapReached(
+                    "Your monthly token cap is reached. Contact your admin to raise it."
+                )
+            ),
+        ),
+    ):
+        resp = client.post(
+            f"/api/events/{test_event.code}/recommendations/llm",
+            headers=auth_headers,
+            json={"prompt": "more energy"},
+        )
+
+    assert resp.status_code == 429
+    assert "monthly token cap is reached" in resp.json()["detail"].lower()

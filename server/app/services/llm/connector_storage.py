@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import case, delete, func, select
@@ -631,6 +632,48 @@ def get_usage_stats(db: Session, *, days: int = 30) -> list[dict]:
     ]
 
 
+def _calendar_month_start() -> datetime:
+    """First instant (UTC, naive) of the current calendar month."""
+    from app.core.time import utcnow
+
+    now = utcnow()
+    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def current_month_token_usage(db: Session, connector_id: int) -> int:
+    """Sum tokens_in + tokens_out for ``connector_id`` in the current month.
+
+    Direct aggregation against the indexed ``llm_call_log.created_at`` column.
+    NULL token counts are coalesced to 0. Returns 0 when there are no rows.
+    Used by the gateway pre-flight cap check + the admin usage-vs-cap display
+    (issue #339).
+    """
+    month_start = _calendar_month_start()
+    total = db.execute(
+        select(
+            func.coalesce(func.sum(LlmCallLog.tokens_in), 0)
+            + func.coalesce(func.sum(LlmCallLog.tokens_out), 0)
+        ).where(
+            LlmCallLog.connector_id == connector_id,
+            LlmCallLog.created_at >= month_start,
+        )
+    ).scalar_one()
+    return int(total or 0)
+
+
+def set_monthly_cap(connector: LlmConnector, cap: int | None) -> LlmConnector:
+    """Set (or clear) the connector's monthly token cap. Caller commits.
+
+    ``cap=None`` clears the cap (unlimited). A non-None cap must be a
+    non-negative integer; negative values are rejected with ``ValueError``
+    (→ HTTP 400 at the API boundary).
+    """
+    if cap is not None and cap < 0:
+        raise ValueError("monthly_token_cap must be a non-negative integer or null")
+    connector.monthly_token_cap = cap
+    return connector
+
+
 # Re-export audit event constants for callers
 __all__ = [
     "AUDIT_AUTH_INVALID_OBSERVED",
@@ -646,6 +689,7 @@ __all__ = [
     "audit_event",
     "build_create_payload",
     "create_connector",
+    "current_month_token_usage",
     "delete_connector",
     "get_connector",
     "get_connector_for_user",
@@ -658,6 +702,7 @@ __all__ = [
     "revoke_connector",
     "rotate_credentials",
     "set_default_for_user",
+    "set_monthly_cap",
     "unset_default_for_user",
     "update_metadata",
 ]

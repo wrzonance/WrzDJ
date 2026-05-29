@@ -32,6 +32,16 @@ class QuotaExceeded(LlmError):
     """Billing / quota failure (402 or provider-specific quota error)."""
 
 
+class QuotaCapReached(LlmError):
+    """The DJ's admin-set monthly token cap for this connector is reached.
+
+    Distinct from :class:`QuotaExceeded` (a provider-side billing/quota error):
+    this is a WrzDJ-internal pre-flight refusal raised *before* any provider
+    call, so no tokens are spent. The DJ-facing message is fixed and contains
+    no internal details — see the gateway pre-flight check (issue #339).
+    """
+
+
 class ProviderUnavailable(LlmError):
     """Transient upstream failure — 5xx, network error, or timeout."""
 

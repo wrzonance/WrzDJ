@@ -153,6 +153,13 @@ class LlmConnector(Base):
     last_health_check_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_health_check_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
+    # Admin-set monthly token cap (issue #339). NULL = unlimited. When set, the
+    # gateway refuses dispatch once the current calendar month's summed
+    # tokens_in + tokens_out for this connector meets or exceeds the cap. The
+    # cap is admin-only (set via /api/admin/llm/connectors/{id}/cap) and is
+    # checked PRE-FLIGHT only — editing it never disrupts an in-flight call.
+    monthly_token_cap: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     __table_args__ = (
         UniqueConstraint("user_id", "connector_type", "display_name", name="uq_dj_connector_label"),
         Index("ix_user_active", "user_id", "status"),

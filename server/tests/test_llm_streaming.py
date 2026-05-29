@@ -138,6 +138,17 @@ def test_parse_openai_stream_line_role_only_returns_none():
     assert chunk is None
 
 
+def test_parse_openai_stream_line_unknown_finish_reason_maps_error():
+    from app.services.llm.streaming import parse_openai_stream_event
+
+    chunk = parse_openai_stream_event(
+        {"choices": [{"delta": {}, "finish_reason": "content_filter"}]}
+    )
+    assert chunk is not None
+    assert chunk.done is True
+    assert chunk.stop_reason == "error"
+
+
 # ---------------------------------------------------------------------------
 # Task 4 — httpx OpenAI streaming generator
 # ---------------------------------------------------------------------------

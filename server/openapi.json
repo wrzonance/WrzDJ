@@ -11005,6 +11005,52 @@
         ]
       }
     },
+    "/api/llm/connectors/{connector_id}/stream-test": {
+      "post": {
+        "description": "Stream a short sentence through the connector as ``text/event-stream``.\n\nValidates ownership up front (404 for connectors the DJ doesn't own \u2014 never\nleaks existence). Each SSE ``data:`` frame is a JSON ``ChatResponseChunk``.\nOn a typed gateway error an ``event: error`` frame is emitted carrying only a\nsanitised code (never the upstream payload), then the stream ends. Client\ndisconnect cancels the upstream provider request \u2014 the gateway generator's\n``finally`` writes the counts-only call log and closes the adapter.\n\nUnlike the public guest SSE stream (``api/sse.py``), this endpoint is\nauthenticated, rate-limited (10/min), and strictly bounded (max 64 output\ntokens), so it holds the request-scoped DB session for the brief stream\nlifetime rather than opening a detached ``SessionLocal`` \u2014 the pool-pinning\nconcern that drove ``api/sse.py``'s pattern applies to unauthenticated,\nindefinitely-open guest connections, not a short admin health probe.",
+        "operationId": "stream_test_connector_api_llm_connectors__connector_id__stream_test_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_id",
+            "required": true,
+            "schema": {
+              "title": "Connector Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Stream Test Connector",
+        "tags": [
+          "llm"
+        ]
+      }
+    },
     "/api/llm/connectors/{connector_id}/test": {
       "post": {
         "description": "Run a health check and return a sanitised result.\n\nBehaviour identical to the background monitor (issue #340), so the\n``last_health_check_at`` / ``last_health_check_status`` columns and audit\nrows are written the same way on every invocation regardless of trigger\nsource. See ``services/llm/health_check.py`` for the shared helper.",

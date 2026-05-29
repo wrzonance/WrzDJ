@@ -1509,6 +1509,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/llm/connectors/{connector_id}/stream-test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stream Test Connector
+         * @description Stream a short sentence through the connector as ``text/event-stream``.
+         *
+         *     Validates ownership up front (404 for connectors the DJ doesn't own — never
+         *     leaks existence). Each SSE ``data:`` frame is a JSON ``ChatResponseChunk``.
+         *     On a typed gateway error an ``event: error`` frame is emitted carrying only a
+         *     sanitised code (never the upstream payload), then the stream ends. Client
+         *     disconnect cancels the upstream provider request — the gateway generator's
+         *     ``finally`` writes the counts-only call log and closes the adapter.
+         *
+         *     Unlike the public guest SSE stream (``api/sse.py``), this endpoint is
+         *     authenticated, rate-limited (10/min), and strictly bounded (max 64 output
+         *     tokens), so it holds the request-scoped DB session for the brief stream
+         *     lifetime rather than opening a detached ``SessionLocal`` — the pool-pinning
+         *     concern that drove ``api/sse.py``'s pattern applies to unauthenticated,
+         *     indefinitely-open guest connections, not a short admin health probe.
+         */
+        post: operations["stream_test_connector_api_llm_connectors__connector_id__stream_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/llm/connectors/{connector_id}/test": {
         parameters: {
             query?: never;
@@ -7501,6 +7535,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stream_test_connector_api_llm_connectors__connector_id__stream_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
             };
             /** @description Validation Error */
             422: {

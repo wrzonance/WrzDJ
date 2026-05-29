@@ -224,3 +224,105 @@ async def test_gateway_ignores_pin_for_unknown_feature(db, dj_user):
         )
     # No pin for set_builder → MRU resolution (most recently created here is `mru`).
     assert captured["connector_id"] == mru.id
+
+
+# ---------- API endpoints ----------
+def test_set_list_clear_feature_preference_endpoints(client, db, test_user, auth_headers):
+    c = _make_connector(db, test_user, display_name="Endpoint connector")
+
+    # Set
+    resp = client.post(
+        "/api/llm/feature-preferences",
+        json={"feature": "recommendation", "connector_id": c.id},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200, resp.json()
+    body = resp.json()
+    assert {p["feature"]: p["connector_id"] for p in body["preferences"]} == {
+        "recommendation": c.id
+    }
+    assert "set_builder" in body["known_features"]
+
+    # List
+    resp = client.get("/api/llm/feature-preferences", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["preferences"][0]["connector_id"] == c.id
+
+    # Change (re-pin same feature to a second connector → replace, not duplicate)
+    c2 = _make_connector(db, test_user, display_name="Second connector")
+    resp = client.post(
+        "/api/llm/feature-preferences",
+        json={"feature": "recommendation", "connector_id": c2.id},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    assert {p["feature"]: p["connector_id"] for p in resp.json()["preferences"]} == {
+        "recommendation": c2.id
+    }
+
+    # Clear
+    resp = client.delete("/api/llm/feature-preferences/recommendation", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["preferences"] == []
+
+
+def test_set_feature_preference_rejects_unknown_feature(client, db, test_user, auth_headers):
+    c = _make_connector(db, test_user, display_name="X")
+    resp = client.post(
+        "/api/llm/feature-preferences",
+        json={"feature": "totally_made_up", "connector_id": c.id},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422  # Pydantic Literal rejects it
+
+
+def test_set_feature_preference_rejects_other_djs_connector(client, db, test_user, auth_headers):
+    # Another DJ owns this connector.
+    other = User(username="otherdj", password_hash=get_password_hash("password123"), role="dj")
+    db.add(other)
+    db.commit()
+    db.refresh(other)
+    foreign = _make_connector(db, other, display_name="Not yours")
+
+    resp = client.post(
+        "/api/llm/feature-preferences",
+        json={"feature": "recommendation", "connector_id": foreign.id},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 404  # ownership not leaked
+
+
+def test_set_feature_preference_rejects_inactive_connector(client, db, test_user, auth_headers):
+    c = _make_connector(db, test_user, display_name="Broken", status="auth_invalid")
+    resp = client.post(
+        "/api/llm/feature-preferences",
+        json={"feature": "recommendation", "connector_id": c.id},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 400
+
+
+def test_clear_unknown_feature_returns_422(client, auth_headers):
+    resp = client.delete("/api/llm/feature-preferences/bogus", headers=auth_headers)
+    assert resp.status_code == 422
+
+
+def test_feature_preference_requires_auth(client, db, test_user):
+    c = _make_connector(db, test_user, display_name="Y")
+    # No auth headers → 401.
+    resp = client.post(
+        "/api/llm/feature-preferences",
+        json={"feature": "recommendation", "connector_id": c.id},
+    )
+    assert resp.status_code == 401
+
+
+# ---------- consistency guard ----------
+def test_feature_key_literal_matches_known_features():
+    """FeatureKey (the OpenAPI enum) must stay in sync with KNOWN_FEATURES."""
+    import typing
+
+    from app.schemas.llm import FeatureKey
+
+    literal_values = set(typing.get_args(FeatureKey))
+    assert literal_values == set(KNOWN_FEATURES)

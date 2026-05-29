@@ -26,12 +26,17 @@ from app.models.llm_connector import (
 from app.models.user import User
 from app.schemas.ai_settings import AIModelsResponse
 from app.schemas.llm import (
+    KNOWN_FEATURE_VALUES,
     ConnectorCreate,
     ConnectorCredentialsRotate,
     ConnectorOut,
     ConnectorPatch,
     ConnectorTestResult,
     DjPolicyOut,
+    FeatureKey,
+    FeaturePreferenceOut,
+    FeaturePreferenceSet,
+    FeaturePreferencesListOut,
 )
 from app.services.llm.connector_storage import (
     AUDIT_CREATED,
@@ -41,12 +46,15 @@ from app.services.llm.connector_storage import (
     AUDIT_DELETED,
     audit_event,
     build_create_payload,
+    clear_feature_preference,
     create_connector,
     delete_connector,
     get_connector_for_user,
+    get_feature_preferences_for_user,
     list_connectors_for_user,
     rotate_credentials,
     set_default_for_user,
+    set_feature_preference,
     unset_default_for_user,
     update_metadata,
 )
@@ -121,6 +129,15 @@ def _audit_and_return(
     db.commit()
     db.refresh(row)
     return ConnectorOut.model_validate(row)
+
+
+def _feature_prefs_response(db: Session, user_id: int) -> FeaturePreferencesListOut:
+    """Build the list response: the DJ's current pins + the pinnable catalogue."""
+    rows = get_feature_preferences_for_user(db, user_id)
+    return FeaturePreferencesListOut(
+        preferences=[FeaturePreferenceOut.model_validate(r) for r in rows],
+        known_features=list(KNOWN_FEATURE_VALUES),  # type: ignore[arg-type]
+    )
 
 
 def _raise_if_duplicate_label(exc: Exception) -> None:
@@ -396,6 +413,64 @@ def unset_connector_as_default(
 
     unset_default_for_user(db, connector=row)
     return _audit_and_return(db, row, actor_user_id=user.id, event_type=AUDIT_DEFAULT_UNSET)
+
+
+@router.get("/feature-preferences", response_model=FeaturePreferencesListOut)
+@limiter.limit("60/minute")
+def list_feature_preferences(
+    request: FastAPIRequest,
+    user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+) -> FeaturePreferencesListOut:
+    """List the DJ's per-feature connector pins (issue #337)."""
+    return _feature_prefs_response(db, user.id)
+
+
+@router.post(
+    "/feature-preferences",
+    response_model=FeaturePreferencesListOut,
+    responses={
+        400: {"description": "Connector is not active and cannot be pinned."},
+        404: {"description": "Connector not found for current user."},
+    },
+)
+@limiter.limit("30/minute")
+def set_feature_preference_endpoint(
+    request: FastAPIRequest,
+    payload: FeaturePreferenceSet,
+    user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+) -> FeaturePreferencesListOut:
+    """Pin (or re-pin) a connector to a feature for the current DJ.
+
+    Validates connector ownership server-side (404 for IDs the DJ doesn't own,
+    so another DJ's connector existence is never leaked) and rejects pinning a
+    non-active connector (400) — the gateway would skip it anyway, so silently
+    accepting it is a footgun.
+    """
+    row = _get_owned_connector_or_404(db, payload.connector_id, user.id)
+    if row.status != "active":
+        raise HTTPException(
+            status_code=400,
+            detail="Only an active connector can be pinned to a feature",
+        )
+    set_feature_preference(db, user_id=user.id, feature=payload.feature, connector_id=row.id)
+    db.commit()
+    return _feature_prefs_response(db, user.id)
+
+
+@router.delete("/feature-preferences/{feature}", response_model=FeaturePreferencesListOut)
+@limiter.limit("30/minute")
+def clear_feature_preference_endpoint(
+    request: FastAPIRequest,
+    feature: FeatureKey,
+    user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+) -> FeaturePreferencesListOut:
+    """Clear the DJ's pin for ``feature`` (no-op if unset). Returns the new list."""
+    clear_feature_preference(db, user_id=user.id, feature=feature)
+    db.commit()
+    return _feature_prefs_response(db, user.id)
 
 
 @router.delete("/connectors/{connector_id}", status_code=204)

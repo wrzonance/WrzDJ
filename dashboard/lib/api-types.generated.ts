@@ -1534,6 +1534,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/llm/feature-preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Feature Preferences
+         * @description List the DJ's per-feature connector pins (issue #337).
+         */
+        get: operations["list_feature_preferences_api_llm_feature_preferences_get"];
+        put?: never;
+        /**
+         * Set Feature Preference Endpoint
+         * @description Pin (or re-pin) a connector to a feature for the current DJ.
+         *
+         *     Validates connector ownership server-side (404 for IDs the DJ doesn't own,
+         *     so another DJ's connector existence is never leaked) and rejects pinning a
+         *     non-active connector (400) — the gateway would skip it anyway, so silently
+         *     accepting it is a footgun.
+         */
+        post: operations["set_feature_preference_endpoint_api_llm_feature_preferences_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/llm/feature-preferences/{feature}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Clear Feature Preference Endpoint
+         * @description Clear the DJ's pin for ``feature`` (no-op if unset). Returns the new list.
+         */
+        delete: operations["clear_feature_preference_endpoint_api_llm_feature_preferences__feature__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/llm/openrouter/models": {
         parameters: {
             query?: never;
@@ -3535,6 +3584,42 @@ export interface components {
             expires_at?: string | null;
             /** Name */
             name?: string | null;
+        };
+        /**
+         * FeaturePreferenceOut
+         * @description A single per-feature connector pin (issue #337).
+         */
+        FeaturePreferenceOut: {
+            /** Connector Id */
+            connector_id: number;
+            /**
+             * Feature
+             * @enum {string}
+             */
+            feature: "recommendation" | "set_builder";
+        };
+        /**
+         * FeaturePreferenceSet
+         * @description Set/change a per-feature pin. Upsert — replaces any existing pin.
+         */
+        FeaturePreferenceSet: {
+            /** Connector Id */
+            connector_id: number;
+            /**
+             * Feature
+             * @enum {string}
+             */
+            feature: "recommendation" | "set_builder";
+        };
+        /**
+         * FeaturePreferencesListOut
+         * @description All of a DJ's per-feature pins + the catalogue of pinnable features.
+         */
+        FeaturePreferencesListOut: {
+            /** Known Features */
+            known_features: ("recommendation" | "set_builder")[];
+            /** Preferences */
+            preferences: components["schemas"]["FeaturePreferenceOut"][];
         };
         /** GuestNowPlaying */
         GuestNowPlaying: {
@@ -7446,6 +7531,104 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConnectorTestResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_feature_preferences_api_llm_feature_preferences_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeaturePreferencesListOut"];
+                };
+            };
+        };
+    };
+    set_feature_preference_endpoint_api_llm_feature_preferences_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeaturePreferenceSet"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeaturePreferencesListOut"];
+                };
+            };
+            /** @description Connector is not active and cannot be pinned. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Connector not found for current user. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_feature_preference_endpoint_api_llm_feature_preferences__feature__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                feature: "recommendation" | "set_builder";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeaturePreferencesListOut"];
                 };
             };
             /** @description Validation Error */

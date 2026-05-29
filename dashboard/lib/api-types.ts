@@ -69,6 +69,11 @@ export type LlmUsageRow = Schemas['UsageRow'];
 // LLM audit trail (issue #341)
 export type LlmAdminAudit = Schemas['AdminAuditOut'];
 export type LlmAuditRow = Schemas['AuditEventRow'];
+// Per-feature connector preference (issue #337)
+export type LlmFeaturePreference = Schemas['FeaturePreferenceOut'];
+export type LlmFeaturePreferences = Schemas['FeaturePreferencesListOut'];
+export type LlmFeaturePreferenceSet = Schemas['FeaturePreferenceSet'];
+export type LlmFeatureKey = Schemas['FeaturePreferenceOut']['feature'];
 // Derive from schema so backend enum changes propagate to TS automatically.
 export type LlmConnectorType = Schemas['ConnectorOut']['connector_type'];
 export type LlmConnectorStatus = Schemas['ConnectorOut']['status'];

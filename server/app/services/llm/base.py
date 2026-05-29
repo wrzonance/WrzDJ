@@ -7,6 +7,7 @@ canonical models. See spec §4.4.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -89,6 +90,39 @@ class ChatResponse(BaseModel):
     model: str | None = None
 
 
+class ToolCallDelta(BaseModel):
+    """A fragment of a streamed tool call.
+
+    Providers emit tool-call arguments incrementally. ``index`` groups fragments
+    belonging to the same call (OpenAI sends an array index; Anthropic uses the
+    content-block index). ``id`` / ``name`` arrive once at the start of a call;
+    ``input_json_fragment`` carries the raw, possibly-partial argument JSON text.
+    Consumers concatenate fragments per ``index`` and JSON-parse the result when
+    the stream completes.
+    """
+
+    index: int
+    id: str | None = None
+    name: str | None = None
+    input_json_fragment: str = ""
+
+
+class ChatResponseChunk(BaseModel):
+    """One incremental chunk of a streamed chat response.
+
+    Non-final chunks carry ``text_delta`` and/or ``tool_call_deltas``. The final
+    chunk sets ``done=True`` and carries the canonical ``stop_reason`` plus
+    ``usage`` (when the provider reports it). ``stop_reason`` / ``usage`` are
+    ``None`` on every non-final chunk.
+    """
+
+    text_delta: str = ""
+    tool_call_deltas: list[ToolCallDelta] = Field(default_factory=list)
+    stop_reason: Literal["end_turn", "tool_use", "max_tokens", "error"] | None = None
+    usage: TokenUsage | None = None
+    done: bool = False
+
+
 class LlmAdapter(ABC):
     """Adapter interface — one per connector_type.
 
@@ -122,3 +156,18 @@ class LlmAdapter(ABC):
         Raises the same typed exceptions as ``chat()``. Returns ``None`` on
         success.
         """
+
+    async def stream(self, request: ChatRequest) -> AsyncIterator[ChatResponseChunk]:
+        """Stream a chat response as incremental chunks.
+
+        Default raises :class:`StreamingUnsupported`. Adapters that support
+        provider-native streaming override this. The trailing ``yield`` is
+        unreachable but makes this method an async generator for type-checkers
+        and for callers that iterate before the first ``await``.
+        """
+        from app.services.llm.exceptions import StreamingUnsupported
+
+        raise StreamingUnsupported(
+            f"connector_type={self.connector_type!r} does not support streaming"
+        )
+        yield  # pragma: no cover  (makes this an async generator)

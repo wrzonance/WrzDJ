@@ -4,9 +4,12 @@ See spec §4.3.
 
 Resolution order:
 1. If ``actor`` is not ``None``:
-   a. The DJ's explicit default active connector if one is pinned
+   a. The DJ's per-feature pin for ``purpose`` if set and the pinned connector
+      is active (``LlmFeaturePreference`` — issue #337). Skipped gracefully when
+      the pinned connector was deleted or is no longer active.
+   b. Else: the DJ's explicit default active connector if one is pinned
       (``LlmConnector.is_default = True``) — issue #336.
-   b. Else: most-recently-used active connector for the DJ.
+   c. Else: most-recently-used active connector for the DJ.
 2. Else: ``SystemSettings.llm_default_connector_id`` if set and active.
 3. Else: raise :class:`NoLlmConfigured`.
 
@@ -22,6 +25,7 @@ attempt; the chain never loops.
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from time import monotonic
 
 from sqlalchemy import desc, nulls_last
@@ -36,10 +40,11 @@ from app.models.llm_connector import (
 )
 from app.models.system_settings import SystemSettings
 from app.models.user import User
-from app.services.llm.base import ChatRequest, ChatResponse
+from app.services.llm.base import ChatRequest, ChatResponse, ChatResponseChunk
 from app.services.llm.connector_storage import (
     audit_event,
     current_month_token_usage,
+    get_feature_preference,
     log_call,
 )
 from app.services.llm.exceptions import (
@@ -112,7 +117,7 @@ class Gateway:
         *,
         purpose: str,
     ) -> ChatResponse:
-        primary = _resolve_connector(db, actor)
+        primary = _resolve_connector(db, actor, purpose=purpose)
         actor_id = actor.id if actor else _system_actor_id(db, primary)
 
         # Pre-flight: refuse if the resolved connector's monthly cap is reached
@@ -171,6 +176,42 @@ class Gateway:
             db.commit()
             # A failure here surfaces the fallback's own error (no further retry).
             return await _attempt(db, fallback, request, purpose=purpose, actor_id=actor_id)
+
+    @staticmethod
+    async def stream(
+        db: Session,
+        actor: User | None,
+        request: ChatRequest,
+        *,
+        purpose: str,
+    ) -> AsyncIterator[ChatResponseChunk]:
+        """Stream a chat response, mirroring ``dispatch`` resolution + logging.
+
+        Connector resolution is identical to ``dispatch`` (per-feature pin → per-DJ
+        default → MRU → org default). Logging differs only in timing: a single counts-only
+        ``llm_call_log`` row is written when the stream finishes (success),
+        errors, or is cancelled by the consumer. Consumer cancellation (e.g. an
+        SSE client disconnect closing the generator) raises ``GeneratorExit``
+        into ``_attempt_stream``, whose ``finally`` writes the log and lets the
+        adapter's own ``async with`` cleanup close the upstream connection.
+
+        Auto-fallback (``ChatRequest.fallback_policy``) is intentionally NOT
+        applied to streaming: chunks have already been delivered to the consumer
+        by the time a mid-stream error surfaces, so transparently restarting on
+        another connector would corrupt the output. Streaming always fails fast.
+        """
+        primary = _resolve_connector(db, actor, purpose=purpose)
+        actor_id = actor.id if actor else _system_actor_id(db, primary)
+        inner = _attempt_stream(db, primary, request, purpose=purpose, actor_id=actor_id)
+        try:
+            async for chunk in inner:
+                yield chunk
+        finally:
+            # Closing the outer generator (e.g. SSE client disconnect) must
+            # synchronously close the inner one so ``_attempt_stream``'s finally
+            # fires now — writing the call log + closing the upstream connection —
+            # rather than waiting for garbage collection.
+            await inner.aclose()
 
 
 async def _attempt(
@@ -287,8 +328,115 @@ async def _attempt(
     return response
 
 
-def _resolve_connector(db: Session, actor: User | None) -> LlmConnector:
+async def _attempt_stream(
+    db: Session,
+    connector: LlmConnector,
+    request: ChatRequest,
+    *,
+    purpose: str,
+    actor_id: int,
+) -> AsyncIterator[ChatResponseChunk]:
+    """Run a single adapter stream, logging exactly one outcome row.
+
+    The call log is written in a ``finally`` so it fires on success, on a typed
+    error, AND on consumer cancellation (``GeneratorExit`` raised into the
+    generator when the SSE client disconnects). The status reflects which path
+    fired; token counts come only from a terminal chunk's ``usage`` (never
+    prompt/completion content). Auth failures additionally mark the connector
+    ``auth_invalid`` and write an audit row, mirroring the non-stream ``_attempt``.
+    """
+    adapter_cls = get_adapter_class(connector.connector_type)
+    adapter = adapter_cls(connector)
+
+    started = monotonic()
+    status = "ok"
+    error_code: str | None = None
+    tokens_in: int | None = None
+    tokens_out: int | None = None
+    auth_failed = False
+
+    try:
+        async for chunk in adapter.stream(request):
+            if chunk.usage is not None:
+                tokens_in = chunk.usage.prompt
+                tokens_out = chunk.usage.completion
+            yield chunk
+    except GeneratorExit:
+        # Consumer disconnected — record as cancelled and re-raise so the
+        # adapter's own context-manager cleanup closes the upstream connection.
+        status = "cancelled"
+        error_code = "client_disconnect"
+        raise
+    except AuthInvalid:
+        status = "auth_invalid"
+        error_code = "401"
+        auth_failed = True
+        raise
+    except RateLimited as exc:
+        status = "rate_limited"
+        error_code = str(exc.retry_after_seconds or "")
+        raise
+    except QuotaExceeded:
+        status = "quota_exceeded"
+        error_code = "402"
+        raise
+    except ProviderUnavailable as exc:
+        status = "provider_unavailable"
+        error_code = type(exc).__name__
+        raise
+    except ToolTranslationError:
+        status = "tool_translation_error"
+        error_code = "translation"
+        raise
+    except LlmError:
+        status = "error"
+        error_code = "llm_error"
+        raise
+    finally:
+        latency_ms = int((monotonic() - started) * 1000)
+        if status == "ok":
+            connector.last_used_at = utcnow()
+            connector.last_error = None
+        if auth_failed:
+            connector.status = STATUS_AUTH_INVALID
+            connector.last_error = "auth_invalid"
+        log_call(
+            db,
+            connector_id=connector.id,
+            purpose=purpose,
+            status=status,
+            latency_ms=latency_ms,
+            tokens_in=tokens_in if status == "ok" else None,
+            tokens_out=tokens_out if status == "ok" else None,
+            error_code=error_code,
+        )
+        if auth_failed:
+            audit_event(
+                db,
+                actor_user_id=actor_id,
+                target_connector_id=connector.id,
+                event_type=AUDIT_AUTH_INVALID_OBSERVED,
+            )
+        db.commit()
+
+
+def _resolve_connector(db: Session, actor: User | None, *, purpose: str) -> LlmConnector:
     if actor is not None:
+        # 0. Per-feature pin (issue #337) takes precedence over the per-DJ
+        #    default and MRU. Skipped gracefully when the pinned connector was
+        #    deleted (FK row gone) or is no longer active, so a stale/broken
+        #    pin never silently breaks the DJ — resolution falls through to the
+        #    per-DJ default / MRU / org-default chain below.
+        pref = get_feature_preference(db, user_id=actor.id, feature=purpose)
+        if pref is not None:
+            pinned_feature = db.get(LlmConnector, pref.connector_id)
+            if (
+                pinned_feature is not None
+                and pinned_feature.user_id == actor.id
+                and pinned_feature.status == STATUS_ACTIVE
+            ):
+                return pinned_feature
+
         # Per-DJ explicit default takes precedence over MRU (issue #336).
         # Falls through to MRU if the DJ hasn't pinned a default or the pinned
         # connector is no longer active (so DJs aren't silently broken when

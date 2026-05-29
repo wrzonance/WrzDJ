@@ -3227,6 +3227,82 @@
         "title": "EventUpdate",
         "type": "object"
       },
+      "FeaturePreferenceOut": {
+        "description": "A single per-feature connector pin (issue #337).",
+        "properties": {
+          "connector_id": {
+            "title": "Connector Id",
+            "type": "integer"
+          },
+          "feature": {
+            "enum": [
+              "recommendation",
+              "set_builder"
+            ],
+            "title": "Feature",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connector_id",
+          "feature"
+        ],
+        "title": "FeaturePreferenceOut",
+        "type": "object"
+      },
+      "FeaturePreferenceSet": {
+        "description": "Set/change a per-feature pin. Upsert \u2014 replaces any existing pin.",
+        "properties": {
+          "connector_id": {
+            "minimum": 1.0,
+            "title": "Connector Id",
+            "type": "integer"
+          },
+          "feature": {
+            "enum": [
+              "recommendation",
+              "set_builder"
+            ],
+            "title": "Feature",
+            "type": "string"
+          }
+        },
+        "required": [
+          "feature",
+          "connector_id"
+        ],
+        "title": "FeaturePreferenceSet",
+        "type": "object"
+      },
+      "FeaturePreferencesListOut": {
+        "description": "All of a DJ's per-feature pins + the catalogue of pinnable features.",
+        "properties": {
+          "known_features": {
+            "items": {
+              "enum": [
+                "recommendation",
+                "set_builder"
+              ],
+              "type": "string"
+            },
+            "title": "Known Features",
+            "type": "array"
+          },
+          "preferences": {
+            "items": {
+              "$ref": "#/components/schemas/FeaturePreferenceOut"
+            },
+            "title": "Preferences",
+            "type": "array"
+          }
+        },
+        "required": [
+          "known_features",
+          "preferences"
+        ],
+        "title": "FeaturePreferencesListOut",
+        "type": "object"
+      },
       "GuestNowPlaying": {
         "properties": {
           "album_art_url": {
@@ -10972,6 +11048,136 @@
           }
         ],
         "summary": "Test Connector",
+        "tags": [
+          "llm"
+        ]
+      }
+    },
+    "/api/llm/feature-preferences": {
+      "get": {
+        "description": "List the DJ's per-feature connector pins (issue #337).",
+        "operationId": "list_feature_preferences_api_llm_feature_preferences_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeaturePreferencesListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Feature Preferences",
+        "tags": [
+          "llm"
+        ]
+      },
+      "post": {
+        "description": "Pin (or re-pin) a connector to a feature for the current DJ.\n\nValidates connector ownership server-side (404 for IDs the DJ doesn't own,\nso another DJ's connector existence is never leaked) and rejects pinning a\nnon-active connector (400) \u2014 the gateway would skip it anyway, so silently\naccepting it is a footgun.",
+        "operationId": "set_feature_preference_endpoint_api_llm_feature_preferences_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeaturePreferenceSet"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeaturePreferencesListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Connector is not active and cannot be pinned."
+          },
+          "404": {
+            "description": "Connector not found for current user."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Set Feature Preference Endpoint",
+        "tags": [
+          "llm"
+        ]
+      }
+    },
+    "/api/llm/feature-preferences/{feature}": {
+      "delete": {
+        "description": "Clear the DJ's pin for ``feature`` (no-op if unset). Returns the new list.",
+        "operationId": "clear_feature_preference_endpoint_api_llm_feature_preferences__feature__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "feature",
+            "required": true,
+            "schema": {
+              "enum": [
+                "recommendation",
+                "set_builder"
+              ],
+              "title": "Feature",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeaturePreferencesListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Clear Feature Preference Endpoint",
         "tags": [
           "llm"
         ]

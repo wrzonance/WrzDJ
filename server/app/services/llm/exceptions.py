@@ -48,3 +48,7 @@ class ProviderUnavailable(LlmError):
 
 class ToolTranslationError(LlmError):
     """Canonical ToolSpec couldn't be translated or the response couldn't be parsed."""
+
+
+class StreamingUnsupported(LlmError):
+    """The resolved adapter does not implement provider-native streaming."""

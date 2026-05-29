@@ -7,6 +7,18 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.models.llm_feature_preference import KNOWN_FEATURES
+
+# Feature keys a DJ may pin a connector to (issue #337). ``FeatureKey`` is the
+# static Literal used in the request/response schemas (so the OpenAPI spec
+# emits a proper enum and FastAPI rejects unknown values at the boundary).
+# ``KNOWN_FEATURE_VALUES`` is the sorted runtime tuple returned to the
+# frontend so the picker is deterministic. A test
+# (``test_feature_key_literal_matches_known_features``) guards that the Literal
+# and ``KNOWN_FEATURES`` never drift apart.
+FeatureKey = Literal["recommendation", "set_builder"]
+KNOWN_FEATURE_VALUES: tuple[str, ...] = tuple(sorted(KNOWN_FEATURES))
+
 ConnectorType = Literal[
     "openai_apikey",
     "anthropic_apikey",
@@ -319,3 +331,26 @@ class AdminAuditOut(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class FeaturePreferenceOut(BaseModel):
+    """A single per-feature connector pin (issue #337)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    feature: FeatureKey
+    connector_id: int
+
+
+class FeaturePreferencesListOut(BaseModel):
+    """All of a DJ's per-feature pins + the catalogue of pinnable features."""
+
+    preferences: list[FeaturePreferenceOut]
+    known_features: list[FeatureKey]
+
+
+class FeaturePreferenceSet(BaseModel):
+    """Set/change a per-feature pin. Upsert — replaces any existing pin."""
+
+    feature: FeatureKey
+    connector_id: int = Field(..., ge=1)

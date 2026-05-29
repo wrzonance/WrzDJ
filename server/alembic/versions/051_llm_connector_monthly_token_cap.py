@@ -1,7 +1,7 @@
 """Add monthly_token_cap to llm_connectors (issue #339).
 
-Revision ID: 050
-Revises: 049
+Revision ID: 051
+Revises: 050
 Create Date: 2026-05-28
 
 Adds an admin-set per-DJ monthly token cap to ``llm_connectors``:
@@ -17,8 +17,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "050"
-down_revision: str | None = "049"
+revision: str = "051"
+down_revision: str | None = "050"
 branch_labels = None
 depends_on = None
 

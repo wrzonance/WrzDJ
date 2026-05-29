@@ -10,11 +10,13 @@ leaking the existence of another DJ's connectors.
 
 from __future__ import annotations
 
+import json as _json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi import Request as FastAPIRequest
 from sqlalchemy.orm import Session
+from sse_starlette.sse import EventSourceResponse
 
 from app.api.deps import get_current_active_user, get_db
 from app.core.rate_limit import limiter
@@ -26,13 +28,20 @@ from app.models.llm_connector import (
 from app.models.user import User
 from app.schemas.ai_settings import AIModelsResponse
 from app.schemas.llm import (
+    KNOWN_FEATURE_VALUES,
     ConnectorCreate,
     ConnectorCredentialsRotate,
     ConnectorOut,
     ConnectorPatch,
     ConnectorTestResult,
     DjPolicyOut,
+    FeatureKey,
+    FeaturePreferenceOut,
+    FeaturePreferenceSet,
+    FeaturePreferencesListOut,
 )
+from app.services.llm.base import ChatRequest as LlmChatRequest
+from app.services.llm.base import Message as LlmMessage
 from app.services.llm.connector_storage import (
     AUDIT_CREATED,
     AUDIT_CREDENTIALS_ROTATED,
@@ -41,15 +50,20 @@ from app.services.llm.connector_storage import (
     AUDIT_DELETED,
     audit_event,
     build_create_payload,
+    clear_feature_preference,
     create_connector,
     delete_connector,
     get_connector_for_user,
+    get_feature_preferences_for_user,
     list_connectors_for_user,
     rotate_credentials,
     set_default_for_user,
+    set_feature_preference,
     unset_default_for_user,
     update_metadata,
 )
+from app.services.llm.exceptions import LlmError, NoLlmConfigured
+from app.services.llm.gateway import Gateway
 from app.services.llm.openrouter_models import get_openrouter_models
 from app.services.system_settings import get_system_settings
 
@@ -121,6 +135,15 @@ def _audit_and_return(
     db.commit()
     db.refresh(row)
     return ConnectorOut.model_validate(row)
+
+
+def _feature_prefs_response(db: Session, user_id: int) -> FeaturePreferencesListOut:
+    """Build the list response: the DJ's current pins + the pinnable catalogue."""
+    rows = get_feature_preferences_for_user(db, user_id)
+    return FeaturePreferencesListOut(
+        preferences=[FeaturePreferenceOut.model_validate(r) for r in rows],
+        known_features=list(KNOWN_FEATURE_VALUES),  # type: ignore[arg-type]
+    )
 
 
 def _raise_if_duplicate_label(exc: Exception) -> None:
@@ -332,6 +355,64 @@ async def test_connector(
     )
 
 
+# A short, fixed prompt for the streaming health probe. Streams a single
+# sentence so the DJ sees tokens arrive in real time, exercising the full
+# resolve → adapter.stream → SSE path end-to-end.
+_STREAM_TEST_PROMPT = "Reply with one short friendly sentence confirming you are online."
+
+
+@router.post("/connectors/{connector_id}/stream-test")
+@limiter.limit("10/minute")
+async def stream_test_connector(
+    request: FastAPIRequest,
+    connector_id: int,
+    user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+) -> EventSourceResponse:
+    """Stream a short sentence through the connector as ``text/event-stream``.
+
+    Validates ownership up front (404 for connectors the DJ doesn't own — never
+    leaks existence). Each SSE ``data:`` frame is a JSON ``ChatResponseChunk``.
+    On a typed gateway error an ``event: error`` frame is emitted carrying only a
+    sanitised code (never the upstream payload), then the stream ends. Client
+    disconnect cancels the upstream provider request — the gateway generator's
+    ``finally`` writes the counts-only call log and closes the adapter.
+
+    Unlike the public guest SSE stream (``api/sse.py``), this endpoint is
+    authenticated, rate-limited (10/min), and strictly bounded (max 64 output
+    tokens), so it holds the request-scoped DB session for the brief stream
+    lifetime rather than opening a detached ``SessionLocal`` — the pool-pinning
+    concern that drove ``api/sse.py``'s pattern applies to unauthenticated,
+    indefinitely-open guest connections, not a short admin health probe.
+    """
+    row = _get_owned_connector_or_404(db, connector_id, user.id)
+
+    chat_request = LlmChatRequest(
+        messages=[LlmMessage(role="user", content=_STREAM_TEST_PROMPT)],
+        max_tokens=64,
+        temperature=0.0,
+        model=row.model_hint or None,
+    )
+
+    async def _publisher():
+        try:
+            async for chunk in Gateway.stream(db, user, chat_request, purpose="stream_test"):
+                yield {"data": _json.dumps(chunk.model_dump())}
+        except NoLlmConfigured:
+            yield {"event": "error", "data": _json.dumps({"code": "no_connector"})}
+        except LlmError as exc:
+            # Map to a sanitised, stable code — never echo the provider message.
+            code = type(exc).__name__
+            logger.info("stream-test failed for connector %s: %s", connector_id, code)
+            yield {"event": "error", "data": _json.dumps({"code": code})}
+
+    return EventSourceResponse(
+        _publisher(),
+        media_type="text/event-stream",
+        headers={"X-Accel-Buffering": "no"},
+    )
+
+
 @router.post(
     "/connectors/{connector_id}/default",
     response_model=ConnectorOut,
@@ -396,6 +477,64 @@ def unset_connector_as_default(
 
     unset_default_for_user(db, connector=row)
     return _audit_and_return(db, row, actor_user_id=user.id, event_type=AUDIT_DEFAULT_UNSET)
+
+
+@router.get("/feature-preferences", response_model=FeaturePreferencesListOut)
+@limiter.limit("60/minute")
+def list_feature_preferences(
+    request: FastAPIRequest,
+    user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+) -> FeaturePreferencesListOut:
+    """List the DJ's per-feature connector pins (issue #337)."""
+    return _feature_prefs_response(db, user.id)
+
+
+@router.post(
+    "/feature-preferences",
+    response_model=FeaturePreferencesListOut,
+    responses={
+        400: {"description": "Connector is not active and cannot be pinned."},
+        404: {"description": "Connector not found for current user."},
+    },
+)
+@limiter.limit("30/minute")
+def set_feature_preference_endpoint(
+    request: FastAPIRequest,
+    payload: FeaturePreferenceSet,
+    user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+) -> FeaturePreferencesListOut:
+    """Pin (or re-pin) a connector to a feature for the current DJ.
+
+    Validates connector ownership server-side (404 for IDs the DJ doesn't own,
+    so another DJ's connector existence is never leaked) and rejects pinning a
+    non-active connector (400) — the gateway would skip it anyway, so silently
+    accepting it is a footgun.
+    """
+    row = _get_owned_connector_or_404(db, payload.connector_id, user.id)
+    if row.status != "active":
+        raise HTTPException(
+            status_code=400,
+            detail="Only an active connector can be pinned to a feature",
+        )
+    set_feature_preference(db, user_id=user.id, feature=payload.feature, connector_id=row.id)
+    db.commit()
+    return _feature_prefs_response(db, user.id)
+
+
+@router.delete("/feature-preferences/{feature}", response_model=FeaturePreferencesListOut)
+@limiter.limit("30/minute")
+def clear_feature_preference_endpoint(
+    request: FastAPIRequest,
+    feature: FeatureKey,
+    user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+) -> FeaturePreferencesListOut:
+    """Clear the DJ's pin for ``feature`` (no-op if unset). Returns the new list."""
+    clear_feature_preference(db, user_id=user.id, feature=feature)
+    db.commit()
+    return _feature_prefs_response(db, user.id)
 
 
 @router.delete("/connectors/{connector_id}", status_code=204)

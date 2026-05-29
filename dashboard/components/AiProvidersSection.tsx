@@ -9,6 +9,8 @@ import type {
   LlmConnectorCreate,
   LlmConnectorType,
   LlmDjPolicy,
+  LlmFeatureKey,
+  LlmFeaturePreferences,
 } from '@/lib/api-types';
 
 const CONNECTOR_TYPE_LABELS: Record<LlmConnectorType, string> = {
@@ -26,6 +28,14 @@ const STATUS_LABELS: Record<string, { text: string; color: string }> = {
   active: { text: 'Active', color: 'var(--color-success)' },
   auth_invalid: { text: 'Auth invalid', color: 'var(--color-danger)' },
   disabled: { text: 'Disabled', color: 'var(--text-secondary)' },
+};
+
+// Human-readable labels for the pinnable agentic features (issue #337). Falls
+// back to the raw feature key for any feature the backend adds before the UI
+// learns its label.
+const FEATURE_LABELS: Record<string, string> = {
+  recommendation: 'Recommendations',
+  set_builder: 'Set builder',
 };
 
 // Provider-specific input placeholders. Missing entries fall back to the
@@ -101,18 +111,24 @@ export default function AiProvidersSection() {
   const [submitMessage, setSubmitMessage] = useState('');
   const [submitError, setSubmitError] = useState('');
   const [testStateById, setTestStateById] = useState<Record<number, string>>({});
+  // Live streamed text per connector for the "Stream test" button, plus the id
+  // currently streaming (drives the disabled state + label).
+  const [streamTextById, setStreamTextById] = useState<Record<number, string>>({});
+  const [streamingId, setStreamingId] = useState<number | null>(null);
   const [openrouterModels, setOpenrouterModels] = useState<AIModelInfo[]>([]);
   const [openrouterModelsLoaded, setOpenrouterModelsLoaded] = useState(false);
+  const [featurePrefs, setFeaturePrefs] = useState<LlmFeaturePreferences | null>(null);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError('');
-    Promise.all([api.listLlmConnectors(), fetchPolicySoft()])
-      .then(([rows, p]) => {
+    Promise.all([api.listLlmConnectors(), fetchPolicySoft(), fetchFeaturePrefsSoft()])
+      .then(([rows, p, prefs]) => {
         if (!active) return;
         setConnectors(rows);
         setPolicy(p);
+        setFeaturePrefs(prefs);
       })
       .catch((err) => {
         if (!active) return;
@@ -234,6 +250,25 @@ export default function AiProvidersSection() {
     }
   };
 
+  const handleStreamTest = async (id: number) => {
+    setStreamTextById((s) => ({ ...s, [id]: '' }));
+    setStreamingId(id);
+    try {
+      await api.streamConnectorTest(id, (chunk) => {
+        if (chunk.text_delta) {
+          setStreamTextById((s) => ({ ...s, [id]: (s[id] ?? '') + chunk.text_delta }));
+        }
+      });
+    } catch (err) {
+      setStreamTextById((s) => ({
+        ...s,
+        [id]: err instanceof Error ? `(stream test failed: ${err.message})` : '(stream test failed)',
+      }));
+    } finally {
+      setStreamingId(null);
+    }
+  };
+
   const handleDelete = async (id: number) => {
     if (!window.confirm('Delete this connector? This cannot be undone.')) return;
     try {
@@ -270,6 +305,22 @@ export default function AiProvidersSection() {
       setConnectors((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to clear default');
+    }
+  };
+
+  // Per-feature pin (issue #337). An empty select value clears the pin (use the
+  // account default); any connector id sets/replaces it. The endpoint returns
+  // the full updated list, so we store it verbatim.
+  const handleFeaturePrefChange = async (feature: LlmFeatureKey, value: string) => {
+    try {
+      const updated =
+        value === ''
+          ? await api.clearLlmFeaturePreference(feature)
+          : await api.setLlmFeaturePreference({ feature, connector_id: Number(value) });
+      setFeaturePrefs(updated);
+      setError('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update feature default');
     }
   };
 
@@ -395,15 +446,71 @@ export default function AiProvidersSection() {
                   <button className="btn btn-secondary" onClick={() => handleTest(c.id)}>
                     Test
                   </button>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => handleStreamTest(c.id)}
+                    disabled={streamingId !== null}
+                  >
+                    {streamingId === c.id ? 'Streaming…' : 'Stream test'}
+                  </button>
                   <button className="btn btn-danger" onClick={() => handleDelete(c.id)}>
                     Delete
                   </button>
                 </div>
+                {streamTextById[c.id] !== undefined && streamTextById[c.id] !== '' && (
+                  <div
+                    style={{
+                      marginTop: '0.5rem',
+                      fontSize: '0.875rem',
+                      color: 'var(--text-secondary)',
+                      fontStyle: 'italic',
+                    }}
+                  >
+                    {streamTextById[c.id]}
+                  </div>
+                )}
               </div>
             </div>
           );
         })}
       </section>
+
+      {featurePrefs && featurePrefs.known_features.length > 0 && (
+        <section style={{ marginTop: '2rem' }}>
+          <h3 style={{ marginTop: 0 }}>Per-feature defaults</h3>
+          <p style={{ color: 'var(--text-secondary)' }}>
+            Pin a specific provider to each AI feature. Unpinned features use your account
+            default (or most-recently-used) connector. Inactive connectors are skipped
+            automatically.
+          </p>
+          {featurePrefs.known_features.map((feature) => {
+            const current =
+              featurePrefs.preferences.find((p) => p.feature === feature)?.connector_id ?? '';
+            const selectId = `feature-pref-${feature}`;
+            const activeConnectors = connectors.filter((c) => c.status === 'active');
+            return (
+              <div className="form-group" key={feature}>
+                <label htmlFor={selectId}>{FEATURE_LABELS[feature] ?? feature}</label>
+                <select
+                  id={selectId}
+                  className="input"
+                  value={current === '' ? '' : String(current)}
+                  onChange={(e) =>
+                    handleFeaturePrefChange(feature as LlmFeatureKey, e.target.value)
+                  }
+                >
+                  <option value="">Use account default</option>
+                  {activeConnectors.map((c) => (
+                    <option key={c.id} value={String(c.id)}>
+                      {c.display_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            );
+          })}
+        </section>
+      )}
 
       <section style={{ marginTop: '2rem' }}>
         {allowedTypes.length === 0 && !form.open && !loading && (
@@ -679,6 +786,17 @@ async function fetchPolicySoft(): Promise<LlmDjPolicy | null> {
   // reject it with a 403.
   try {
     return await api.getLlmPolicy();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchFeaturePrefsSoft(): Promise<LlmFeaturePreferences | null> {
+  // Read the DJ's per-feature pins. On any failure we return null and the
+  // "Per-feature defaults" section is simply hidden — it's an enhancement, not
+  // load-bearing, so a transient error must not break the whole page.
+  try {
+    return await api.listLlmFeaturePreferences();
   } catch {
     return null;
   }

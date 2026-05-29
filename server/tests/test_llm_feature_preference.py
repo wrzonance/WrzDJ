@@ -82,6 +82,39 @@ def test_set_feature_preference_upserts(db, dj_user):
     assert {p.feature: p.connector_id for p in prefs} == {"recommendation": c2.id}
 
 
+def test_set_feature_preference_is_conflict_safe_upsert(db, dj_user):
+    """Regression: a re-pin must not trip the UNIQUE constraint (CodeRabbit PR #378).
+
+    ``set_feature_preference`` is a DB-native ``ON CONFLICT DO UPDATE`` upsert,
+    so re-pinning an already-pinned (user, feature) — the case a concurrent
+    second request would hit — resolves to last-writer-wins in one atomic
+    statement instead of raising ``IntegrityError`` (which previously bubbled a
+    500). It must leave exactly one row and return the re-pinned connector.
+    """
+    from app.services.llm.connector_storage import (
+        get_feature_preferences_for_user,
+        set_feature_preference,
+    )
+
+    c1 = _make_connector(db, dj_user, display_name="first")
+    c2 = _make_connector(db, dj_user, display_name="second")
+
+    # A row already exists for (dj_user, "recommendation") — exactly the state a
+    # concurrent winner would have committed before the loser's upsert lands.
+    db.add(LlmFeaturePreference(user_id=dj_user.id, feature="recommendation", connector_id=c1.id))
+    db.commit()
+
+    result = set_feature_preference(
+        db, user_id=dj_user.id, feature="recommendation", connector_id=c2.id
+    )
+    db.commit()
+
+    # Last writer wins, and there is still exactly one row for the pair.
+    assert result.connector_id == c2.id
+    prefs = get_feature_preferences_for_user(db, dj_user.id)
+    assert {p.feature: p.connector_id for p in prefs} == {"recommendation": c2.id}
+
+
 def test_clear_feature_preference_removes_row(db, dj_user):
     from app.services.llm.connector_storage import (
         clear_feature_preference,

@@ -7,6 +7,8 @@ import logging
 from typing import Any
 
 from sqlalchemy import case, delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.models.llm_connector import (
@@ -554,15 +556,29 @@ def set_feature_preference(
 
     Replace-in-place when a row already exists so the UNIQUE constraint on
     ``(user_id, feature)`` is never violated.
+
+    Concurrency-safe via a DB-native ``ON CONFLICT … DO UPDATE`` upsert keyed on
+    ``(user_id, feature)``. Two requests racing to pin the same feature resolve
+    deterministically (last writer wins) in a single atomic statement, instead
+    of one of them tripping ``uq_llm_feature_pref_user_feature`` and bubbling a
+    500. Works on both Postgres (prod) and SQLite (tests).
     """
-    existing = get_feature_preference(db, user_id=user_id, feature=feature)
-    if existing is not None:
-        existing.connector_id = connector_id
-        db.flush()
-        return existing
-    row = LlmFeaturePreference(user_id=user_id, feature=feature, connector_id=connector_id)
-    db.add(row)
+    table = LlmFeaturePreference.__table__
+    dialect = db.bind.dialect.name if db.bind is not None else ""
+    insert_fn = pg_insert if dialect == "postgresql" else sqlite_insert
+    stmt = insert_fn(table).values(user_id=user_id, feature=feature, connector_id=connector_id)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[table.c.user_id, table.c.feature],
+        set_={"connector_id": connector_id},
+    )
+    db.execute(stmt)
     db.flush()
+    row = get_feature_preference(db, user_id=user_id, feature=feature)
+    if row is None:  # pragma: no cover - the upsert guarantees the row exists
+        raise RuntimeError("feature preference upsert did not persist a row")
+    # ON CONFLICT DO UPDATE bypasses the ORM, so an already-loaded row may hold a
+    # stale connector_id — refresh just this instance, not the whole session.
+    db.refresh(row)
     return row
 
 

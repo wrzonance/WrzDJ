@@ -20,14 +20,9 @@ from typing import Any
 
 import httpx
 
+from app.services.llm.adapters._shared import extract_api_key, raise_for_status
 from app.services.llm.base import ChatRequest, ChatResponse, LlmAdapter, Message
-from app.services.llm.exceptions import (
-    AuthInvalid,
-    ProviderUnavailable,
-    QuotaExceeded,
-    RateLimited,
-    ToolTranslationError,
-)
+from app.services.llm.exceptions import ProviderUnavailable, ToolTranslationError
 from app.services.llm.registry import register_adapter
 from app.services.llm.tool_translation import parse_gemini_response, to_gemini_tools
 
@@ -43,15 +38,7 @@ class GeminiApiKeyAdapter(LlmAdapter):
     connector_type = "gemini_apikey"
 
     def _extract_api_key(self) -> str:
-        raw = self.connector.credentials or ""
-        try:
-            blob = json.loads(raw)
-        except (json.JSONDecodeError, TypeError) as exc:
-            raise AuthInvalid("Connector credentials are malformed") from exc
-        api_key = blob.get("api_key") if isinstance(blob, dict) else None
-        if not api_key:
-            raise AuthInvalid("Connector is missing an api_key")
-        return str(api_key)
+        return extract_api_key(self.connector.credentials or "")
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         api_key = self._extract_api_key()
@@ -79,7 +66,7 @@ class GeminiApiKeyAdapter(LlmAdapter):
         except httpx.HTTPError as exc:
             raise ProviderUnavailable("Upstream network error") from exc
 
-        _raise_for_status(resp)
+        raise_for_status(resp)
 
         try:
             body = resp.json()
@@ -166,32 +153,6 @@ class GeminiApiKeyAdapter(LlmAdapter):
             role = "model" if m.role == "assistant" else "user"
             out.append({"role": role, "parts": [{"text": text}]})
         return out
-
-
-def _raise_for_status(resp: httpx.Response) -> None:
-    if 200 <= resp.status_code < 300:
-        return
-
-    code = resp.status_code
-    if code in (401, 403):
-        raise AuthInvalid(f"Auth failed (HTTP {code})")
-    if code == 402:
-        raise QuotaExceeded("Quota or billing failure (HTTP 402)")
-    if code == 429:
-        retry_after = _parse_retry_after(resp.headers.get("Retry-After"))
-        raise RateLimited("Rate limited (HTTP 429)", retry_after_seconds=retry_after)
-    if 500 <= code < 600:
-        raise ProviderUnavailable(f"Upstream error (HTTP {code})")
-    raise ToolTranslationError(f"Upstream rejected request (HTTP {code})")
-
-
-def _parse_retry_after(value: str | None) -> int | None:
-    if not value:
-        return None
-    try:
-        return int(float(value))
-    except ValueError:
-        return None
 
 
 register_adapter("gemini_apikey", GeminiApiKeyAdapter)

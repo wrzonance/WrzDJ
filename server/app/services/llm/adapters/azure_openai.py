@@ -32,9 +32,9 @@ from app.services.llm.adapters._httpx_openai import (
     DEFAULT_TIMEOUT_SECONDS,
     MAX_TIMEOUT_SECONDS,
     _build_payload,
-    _raise_for_status,
     build_healthcheck_request,
 )
+from app.services.llm.adapters._shared import raise_for_status
 from app.services.llm.base import ChatRequest, ChatResponse, LlmAdapter
 from app.services.llm.exceptions import AuthInvalid, ProviderUnavailable, ToolTranslationError
 from app.services.llm.registry import register_adapter
@@ -145,7 +145,7 @@ class AzureOpenAIAdapter(LlmAdapter):
         except httpx.HTTPError as exc:
             raise ProviderUnavailable("Upstream network error") from exc
 
-        _raise_for_status(resp)
+        raise_for_status(resp)
 
         try:
             body: Any = resp.json()

@@ -13,10 +13,91 @@ import json
 import logging
 from typing import Any, Literal
 
-from app.services.llm.base import ChatResponse, TokenUsage, ToolCall, ToolSpec
+from app.services.llm.base import ChatResponse, Message, TokenUsage, ToolCall, ToolSpec
 from app.services.llm.exceptions import ToolTranslationError
 
 logger = logging.getLogger(__name__)
+
+CanonicalStopReason = Literal["end_turn", "tool_use", "max_tokens", "error"]
+
+# Per-provider native-finish-reason → canonical mapping. ``None`` always means
+# "end_turn"; any reason absent from a table maps to "error".
+_FINISH_REASON_OPENAI = {
+    "stop": "end_turn",
+    "tool_calls": "tool_use",
+    "function_call": "tool_use",
+    "length": "max_tokens",
+}
+_FINISH_REASON_ANTHROPIC = {
+    "end_turn": "end_turn",
+    "stop_sequence": "end_turn",
+    "tool_use": "tool_use",
+    "max_tokens": "max_tokens",
+}
+_FINISH_REASON_GEMINI = {"STOP": "end_turn", "MAX_TOKENS": "max_tokens"}
+_FINISH_REASON_LLAMA = {"stop": "end_turn", "length": "max_tokens"}
+
+
+def _normalise_finish_reason(reason: str | None, mapping: dict[str, str]) -> CanonicalStopReason:
+    if reason is None:
+        return "end_turn"
+    return mapping.get(reason, "error")  # type: ignore[return-value]
+
+
+def _validate_force(tools: list[ToolSpec], force: str | None) -> None:
+    """Raise if ``force`` names a tool not present in ``tools`` (no-op when None)."""
+    if force is not None and not any(t.name == force for t in tools):
+        raise ToolTranslationError(f"force_tool={force!r} not in tools list")
+
+
+def content_to_text(content: str | list | None) -> str:
+    """Flatten a ``Message.content`` (str or list of text blocks) to plain text.
+
+    Blocks may be dicts (``{"type": "text", "text": "..."}``) or objects with a
+    ``.text`` attr. Shared by the OpenAI, Anthropic and Bedrock translators.
+    """
+    if isinstance(content, list):
+        parts: list[str] = []
+        for b in content:
+            if isinstance(b, dict):
+                parts.append(b.get("text") or "")
+            else:
+                parts.append(getattr(b, "text", "") or "")
+        return "".join(parts)
+    return content or ""
+
+
+def to_anthropic_messages(messages: list[Message]) -> list[dict]:
+    """Translate canonical messages to Anthropic's user/assistant shape.
+
+    System messages are pulled out by the caller (``request.system``).
+    Tool-result messages map to ``role=user`` with a ``tool_result`` block.
+    Shared by the Anthropic SDK adapter and the Bedrock anthropic-family path.
+    """
+    out: list[dict] = []
+    for m in messages:
+        if m.role == "system":
+            continue
+        text = content_to_text(m.content)
+        if m.role == "tool":
+            if not m.tool_call_id:
+                raise ToolTranslationError("Tool message missing tool_call_id")
+            out.append(
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": m.tool_call_id,
+                            "content": text,
+                        }
+                    ],
+                }
+            )
+            continue
+        role = "assistant" if m.role == "assistant" else "user"
+        out.append({"role": role, "content": text})
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -38,10 +119,9 @@ def to_openai_tools(
         }
         for t in tools
     ]
+    _validate_force(tools, force)
     choice: Any = None
     if force is not None:
-        if not any(t.name == force for t in tools):
-            raise ToolTranslationError(f"force_tool={force!r} not in tools list")
         choice = {"type": "function", "function": {"name": force}}
     return fns, choice
 
@@ -85,7 +165,7 @@ def parse_openai_response(payload: dict) -> ChatResponse:
             raise ToolTranslationError("OpenAI tool_call arguments must be an object")
         tool_calls.append(ToolCall(id=str(tc.get("id") or name), name=name, input=input_obj))
 
-    stop_reason = _normalise_openai_finish_reason(choice.get("finish_reason"))
+    stop_reason = _normalise_finish_reason(choice.get("finish_reason"), _FINISH_REASON_OPENAI)
     usage_payload = payload.get("usage") or {}
     usage = None
     if usage_payload:
@@ -108,18 +188,6 @@ def parse_openai_response(payload: dict) -> ChatResponse:
     )
 
 
-def _normalise_openai_finish_reason(
-    reason: str | None,
-) -> Literal["end_turn", "tool_use", "max_tokens", "error"]:
-    if reason in (None, "stop"):
-        return "end_turn"
-    if reason == "tool_calls" or reason == "function_call":
-        return "tool_use"
-    if reason == "length":
-        return "max_tokens"
-    return "error"
-
-
 # ---------------------------------------------------------------------------
 # Anthropic
 # ---------------------------------------------------------------------------
@@ -136,10 +204,9 @@ def to_anthropic_tools(
         }
         for t in tools
     ]
+    _validate_force(tools, force)
     choice: Any = None
     if force is not None:
-        if not any(t.name == force for t in tools):
-            raise ToolTranslationError(f"force_tool={force!r} not in tools list")
         choice = {"type": "tool", "name": force}
     return anthropic_tools, choice
 
@@ -182,7 +249,7 @@ def parse_anthropic_response(message: Any) -> ChatResponse:
     stop_raw = getattr(message, "stop_reason", None) or (
         message.get("stop_reason") if isinstance(message, dict) else None
     )
-    stop_reason = _normalise_anthropic_stop_reason(stop_raw)
+    stop_reason = _normalise_finish_reason(stop_raw, _FINISH_REASON_ANTHROPIC)
     if tool_calls and stop_reason != "tool_use":
         stop_reason = "tool_use"
 
@@ -217,18 +284,6 @@ def parse_anthropic_response(message: Any) -> ChatResponse:
     )
 
 
-def _normalise_anthropic_stop_reason(
-    reason: str | None,
-) -> Literal["end_turn", "tool_use", "max_tokens", "error"]:
-    if reason in (None, "end_turn", "stop_sequence"):
-        return "end_turn"
-    if reason == "tool_use":
-        return "tool_use"
-    if reason == "max_tokens":
-        return "max_tokens"
-    return "error"
-
-
 # ---------------------------------------------------------------------------
 # Google Gemini (native generativelanguage API)
 # ---------------------------------------------------------------------------
@@ -252,10 +307,9 @@ def to_gemini_tools(
         for t in tools
     ]
     gemini_tools = [{"function_declarations": declarations}]
+    _validate_force(tools, force)
     tool_config: Any = None
     if force is not None:
-        if not any(t.name == force for t in tools):
-            raise ToolTranslationError(f"force_tool={force!r} not in tools list")
         tool_config = {
             "function_calling_config": {
                 "mode": "ANY",
@@ -305,7 +359,7 @@ def parse_gemini_response(payload: dict) -> ChatResponse:
         elif "text" in part:
             text_parts.append(part.get("text") or "")
 
-    stop_reason = _normalise_gemini_finish_reason(candidate.get("finishReason"))
+    stop_reason = _normalise_finish_reason(candidate.get("finishReason"), _FINISH_REASON_GEMINI)
     if tool_calls and stop_reason != "tool_use":
         stop_reason = "tool_use"
 
@@ -326,17 +380,6 @@ def parse_gemini_response(payload: dict) -> ChatResponse:
     )
 
 
-def _normalise_gemini_finish_reason(
-    reason: str | None,
-) -> Literal["end_turn", "tool_use", "max_tokens", "error"]:
-    if reason in (None, "STOP"):
-        return "end_turn"
-    if reason == "MAX_TOKENS":
-        return "max_tokens"
-    # SAFETY, RECITATION, OTHER, etc. — treat as error.
-    return "error"
-
-
 # ---------------------------------------------------------------------------
 # Bedrock — Llama family
 #
@@ -354,8 +397,7 @@ def render_llama_tool_instructions(tools: list[ToolSpec] | None, force: str | No
     """
     if not tools:
         return None
-    if force is not None and not any(t.name == force for t in tools):
-        raise ToolTranslationError(f"force_tool={force!r} not in tools list")
+    _validate_force(tools, force)
 
     lines = [
         "You have access to the following tools. To call a tool, respond with "
@@ -388,7 +430,7 @@ def parse_llama_response(payload: dict, tool_names: set[str] | None = None) -> C
         raise ToolTranslationError("Bedrock Llama response missing 'generation'")
     text = str(generation)
 
-    stop_reason = _normalise_llama_stop_reason(payload.get("stop_reason"))
+    stop_reason = _normalise_finish_reason(payload.get("stop_reason"), _FINISH_REASON_LLAMA)
 
     usage = None
     prompt_tokens = payload.get("prompt_token_count")
@@ -455,13 +497,3 @@ def _try_parse_tool_json(text: str) -> dict | None:
                     return None
                 return obj if isinstance(obj, dict) else None
     return None
-
-
-def _normalise_llama_stop_reason(
-    reason: str | None,
-) -> Literal["end_turn", "tool_use", "max_tokens", "error"]:
-    if reason in (None, "stop"):
-        return "end_turn"
-    if reason == "length":
-        return "max_tokens"
-    return "error"

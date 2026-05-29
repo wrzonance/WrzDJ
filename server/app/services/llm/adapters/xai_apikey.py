@@ -15,16 +15,16 @@ Tool-use mirrors OpenAI function-calling and is handled entirely by the inherite
 
 from __future__ import annotations
 
-import json
 import logging
 
 from app.services.llm.adapters._httpx_openai import (
     build_healthcheck_request,
     call_openai_chat,
 )
+from app.services.llm.adapters._shared import extract_fixed_base_credentials
 from app.services.llm.adapters.openai_compatible import OpenAICompatibleAdapter
 from app.services.llm.base import ChatRequest, ChatResponse
-from app.services.llm.exceptions import AuthInvalid, ProviderUnavailable
+from app.services.llm.exceptions import ProviderUnavailable
 from app.services.llm.registry import register_adapter
 
 logger = logging.getLogger(__name__)
@@ -46,17 +46,7 @@ class XaiApiKeyAdapter(OpenAICompatibleAdapter):
         ``{"api_key": "..."}`` blob (the same shape as the other api-key
         connectors) and the base URL is pinned — it is never user-supplied.
         """
-        raw = self.connector.credentials or ""
-        try:
-            blob = json.loads(raw)
-        except (json.JSONDecodeError, TypeError) as exc:
-            raise AuthInvalid("Connector credentials are malformed") from exc
-        if not isinstance(blob, dict):
-            raise AuthInvalid("Connector credentials shape is invalid")
-        api_key = blob.get("api_key")
-        if not api_key:
-            raise AuthInvalid("Connector is missing an api_key")
-        return XAI_BASE_URL, str(api_key)
+        return extract_fixed_base_credentials(self.connector.credentials or "", XAI_BASE_URL)
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         base_url, api_key = self._extract_credentials()

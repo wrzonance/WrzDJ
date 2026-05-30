@@ -38,6 +38,9 @@ interface EventManagementTabProps {
   kioskDisplayOnly: boolean;
   togglingDisplayOnly: boolean;
   onToggleDisplayOnly: () => void;
+  frictionlessJoin: boolean;
+  togglingFrictionless: boolean;
+  onToggleFrictionless: () => void;
   tidalStatus: TidalStatus | null;
   tidalSyncEnabled: boolean;
   togglingTidalSync: boolean;
@@ -78,6 +81,9 @@ export function EventManagementTab(props: EventManagementTabProps) {
           kioskDisplayOnly={props.kioskDisplayOnly}
           togglingDisplayOnly={props.togglingDisplayOnly}
           onToggleDisplayOnly={props.onToggleDisplayOnly}
+          frictionlessJoin={props.frictionlessJoin}
+          togglingFrictionless={props.togglingFrictionless}
+          onToggleFrictionless={props.onToggleFrictionless}
         />
       </HelpSpot>
 

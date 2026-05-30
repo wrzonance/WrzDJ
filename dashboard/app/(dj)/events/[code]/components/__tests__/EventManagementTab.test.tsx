@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { EventManagementTab } from '../EventManagementTab';
 
 vi.mock('@/lib/help/HelpContext', () => ({
@@ -13,7 +13,20 @@ vi.mock('@/lib/help/HelpContext', () => ({
 }));
 
 vi.mock('../KioskControlsCard', () => ({
-  KioskControlsCard: () => <div data-testid="kiosk-controls">KioskControls</div>,
+  KioskControlsCard: ({
+    frictionlessJoin,
+    onToggleFrictionless,
+  }: {
+    frictionlessJoin: boolean;
+    onToggleFrictionless: () => void;
+  }) => (
+    <div data-testid="kiosk-controls">
+      KioskControls
+      <button type="button" onClick={onToggleFrictionless}>
+        Frictionless join: {frictionlessJoin ? 'On' : 'Off'}
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock('../StreamOverlayCard', () => ({
@@ -63,6 +76,9 @@ const baseProps = {
   kioskDisplayOnly: false,
   togglingDisplayOnly: false,
   onToggleDisplayOnly: vi.fn(),
+  frictionlessJoin: false,
+  togglingFrictionless: false,
+  onToggleFrictionless: vi.fn(),
   uploadingBanner: false,
   onBannerSelect: vi.fn(),
   onDeleteBanner: vi.fn(),
@@ -94,5 +110,19 @@ describe('EventManagementTab', () => {
   it('renders EventCustomizationCard', () => {
     render(<EventManagementTab {...baseProps} />);
     expect(screen.getByTestId('event-customization')).toBeInTheDocument();
+  });
+
+  it('renders Frictionless join toggle and fires handler', () => {
+    const onToggleFrictionless = vi.fn();
+    render(
+      <EventManagementTab
+        {...baseProps}
+        frictionlessJoin={false}
+        togglingFrictionless={false}
+        onToggleFrictionless={onToggleFrictionless}
+      />
+    );
+    fireEvent.click(screen.getByText(/Frictionless join/i));
+    expect(onToggleFrictionless).toHaveBeenCalled();
   });
 });

@@ -532,7 +532,10 @@ class ApiClient {
     return this.fetch(`/api/events/${code}`);
   }
 
-  async updateEvent(code: string, data: { expires_at?: string; name?: string }): Promise<Event> {
+  async updateEvent(
+    code: string,
+    data: { expires_at?: string; name?: string; frictionless_join?: boolean },
+  ): Promise<Event> {
     return this.fetch(`/api/events/${code}`, {
       method: 'PATCH',
       body: JSON.stringify(data),

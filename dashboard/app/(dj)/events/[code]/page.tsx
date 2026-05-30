@@ -73,6 +73,10 @@ export default function EventQueuePage() {
   const [kioskDisplayOnly, setKioskDisplayOnly] = useState(false);
   const [togglingDisplayOnly, setTogglingDisplayOnly] = useState(false);
 
+  // Frictionless join (per-event)
+  const [frictionlessJoin, setFrictionlessJoin] = useState(false);
+  const [togglingFrictionless, setTogglingFrictionless] = useState(false);
+
   // Bridge / now-playing state
   const [bridgeConnected, setBridgeConnected] = useState(false);
   const [nowPlaying, setNowPlaying] = useState<NowPlayingInfo | null>(null);
@@ -271,6 +275,7 @@ export default function EventQueuePage() {
       if (!savingAutoHide) {
         setAutoHideInput(String(serverAutoHide));
       }
+      setFrictionlessJoin(eventData.frictionless_join ?? false);
       setTidalStatus(tidalStatusData);
       setTidalSyncEnabled(eventData.tidal_sync_enabled ?? false);
       setBeatportStatus(beatportStatusData);
@@ -486,6 +491,20 @@ export default function EventQueuePage() {
       // Silently fail — next poll will restore the server state
     } finally {
       setTogglingDisplayOnly(false);
+    }
+  };
+
+  const handleToggleFrictionless = async () => {
+    if (!event) return;
+    setTogglingFrictionless(true);
+    try {
+      const updated = await api.updateEvent(event.code, { frictionless_join: !frictionlessJoin });
+      setFrictionlessJoin(updated.frictionless_join);
+      setEvent(updated);
+    } catch {
+      // Silently fail — next poll will restore the server state
+    } finally {
+      setTogglingFrictionless(false);
     }
   };
 
@@ -1078,6 +1097,9 @@ export default function EventQueuePage() {
               kioskDisplayOnly={kioskDisplayOnly}
               togglingDisplayOnly={togglingDisplayOnly}
               onToggleDisplayOnly={handleToggleDisplayOnly}
+              frictionlessJoin={frictionlessJoin}
+              togglingFrictionless={togglingFrictionless}
+              onToggleFrictionless={handleToggleFrictionless}
               tidalStatus={tidalStatus}
               tidalSyncEnabled={tidalSyncEnabled}
               togglingTidalSync={togglingTidalSync}

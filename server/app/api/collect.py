@@ -7,13 +7,18 @@ endpoints. See docs/RECOVERY-IP-IDENTITY.md.
 import logging
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import desc, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_email_verified, require_verified_human
+from app.api.deps import (
+    get_db,
+    require_email_verified,
+    require_verified_human,
+    require_verified_human_soft,
+)
 from app.core.rate_limit import limiter
 from app.models.event import Event
 from app.models.guest import Guest
@@ -35,6 +40,9 @@ from app.schemas.collect import (
     EnrichPreviewRequest,
     EnrichPreviewResponse,
     EnrichPreviewResult,
+    EnsureNameRequest,
+    EnsureNameResponse,
+    JoinConfigResponse,
     LiveJoinCodeResponse,
 )
 from app.services import collect as collect_service
@@ -42,6 +50,7 @@ from app.services.activity_log import log_activity
 from app.services.beatport import search_beatport_tracks
 from app.services.collect import NicknameConflictError, upsert_profile
 from app.services.dedup import compute_dedupe_key, find_duplicate
+from app.services.guest_names import generate_unique_nickname
 from app.services.sync.enrichment_pipeline import _find_best_match
 from app.services.sync.orchestrator import enrich_request_metadata
 from app.services.system_settings import get_system_settings
@@ -229,6 +238,51 @@ def set_profile(
         submission_count=profile.submission_count if profile is not None else 0,
         submission_cap=event.submission_cap_per_guest,
     )
+
+
+@router.get("/{code}/join-config", response_model=JoinConfigResponse)
+@limiter.limit("60/minute")
+def join_config(code: str, request: Request, db: Session = Depends(get_db)):
+    """Public, unauthenticated: lets the join page decide its gate mode on load."""
+    event = _get_event_or_404(db, code)
+    return JoinConfigResponse(frictionless_join=event.frictionless_join)
+
+
+@router.post("/{code}/guest/ensure-name", response_model=EnsureNameResponse)
+@limiter.limit("10/minute")
+def ensure_name(
+    code: str,
+    payload: EnsureNameRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+    guest_id: int | None = Depends(require_verified_human_soft),
+):
+    """Frictionless-join name management. Auto-generates a nickname when none is
+    set, or applies a manual rename. Gated on event.frictionless_join so it can
+    never bypass email verification on a hardened (non-frictionless) event.
+    """
+    event = _get_event_or_404(db, code)
+    if not event.frictionless_join:
+        raise HTTPException(status_code=403, detail={"code": "frictionless_disabled"})
+    if guest_id is None:
+        raise HTTPException(status_code=403, detail={"code": "human_verification_required"})
+
+    existing = collect_service.get_profile(db, event_id=event.id, guest_id=guest_id)
+    if payload.nickname is not None:
+        chosen, auto = payload.nickname, False
+    elif existing is not None and existing.nickname:
+        return EnsureNameResponse(nickname=existing.nickname, auto_generated=False)
+    else:
+        chosen, auto = generate_unique_nickname(db, event_id=event.id), True
+
+    try:
+        profile = upsert_profile(db, event_id=event.id, guest_id=guest_id, nickname=chosen)
+    except NicknameConflictError as exc:
+        raise HTTPException(
+            status_code=409, detail={"code": "nickname_taken", "claimed": exc.claimed}
+        )
+    return EnsureNameResponse(nickname=profile.nickname, auto_generated=auto)
 
 
 @router.get("/{code}/profile/me", response_model=CollectMyPicksResponse)

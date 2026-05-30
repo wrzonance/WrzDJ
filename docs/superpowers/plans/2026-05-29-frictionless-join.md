@@ -10,6 +10,10 @@
 
 **Spec:** `docs/superpowers/specs/2026-05-29-frictionless-join-design.md`
 
+## Test execution note (read before running any pytest)
+
+`server/pyproject.toml` sets `addopts = "... --cov-fail-under=85"`, so **every** pytest invocation computes coverage over all of `app` and a single-file run will FAIL the 85% gate even when its tests pass. Therefore **all single-file/targeted pytest commands in this plan append `--no-cov`** (tests still run; coverage gating is skipped). The **full-suite** runs in Task 6 Step 7 and Task 13 keep coverage on — those are the real gate. The backend DB for this worktree is the isolated `wrzdj_fric` database (configured in the worktree `.env`); `alembic` commands target it.
+
 ## Routing resolution note (read before coding)
 
 The `/join/[code]` page currently calls **both** `/api/events/{code}/*` (collection-code lookup) and `/api/public/collect/{code}/*` (collection-code lookup via `NicknameGate`) successfully with one `code` param. This plan therefore anchors all new guest endpoints to the **collect router** (`/api/public/collect`, resolved via `collect.py:_get_event_or_404` → `Event.code == code`), the identical resolution path `NicknameGate` already uses. This guarantees the new endpoints resolve the same event row the existing gate does, independent of the latent collection-vs-join code routing quirk (pre-existing, out of scope for #369).
@@ -77,7 +81,7 @@ def test_event_frictionless_join_defaults_false(db, test_user: User):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd server && .venv/bin/pytest tests/test_frictionless_model.py -q`
+Run: `cd server && .venv/bin/pytest tests/test_frictionless_model.py -q --no-cov`
 Expected: FAIL — `AttributeError: 'User' object has no attribute 'frictionless_join_default'`
 
 - [ ] **Step 3: Add the model columns**
@@ -132,7 +136,7 @@ Expected: upgrade succeeds; `alembic check` prints "No new upgrade operations de
 
 - [ ] **Step 6: Run test to verify it passes**
 
-Run: `cd server && .venv/bin/pytest tests/test_frictionless_model.py -q`
+Run: `cd server && .venv/bin/pytest tests/test_frictionless_model.py -q --no-cov`
 Expected: PASS (2 passed)
 
 - [ ] **Step 7: Commit**
@@ -205,7 +209,7 @@ def test_avoids_existing_nickname_in_event(db, test_event: Event, monkeypatch):
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `cd server && .venv/bin/pytest tests/test_guest_names.py -q`
+Run: `cd server && .venv/bin/pytest tests/test_guest_names.py -q --no-cov`
 Expected: FAIL — `ModuleNotFoundError: No module named 'app.services.guest_names'`
 
 - [ ] **Step 4: Write the implementation**
@@ -264,7 +268,7 @@ def generate_unique_nickname(db: Session, *, event_id: int, max_attempts: int = 
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `cd server && .venv/bin/pytest tests/test_guest_names.py -q`
+Run: `cd server && .venv/bin/pytest tests/test_guest_names.py -q --no-cov`
 Expected: PASS (2 passed)
 
 - [ ] **Step 6: Commit**
@@ -308,7 +312,7 @@ def test_patch_event_sets_frictionless_join(client, db, test_user: User, auth_he
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd server && .venv/bin/pytest tests/test_frictionless_event_api.py -q`
+Run: `cd server && .venv/bin/pytest tests/test_frictionless_event_api.py -q --no-cov`
 Expected: FAIL — response JSON has no `frictionless_join` key (KeyError on assert).
 
 - [ ] **Step 3: Add the schema fields**
@@ -364,7 +368,7 @@ In `server/app/api/events.py`, in `update_event_endpoint`, pass the field:
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `cd server && .venv/bin/pytest tests/test_frictionless_event_api.py -q`
+Run: `cd server && .venv/bin/pytest tests/test_frictionless_event_api.py -q --no-cov`
 Expected: PASS (2 passed)
 
 - [ ] **Step 6: Commit**
@@ -404,7 +408,7 @@ def test_create_event_default_off_when_dj_default_off(db, test_user: User):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd server && .venv/bin/pytest tests/test_frictionless_seed.py -q`
+Run: `cd server && .venv/bin/pytest tests/test_frictionless_seed.py -q --no-cov`
 Expected: FAIL — `test_create_event_seeds_from_dj_default` asserts True but gets False.
 
 - [ ] **Step 3: Seed the field in create_event**
@@ -424,7 +428,7 @@ In `server/app/services/event.py`, in `create_event`, add `frictionless_join` to
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd server && .venv/bin/pytest tests/test_frictionless_seed.py -q`
+Run: `cd server && .venv/bin/pytest tests/test_frictionless_seed.py -q --no-cov`
 Expected: PASS (2 passed)
 
 - [ ] **Step 5: Commit**
@@ -522,7 +526,7 @@ def test_ensure_name_403_when_not_frictionless(client, db, test_event: Event):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd server && .venv/bin/pytest tests/test_frictionless_ensure_name.py -q`
+Run: `cd server && .venv/bin/pytest tests/test_frictionless_ensure_name.py -q --no-cov`
 Expected: FAIL — 404 (endpoints don't exist yet).
 
 - [ ] **Step 3: Add the schemas**
@@ -607,7 +611,7 @@ def ensure_name(
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `cd server && .venv/bin/pytest tests/test_frictionless_ensure_name.py -q`
+Run: `cd server && .venv/bin/pytest tests/test_frictionless_ensure_name.py -q --no-cov`
 Expected: PASS (5 passed)
 
 - [ ] **Step 6: Commit**
@@ -651,7 +655,7 @@ def test_patch_preferences_updates_default(client, auth_headers):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd server && .venv/bin/pytest tests/test_frictionless_preferences.py -q`
+Run: `cd server && .venv/bin/pytest tests/test_frictionless_preferences.py -q --no-cov`
 Expected: FAIL — `/me` response has no `frictionless_join_default`.
 
 - [ ] **Step 3: Add the UserOut field**
@@ -710,7 +714,7 @@ def update_me_preferences(
 
 - [ ] **Step 6: Run test to verify it passes**
 
-Run: `cd server && .venv/bin/pytest tests/test_frictionless_preferences.py -q`
+Run: `cd server && .venv/bin/pytest tests/test_frictionless_preferences.py -q --no-cov`
 Expected: PASS (2 passed)
 
 - [ ] **Step 7: Run the full backend suite + lint**

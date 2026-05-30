@@ -31,6 +31,7 @@ class EventCreate(BaseModel):
 class EventUpdate(BaseModel):
     expires_at: datetime | None = None
     name: str | None = Field(default=None, min_length=1, max_length=100)
+    frictionless_join: bool | None = None
 
 
 class DisplaySettingsUpdate(BaseModel):
@@ -77,6 +78,8 @@ class EventOut(BaseSchema):
     banner_colors: list[str] | None = None
     # Requests open/closed
     requests_open: bool = True
+    # Frictionless join (guests skip nickname/email)
+    frictionless_join: bool = False
     # Pre-event collection
     collection_opens_at: OptionalIsoDatetime = None
     live_starts_at: OptionalIsoDatetime = None

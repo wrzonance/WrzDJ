@@ -153,12 +153,15 @@ def update_event(
     event: Event,
     name: str | None = None,
     expires_at: datetime | None = None,
+    frictionless_join: bool | None = None,
 ) -> Event:
     """Update an event's properties."""
     if name is not None:
         event.name = name
     if expires_at is not None:
         event.expires_at = expires_at
+    if frictionless_join is not None:
+        event.frictionless_join = frictionless_join
     db.commit()
     db.refresh(event)
     return event

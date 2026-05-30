@@ -60,6 +60,12 @@ class Event(Base):
         Boolean, default=False, nullable=False, server_default="0"
     )
 
+    # Frictionless join: guests skip nickname/email and get an auto-generated name.
+    # Seeded from the creator's frictionless_join_default at event creation.
+    frictionless_join: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
+
     # Custom banner image
     banner_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     banner_colors: Mapped[str | None] = mapped_column(Text, nullable=True)

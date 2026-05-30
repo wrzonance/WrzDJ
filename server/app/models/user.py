@@ -51,6 +51,11 @@ class User(Base):
     # Help onboarding state (JSON array of page IDs)
     help_pages_seen: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Frictionless join: DJ default applied to new events (snapshot at creation).
+    frictionless_join_default: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
+
     events: Mapped[list["Event"]] = relationship("Event", back_populates="created_by")
 
     def get_help_pages_seen(self) -> list[str]:

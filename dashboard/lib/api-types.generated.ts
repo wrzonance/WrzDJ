@@ -368,6 +368,23 @@ export interface paths {
         patch: operations["change_password_api_auth_me_password_patch"];
         trace?: never;
     };
+    "/api/auth/me/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Me Preferences */
+        patch: operations["update_me_preferences_api_auth_me_preferences_patch"];
+        trace?: never;
+    };
     "/api/auth/register": {
         parameters: {
             query?: never;
@@ -1319,6 +1336,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/public/collect/{code}/guest/ensure-name": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ensure Name
+         * @description Frictionless-join name management. Auto-generates a nickname when none is
+         *     set, or applies a manual rename. Gated on event.frictionless_join so it can
+         *     never bypass email verification on a hardened (non-frictionless) event.
+         */
+        post: operations["ensure_name_api_public_collect__code__guest_ensure_name_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/collect/{code}/join-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Join Config
+         * @description Public, unauthenticated: lets the join page decide its gate mode on load.
+         */
+        get: operations["join_config_api_public_collect__code__join_config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/collect/{code}/leaderboard": {
         parameters: {
             query?: never;
@@ -1459,7 +1518,8 @@ export interface paths {
          * @description Get bridge connection status for public display.
          *
          *     Independent of track data — returns bridge connectivity even when
-         *     no track is currently playing.
+         *     no track is currently playing. Resolves by join_code: serves guest-facing
+         *     kiosk display + overlay pages.
          */
         get: operations["get_public_bridge_status_api_public_e__code__bridge_status_get"];
         put?: never;
@@ -1482,6 +1542,7 @@ export interface paths {
          * @description Get play history for public display.
          *
          *     Returns the list of tracks played during the event, newest first.
+         *     Resolves by join_code: serves guest-facing kiosk display.
          */
         get: operations["get_public_history_api_public_e__code__history_get"];
         put?: never;
@@ -1504,6 +1565,9 @@ export interface paths {
          * @description Get current now-playing track for public display.
          *
          *     Returns the track currently playing from StageLinQ, or None if nothing playing.
+         *
+         *     Resolves by join_code: this endpoint serves the kiosk display + OBS overlay
+         *     pages, which route by join_code per the post-PR-#324 public/guest URL contract.
          */
         get: operations["get_public_now_playing_api_public_e__code__nowplaying_get"];
         put?: never;
@@ -2383,10 +2447,7 @@ export interface components {
         };
         /** Body_upload_banner_api_events__code__banner_post */
         Body_upload_banner_api_events__code__banner_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
         };
         /** BridgeApiKeyResponse */
@@ -2788,6 +2849,18 @@ export interface components {
             /** Title */
             title: string;
         };
+        /** EnsureNameRequest */
+        EnsureNameRequest: {
+            /** Nickname */
+            nickname?: string | null;
+        };
+        /** EnsureNameResponse */
+        EnsureNameResponse: {
+            /** Auto Generated */
+            auto_generated: boolean;
+            /** Nickname */
+            nickname: string;
+        };
         /** EventCreate */
         EventCreate: {
             /**
@@ -2856,6 +2929,11 @@ export interface components {
             created_at: string;
             /** Expires At */
             expires_at: string;
+            /**
+             * Frictionless Join
+             * @default false
+             */
+            frictionless_join: boolean;
             /** Id */
             id: number;
             /** Is Active */
@@ -2899,6 +2977,8 @@ export interface components {
         EventUpdate: {
             /** Expires At */
             expires_at?: string | null;
+            /** Frictionless Join */
+            frictionless_join?: boolean | null;
             /** Name */
             name?: string | null;
         };
@@ -3049,6 +3129,11 @@ export interface components {
             /** Service */
             service: string;
         };
+        /** JoinConfigResponse */
+        JoinConfigResponse: {
+            /** Frictionless Join */
+            frictionless_join: boolean;
+        };
         /**
          * KioskAssignRequest
          * @description Body for reassigning a kiosk to a different event.
@@ -3192,6 +3277,11 @@ export interface components {
         LiveJoinCodeResponse: {
             /** Join Code */
             join_code: string;
+        };
+        /** MePreferencesUpdate */
+        MePreferencesUpdate: {
+            /** Frictionless Join Default */
+            frictionless_join_default: boolean;
         };
         /** MyRequestInfo */
         MyRequestInfo: {
@@ -3853,6 +3943,11 @@ export interface components {
             created_at: string;
             /** Email */
             email: string | null;
+            /**
+             * Frictionless Join Default
+             * @default false
+             */
+            frictionless_join_default: boolean;
             /**
              * Help Pages Seen
              * @default []
@@ -4640,6 +4735,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StatusMessageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_me_preferences_api_auth_me_preferences_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MePreferencesUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserOut"];
                 };
             };
             /** @description Validation Error */
@@ -6348,6 +6476,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EnrichPreviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ensure_name_api_public_collect__code__guest_ensure_name_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnsureNameRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnsureNameResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    join_config_api_public_collect__code__join_config_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JoinConfigResponse"];
                 };
             };
             /** @description Validation Error */

@@ -653,7 +653,7 @@
       "Body_upload_banner_api_events__code__banner_post": {
         "properties": {
           "file": {
-            "format": "binary",
+            "contentMediaType": "application/octet-stream",
             "title": "File",
             "type": "string"
           }
@@ -1897,6 +1897,44 @@
         "title": "EnrichPreviewResult",
         "type": "object"
       },
+      "EnsureNameRequest": {
+        "properties": {
+          "nickname": {
+            "anyOf": [
+              {
+                "maxLength": 30,
+                "minLength": 2,
+                "pattern": "^[a-zA-Z0-9 _.-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nickname"
+          }
+        },
+        "title": "EnsureNameRequest",
+        "type": "object"
+      },
+      "EnsureNameResponse": {
+        "properties": {
+          "auto_generated": {
+            "title": "Auto Generated",
+            "type": "boolean"
+          },
+          "nickname": {
+            "title": "Nickname",
+            "type": "string"
+          }
+        },
+        "required": [
+          "auto_generated",
+          "nickname"
+        ],
+        "title": "EnsureNameResponse",
+        "type": "object"
+      },
       "EventCreate": {
         "properties": {
           "expires_hours": {
@@ -2103,6 +2141,11 @@
             "title": "Expires At",
             "type": "string"
           },
+          "frictionless_join": {
+            "default": false,
+            "title": "Frictionless Join",
+            "type": "boolean"
+          },
           "id": {
             "title": "Id",
             "type": "integer"
@@ -2202,6 +2245,7 @@
           "collection_phase_override",
           "created_at",
           "expires_at",
+          "frictionless_join",
           "id",
           "is_active",
           "join_code",
@@ -2241,6 +2285,17 @@
               }
             ],
             "title": "Expires At"
+          },
+          "frictionless_join": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frictionless Join"
           },
           "name": {
             "anyOf": [
@@ -2660,6 +2715,19 @@
         "title": "IntegrationToggleResponse",
         "type": "object"
       },
+      "JoinConfigResponse": {
+        "properties": {
+          "frictionless_join": {
+            "title": "Frictionless Join",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "frictionless_join"
+        ],
+        "title": "JoinConfigResponse",
+        "type": "object"
+      },
       "KioskAssignRequest": {
         "description": "Body for reassigning a kiosk to a different event.",
         "properties": {
@@ -3072,6 +3140,19 @@
           "join_code"
         ],
         "title": "LiveJoinCodeResponse",
+        "type": "object"
+      },
+      "MePreferencesUpdate": {
+        "properties": {
+          "frictionless_join_default": {
+            "title": "Frictionless Join Default",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "frictionless_join_default"
+        ],
+        "title": "MePreferencesUpdate",
         "type": "object"
       },
       "MyRequestInfo": {
@@ -5187,6 +5268,11 @@
             ],
             "title": "Email"
           },
+          "frictionless_join_default": {
+            "default": false,
+            "title": "Frictionless Join Default",
+            "type": "boolean"
+          },
           "help_pages_seen": {
             "default": [],
             "items": {
@@ -5226,6 +5312,7 @@
         "required": [
           "created_at",
           "email",
+          "frictionless_join_default",
           "help_pages_seen",
           "id",
           "is_active",
@@ -6471,6 +6558,52 @@
           }
         ],
         "summary": "Change Password",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/me/preferences": {
+      "patch": {
+        "operationId": "update_me_preferences_api_auth_me_preferences_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MePreferencesUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Update Me Preferences",
         "tags": [
           "auth"
         ]
@@ -9173,6 +9306,102 @@
         ]
       }
     },
+    "/api/public/collect/{code}/guest/ensure-name": {
+      "post": {
+        "description": "Frictionless-join name management. Auto-generates a nickname when none is\nset, or applies a manual rename. Gated on event.frictionless_join so it can\nnever bypass email verification on a hardened (non-frictionless) event.",
+        "operationId": "ensure_name_api_public_collect__code__guest_ensure_name_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnsureNameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnsureNameResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ensure Name",
+        "tags": [
+          "collect"
+        ]
+      }
+    },
+    "/api/public/collect/{code}/join-config": {
+      "get": {
+        "description": "Public, unauthenticated: lets the join page decide its gate mode on load.",
+        "operationId": "join_config_api_public_collect__code__join_config_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Join Config",
+        "tags": [
+          "collect"
+        ]
+      }
+    },
     "/api/public/collect/{code}/leaderboard": {
       "get": {
         "operationId": "leaderboard_api_public_collect__code__leaderboard_get",
@@ -9559,7 +9788,7 @@
     },
     "/api/public/e/{code}/bridge-status": {
       "get": {
-        "description": "Get bridge connection status for public display.\n\nIndependent of track data \u2014 returns bridge connectivity even when\nno track is currently playing.",
+        "description": "Get bridge connection status for public display.\n\nIndependent of track data \u2014 returns bridge connectivity even when\nno track is currently playing. Resolves by join_code: serves guest-facing\nkiosk display + overlay pages.",
         "operationId": "get_public_bridge_status_api_public_e__code__bridge_status_get",
         "parameters": [
           {
@@ -9602,7 +9831,7 @@
     },
     "/api/public/e/{code}/history": {
       "get": {
-        "description": "Get play history for public display.\n\nReturns the list of tracks played during the event, newest first.",
+        "description": "Get play history for public display.\n\nReturns the list of tracks played during the event, newest first.\nResolves by join_code: serves guest-facing kiosk display.",
         "operationId": "get_public_history_api_public_e__code__history_get",
         "parameters": [
           {
@@ -9668,7 +9897,7 @@
     },
     "/api/public/e/{code}/nowplaying": {
       "get": {
-        "description": "Get current now-playing track for public display.\n\nReturns the track currently playing from StageLinQ, or None if nothing playing.",
+        "description": "Get current now-playing track for public display.\n\nReturns the track currently playing from StageLinQ, or None if nothing playing.\n\nResolves by join_code: this endpoint serves the kiosk display + OBS overlay\npages, which route by join_code per the post-PR-#324 public/guest URL contract.",
         "operationId": "get_public_now_playing_api_public_e__code__nowplaying_get",
         "parameters": [
           {

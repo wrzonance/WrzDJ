@@ -1350,6 +1350,11 @@ export interface paths {
          * @description Frictionless-join name management. Auto-generates a nickname when none is
          *     set, or applies a manual rename. Gated on event.frictionless_join so it can
          *     never bypass email verification on a hardened (non-frictionless) event.
+         *
+         *     Not anonymous: requires the `wrzdj_human` HMAC-signed verified-human cookie
+         *     (set via Turnstile) through `require_verified_human_soft`. Calls without a
+         *     resolvable verified-human guest are rejected with 403
+         *     `human_verification_required`.
          */
         post: operations["ensure_name_api_public_collect__code__guest_ensure_name_post"];
         delete?: never;

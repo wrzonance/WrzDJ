@@ -9308,7 +9308,7 @@
     },
     "/api/public/collect/{code}/guest/ensure-name": {
       "post": {
-        "description": "Frictionless-join name management. Auto-generates a nickname when none is\nset, or applies a manual rename. Gated on event.frictionless_join so it can\nnever bypass email verification on a hardened (non-frictionless) event.",
+        "description": "Frictionless-join name management. Auto-generates a nickname when none is\nset, or applies a manual rename. Gated on event.frictionless_join so it can\nnever bypass email verification on a hardened (non-frictionless) event.\n\nNot anonymous: requires the `wrzdj_human` HMAC-signed verified-human cookie\n(set via Turnstile) through `require_verified_human_soft`. Calls without a\nresolvable verified-human guest are rejected with 403\n`human_verification_required`.",
         "operationId": "ensure_name_api_public_collect__code__guest_ensure_name_post",
         "parameters": [
           {

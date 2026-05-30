@@ -148,8 +148,8 @@ export default function JoinEventPage() {
 
   /* Rename affordance for auto-named (frictionless) guests. */
   const handleRename = useCallback(async (newName: string) => {
-    await api.ensureGuestName(code, reverify, newName);
-    setNickname(newName);
+    const res = await api.ensureGuestName(code, reverify, newName);
+    setNickname(res.nickname);
     setAutoNamed(false);
   }, [code, reverify]);
 

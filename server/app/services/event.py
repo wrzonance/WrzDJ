@@ -93,6 +93,7 @@ def create_event(db: Session, name: str, user: User, expires_hours: int = 6) -> 
             name=name,
             created_by_user_id=user.id,
             expires_at=expires_at,
+            frictionless_join=user.frictionless_join_default,
         )
         db.add(event)
         try:

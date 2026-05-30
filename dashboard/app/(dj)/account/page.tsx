@@ -26,6 +26,7 @@ export default function AccountPage() {
 
   const [frictionlessDefault, setFrictionlessDefault] = useState(false);
   const [savingPref, setSavingPref] = useState(false);
+  const [prefError, setPrefError] = useState('');
 
   const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -100,9 +101,12 @@ export default function AccountPage() {
   const handleToggleFrictionless = async () => {
     const next = !frictionlessDefault;
     setSavingPref(true);
+    setPrefError('');
     try {
       await api.updateMyPreferences({ frictionless_join_default: next });
       setFrictionlessDefault(next);
+    } catch (err: unknown) {
+      setPrefError(err instanceof Error ? err.message : 'Could not save preference');
     } finally {
       setSavingPref(false);
     }
@@ -237,6 +241,11 @@ export default function AccountPage() {
             </span>
           </span>
         </label>
+        {prefError && (
+          <p style={{ color: 'var(--color-danger)', fontSize: '0.875rem', marginTop: '0.75rem' }}>
+            {prefError}
+          </p>
+        )}
       </div>
     </main>
   );

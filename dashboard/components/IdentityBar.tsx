@@ -45,6 +45,7 @@ export function IdentityBar({
         <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
           <input
             className="input"
+            aria-label="Your name"
             placeholder="Your name"
             value={draft}
             maxLength={30}

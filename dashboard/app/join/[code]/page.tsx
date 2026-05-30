@@ -334,8 +334,8 @@ export default function JoinEventPage() {
       try {
         const results = await api.search(searchQuery);
         setSearchResults(results);
-      } catch (err) {
-        console.error('Search failed:', err);
+      } catch {
+        // Both search paths failed; leave results empty and clear the spinner.
       }
     } finally {
       setSearching(false);

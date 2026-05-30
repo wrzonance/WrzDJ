@@ -36,6 +36,7 @@ dependencies = [
     "better-profanity>=0.7.0",
     "sse-starlette>=2.0.0",
     "python-json-logger>=3.0",
+    "coolname==5.0.0",
 ]
 
 [project.optional-dependencies]

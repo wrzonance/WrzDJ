@@ -54,7 +54,7 @@ export default function JoinEventPage() {
   const params = useParams();
   const code = params.code as string;
 
-  const { reconcileHint, refresh: refreshIdentity } = useGuestIdentity();
+  const { reconcileHint, refresh: refreshIdentity, isLoading: identityLoading } = useGuestIdentity();
   const { state: humanState, reverify, widgetContainerRef } = useHumanVerification();
   const [recoveryOpen, setRecoveryOpen] = useState(false);
 
@@ -109,10 +109,49 @@ export default function JoinEventPage() {
 
   /* Gate */
   const [gateComplete, setGateComplete] = useState(false);
+  const [autoNamed, setAutoNamed] = useState(false);
+  /* Whether the frictionless-vs-nickname decision has resolved. NicknameGate
+     must not render (and fire onComplete) until we've confirmed the event is
+     not frictionless — otherwise a frictionless event would briefly show the
+     gate. */
+  const [gateDecided, setGateDecided] = useState(false);
   const handleGateComplete = (result: GateResult) => {
     setNickname(result.nickname);
     setGateComplete(true);
   };
+
+  /* Decide gate mode on load. Frictionless events skip NicknameGate entirely:
+     the guest gets an auto-generated name and lands straight on search. */
+  useEffect(() => {
+    if (gateComplete || identityLoading) return;
+    let active = true;
+    (async () => {
+      try {
+        const cfg = await api.getJoinConfig(code);
+        if (!active) return;
+        if (!cfg.frictionless_join) {
+          setGateDecided(true); // not frictionless -> NicknameGate renders
+          return;
+        }
+        const res = await api.ensureGuestName(code, reverify);
+        if (!active) return;
+        setNickname(res.nickname);
+        setAutoNamed(res.auto_generated);
+        setGateComplete(true);
+      } catch {
+        // On any failure, fall back to the normal NicknameGate flow.
+        if (active) setGateDecided(true);
+      }
+    })();
+    return () => { active = false; };
+  }, [code, gateComplete, identityLoading, reverify]);
+
+  /* Rename affordance for auto-named (frictionless) guests. */
+  const handleRename = useCallback(async (newName: string) => {
+    await api.ensureGuestName(code, reverify, newName);
+    setNickname(newName);
+    setAutoNamed(false);
+  }, [code, reverify]);
 
   /* Pre-event collect phase */
   const [collectPhase, setCollectPhase] = useState<
@@ -387,6 +426,17 @@ export default function JoinEventPage() {
   /* ── Early returns ──────────────────────────────────────────── */
 
   if (!gateComplete) {
+    // Wait for the frictionless decision before rendering the nickname gate,
+    // so frictionless events never flash the gate on their way to auto-name.
+    if (!gateDecided) {
+      return (
+        <div className="guest-tower" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 13.3, color: 'rgba(255,255,255,0.4)', letterSpacing: 2 }}>
+            LOADING…
+          </div>
+        </div>
+      );
+    }
     return <NicknameGate code={code} onComplete={handleGateComplete} reverify={reverify} />;
   }
 
@@ -427,7 +477,7 @@ export default function JoinEventPage() {
       <div className="guest-tower">
         {event.banner_url && <BannerBg url={event.banner_url} />}
         {nickname && (
-          <IdentityBar nickname={nickname} emailVerified={emailVerified} onVerified={() => setEmailVerified(true)} forceDark />
+          <IdentityBar nickname={nickname} emailVerified={emailVerified} onVerified={() => setEmailVerified(true)} autoNamed={autoNamed} onRename={handleRename} forceDark />
         )}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100dvh', padding: '2rem' }}>
           <div style={{ textAlign: 'center', maxWidth: 360 }}>
@@ -482,7 +532,7 @@ export default function JoinEventPage() {
 
       {/* Identity bar */}
       {nickname && (
-        <IdentityBar nickname={nickname} emailVerified={emailVerified} onVerified={() => setEmailVerified(true)} forceDark />
+        <IdentityBar nickname={nickname} emailVerified={emailVerified} onVerified={() => setEmailVerified(true)} autoNamed={autoNamed} onRename={handleRename} forceDark />
       )}
 
       {/* Hidden tracker for my-request IDs + SSE updates */}

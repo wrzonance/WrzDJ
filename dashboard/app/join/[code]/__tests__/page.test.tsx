@@ -22,6 +22,8 @@ const { mockApi, MockApiError } = vi.hoisted(() => {
     publicVoteRequest: vi.fn(),
     eventSearch: vi.fn(),
     search: vi.fn(),
+    getJoinConfig: vi.fn(),
+    ensureGuestName: vi.fn(),
   };
 
   return { mockApi, MockApiError };
@@ -36,6 +38,7 @@ vi.mock('@/lib/use-guest-identity', () => ({
     guestId: 1,
     isReturning: false,
     reconcileHint: false,
+    isLoading: false,
     refresh: vi.fn().mockResolvedValue(undefined),
   })),
 }));
@@ -113,6 +116,9 @@ function setupDefaultMocks() {
   });
   mockApi.getPublicRequests.mockResolvedValue({ requests: [], now_playing: null });
   mockApi.getMyRequests.mockResolvedValue({ requests: [] });
+  // Default: not frictionless, so existing tests still render NicknameGate.
+  mockApi.getJoinConfig.mockResolvedValue({ frictionless_join: false });
+  mockApi.ensureGuestName.mockResolvedValue({ nickname: 'AutoName', auto_generated: true });
 }
 
 describe('JoinEventPage — NicknameGate wiring', () => {
@@ -683,6 +689,27 @@ describe('JoinEventPage — vote flow', () => {
     await waitFor(() => {
       expect(mockApi.publicVoteRequest).toHaveBeenCalled();
     });
+  });
+});
+
+describe('JoinEventPage — frictionless join', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupDefaultMocks();
+  });
+
+  it('skips NicknameGate and auto-names when frictionless_join is on', async () => {
+    mockApi.getJoinConfig.mockResolvedValue({ frictionless_join: true });
+    mockApi.ensureGuestName.mockResolvedValue({ nickname: 'DancingPanda', auto_generated: true });
+    mockApi.getEvent.mockResolvedValue({
+      id: 1, code: 'TEST01', join_code: 'TEST01', name: 'Party', requests_open: true,
+      frictionless_join: true,
+    } as never);
+    mockApi.checkHasRequested.mockResolvedValue({ has_requested: false } as never);
+    render(<JoinEventPage />);
+    // No "What's your nickname?" gate; the auto-name shows in the identity bar.
+    await waitFor(() => expect(screen.getByText(/DancingPanda/)).toBeInTheDocument());
+    expect(screen.queryByText(/What's your nickname/i)).not.toBeInTheDocument();
   });
 });
 

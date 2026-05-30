@@ -405,6 +405,7 @@ class ApiClient {
     help_pages_seen: string[];
     pending_email: string | null;
     email: string | null;
+    frictionless_join_default: boolean;
   }> {
     return this.fetch('/api/auth/me');
   }
@@ -1217,6 +1218,32 @@ class ApiClient {
     );
     if (!res.ok) throw new ApiError(`getCollectLeaderboard failed: ${res.status}`, res.status);
     return res.json();
+  }
+
+  async getJoinConfig(code: string): Promise<{ frictionless_join: boolean }> {
+    return this.publicFetch(`${getApiUrl()}/api/public/collect/${code}/join-config`);
+  }
+
+  async ensureGuestName(
+    code: string,
+    reverify?: () => Promise<void>,
+    nickname?: string,
+  ): Promise<{ nickname: string; auto_generated: boolean }> {
+    const doFetch = () =>
+      fetch(`${getApiUrl()}/api/public/collect/${code}/guest/ensure-name`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(nickname ? { nickname } : {}),
+      });
+    return withHumanRetry(doFetch, reverify ?? (async () => {}));
+  }
+
+  async updateMyPreferences(prefs: { frictionless_join_default: boolean }): Promise<void> {
+    await this.fetch('/api/auth/me/preferences', {
+      method: 'PATCH',
+      body: JSON.stringify(prefs),
+    });
   }
 
   async getCollectProfile(code: string): Promise<CollectProfileResponse> {

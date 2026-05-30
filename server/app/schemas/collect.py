@@ -94,6 +94,19 @@ class CollectProfileResponse(BaseModel):
     submission_cap: int
 
 
+class JoinConfigResponse(BaseModel):
+    frictionless_join: bool
+
+
+class EnsureNameRequest(BaseModel):
+    nickname: Nickname | None = None
+
+
+class EnsureNameResponse(BaseModel):
+    nickname: str
+    auto_generated: bool
+
+
 class CollectMyPicksItem(CollectLeaderboardRow):
     interaction: Literal["submitted", "upvoted"]
 

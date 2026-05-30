@@ -24,6 +24,10 @@ export default function AccountPage() {
   const [emailPending, setEmailPending] = useState<string | null>(null);
   const [emailLoading, setEmailLoading] = useState(false);
 
+  const [frictionlessDefault, setFrictionlessDefault] = useState(false);
+  const [savingPref, setSavingPref] = useState(false);
+  const [prefError, setPrefError] = useState('');
+
   const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -42,7 +46,11 @@ export default function AccountPage() {
     if (isAuthenticated) {
       let isActive = true;
       api.getMe()
-        .then(user => { if (isActive) setEmailPending(prev => prev ?? (user.pending_email ?? null)); })
+        .then(user => {
+          if (!isActive) return;
+          setEmailPending(prev => prev ?? (user.pending_email ?? null));
+          setFrictionlessDefault(user.frictionless_join_default);
+        })
         .catch(() => {});
       return () => { isActive = false; };
     }
@@ -87,6 +95,20 @@ export default function AccountPage() {
       setEmailError(err instanceof Error ? err.message : 'Request failed');
     } finally {
       setEmailLoading(false);
+    }
+  };
+
+  const handleToggleFrictionless = async () => {
+    const next = !frictionlessDefault;
+    setSavingPref(true);
+    setPrefError('');
+    try {
+      await api.updateMyPreferences({ frictionless_join_default: next });
+      setFrictionlessDefault(next);
+    } catch (err: unknown) {
+      setPrefError(err instanceof Error ? err.message : 'Could not save preference');
+    } finally {
+      setSavingPref(false);
     }
   };
 
@@ -198,6 +220,31 @@ export default function AccountPage() {
               {emailLoading ? 'Sending…' : 'Send Confirmation'}
             </button>
           </form>
+        )}
+      </div>
+
+      <div style={{ background: 'var(--card)', borderRadius: '0.75rem', padding: '1.5rem', marginTop: '1.5rem' }}>
+        <h2 style={{ marginTop: 0, marginBottom: '1.25rem', fontSize: '1.1rem' }}>Guest Experience</h2>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <input
+            type="checkbox"
+            checked={frictionlessDefault}
+            disabled={savingPref}
+            onChange={handleToggleFrictionless}
+            aria-label="Frictionless join by default"
+          />
+          <span>
+            Frictionless join by default (new events)
+            <br />
+            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+              New events let guests skip the nickname/email step and get an auto-generated name.
+            </span>
+          </span>
+        </label>
+        {prefError && (
+          <p style={{ color: 'var(--color-danger)', fontSize: '0.875rem', marginTop: '0.75rem' }}>
+            {prefError}
+          </p>
         )}
       </div>
     </main>

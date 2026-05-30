@@ -11,16 +11,28 @@ vi.mock('@/lib/auth', () => ({
   useAuth: () => ({ isAuthenticated: true, isLoading: false }),
 }));
 
-const mockChangePassword = vi.fn();
-const mockRequestEmailChange = vi.fn();
-const mockGetMe = vi.fn();
+const { mockGetMe, mockChangePassword, mockRequestEmailChange, mockUpdateMyPreferences, mockApi } =
+  vi.hoisted(() => {
+    const getMe = vi.fn();
+    const changePassword = vi.fn();
+    const requestEmailChange = vi.fn();
+    const updateMyPreferences = vi.fn();
+    return {
+      mockGetMe: getMe,
+      mockChangePassword: changePassword,
+      mockRequestEmailChange: requestEmailChange,
+      mockUpdateMyPreferences: updateMyPreferences,
+      mockApi: {
+        getMe: () => getMe(),
+        changePassword: (...args: unknown[]) => changePassword(...args),
+        requestEmailChange: (...args: unknown[]) => requestEmailChange(...args),
+        updateMyPreferences: (...args: unknown[]) => updateMyPreferences(...args),
+      },
+    };
+  });
 
 vi.mock('@/lib/api', () => ({
-  api: {
-    getMe: () => mockGetMe(),
-    changePassword: (...args: unknown[]) => mockChangePassword(...args),
-    requestEmailChange: (...args: unknown[]) => mockRequestEmailChange(...args),
-  },
+  api: mockApi,
 }));
 
 describe('AccountPage', () => {
@@ -33,7 +45,9 @@ describe('AccountPage', () => {
       help_pages_seen: [],
       pending_email: null,
       email: null,
+      frictionless_join_default: false,
     });
+    mockUpdateMyPreferences.mockResolvedValue(undefined);
   });
 
   it('renders Change Password and Change Email headings', async () => {
@@ -121,6 +135,23 @@ describe('AccountPage', () => {
       expect(screen.getByText('new@example.com')).toBeInTheDocument();
       expect(screen.getByText(/Check your inbox/)).toBeInTheDocument();
     });
+  });
+
+  it('toggles frictionless_join_default and saves', async () => {
+    mockGetMe.mockResolvedValue({
+      id: 1,
+      username: 'dj',
+      role: 'dj',
+      help_pages_seen: [],
+      pending_email: null,
+      email: null,
+      frictionless_join_default: false,
+    });
+    const update = vi.spyOn(mockApi, 'updateMyPreferences').mockResolvedValue(undefined as never);
+    render(<AccountPage />);
+    const toggle = await screen.findByLabelText(/Frictionless join by default/i);
+    fireEvent.click(toggle);
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ frictionless_join_default: true }));
   });
 
   it('shows pending email from getMe on load', async () => {

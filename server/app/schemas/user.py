@@ -17,6 +17,7 @@ class UserOut(BaseSchema):
     created_at: datetime
     help_pages_seen: list[str] = []
     pending_email: str | None = None
+    frictionless_join_default: bool = False
 
     @field_validator("help_pages_seen", mode="before")
     @classmethod

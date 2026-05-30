@@ -59,6 +59,14 @@ def invalidate_pending_email_changes(db: Session, user_id: int) -> None:
     ).update({"used": True})
 
 
+def update_preferences(db: Session, user: User, *, frictionless_join_default: bool) -> User:
+    """Update self-service DJ preferences."""
+    user.frictionless_join_default = frictionless_join_default
+    db.commit()
+    db.refresh(user)
+    return user
+
+
 def change_password(db: Session, user: User, current_password: str, new_password: str) -> None:
     """Change a user's password after verifying the current password.
 

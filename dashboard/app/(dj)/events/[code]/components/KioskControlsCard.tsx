@@ -17,6 +17,9 @@ interface KioskControlsCardProps {
   kioskDisplayOnly: boolean;
   togglingDisplayOnly: boolean;
   onToggleDisplayOnly: () => void;
+  frictionlessJoin: boolean;
+  togglingFrictionless: boolean;
+  onToggleFrictionless: () => void;
 }
 
 export function KioskControlsCard({
@@ -36,6 +39,9 @@ export function KioskControlsCard({
   kioskDisplayOnly,
   togglingDisplayOnly,
   onToggleDisplayOnly,
+  frictionlessJoin,
+  togglingFrictionless,
+  onToggleFrictionless,
 }: KioskControlsCardProps) {
   return (
     <div className="card" style={{ marginBottom: '1rem', padding: '1rem' }}>
@@ -85,6 +91,22 @@ export function KioskControlsCard({
         >
           {togglingDisplayOnly ? '...' : kioskDisplayOnly ? 'On' : 'Off'}
         </button>
+      </div>
+
+      {/* Frictionless join */}
+      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem', marginBottom: '1rem' }}>
+        <button
+          type="button"
+          className={`btn btn-sm ${frictionlessJoin ? 'btn-primary' : ''}`}
+          style={{ minWidth: '180px', background: frictionlessJoin ? undefined : 'var(--surface-raised)' }}
+          disabled={togglingFrictionless}
+          onClick={onToggleFrictionless}
+        >
+          {togglingFrictionless ? '...' : `Frictionless join: ${frictionlessJoin ? 'On' : 'Off'}`}
+        </button>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.8125rem', margin: '0.5rem 0 0' }}>
+          Guests skip the nickname/email step and get an auto-generated name. Good for weddings &amp; private parties.
+        </p>
       </div>
 
       {/* Auto-hide timeout */}

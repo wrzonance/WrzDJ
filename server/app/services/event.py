@@ -93,6 +93,7 @@ def create_event(db: Session, name: str, user: User, expires_hours: int = 6) -> 
             name=name,
             created_by_user_id=user.id,
             expires_at=expires_at,
+            frictionless_join=user.frictionless_join_default,
         )
         db.add(event)
         try:
@@ -153,12 +154,15 @@ def update_event(
     event: Event,
     name: str | None = None,
     expires_at: datetime | None = None,
+    frictionless_join: bool | None = None,
 ) -> Event:
     """Update an event's properties."""
     if name is not None:
         event.name = name
     if expires_at is not None:
         event.expires_at = expires_at
+    if frictionless_join is not None:
+        event.frictionless_join = frictionless_join
     db.commit()
     db.refresh(event)
     return event

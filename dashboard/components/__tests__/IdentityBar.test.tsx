@@ -113,3 +113,22 @@ describe('IdentityBar', () => {
     expect(root.style.getPropertyValue('--card')).toBe('');
   });
 });
+
+describe('IdentityBar rename', () => {
+  it('shows "Add a name" when autoNamed and calls onRename', async () => {
+    const onRename = vi.fn().mockResolvedValue(undefined);
+    render(
+      <IdentityBar nickname="DancingPanda" emailVerified={false} onVerified={() => {}}
+        autoNamed onRename={onRename} />
+    );
+    fireEvent.click(screen.getByText(/Add a name/i));
+    fireEvent.change(screen.getByPlaceholderText(/your name/i), { target: { value: 'Alex' } });
+    fireEvent.click(screen.getByText(/^Save$/));
+    await waitFor(() => expect(onRename).toHaveBeenCalledWith('Alex'));
+  });
+
+  it('does not show "Add a name" when not autoNamed', () => {
+    render(<IdentityBar nickname="Alex" emailVerified={false} onVerified={() => {}} />);
+    expect(screen.queryByText(/Add a name/i)).not.toBeInTheDocument();
+  });
+});

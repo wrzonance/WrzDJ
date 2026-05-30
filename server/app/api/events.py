@@ -277,6 +277,7 @@ def _event_to_out(
         banner_kiosk_url=banner_kiosk_url,
         banner_colors=banner_colors,
         requests_open=event.requests_open,
+        frictionless_join=event.frictionless_join,
         collection_opens_at=event.collection_opens_at,
         live_starts_at=event.live_starts_at,
         submission_cap_per_guest=event.submission_cap_per_guest,
@@ -455,6 +456,7 @@ def update_event_endpoint(
         event,
         name=event_data.name,
         expires_at=event_data.expires_at,
+        frictionless_join=event_data.frictionless_join,
     )
     return _event_to_out(updated, request)
 

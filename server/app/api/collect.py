@@ -282,6 +282,8 @@ def ensure_name(
         raise HTTPException(
             status_code=409, detail={"code": "nickname_taken", "claimed": exc.claimed}
         )
+    if profile is None:  # guest_id is non-None above, so this is defensive only
+        raise HTTPException(status_code=500, detail="Failed to create guest profile")
     return EnsureNameResponse(nickname=profile.nickname, auto_generated=auto)
 
 

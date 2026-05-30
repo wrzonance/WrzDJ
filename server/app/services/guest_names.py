@@ -36,8 +36,9 @@ def generate_unique_nickname(db: Session, *, event_id: int, max_attempts: int = 
     """Return a nickname unique (case-insensitive) within the event.
 
     Tries `max_attempts` two-word names, suffixing a 2-digit number after the
-    first collision. Falls back to a collision-proof three-word name if all
-    attempts collide.
+    first collision. Falls back to a three-word name, then to an opaque
+    guaranteed-unique suffix — so an auto-generated name never collides and
+    surfaces a 409 to the guest.
     """
     for attempt in range(max_attempts):
         base = _slug_to_name(generate_slug(2))
@@ -45,4 +46,9 @@ def generate_unique_nickname(db: Session, *, event_id: int, max_attempts: int = 
         candidate = candidate[:30]
         if not _is_taken(db, event_id=event_id, candidate=candidate):
             return candidate
-    return _slug_to_name(generate_slug(3))
+
+    fallback = _slug_to_name(generate_slug(3))
+    if not _is_taken(db, event_id=event_id, candidate=fallback):
+        return fallback
+    # Last resort: opaque, effectively-unique suffix (e.g. "Guest1a2b3c4d").
+    return f"Guest{secrets.token_hex(4)}"

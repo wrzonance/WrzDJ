@@ -68,3 +68,18 @@ def test_ensure_name_403_when_not_frictionless(client, db, test_event: Event):
     r = client.post(f"/api/public/collect/{test_event.code}/guest/ensure-name", json={})
     assert r.status_code == 403
     assert r.json()["detail"]["code"] == "frictionless_disabled"
+
+
+def test_ensure_name_403_no_cookie_soft_mode(client, db, test_event: Event):
+    """Frictionless + no wrzdj_guest cookie + soft mode -> 403 human_verification_required.
+
+    Pins the guest_id-None guard: get_guest_id returns None without the cookie, so
+    require_verified_human_soft passes None through and the endpoint must refuse
+    gracefully (not 500). Regression for review finding (#369).
+    """
+    test_event.frictionless_join = True
+    db.commit()
+    client.cookies.clear()
+    r = client.post(f"/api/public/collect/{test_event.code}/guest/ensure-name", json={})
+    assert r.status_code == 403
+    assert r.json()["detail"]["code"] == "human_verification_required"

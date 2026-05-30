@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_active_user, get_current_user, get_db
@@ -36,6 +37,10 @@ from app.services.turnstile import verify_turnstile_token
 
 router = APIRouter()
 settings = get_settings()
+
+
+class MePreferencesUpdate(BaseModel):
+    frictionless_join_default: bool
 
 
 @router.post("/login", response_model=Token)
@@ -128,6 +133,20 @@ def change_password(
     except ValueError:
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     return StatusMessageResponse(status="ok", message="Password updated. Please log in again.")
+
+
+@router.patch("/me/preferences", response_model=UserOut)
+@limiter.limit("20/minute")
+def update_me_preferences(
+    body: MePreferencesUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    updated = account_service.update_preferences(
+        db, current_user, frictionless_join_default=body.frictionless_join_default
+    )
+    return UserOut.model_validate(updated)
 
 
 @router.post("/me/email/request", response_model=StatusMessageResponse)

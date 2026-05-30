@@ -63,6 +63,7 @@ USER_OUT_KEYS = {
     "created_at",
     "help_pages_seen",
     "pending_email",
+    "frictionless_join_default",
 }
 
 EVENT_OUT_KEYS = {
@@ -90,6 +91,7 @@ EVENT_OUT_KEYS = {
     "live_starts_at",
     "submission_cap_per_guest",
     "collection_phase_override",
+    "frictionless_join",
 }
 
 REQUEST_OUT_KEYS = {

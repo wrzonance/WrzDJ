@@ -211,11 +211,15 @@ export function NicknameGate({ code, onComplete, reverify }: Props) {
   const handleConfirmCode = async () => {
     setVerifyingCode(true);
     setInputError(null);
+    // Tracks whether the OTP itself succeeded, so a later (deferred-claim)
+    // failure is not misreported as a bad code.
+    let verified = false;
     try {
       await apiClient.confirmVerificationCode(emailInput, codeInput);
       const p = await apiClient.getCollectProfile(code);
       setProfileCache(p);
       setEmailVerified(true);
+      verified = true;
       if (p.nickname) {
         onComplete({
           nickname: p.nickname,
@@ -223,29 +227,40 @@ export function NicknameGate({ code, onComplete, reverify }: Props) {
           submissionCount: p.submission_count,
           submissionCap: p.submission_cap,
         });
-      } else if (pendingNickname) {
-        // Email is now verified — claim the name the guest chose before the gate.
-        const claimed = await apiClient.setCollectProfile(
-          code,
-          { nickname: pendingNickname },
-          reverify,
-        );
-        setPendingNickname(null);
-        onComplete({
-          nickname: claimed.nickname ?? pendingNickname,
-          emailVerified: true,
-          submissionCount: claimed.submission_count,
-          submissionCap: claimed.submission_cap,
-        });
-      } else {
-        setGateState('nickname_input');
+        return;
       }
+      if (!pendingNickname) {
+        setGateState('nickname_input');
+        return;
+      }
+      // Email is verified — claim the deferred name as a separate step so a
+      // claim failure can't strand the guest behind an already-consumed code.
+      const claimed = await apiClient.setCollectProfile(
+        code,
+        { nickname: pendingNickname },
+        reverify,
+      );
+      setPendingNickname(null);
+      onComplete({
+        nickname: claimed.nickname ?? pendingNickname,
+        emailVerified: true,
+        submissionCount: claimed.submission_count,
+        submissionCap: claimed.submission_cap,
+      });
     } catch (err) {
       if (err instanceof NicknameConflictError) {
-        // The stashed name was claimed by someone else during verification.
+        // The deferred name was claimed by someone else during verification.
         setCollisionNickname(pendingNickname ?? '');
         setPendingNickname(null);
         setGateState(err.claimed ? 'collision_claimed' : 'collision_unclaimed');
+      } else if (verified) {
+        // OTP succeeded but the deferred claim failed — keep the verified state
+        // and move off the consumed-code screen so the guest can retry the name.
+        setPendingNickname(null);
+        setInputError(
+          err instanceof ApiError ? err.message : "Couldn't save nickname — please try again",
+        );
+        setGateState('nickname_input');
       } else {
         setInputError(err instanceof ApiError ? err.message : 'Invalid or expired code.');
       }
@@ -481,7 +496,13 @@ export function NicknameGate({ code, onComplete, reverify }: Props) {
         <button
           className="btn btn-secondary"
           style={{ width: '100%' }}
-          onClick={() => setGateState('track_select')}
+          onClick={() => {
+            // Abandon any deferred name claim so it isn't auto-applied if the
+            // guest later verifies via the normal email-login path.
+            setPendingNickname(null);
+            setSavedNickname('');
+            setGateState('track_select');
+          }}
         >
           ← Back
         </button>

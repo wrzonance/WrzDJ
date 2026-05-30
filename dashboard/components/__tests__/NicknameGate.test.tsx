@@ -258,6 +258,80 @@ describe('NicknameGate', () => {
     expect(onComplete).not.toHaveBeenCalled();
   });
 
+  it('clears the deferred name when the email-required flow is abandoned via Back', async () => {
+    const { EmailVerificationRequiredError } = await import('../../lib/api');
+    mockSetProfile.mockRejectedValueOnce(new EmailVerificationRequiredError());
+    mockGetProfile
+      .mockResolvedValueOnce(emptyProfile)
+      .mockResolvedValueOnce({
+        nickname: null,
+        email_verified: true,
+        submission_count: 0,
+        submission_cap: 5,
+      });
+    render(<NicknameGate code="EVT01" onComplete={onComplete} reverify={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /new name/i }));
+    fireEvent.click(screen.getByRole('button', { name: /new name/i }));
+    fireEvent.change(screen.getByPlaceholderText(/dancingqueen/i), { target: { value: 'Alex' } });
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    // Blocked → routed to the email step; the user backs out…
+    await waitFor(() => screen.getByPlaceholderText(/you@example\.com/i));
+    fireEvent.click(screen.getByRole('button', { name: /back/i }));
+    // …then chooses the normal email-login path instead.
+    await waitFor(() => screen.getByRole('button', { name: /have email/i }));
+    fireEvent.click(screen.getByRole('button', { name: /have email/i }));
+    fireEvent.change(screen.getByPlaceholderText(/you@example\.com/i), {
+      target: { value: 'someone@example.com' },
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /send code/i })).not.toBeDisabled(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /send code/i }));
+    await waitFor(() => screen.getByPlaceholderText(/6.digit/i));
+    fireEvent.change(screen.getByPlaceholderText(/6.digit/i), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: /^verify$/i }));
+    // The abandoned 'Alex' must NOT be auto-claimed; lands on a fresh name prompt.
+    await waitFor(() => expect(screen.getByPlaceholderText(/dancingqueen/i)).toBeInTheDocument());
+    expect(mockSetProfile).toHaveBeenCalledTimes(1);
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  it('keeps the verified state and unblocks if the deferred claim fails after OTP', async () => {
+    const { EmailVerificationRequiredError, ApiError } = await import('../../lib/api');
+    mockSetProfile
+      .mockRejectedValueOnce(new EmailVerificationRequiredError())
+      .mockRejectedValueOnce(new ApiError('server error', 500));
+    mockGetProfile
+      .mockResolvedValueOnce(emptyProfile)
+      .mockResolvedValueOnce({
+        nickname: null,
+        email_verified: true,
+        submission_count: 0,
+        submission_cap: 5,
+      });
+    render(<NicknameGate code="EVT01" onComplete={onComplete} reverify={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /new name/i }));
+    fireEvent.click(screen.getByRole('button', { name: /new name/i }));
+    fireEvent.change(screen.getByPlaceholderText(/dancingqueen/i), { target: { value: 'Alex' } });
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => screen.getByPlaceholderText(/you@example\.com/i));
+    fireEvent.change(screen.getByPlaceholderText(/you@example\.com/i), {
+      target: { value: 'alex@example.com' },
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /send code/i })).not.toBeDisabled(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /send code/i }));
+    await waitFor(() => screen.getByPlaceholderText(/6.digit/i));
+    fireEvent.change(screen.getByPlaceholderText(/6.digit/i), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: /^verify$/i }));
+    // OTP consumed + email verified, but the claim failed: move OFF the code
+    // screen to the name prompt rather than stranding the user behind a used code.
+    await waitFor(() => expect(screen.getByPlaceholderText(/dancingqueen/i)).toBeInTheDocument());
+    expect(screen.queryByPlaceholderText(/6.digit/i)).not.toBeInTheDocument();
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+
   it('transitions to complete when email verified and profile has nickname', async () => {
     mockGetProfile
       .mockResolvedValueOnce(emptyProfile)

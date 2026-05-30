@@ -19,6 +19,12 @@ vi.mock('../../lib/api', () => {
       this.claimed = claimed;
     }
   }
+  class EmailVerificationRequiredError extends Error {
+    constructor() {
+      super('email_verification_required');
+      this.name = 'EmailVerificationRequiredError';
+    }
+  }
   return {
     apiClient: {
       getCollectProfile: vi.fn(),
@@ -28,6 +34,7 @@ vi.mock('../../lib/api', () => {
     },
     ApiError,
     NicknameConflictError,
+    EmailVerificationRequiredError,
   };
 });
 
@@ -151,6 +158,104 @@ describe('NicknameGate', () => {
     await waitFor(() => screen.getByRole('button', { name: /log in with email/i }));
     fireEvent.click(screen.getByRole('button', { name: /try a different/i }));
     expect(screen.getByPlaceholderText(/dancingqueen/i)).toBeInTheDocument();
+  });
+
+  // Regression: a brand-new guest in a private tab is not email-verified, so
+  // claiming a name (POST /collect/{code}/profile -> require_email_verified)
+  // returns 403 email_verification_required. Previously this fell through to a
+  // generic "Couldn't save" dead-end; now it must route into the email flow.
+  it('routes to email verification (not a dead-end) when a name claim requires email', async () => {
+    const { EmailVerificationRequiredError } = await import('../../lib/api');
+    mockSetProfile.mockRejectedValueOnce(new EmailVerificationRequiredError());
+    render(<NicknameGate code="EVT01" onComplete={onComplete} reverify={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /new name/i }));
+    fireEvent.click(screen.getByRole('button', { name: /new name/i }));
+    fireEvent.change(screen.getByPlaceholderText(/dancingqueen/i), { target: { value: 'Alex' } });
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    // Lands on the email-login step…
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText(/you@example\.com/i)).toBeInTheDocument(),
+    );
+    // …and NOT the old generic dead-end error.
+    expect(screen.queryByText(/couldn.t save/i)).not.toBeInTheDocument();
+  });
+
+  it('auto-claims the chosen name after email verification', async () => {
+    const { EmailVerificationRequiredError } = await import('../../lib/api');
+    // 1st save is blocked by the email gate; 2nd save (post-verify) succeeds.
+    mockSetProfile
+      .mockRejectedValueOnce(new EmailVerificationRequiredError())
+      .mockResolvedValueOnce({
+        nickname: 'Alex',
+        email_verified: true,
+        submission_count: 0,
+        submission_cap: 5,
+      });
+    // Profile after code-confirm still has no nickname (the blocked save never persisted).
+    mockGetProfile
+      .mockResolvedValueOnce(emptyProfile)
+      .mockResolvedValueOnce({
+        nickname: null,
+        email_verified: true,
+        submission_count: 0,
+        submission_cap: 5,
+      });
+    render(<NicknameGate code="EVT01" onComplete={onComplete} reverify={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /new name/i }));
+    fireEvent.click(screen.getByRole('button', { name: /new name/i }));
+    fireEvent.change(screen.getByPlaceholderText(/dancingqueen/i), { target: { value: 'Alex' } });
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => screen.getByPlaceholderText(/you@example\.com/i));
+    fireEvent.change(screen.getByPlaceholderText(/you@example\.com/i), {
+      target: { value: 'alex@example.com' },
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /send code/i })).not.toBeDisabled(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /send code/i }));
+    await waitFor(() => screen.getByPlaceholderText(/6.digit/i));
+    fireEvent.change(screen.getByPlaceholderText(/6.digit/i), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: /^verify$/i }));
+    await waitFor(() =>
+      expect(onComplete).toHaveBeenCalledWith(
+        expect.objectContaining({ nickname: 'Alex', emailVerified: true }),
+      ),
+    );
+    // The name was claimed in a second profile write, after email was verified.
+    expect(mockSetProfile).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows the collision state if the chosen name is taken during email verification', async () => {
+    const { EmailVerificationRequiredError, NicknameConflictError } = await import('../../lib/api');
+    mockSetProfile
+      .mockRejectedValueOnce(new EmailVerificationRequiredError())
+      .mockRejectedValueOnce(new NicknameConflictError(false));
+    mockGetProfile
+      .mockResolvedValueOnce(emptyProfile)
+      .mockResolvedValueOnce({
+        nickname: null,
+        email_verified: true,
+        submission_count: 0,
+        submission_cap: 5,
+      });
+    render(<NicknameGate code="EVT01" onComplete={onComplete} reverify={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /new name/i }));
+    fireEvent.click(screen.getByRole('button', { name: /new name/i }));
+    fireEvent.change(screen.getByPlaceholderText(/dancingqueen/i), { target: { value: 'Alex' } });
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => screen.getByPlaceholderText(/you@example\.com/i));
+    fireEvent.change(screen.getByPlaceholderText(/you@example\.com/i), {
+      target: { value: 'alex@example.com' },
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /send code/i })).not.toBeDisabled(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /send code/i }));
+    await waitFor(() => screen.getByPlaceholderText(/6.digit/i));
+    fireEvent.change(screen.getByPlaceholderText(/6.digit/i), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: /^verify$/i }));
+    await waitFor(() => expect(screen.getByText(/already taken/i)).toBeInTheDocument());
+    expect(onComplete).not.toHaveBeenCalled();
   });
 
   it('transitions to complete when email verified and profile has nickname', async () => {

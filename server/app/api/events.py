@@ -28,7 +28,7 @@ from app.core.config import get_settings
 from app.core.rate_limit import get_guest_id, limiter
 from app.models.event import Event
 from app.models.request import RequestStatus
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.activity_log import ActivityLogEntry
 from app.schemas.collect import (
     BulkReviewRequest,
@@ -360,10 +360,23 @@ def get_activity_log(
 
 @router.get("/{code}", response_model=EventOut)
 @limiter.limit("60/minute")
-def get_event(code: str, request: Request, db: Session = Depends(get_db)) -> EventOut:
+def get_event(
+    code: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> EventOut:
     event, lookup_result = get_event_by_code_with_status(db, code)
 
     if lookup_result == EventLookupResult.NOT_FOUND:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    # EventOut exposes event.id + both codes + share URLs, so this endpoint is
+    # restricted to the owning DJ or an admin. Non-owners get 404 (not 403) to
+    # avoid leaking event existence. (Was public before #382 hardening.)
+    is_owner = event.created_by_user_id == current_user.id
+    is_admin = current_user.role == UserRole.ADMIN.value
+    if not (is_owner or is_admin):
         raise HTTPException(status_code=404, detail="Event not found")
 
     if lookup_result == EventLookupResult.EXPIRED:

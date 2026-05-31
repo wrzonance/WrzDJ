@@ -36,11 +36,13 @@ def test_submit_request_resolves_by_join_code(client, db, test_event: Event):
     assert r.status_code == 200
 
 
-def test_get_event_stays_collection_only(client, db, test_event: Event):
+def test_get_event_stays_collection_only(client, db, test_event: Event, auth_headers):
     """GET /api/events/{code} is the DJ endpoint (leaks EventOut.id) — it must
     NOT be made canonical. A guest join_code must NOT resolve here."""
-    assert client.get(f"/api/events/{test_event.code}").status_code == 200
-    assert client.get(f"/api/events/{test_event.join_code}").status_code == 404
+    assert client.get(f"/api/events/{test_event.code}", headers=auth_headers).status_code == 200
+    # join_code must not resolve on the DJ-only get_event endpoint
+    r = client.get(f"/api/events/{test_event.join_code}", headers=auth_headers)
+    assert r.status_code == 404
 
 
 def test_submit_via_join_code_publishes_on_event_code_channel(client, db, test_event: Event):
@@ -90,3 +92,31 @@ def test_public_event_endpoint_404_and_410(client, db, test_event: Event):
     test_event.is_active = False
     db.commit()
     assert client.get(f"/api/public/events/{test_event.join_code}").status_code == 410
+
+
+def test_get_event_requires_auth_no_id_leak(client, db, test_event: Event):
+    """#382 hardening: GET /api/events/{code} must NOT serve EventOut (id +
+    join_url) to unauthenticated callers holding only the collection code."""
+    r = client.get(f"/api/events/{test_event.code}")
+    assert r.status_code == 401
+
+
+def test_get_event_owner_and_admin_ok_nonowner_404(
+    client, db, test_event: Event, auth_headers, admin_headers
+):
+    # Owner (auth_headers == test_user, who owns test_event) → 200
+    assert client.get(f"/api/events/{test_event.code}", headers=auth_headers).status_code == 200
+    # Admin → 200 (can view any event)
+    assert client.get(f"/api/events/{test_event.code}", headers=admin_headers).status_code == 200
+    # Authenticated NON-owner, non-admin → 404 (no existence leak)
+    from app.models.user import User
+    from app.services.auth import create_access_token, get_password_hash
+
+    other = User(username="otherdj", password_hash=get_password_hash("pw"), role="dj")
+    db.add(other)
+    db.commit()
+    db.refresh(other)
+    # Mint token directly (mirrors conftest auth_headers pattern)
+    other_token = create_access_token(data={"sub": other.username, "tv": other.token_version})
+    other_headers = {"Authorization": f"Bearer {other_token}"}
+    assert client.get(f"/api/events/{test_event.code}", headers=other_headers).status_code == 404

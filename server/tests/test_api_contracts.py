@@ -246,8 +246,8 @@ class TestEventContracts:
         if data:
             _assert_keys(data[0], EVENT_OUT_KEYS, "GET /api/events[0]")
 
-    def test_get_event_shape(self, client: TestClient, test_event: Event):
-        resp = client.get(f"/api/events/{test_event.code}")
+    def test_get_event_shape(self, client: TestClient, auth_headers: dict, test_event: Event):
+        resp = client.get(f"/api/events/{test_event.code}", headers=auth_headers)
         assert resp.status_code == 200
         _assert_keys(resp.json(), EVENT_OUT_KEYS, "GET /api/events/{code}")
 

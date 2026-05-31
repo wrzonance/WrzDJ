@@ -29,6 +29,7 @@ import type {
   PaginatedResponse,
   PlayHistoryResponse,
   PlaylistListResponse,
+  PublicEvent,
   RecommendationResponse,
   SearchResult,
   SongRequest,
@@ -81,6 +82,7 @@ export type {
   PlayHistoryItem,
   PlayHistoryResponse,
   PublicBridgeStatus,
+  PublicEvent,
   PublicRequestInfo,
   RecommendationResponse,
   RecommendedTrack,
@@ -742,6 +744,10 @@ class ApiClient {
 
   async getPublicRequests(code: string): Promise<GuestRequestListResponse> {
     return this.publicFetch(`${getApiUrl()}/api/public/events/${code}/requests`);
+  }
+
+  async getPublicEvent(code: string): Promise<PublicEvent> {
+    return this.publicFetch(`${getApiUrl()}/api/public/events/${code}`);
   }
 
   async getKioskDisplay(code: string): Promise<KioskDisplay> {

@@ -58,3 +58,11 @@ def test_submit_via_join_code_publishes_on_event_code_channel(client, db, test_e
         assert msg["event"] == "request_created"
     finally:
         bus.unsubscribe(test_event.code, queue)
+
+
+def test_public_requests_resolve_by_either_code(client, db, test_event: Event):
+    # Already worked by join_code; now also resolves by collection code (one resolver).
+    assert client.get(f"/api/public/events/{test_event.join_code}/requests").status_code == 200
+    assert client.get(f"/api/public/events/{test_event.code}/requests").status_code == 200
+    assert client.get(f"/api/public/events/{test_event.join_code}/has-requested").status_code == 200
+    assert client.get(f"/api/public/events/{test_event.code}/has-requested").status_code == 200

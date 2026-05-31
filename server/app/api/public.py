@@ -15,7 +15,11 @@ from app.core.time import utcnow
 from app.models.guest import Guest
 from app.models.request import Request as SongRequest
 from app.models.request import RequestStatus
-from app.services.event import EventLookupResult, get_event_by_join_code_with_status
+from app.services.event import (
+    EventLookupResult,
+    get_event_by_join_code_with_status,
+    get_event_by_public_code_with_status,
+)
 from app.services.now_playing import get_now_playing, is_now_playing_hidden
 from app.services.request import get_requests_by_guest
 
@@ -188,7 +192,7 @@ def get_public_requests(
     db: Session = Depends(get_db),
 ) -> GuestRequestListResponse:
     """Get publicly visible requests for an event (NEW and ACCEPTED only)."""
-    event, lookup_result = get_event_by_join_code_with_status(db, code)
+    event, lookup_result = get_event_by_public_code_with_status(db, code)
 
     if lookup_result == EventLookupResult.NOT_FOUND:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -255,7 +259,7 @@ def check_has_requested(
     db: Session = Depends(get_db),
 ) -> HasRequestedResponse:
     """Check if the current client has submitted any requests for this event."""
-    event, lookup_result = get_event_by_join_code_with_status(db, code)
+    event, lookup_result = get_event_by_public_code_with_status(db, code)
 
     if lookup_result == EventLookupResult.NOT_FOUND:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -288,7 +292,7 @@ def get_my_requests(
     db: Session = Depends(get_db),
 ) -> MyRequestsResponse:
     """Get all requests submitted by the current client for this event."""
-    event, lookup_result = get_event_by_join_code_with_status(db, code)
+    event, lookup_result = get_event_by_public_code_with_status(db, code)
 
     if lookup_result == EventLookupResult.NOT_FOUND:
         raise HTTPException(status_code=404, detail="Event not found")

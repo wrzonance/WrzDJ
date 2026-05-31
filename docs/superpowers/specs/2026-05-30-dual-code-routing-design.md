@@ -57,7 +57,7 @@ Every endpoint the `/join/[code]` page calls today, with how the backend resolve
 - **Hard capability-scoping** (collect endpoints rejecting `join_code` and vice versa). Explicitly decided against: both codes are public and map to one event, the private key is `event.id`, and behavioral gating lives in flags/auth — so cross-code resolution carries no security weight. The cost (endpoint twins + parametrizing the shared `NicknameGate`) is exactly the redundancy/drift we want to avoid.
 - A third/encrypted code. `event.id` already is the private canonical key; encrypting a value never transmitted is negative ROI.
 - Changing collect-page auth (email + human) — unchanged.
-- Changing DJ `get_event`/`EventOut` (still exposes `id` to the **authenticated** DJ) — out of scope; we only stop guests from hitting it.
+- ~~Changing DJ `get_event`/`EventOut`~~ — **scope expanded during final review** (see [Addendum](#addendum-get_event-hardening-scope-expansion)). The original assumption that `get_event` is "DJ-authenticated" was **factually wrong**: it had no auth dependency and was publicly readable, leaking `event.id` **and** `join_code` (via `join_url`) to any holder of the collection code. It is now gated to owner-or-admin.
 - Bridge (`event.code`), kiosk display/`kiosk-link` (`join_code`/`code` as today), DJ management resolution — unchanged.
 - Token-enumeration hardening (code length / rate limits) — orthogonal; tracked separately.
 
@@ -94,7 +94,7 @@ Reuses the existing `_event_with_status` (NOT_FOUND / ARCHIVED / EXPIRED / FOUND
 | events.py `submit_request` | `get_event_by_code_with_status` | canonical |
 | public.py `get_public_requests`, `check_has_requested`, `get_my_requests` | join_code | canonical (behavior-preserving for existing join_code callers) |
 | sse.py `event_stream` | join_code | canonical (still subscribes by `event.code`) |
-| events.py `get_event` (DJ + kiosk-link) | collection | **unchanged** (DJ/authed; guest use is removed — see §3) |
+| events.py `get_event` (DJ event page) | collection | **owner/admin gated** — was public, now `Depends(get_current_active_user)` + owner-or-admin (Addendum); guest use removed (§3) |
 | public.py `get_kiosk_display`, bridge, DJ management | as today | **unchanged** |
 
 After this, there is exactly **one** resolver for the guest-join surface. `NicknameGate` works on both pages with **zero component change** (its profile reads/writes now resolve either code).
@@ -151,7 +151,7 @@ Required frontend delta is small and mostly deletion. Everything else works once
 | `test_public_event_endpoint_no_id_leak` | `GET /api/public/events/{join_code}` body contains no key equal to `event.id`; schema declares no `id` field |
 | `test_public_event_endpoint_fields` | Response carries `frictionless_join`, `phase`, `requests_open`, `collection_code == event.code` |
 | `test_sse_submit_via_join_code_publishes_event_code` | `submit_request` reached by `join_code` calls `publish_event(event.code, ...)` so a `/stream/{join_code}` subscriber receives it |
-| `test_dj_get_event_unchanged` | `GET /api/events/{collection_code}` (DJ) still returns `EventOut` with `id` (authed) — no regression |
+| `test_get_event_requires_auth_no_id_leak` / `test_get_event_owner_and_admin_ok_nonowner_404` | `GET /api/events/{code}` → 401 unauth, 404 authed non-owner, 200 owner/admin (Addendum hardening) |
 | `test_collect_page_endpoints_unchanged_by_collection_code` | All collect endpoints still resolve normally via collection code |
 
 ### Frontend (vitest — extend `app/join/[code]/__tests__/page.test.tsx`)
@@ -188,8 +188,22 @@ Required frontend delta is small and mostly deletion. Everything else works once
 | Exposing `collection_code` to live guests via `getPublicEvent` | Acceptable — collection code is the *more* public, long-lived share code; the collect page stays auth-gated. |
 | New endpoint duplicates some `EventOut` fields | Intentional guest-safe projection (id hygiene); narrow, read-only, low maintenance. |
 | Missed a `publish_event` site still keying URL code | Test asserts the submit path; grep-audit all call sites during implementation. |
-| `get_event` still leaks `id` to DJ | Out of scope — DJ is authenticated and trusted; guest path no longer touches it. |
+| `get_event` was **public**, leaking `id` + `join_code` to any collection-code holder | **Fixed** (Addendum): owner-or-admin gate. The spec originally mis-scoped this as "DJ-authed"; final review caught that it had no auth dependency. |
 | Future endpoint wires the wrong resolver | `test_public_code_resolver_accepts_both` + serializer-hygiene test are the drift guards. |
+
+## Addendum: get_event hardening (scope expansion)
+
+Surfaced by the final whole-branch review: this spec assumed `GET /api/events/{code}` was DJ-authenticated and therefore out of scope. **That was wrong.** The endpoint had **no auth dependency** — it was publicly readable and returned `EventOut` (`id`, both codes, `join_url`, `collect_url`). So beyond the join page (which the main fix moved onto `getPublicEvent`), *anyone holding the public collection code* could `curl /api/events/{collection_code}` to read the private `event.id` **and derive the `join_code`** from `join_url` — partially defeating #324's intent that the join_code is revealed in-venue (it even bypassed the human-gated `live-join-code` endpoint).
+
+The user approved expanding this PR to close it.
+
+**Fix.** `get_event` now requires `Depends(get_current_active_user)` and is restricted to the **owning DJ or an admin**; non-owners get **404** (not 403) to avoid leaking event existence. Resolution and the existing 404/410 (NOT_FOUND / EXPIRED / ARCHIVED) semantics are unchanged. Branch order: NOT_FOUND→404, then owner/admin→404, then EXPIRED/ARCHIVED→410 — so a non-owner can never distinguish event state. `EventOut`'s shape is unchanged (no frontend ripple; the DJ event page already sends a Bearer token). The endpoint's OpenAPI `security` stanza was regenerated.
+
+**Status matrix:** unauthenticated → 401; authed non-owner non-admin → 404; owner → 200; admin → 200; owner on expired/archived → 410.
+
+**Tests:** `test_get_event_requires_auth_no_id_leak` (401 unauth pins the closed leak) + `test_get_event_owner_and_admin_ok_nonowner_404`. Eight pre-existing tests that called `get_event` unauthenticated were updated to send owner/admin headers (assertions unchanged).
+
+**Not done here (possible future follow-up):** the `live-join-code` reveal-gating story is now consistent for `get_event`, but a broader audit of every endpoint that emits `join_url`/`join_code` is out of scope for this PR.
 
 ## Sources
 

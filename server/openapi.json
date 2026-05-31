@@ -3650,6 +3650,78 @@
         "title": "PublicEventInfo",
         "type": "object"
       },
+      "PublicEventResponse": {
+        "description": "Guest-safe live-event projection. Deliberately omits event.id and any\nDJ-only fields (see #382 serializer hygiene).",
+        "properties": {
+          "banner_colors": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Banner Colors"
+          },
+          "banner_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Banner Url"
+          },
+          "collection_code": {
+            "title": "Collection Code",
+            "type": "string"
+          },
+          "frictionless_join": {
+            "title": "Frictionless Join",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "phase": {
+            "enum": [
+              "pre_announce",
+              "collection",
+              "live",
+              "closed"
+            ],
+            "title": "Phase",
+            "type": "string"
+          },
+          "requests_open": {
+            "title": "Requests Open",
+            "type": "boolean"
+          },
+          "submission_cap_per_guest": {
+            "title": "Submission Cap Per Guest",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "banner_colors",
+          "banner_url",
+          "collection_code",
+          "frictionless_join",
+          "name",
+          "phase",
+          "requests_open",
+          "submission_cap_per_guest"
+        ],
+        "title": "PublicEventResponse",
+        "type": "object"
+      },
       "PublicRequestInfo": {
         "properties": {
           "artist": {
@@ -7599,6 +7671,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "summary": "Get Event",
         "tags": [
           "events"
@@ -9943,6 +10020,49 @@
         "summary": "Get Public Now Playing",
         "tags": [
           "bridge"
+        ]
+      }
+    },
+    "/api/public/events/{code}": {
+      "get": {
+        "description": "Guest-safe event info for the live /join page. Resolves by EITHER public\ncode; never emits event.id. Replaces the join page's use of the DJ EventOut\nendpoint (which leaks the private id) and folds in phase + frictionless_join.",
+        "operationId": "get_public_event_api_public_events__code__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicEventResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Public Event",
+        "tags": [
+          "public"
         ]
       }
     },

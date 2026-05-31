@@ -129,6 +129,24 @@ def get_event_by_join_code_with_status(
     return _event_with_status(event)
 
 
+def get_event_by_public_code_with_status(
+    db: Session, code: str
+) -> tuple[Event | None, EventLookupResult]:
+    """Resolve a guest-facing public code that may be EITHER the collection
+    `code` or the live `join_code` (one event, two public handles). Behavioral
+    gating (frictionless vs collect-auth) is enforced by each endpoint's
+    flags/auth dependencies, never by which code resolved the event. Codes are
+    globally unique across both columns (`generate_unique_event_code`), so this
+    is collision-free.
+    """
+    event = (
+        db.query(Event)
+        .filter(or_(Event.code == code.upper(), Event.join_code == code.upper()))
+        .first()
+    )
+    return _event_with_status(event)
+
+
 def _event_with_status(event: Event | None) -> tuple[Event | None, EventLookupResult]:
     if not event:
         return None, EventLookupResult.NOT_FOUND

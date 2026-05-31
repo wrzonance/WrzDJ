@@ -12,15 +12,41 @@ from app.api.deps import get_db
 from app.core.config import get_settings
 from app.core.rate_limit import get_guest_id, limiter
 from app.core.time import utcnow
+from app.models.event import Event
 from app.models.guest import Guest
 from app.models.request import Request as SongRequest
 from app.models.request import RequestStatus
-from app.services.event import EventLookupResult, get_event_by_join_code_with_status
+from app.services.event import (
+    EventLookupResult,
+    get_event_by_join_code_with_status,
+    get_event_by_public_code_with_status,
+)
 from app.services.now_playing import get_now_playing, is_now_playing_hidden
 from app.services.request import get_requests_by_guest
 
 router = APIRouter()
 settings = get_settings()
+
+
+def _build_public_banner(request: Request, event: Event) -> tuple[str | None, list[str] | None]:
+    """Build (banner_url, banner_colors) from an event for guest/kiosk responses.
+    api_base is the API server's own base URL (http->https when proxied). Colors
+    parse is defensive: malformed JSON yields None, never a 500."""
+    if not event.banner_filename:
+        return None, None
+    api_base = str(request.base_url).rstrip("/")
+    if request.headers.get("x-forwarded-proto") == "https" and api_base.startswith("http://"):
+        api_base = "https://" + api_base[len("http://") :]
+    banner_url = f"{api_base}/uploads/{event.banner_filename}"
+    banner_colors = None
+    if event.banner_colors:
+        try:
+            parsed = json.loads(event.banner_colors)
+            if isinstance(parsed, list) and all(isinstance(c, str) for c in parsed):
+                banner_colors = parsed
+        except (json.JSONDecodeError, TypeError):
+            banner_colors = None
+    return banner_url, banner_colors
 
 
 class PublicEventInfo(BaseModel):
@@ -74,6 +100,20 @@ class MyRequestsResponse(BaseModel):
 
 class HasRequestedResponse(BaseModel):
     has_requested: bool
+
+
+class PublicEventResponse(BaseModel):
+    """Guest-safe live-event projection. Deliberately omits event.id and any
+    DJ-only fields (see #382 serializer hygiene)."""
+
+    name: str
+    collection_code: str
+    requests_open: bool
+    frictionless_join: bool
+    phase: Literal["pre_announce", "collection", "live", "closed"]
+    submission_cap_per_guest: int
+    banner_url: str | None = None
+    banner_colors: list[str] | None = None
 
 
 class KioskDisplayResponse(BaseModel):
@@ -152,18 +192,12 @@ def get_kiosk_display(
     )
 
     # Build banner URLs using the API server's own base URL (not PUBLIC_URL, which is the frontend)
-    banner_url = None
+    banner_url, banner_colors = _build_public_banner(request, event)
     banner_kiosk_url = None
-    banner_colors = None
-    if event.banner_filename:
-        api_base = str(request.base_url).rstrip("/")
-        if request.headers.get("x-forwarded-proto") == "https" and api_base.startswith("http://"):
-            api_base = "https://" + api_base[len("http://") :]
-        banner_url = f"{api_base}/uploads/{event.banner_filename}"
+    if banner_url is not None:
         stem = event.banner_filename.rsplit(".", 1)[0]
+        api_base = banner_url.rsplit("/uploads/", 1)[0]
         banner_kiosk_url = f"{api_base}/uploads/{stem}_kiosk.webp"
-        if event.banner_colors:
-            banner_colors = json.loads(event.banner_colors)
 
     return KioskDisplayResponse(
         event=PublicEventInfo(code=event.join_code, name=event.name),
@@ -180,6 +214,38 @@ def get_kiosk_display(
     )
 
 
+@router.get("/events/{code}", response_model=PublicEventResponse)
+@limiter.limit("120/minute")
+def get_public_event(
+    code: str,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> PublicEventResponse:
+    """Guest-safe event info for the live /join page. Resolves by EITHER public
+    code; never emits event.id. Replaces the join page's use of the DJ EventOut
+    endpoint (which leaks the private id) and folds in phase + frictionless_join."""
+    event, lookup_result = get_event_by_public_code_with_status(db, code)
+    if lookup_result == EventLookupResult.NOT_FOUND:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if lookup_result == EventLookupResult.EXPIRED:
+        raise HTTPException(status_code=410, detail="Event has expired")
+    if lookup_result == EventLookupResult.ARCHIVED:
+        raise HTTPException(status_code=410, detail="Event has been archived")
+
+    banner_url, banner_colors = _build_public_banner(request, event)
+
+    return PublicEventResponse(
+        name=event.name,
+        collection_code=event.code,
+        requests_open=event.requests_open,
+        frictionless_join=event.frictionless_join,
+        phase=event.phase,
+        submission_cap_per_guest=event.submission_cap_per_guest,
+        banner_url=banner_url,
+        banner_colors=banner_colors,
+    )
+
+
 @router.get("/events/{code}/requests", response_model=GuestRequestListResponse)
 @limiter.limit("60/minute")
 def get_public_requests(
@@ -188,7 +254,7 @@ def get_public_requests(
     db: Session = Depends(get_db),
 ) -> GuestRequestListResponse:
     """Get publicly visible requests for an event (NEW and ACCEPTED only)."""
-    event, lookup_result = get_event_by_join_code_with_status(db, code)
+    event, lookup_result = get_event_by_public_code_with_status(db, code)
 
     if lookup_result == EventLookupResult.NOT_FOUND:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -255,7 +321,7 @@ def check_has_requested(
     db: Session = Depends(get_db),
 ) -> HasRequestedResponse:
     """Check if the current client has submitted any requests for this event."""
-    event, lookup_result = get_event_by_join_code_with_status(db, code)
+    event, lookup_result = get_event_by_public_code_with_status(db, code)
 
     if lookup_result == EventLookupResult.NOT_FOUND:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -288,7 +354,7 @@ def get_my_requests(
     db: Session = Depends(get_db),
 ) -> MyRequestsResponse:
     """Get all requests submitted by the current client for this event."""
-    event, lookup_result = get_event_by_join_code_with_status(db, code)
+    event, lookup_result = get_event_by_public_code_with_status(db, code)
 
     if lookup_result == EventLookupResult.NOT_FOUND:
         raise HTTPException(status_code=404, detail="Event not found")

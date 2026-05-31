@@ -1583,6 +1583,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/public/events/{code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Public Event
+         * @description Guest-safe event info for the live /join page. Resolves by EITHER public
+         *     code; never emits event.id. Replaces the join page's use of the DJ EventOut
+         *     endpoint (which leaks the private id) and folds in phase + frictionless_join.
+         */
+        get: operations["get_public_event_api_public_events__code__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/events/{code}/display": {
         parameters: {
             query?: never;
@@ -3453,6 +3475,32 @@ export interface components {
             code: string;
             /** Name */
             name: string;
+        };
+        /**
+         * PublicEventResponse
+         * @description Guest-safe live-event projection. Deliberately omits event.id and any
+         *     DJ-only fields (see #382 serializer hygiene).
+         */
+        PublicEventResponse: {
+            /** Banner Colors */
+            banner_colors: string[] | null;
+            /** Banner Url */
+            banner_url: string | null;
+            /** Collection Code */
+            collection_code: string;
+            /** Frictionless Join */
+            frictionless_join: boolean;
+            /** Name */
+            name: string;
+            /**
+             * Phase
+             * @enum {string}
+             */
+            phase: "pre_announce" | "collection" | "live" | "closed";
+            /** Requests Open */
+            requests_open: boolean;
+            /** Submission Cap Per Guest */
+            submission_cap_per_guest: number;
         };
         /** PublicRequestInfo */
         PublicRequestInfo: {
@@ -6906,6 +6954,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NowPlayingResponse"] | null;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_public_event_api_public_events__code__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicEventResponse"];
                 };
             };
             /** @description Validation Error */

@@ -1138,3 +1138,39 @@ class TestLiveJoinCodeEndpoint:
     def test_404_for_unknown_event(self, client, db, test_event):
         r = client.get("/api/public/collect/ZZZZZZ/live-join-code")
         assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# #382: dual-code routing — collect endpoints must resolve by join_code too
+# ---------------------------------------------------------------------------
+
+
+def test_collect_preview_resolves_by_join_code(client, db, test_event: Event):
+    """#382: the join page hits collect endpoints with join_code — must resolve."""
+    _enable_collection(db, test_event)
+    r = client.get(f"/api/public/collect/{test_event.join_code}")
+    assert r.status_code == 200
+    # The canonical collection code is echoed back, regardless of which code resolved it.
+    assert r.json()["code"] == test_event.code
+
+
+def test_join_config_resolves_by_join_code(client, db, test_event: Event):
+    r = client.get(f"/api/public/collect/{test_event.join_code}/join-config")
+    assert r.status_code == 200
+    assert r.json() == {"frictionless_join": False}
+
+
+def test_ensure_name_resolves_by_join_code_when_frictionless(client, db, test_event: Event):
+    test_event.frictionless_join = True
+    db.commit()
+    r = client.post(f"/api/public/collect/{test_event.join_code}/guest/ensure-name", json={})
+    assert r.status_code == 200
+    assert r.json()["auto_generated"] is True
+
+
+def test_ensure_name_boundary_is_flag_not_code(client, db, test_event: Event):
+    """The frictionless boundary is the flag, never the code: a non-frictionless
+    event reached by join_code still refuses auto-naming."""
+    r = client.post(f"/api/public/collect/{test_event.join_code}/guest/ensure-name", json={})
+    assert r.status_code == 403
+    assert r.json()["detail"]["code"] == "frictionless_disabled"

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams } from 'next/navigation';
-import { api, ApiError, Event, GuestNowPlaying, GuestRequestInfo, SearchResult } from '@/lib/api';
+import { api, ApiError, PublicEvent, GuestNowPlaying, GuestRequestInfo, SearchResult } from '@/lib/api';
 import { useEventStream } from '@/lib/use-event-stream';
 import { useGuestIdentity } from '@/lib/use-guest-identity';
 import { useHumanVerification } from '@/lib/useHumanVerification';
@@ -58,7 +58,7 @@ export default function JoinEventPage() {
   const { state: humanState, reverify, widgetContainerRef } = useHumanVerification();
   const [recoveryOpen, setRecoveryOpen] = useState(false);
 
-  const [event, setEvent] = useState<Event | null>(null);
+  const [event, setEvent] = useState<PublicEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<{ message: string; status: number } | null>(null);
 
@@ -164,8 +164,9 @@ export default function JoinEventPage() {
   /* Load event */
   const loadEvent = useCallback(async () => {
     try {
-      const data = await api.getEvent(code);
+      const data = await api.getPublicEvent(code);
       setEvent(data);
+      setCollectPhase(data.phase);
       setError(null);
       try {
         const { has_requested } = await api.checkHasRequested(code);
@@ -193,14 +194,11 @@ export default function JoinEventPage() {
   useEffect(() => {
     if (!gateComplete || !code) return;
     let cancelled = false;
-    Promise.allSettled([
-      api.getCollectEvent(code),
-      api.getCollectProfile(code),
-    ]).then(([evResult, profileResult]) => {
-      if (cancelled) return;
-      if (evResult.status === 'fulfilled') setCollectPhase(evResult.value.phase);
-      if (profileResult.status === 'fulfilled') setEmailVerified(profileResult.value.email_verified);
-    });
+    api.getCollectProfile(code)
+      .then((profile) => {
+        if (!cancelled) setEmailVerified(profile.email_verified);
+      })
+      .catch(() => { /* email-verified is best-effort on the live page */ });
     return () => { cancelled = true; };
   }, [code, gateComplete]);
 
@@ -504,7 +502,7 @@ export default function JoinEventPage() {
     collectPhase === 'pre_announce' || collectPhase === 'collection' ? (
       <div className="join-pre-event-banner">
         🎟️ Pre-event voting is open —{' '}
-        <a href={`/collect/${code}`}>go to the pre-event page →</a>
+        <a href={`/collect/${event.collection_code}`}>go to the pre-event page →</a>
       </div>
     ) : null;
 

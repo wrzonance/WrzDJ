@@ -50,6 +50,7 @@ from app.services.activity_log import log_activity
 from app.services.beatport import search_beatport_tracks
 from app.services.collect import NicknameConflictError, upsert_profile
 from app.services.dedup import compute_dedupe_key, find_duplicate
+from app.services.event import get_event_by_public_code_with_status
 from app.services.guest_names import generate_unique_nickname
 from app.services.sync.enrichment_pipeline import _find_best_match
 from app.services.sync.orchestrator import enrich_request_metadata
@@ -63,7 +64,11 @@ router = APIRouter()
 
 
 def _get_event_or_404(db: Session, code: str) -> Event:
-    event = db.query(Event).filter(Event.code == code).one_or_none()
+    # Resolve by EITHER public code (collection or join). Collect's gates
+    # (require_verified_human / require_email_verified) still enforce auth, so
+    # accepting a join_code here changes resolution, not authorization. Preserve
+    # collect's existing "inactive -> 404" semantics.
+    event, _ = get_event_by_public_code_with_status(db, code)
     if event is None or not event.is_active:
         raise HTTPException(status_code=404, detail="Event not found")
     return event

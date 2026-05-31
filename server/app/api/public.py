@@ -80,6 +80,20 @@ class HasRequestedResponse(BaseModel):
     has_requested: bool
 
 
+class PublicEventResponse(BaseModel):
+    """Guest-safe live-event projection. Deliberately omits event.id and any
+    DJ-only fields (see #382 serializer hygiene)."""
+
+    name: str
+    collection_code: str
+    requests_open: bool
+    frictionless_join: bool
+    phase: Literal["pre_announce", "collection", "live", "closed"]
+    submission_cap_per_guest: int
+    banner_url: str | None = None
+    banner_colors: list[str] | None = None
+
+
 class KioskDisplayResponse(BaseModel):
     event: PublicEventInfo
     qr_join_url: str
@@ -180,6 +194,46 @@ def get_kiosk_display(
         updated_at=utcnow(),
         banner_url=banner_url,
         banner_kiosk_url=banner_kiosk_url,
+        banner_colors=banner_colors,
+    )
+
+
+@router.get("/events/{code}", response_model=PublicEventResponse)
+@limiter.limit("120/minute")
+def get_public_event(
+    code: str,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> PublicEventResponse:
+    """Guest-safe event info for the live /join page. Resolves by EITHER public
+    code; never emits event.id. Replaces the join page's use of the DJ EventOut
+    endpoint (which leaks the private id) and folds in phase + frictionless_join."""
+    event, lookup_result = get_event_by_public_code_with_status(db, code)
+    if lookup_result == EventLookupResult.NOT_FOUND:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if lookup_result == EventLookupResult.EXPIRED:
+        raise HTTPException(status_code=410, detail="Event has expired")
+    if lookup_result == EventLookupResult.ARCHIVED:
+        raise HTTPException(status_code=410, detail="Event has been archived")
+
+    banner_url = None
+    banner_colors = None
+    if event.banner_filename:
+        api_base = str(request.base_url).rstrip("/")
+        if request.headers.get("x-forwarded-proto") == "https" and api_base.startswith("http://"):
+            api_base = "https://" + api_base[len("http://") :]
+        banner_url = f"{api_base}/uploads/{event.banner_filename}"
+        if event.banner_colors:
+            banner_colors = json.loads(event.banner_colors)
+
+    return PublicEventResponse(
+        name=event.name,
+        collection_code=event.code,
+        requests_open=event.requests_open,
+        frictionless_join=event.frictionless_join,
+        phase=event.phase,
+        submission_cap_per_guest=event.submission_cap_per_guest,
+        banner_url=banner_url,
         banner_colors=banner_colors,
     )
 

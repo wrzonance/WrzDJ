@@ -66,3 +66,27 @@ def test_public_requests_resolve_by_either_code(client, db, test_event: Event):
     assert client.get(f"/api/public/events/{test_event.code}/requests").status_code == 200
     assert client.get(f"/api/public/events/{test_event.join_code}/has-requested").status_code == 200
     assert client.get(f"/api/public/events/{test_event.code}/has-requested").status_code == 200
+
+
+def test_public_event_endpoint_resolves_both_and_omits_id(client, db, test_event: Event):
+    for code in (test_event.join_code, test_event.code):
+        r = client.get(f"/api/public/events/{code}")
+        assert r.status_code == 200, code
+        body = r.json()
+        # Serializer hygiene: the private surrogate key must never be emitted.
+        assert "id" not in body
+        # Exclude bools: True == 1 in Python, so avoid false positives when id=1.
+        non_bool_values = [v for v in body.values() if not isinstance(v, bool)]
+        assert test_event.id not in non_bool_values
+        assert body["name"] == test_event.name
+        assert body["collection_code"] == test_event.code
+        assert body["frictionless_join"] is False
+        assert body["requests_open"] is True
+        assert body["phase"] in {"pre_announce", "collection", "live", "closed"}
+
+
+def test_public_event_endpoint_404_and_410(client, db, test_event: Event):
+    assert client.get("/api/public/events/ZZZZZZ").status_code == 404
+    test_event.is_active = False
+    db.commit()
+    assert client.get(f"/api/public/events/{test_event.join_code}").status_code == 410

@@ -70,6 +70,7 @@ from app.services.event import (
     delete_event,
     get_archived_events_for_user,
     get_event_by_code_with_status,
+    get_event_by_public_code_with_status,
     get_events_for_user,
     get_expired_events_for_user,
     unarchive_event,
@@ -395,7 +396,7 @@ def event_search(
     from app.services.system_settings import get_system_settings
     from app.services.tidal import search_tidal_tracks
 
-    event_obj, lookup_result = get_event_by_code_with_status(db, code)
+    event_obj, lookup_result = get_event_by_public_code_with_status(db, code)
 
     if lookup_result == EventLookupResult.NOT_FOUND:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -620,7 +621,7 @@ def submit_request(
     db: Session = Depends(get_db),
     _human: int | None = Depends(require_verified_human_soft),
 ) -> RequestOut:
-    event, lookup_result = get_event_by_code_with_status(db, code)
+    event, lookup_result = get_event_by_public_code_with_status(db, code)
 
     if lookup_result == EventLookupResult.NOT_FOUND:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -658,7 +659,7 @@ def submit_request(
 
     if not is_duplicate:
         publish_event(
-            code,
+            event.code,  # canonical SSE channel key (matches the stream subscriber)
             "request_created",
             {
                 "request_id": song_request.id,

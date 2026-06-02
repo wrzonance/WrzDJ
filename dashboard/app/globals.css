@@ -98,6 +98,20 @@ a {
   background: var(--color-primary-hover);
 }
 
+/* Secondary action — was referenced (e.g. NicknameGate "Skip"/"Back") but never
+   defined, so buttons fell back to the browser's light default background with
+   near-white --text on top (~1:1 contrast, effectively invisible). Give them a
+   visible dark surface + border for legible contrast. */
+.btn-secondary {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btn-secondary:hover {
+  background: var(--surface-raised);
+}
+
 .btn-success {
   background: var(--color-success);
   color: white;

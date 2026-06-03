@@ -35,7 +35,7 @@ A real-time song request system for DJs. Guests scan a QR code to submit request
 - Search songs via Spotify, submit requests with notes, upvote others
 - Live request queue and kiosk display showing what's playing now
 - Cloudflare Turnstile human verification (invisible managed challenge) on `/join` and `/collect`
-- Mandatory nickname gate with profanity filter and letter-padding bypass protection
+- Nickname gate (profanity filter + letter-padding bypass protection) on standard events, or **frictionless join** — when the DJ enables it, guests skip the nickname/email step and get an auto-generated name they can rename later (great for weddings and private parties)
 - Email verification with one-time codes (Resend API) and cross-device guest profile merge
 - Pre-event song collection (`/collect`) — guests vote on suggestions before the night, DJs bulk-review
 - Inline song preview in the collect detail sheet (Spotify/Tidal embed)
@@ -54,6 +54,7 @@ A real-time song request system for DJs. Guests scan a QR code to submit request
 - Event banners, play history with source badges, CSV export
 - "Enrich All" advanced action to backfill BPM/key/genre on existing requests in batches
 - Pre-event collection toggle per event (enable guest voting before doors open)
+- Frictionless-join toggle per event (skip the guest nickname/email gate, auto-name guests), with a per-DJ account default applied to new events
 - Collection suggestions sync to a dedicated pre-event Tidal playlist; bidirectional option auto-rejects requests removed from the playlist
 - Self-service account management: DJs can update their own password and email address
 - Bridge connection status, activity log, contextual help system
@@ -73,7 +74,8 @@ A real-time song request system for DJs. Guests scan a QR code to submit request
 
 **Security & identity**
 - Fernet-encrypted OAuth tokens at rest (MultiFernet for key rotation)
-- Pinned base image SHAs in production Dockerfiles (supply-chain hardening)
+- Supply-chain hardening: pinned base-image SHAs, all GitHub Actions pinned to commit SHAs, committed `uv.lock` at CVE-floor versions
+- Separate public codes for pre-event collection (`/collect`) and live join (`/join`); guest-facing endpoints never expose internal event IDs
 - IP-free guest identity (cookie + ThumbmarkJS reconciliation, no IP storage or logging)
 - HMAC-signed `wrzdj_human` cookie with 60-min sliding window after Turnstile pass
 - IP-bound nonce flow for kiosk-pair (no Turnstile on input-less Pi devices)
@@ -227,6 +229,23 @@ Production uses a subdomain model: `app.your-domain.example` (frontend) and `api
 docker compose up --build
 ```
 
+### Deploy from Pre-Built Images (GHCR)
+
+Self-hosters can run pre-built multi-arch images from GitHub Container Registry instead of building from source:
+
+- `ghcr.io/wrzonance/wrzdj-api` — FastAPI backend
+- `ghcr.io/wrzonance/wrzdj-web` — Next.js frontend (the API URL is patched in at container start, so one image works for any domain)
+
+Tags: `latest` (main), `vX.Y.Z` / `X.Y` (release tags), `sha-<short>` (every commit).
+
+```bash
+cd /opt && git clone https://github.com/thewrz/WrzDJ.git && cd WrzDJ
+cp deploy/.env.example deploy/.env   # set WRZDJ_VERSION (default: latest) and secrets
+./deploy/deploy-ghcr.sh              # pulls images, restarts the stack, polls /health
+```
+
+`deploy/docker-compose.ghcr.yml` runs db + api + web straight from the registry (no `--build`); `deploy/deploy-ghcr.sh [VERSION]` is the one-command pull-and-restart helper.
+
 ### PaaS (Render / Railway)
 
 **Render** auto-detects `render.yaml`. Push to GitHub, connect to [Render](https://render.com), set credentials in the Environment tab.
@@ -268,6 +287,7 @@ HUMAN_COOKIE_SECRET=<openssl rand -base64 32>  # signs wrzdj_human cookie
 RESEND_API_KEY  # email verification provider
 EMAIL_FROM_ADDRESS=noreply@send.yourdomain.com
 SOUNDCHARTS_APP_ID / SOUNDCHARTS_API_KEY  # discovery API
+LISTENBRAINZ_USER_TOKEN  # optional, ListenBrainz artist discovery for recommendations
 CORS_ORIGINS=https://app.yourdomain.com
 PUBLIC_URL=https://app.yourdomain.com
 ```

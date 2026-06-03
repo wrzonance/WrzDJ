@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams } from 'next/navigation';
-import { api, ApiError, Event, GuestNowPlaying, GuestRequestInfo, SearchResult } from '@/lib/api';
+import { api, ApiError, PublicEvent, GuestNowPlaying, GuestRequestInfo, SearchResult } from '@/lib/api';
 import { useEventStream } from '@/lib/use-event-stream';
 import { useGuestIdentity } from '@/lib/use-guest-identity';
 import { useHumanVerification } from '@/lib/useHumanVerification';
@@ -54,11 +54,11 @@ export default function JoinEventPage() {
   const params = useParams();
   const code = params.code as string;
 
-  const { reconcileHint, refresh: refreshIdentity } = useGuestIdentity();
+  const { reconcileHint, refresh: refreshIdentity, isLoading: identityLoading } = useGuestIdentity();
   const { state: humanState, reverify, widgetContainerRef } = useHumanVerification();
   const [recoveryOpen, setRecoveryOpen] = useState(false);
 
-  const [event, setEvent] = useState<Event | null>(null);
+  const [event, setEvent] = useState<PublicEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<{ message: string; status: number } | null>(null);
 
@@ -109,10 +109,49 @@ export default function JoinEventPage() {
 
   /* Gate */
   const [gateComplete, setGateComplete] = useState(false);
+  const [autoNamed, setAutoNamed] = useState(false);
+  /* Whether the frictionless-vs-nickname decision has resolved. NicknameGate
+     must not render (and fire onComplete) until we've confirmed the event is
+     not frictionless — otherwise a frictionless event would briefly show the
+     gate. */
+  const [gateDecided, setGateDecided] = useState(false);
   const handleGateComplete = (result: GateResult) => {
     setNickname(result.nickname);
     setGateComplete(true);
   };
+
+  /* Decide gate mode on load. Frictionless events skip NicknameGate entirely:
+     the guest gets an auto-generated name and lands straight on search. */
+  useEffect(() => {
+    if (gateComplete || identityLoading) return;
+    let active = true;
+    (async () => {
+      try {
+        const cfg = await api.getJoinConfig(code);
+        if (!active) return;
+        if (!cfg.frictionless_join) {
+          setGateDecided(true); // not frictionless -> NicknameGate renders
+          return;
+        }
+        const res = await api.ensureGuestName(code, reverify);
+        if (!active) return;
+        setNickname(res.nickname);
+        setAutoNamed(res.auto_generated);
+        setGateComplete(true);
+      } catch {
+        // On any failure, fall back to the normal NicknameGate flow.
+        if (active) setGateDecided(true);
+      }
+    })();
+    return () => { active = false; };
+  }, [code, gateComplete, identityLoading, reverify]);
+
+  /* Rename affordance for auto-named (frictionless) guests. */
+  const handleRename = useCallback(async (newName: string) => {
+    const res = await api.ensureGuestName(code, reverify, newName);
+    setNickname(res.nickname);
+    setAutoNamed(false);
+  }, [code, reverify]);
 
   /* Pre-event collect phase */
   const [collectPhase, setCollectPhase] = useState<
@@ -125,8 +164,9 @@ export default function JoinEventPage() {
   /* Load event */
   const loadEvent = useCallback(async () => {
     try {
-      const data = await api.getEvent(code);
+      const data = await api.getPublicEvent(code);
       setEvent(data);
+      setCollectPhase(data.phase);
       setError(null);
       try {
         const { has_requested } = await api.checkHasRequested(code);
@@ -154,14 +194,11 @@ export default function JoinEventPage() {
   useEffect(() => {
     if (!gateComplete || !code) return;
     let cancelled = false;
-    Promise.allSettled([
-      api.getCollectEvent(code),
-      api.getCollectProfile(code),
-    ]).then(([evResult, profileResult]) => {
-      if (cancelled) return;
-      if (evResult.status === 'fulfilled') setCollectPhase(evResult.value.phase);
-      if (profileResult.status === 'fulfilled') setEmailVerified(profileResult.value.email_verified);
-    });
+    api.getCollectProfile(code)
+      .then((profile) => {
+        if (!cancelled) setEmailVerified(profile.email_verified);
+      })
+      .catch(() => { /* email-verified is best-effort on the live page */ });
     return () => { cancelled = true; };
   }, [code, gateComplete]);
 
@@ -295,8 +332,8 @@ export default function JoinEventPage() {
       try {
         const results = await api.search(searchQuery);
         setSearchResults(results);
-      } catch (err) {
-        console.error('Search failed:', err);
+      } catch {
+        // Both search paths failed; leave results empty and clear the spinner.
       }
     } finally {
       setSearching(false);
@@ -387,6 +424,17 @@ export default function JoinEventPage() {
   /* ── Early returns ──────────────────────────────────────────── */
 
   if (!gateComplete) {
+    // Wait for the frictionless decision before rendering the nickname gate,
+    // so frictionless events never flash the gate on their way to auto-name.
+    if (!gateDecided) {
+      return (
+        <div className="guest-tower" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 13.3, color: 'rgba(255,255,255,0.4)', letterSpacing: 2 }}>
+            LOADING…
+          </div>
+        </div>
+      );
+    }
     return <NicknameGate code={code} onComplete={handleGateComplete} reverify={reverify} />;
   }
 
@@ -427,7 +475,7 @@ export default function JoinEventPage() {
       <div className="guest-tower">
         {event.banner_url && <BannerBg url={event.banner_url} />}
         {nickname && (
-          <IdentityBar nickname={nickname} emailVerified={emailVerified} onVerified={() => setEmailVerified(true)} forceDark />
+          <IdentityBar nickname={nickname} emailVerified={emailVerified} onVerified={() => setEmailVerified(true)} autoNamed={autoNamed} onRename={handleRename} forceDark />
         )}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100dvh', padding: '2rem' }}>
           <div style={{ textAlign: 'center', maxWidth: 360 }}>
@@ -454,7 +502,7 @@ export default function JoinEventPage() {
     collectPhase === 'pre_announce' || collectPhase === 'collection' ? (
       <div className="join-pre-event-banner">
         🎟️ Pre-event voting is open —{' '}
-        <a href={`/collect/${code}`}>go to the pre-event page →</a>
+        <a href={`/collect/${event.collection_code}`}>go to the pre-event page →</a>
       </div>
     ) : null;
 
@@ -482,7 +530,7 @@ export default function JoinEventPage() {
 
       {/* Identity bar */}
       {nickname && (
-        <IdentityBar nickname={nickname} emailVerified={emailVerified} onVerified={() => setEmailVerified(true)} forceDark />
+        <IdentityBar nickname={nickname} emailVerified={emailVerified} onVerified={() => setEmailVerified(true)} autoNamed={autoNamed} onRename={handleRename} forceDark />
       )}
 
       {/* Hidden tracker for my-request IDs + SSE updates */}

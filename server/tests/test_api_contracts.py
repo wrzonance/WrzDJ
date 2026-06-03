@@ -63,6 +63,7 @@ USER_OUT_KEYS = {
     "created_at",
     "help_pages_seen",
     "pending_email",
+    "frictionless_join_default",
 }
 
 EVENT_OUT_KEYS = {
@@ -90,6 +91,7 @@ EVENT_OUT_KEYS = {
     "live_starts_at",
     "submission_cap_per_guest",
     "collection_phase_override",
+    "frictionless_join",
 }
 
 REQUEST_OUT_KEYS = {
@@ -244,8 +246,8 @@ class TestEventContracts:
         if data:
             _assert_keys(data[0], EVENT_OUT_KEYS, "GET /api/events[0]")
 
-    def test_get_event_shape(self, client: TestClient, test_event: Event):
-        resp = client.get(f"/api/events/{test_event.code}")
+    def test_get_event_shape(self, client: TestClient, auth_headers: dict, test_event: Event):
+        resp = client.get(f"/api/events/{test_event.code}", headers=auth_headers)
         assert resp.status_code == 200
         _assert_keys(resp.json(), EVENT_OUT_KEYS, "GET /api/events/{code}")
 

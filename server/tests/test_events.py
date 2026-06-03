@@ -82,17 +82,17 @@ class TestListEvents:
 class TestGetEvent:
     """Tests for GET /api/events/{code} endpoint."""
 
-    def test_get_event_success(self, client: TestClient, test_event: Event):
+    def test_get_event_success(self, client: TestClient, test_event: Event, auth_headers: dict):
         """Test getting an event by code."""
-        response = client.get(f"/api/events/{test_event.code}")
+        response = client.get(f"/api/events/{test_event.code}", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == test_event.code
         assert data["name"] == test_event.name
 
-    def test_get_event_not_found(self, client: TestClient):
+    def test_get_event_not_found(self, client: TestClient, auth_headers: dict):
         """Test getting a nonexistent event returns 404."""
-        response = client.get("/api/events/NOTFND")
+        response = client.get("/api/events/NOTFND", headers=auth_headers)
         assert response.status_code == 404
         assert response.json()["detail"]
 
@@ -252,7 +252,9 @@ class TestDeleteEvent:
 class TestExpiredEvents:
     """Tests for expired event handling with 410 Gone status."""
 
-    def test_get_expired_event_returns_410(self, client: TestClient, db: Session, test_user: User):
+    def test_get_expired_event_returns_410(
+        self, client: TestClient, db: Session, test_user: User, auth_headers: dict
+    ):
         """Test that getting an expired event returns 410 Gone."""
         # Create an expired event
         expired_event = Event(
@@ -265,7 +267,7 @@ class TestExpiredEvents:
         db.add(expired_event)
         db.commit()
 
-        response = client.get(f"/api/events/{expired_event.code}")
+        response = client.get(f"/api/events/{expired_event.code}", headers=auth_headers)
         assert response.status_code == 410
         assert response.json()["detail"]
 
@@ -328,10 +330,12 @@ class TestExpiredEvents:
         assert response.status_code == 410
         assert response.json()["detail"]
 
-    def test_404_vs_410_distinction(self, client: TestClient, db: Session, test_user: User):
+    def test_404_vs_410_distinction(
+        self, client: TestClient, db: Session, test_user: User, auth_headers: dict
+    ):
         """Test that 404 is for not found and 410 is for expired."""
         # Non-existent event should be 404
-        response = client.get("/api/events/NOEXST")
+        response = client.get("/api/events/NOEXST", headers=auth_headers)
         assert response.status_code == 404
         assert response.json()["detail"]
 
@@ -346,7 +350,7 @@ class TestExpiredEvents:
         db.add(expired_event)
         db.commit()
 
-        response = client.get(f"/api/events/{expired_event.code}")
+        response = client.get(f"/api/events/{expired_event.code}", headers=auth_headers)
         assert response.status_code == 410
         assert response.json()["detail"]
 
@@ -412,13 +416,13 @@ class TestArchiveEvents:
         assert response.json()["detail"]
 
     def test_get_archived_event_returns_410(
-        self, client: TestClient, test_event: Event, db: Session
+        self, client: TestClient, test_event: Event, db: Session, auth_headers: dict
     ):
         """Test that getting an archived event returns 410."""
         test_event.archived_at = utcnow()
         db.commit()
 
-        response = client.get(f"/api/events/{test_event.code}")
+        response = client.get(f"/api/events/{test_event.code}", headers=auth_headers)
         assert response.status_code == 410
         assert response.json()["detail"]
 
@@ -1107,7 +1111,7 @@ class TestRequestsOpen:
         assert response.json()["requests_open"] is True
 
         # Also check via EventOut
-        response = client.get(f"/api/events/{test_event.code}")
+        response = client.get(f"/api/events/{test_event.code}", headers=auth_headers)
         assert response.status_code == 200
         assert response.json()["requests_open"] is True
 

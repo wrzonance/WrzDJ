@@ -13,6 +13,7 @@ const { mockApi, MockApiError } = vi.hoisted(() => {
 
   const mockApi = {
     getEvent: vi.fn(),
+    getPublicEvent: vi.fn(),
     checkHasRequested: vi.fn(),
     getCollectEvent: vi.fn(),
     getCollectProfile: vi.fn(),
@@ -22,6 +23,8 @@ const { mockApi, MockApiError } = vi.hoisted(() => {
     publicVoteRequest: vi.fn(),
     eventSearch: vi.fn(),
     search: vi.fn(),
+    getJoinConfig: vi.fn(),
+    ensureGuestName: vi.fn(),
   };
 
   return { mockApi, MockApiError };
@@ -36,6 +39,7 @@ vi.mock('@/lib/use-guest-identity', () => ({
     guestId: 1,
     isReturning: false,
     reconcileHint: false,
+    isLoading: false,
     refresh: vi.fn().mockResolvedValue(undefined),
   })),
 }));
@@ -91,6 +95,16 @@ function setupDefaultMocks() {
     requests_open: true,
     banner_url: null,
   });
+  mockApi.getPublicEvent.mockResolvedValue({
+    name: 'Test Event',
+    collection_code: 'TEST01',
+    requests_open: true,
+    frictionless_join: false,
+    phase: 'live',
+    submission_cap_per_guest: 5,
+    banner_url: null,
+    banner_colors: null,
+  });
   mockApi.checkHasRequested.mockResolvedValue({ has_requested: false });
   mockApi.getCollectEvent.mockResolvedValue({
     phase: 'live',
@@ -113,6 +127,9 @@ function setupDefaultMocks() {
   });
   mockApi.getPublicRequests.mockResolvedValue({ requests: [], now_playing: null });
   mockApi.getMyRequests.mockResolvedValue({ requests: [] });
+  // Default: not frictionless, so existing tests still render NicknameGate.
+  mockApi.getJoinConfig.mockResolvedValue({ frictionless_join: false });
+  mockApi.ensureGuestName.mockResolvedValue({ nickname: 'AutoName', auto_generated: true });
 }
 
 describe('JoinEventPage — NicknameGate wiring', () => {
@@ -136,6 +153,13 @@ describe('JoinEventPage — NicknameGate wiring', () => {
       expect(bar).toHaveTextContent('TestUser');
     });
   });
+
+  it('loads the event via getPublicEvent and never calls the id-leaking getEvent', async () => {
+    setupDefaultMocks();
+    render(<JoinEventPage />);
+    await waitFor(() => expect(mockApi.getPublicEvent).toHaveBeenCalledWith('TEST01'));
+    expect(mockApi.getEvent).not.toHaveBeenCalled();
+  });
 });
 
 describe('JoinEventPage — error states', () => {
@@ -145,7 +169,7 @@ describe('JoinEventPage — error states', () => {
   });
 
   it('shows Event Expired when API returns 410', async () => {
-    mockApi.getEvent.mockRejectedValue(new MockApiError('Gone', 410));
+    mockApi.getPublicEvent.mockRejectedValue(new MockApiError('Gone', 410));
     render(<JoinEventPage />);
     await waitFor(() => {
       expect(screen.getByText('Event Expired')).toBeInTheDocument();
@@ -153,7 +177,7 @@ describe('JoinEventPage — error states', () => {
   });
 
   it('shows Event Not Found when API returns 404', async () => {
-    mockApi.getEvent.mockRejectedValue(new MockApiError('Not found', 404));
+    mockApi.getPublicEvent.mockRejectedValue(new MockApiError('Not found', 404));
     render(<JoinEventPage />);
     await waitFor(() => {
       expect(screen.getByText('Event Not Found')).toBeInTheDocument();
@@ -161,7 +185,7 @@ describe('JoinEventPage — error states', () => {
   });
 
   it('shows generic error message when API fails with non-HTTP error', async () => {
-    mockApi.getEvent.mockRejectedValue(new Error('Network error'));
+    mockApi.getPublicEvent.mockRejectedValue(new Error('Network error'));
     render(<JoinEventPage />);
     await waitFor(() => {
       expect(screen.getByText('Oops!')).toBeInTheDocument();
@@ -170,7 +194,7 @@ describe('JoinEventPage — error states', () => {
   });
 
   it('shows error from ApiError message when status is generic', async () => {
-    mockApi.getEvent.mockRejectedValue(new MockApiError('Something went wrong', 500));
+    mockApi.getPublicEvent.mockRejectedValue(new MockApiError('Something went wrong', 500));
     render(<JoinEventPage />);
     await waitFor(() => {
       expect(screen.getByText('Something went wrong')).toBeInTheDocument();
@@ -188,6 +212,16 @@ describe('JoinEventPage — requests closed state', () => {
       name: 'Closed Event',
       requests_open: false,
       banner_url: null,
+    });
+    mockApi.getPublicEvent.mockResolvedValue({
+      name: 'Closed Event',
+      collection_code: 'TEST01',
+      requests_open: false,
+      frictionless_join: false,
+      phase: 'live',
+      submission_cap_per_guest: 5,
+      banner_url: null,
+      banner_colors: null,
     });
   });
 
@@ -268,6 +302,16 @@ describe('JoinEventPage — request list view', () => {
       requests_open: false,
       banner_url: null,
     });
+    mockApi.getPublicEvent.mockResolvedValue({
+      name: 'Test Event',
+      collection_code: 'TEST01',
+      requests_open: false,
+      frictionless_join: false,
+      phase: 'live',
+      submission_cap_per_guest: 5,
+      banner_url: null,
+      banner_colors: null,
+    });
     mockApi.getPublicRequests.mockResolvedValue({ requests: [], now_playing: null });
     render(<JoinEventPage />);
     await waitFor(() => {
@@ -322,18 +366,15 @@ describe('JoinEventPage — request list view', () => {
   });
 
   it('shows pre-event banner when collectPhase is collection', async () => {
-    mockApi.getCollectEvent.mockResolvedValue({
-      phase: 'collection',
-      code: 'TEST01',
+    mockApi.getPublicEvent.mockResolvedValue({
       name: 'Test Event',
-      banner_filename: null,
+      collection_code: 'TEST01',
+      requests_open: true,
+      frictionless_join: false,
+      phase: 'collection',
+      submission_cap_per_guest: 5,
       banner_url: null,
       banner_colors: null,
-      submission_cap_per_guest: 5,
-      registration_enabled: false,
-      collection_opens_at: null,
-      live_starts_at: null,
-      expires_at: new Date(Date.now() + 86400000).toISOString(),
     });
     mockApi.getPublicRequests.mockResolvedValue({ requests: [], now_playing: null });
     render(<JoinEventPage />);
@@ -343,18 +384,15 @@ describe('JoinEventPage — request list view', () => {
   });
 
   it('shows pre-event banner when collectPhase is pre_announce', async () => {
-    mockApi.getCollectEvent.mockResolvedValue({
-      phase: 'pre_announce',
-      code: 'TEST01',
+    mockApi.getPublicEvent.mockResolvedValue({
       name: 'Test Event',
-      banner_filename: null,
+      collection_code: 'TEST01',
+      requests_open: true,
+      frictionless_join: false,
+      phase: 'pre_announce',
+      submission_cap_per_guest: 5,
       banner_url: null,
       banner_colors: null,
-      submission_cap_per_guest: 5,
-      registration_enabled: false,
-      collection_opens_at: null,
-      live_starts_at: null,
-      expires_at: new Date(Date.now() + 86400000).toISOString(),
     });
     mockApi.getPublicRequests.mockResolvedValue({ requests: [], now_playing: null });
     render(<JoinEventPage />);
@@ -683,6 +721,37 @@ describe('JoinEventPage — vote flow', () => {
     await waitFor(() => {
       expect(mockApi.publicVoteRequest).toHaveBeenCalled();
     });
+  });
+});
+
+describe('JoinEventPage — frictionless join', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupDefaultMocks();
+  });
+
+  it('skips NicknameGate and auto-names when frictionless_join is on', async () => {
+    mockApi.getJoinConfig.mockResolvedValue({ frictionless_join: true });
+    mockApi.ensureGuestName.mockResolvedValue({ nickname: 'DancingPanda', auto_generated: true });
+    mockApi.getEvent.mockResolvedValue({
+      id: 1, code: 'TEST01', join_code: 'TEST01', name: 'Party', requests_open: true,
+      frictionless_join: true,
+    } as never);
+    mockApi.getPublicEvent.mockResolvedValue({
+      name: 'Party',
+      collection_code: 'TEST01',
+      requests_open: true,
+      frictionless_join: true,
+      phase: 'live',
+      submission_cap_per_guest: 5,
+      banner_url: null,
+      banner_colors: null,
+    });
+    mockApi.checkHasRequested.mockResolvedValue({ has_requested: false } as never);
+    render(<JoinEventPage />);
+    // No "What's your nickname?" gate; the auto-name shows in the identity bar.
+    await waitFor(() => expect(screen.getByText(/DancingPanda/)).toBeInTheDocument());
+    expect(screen.queryByText(/What's your nickname/i)).not.toBeInTheDocument();
   });
 });
 

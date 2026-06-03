@@ -28,7 +28,7 @@ from app.core.config import get_settings
 from app.core.rate_limit import get_guest_id, limiter
 from app.models.event import Event
 from app.models.request import RequestStatus
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.activity_log import ActivityLogEntry
 from app.schemas.collect import (
     BulkReviewRequest,
@@ -70,6 +70,7 @@ from app.services.event import (
     delete_event,
     get_archived_events_for_user,
     get_event_by_code_with_status,
+    get_event_by_public_code_with_status,
     get_events_for_user,
     get_expired_events_for_user,
     unarchive_event,
@@ -277,6 +278,7 @@ def _event_to_out(
         banner_kiosk_url=banner_kiosk_url,
         banner_colors=banner_colors,
         requests_open=event.requests_open,
+        frictionless_join=event.frictionless_join,
         collection_opens_at=event.collection_opens_at,
         live_starts_at=event.live_starts_at,
         submission_cap_per_guest=event.submission_cap_per_guest,
@@ -358,10 +360,23 @@ def get_activity_log(
 
 @router.get("/{code}", response_model=EventOut)
 @limiter.limit("60/minute")
-def get_event(code: str, request: Request, db: Session = Depends(get_db)) -> EventOut:
+def get_event(
+    code: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> EventOut:
     event, lookup_result = get_event_by_code_with_status(db, code)
 
     if lookup_result == EventLookupResult.NOT_FOUND:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    # EventOut exposes event.id + both codes + share URLs, so this endpoint is
+    # restricted to the owning DJ or an admin. Non-owners get 404 (not 403) to
+    # avoid leaking event existence. (Was public before #382 hardening.)
+    is_owner = event.created_by_user_id == current_user.id
+    is_admin = current_user.role == UserRole.ADMIN.value
+    if not (is_owner or is_admin):
         raise HTTPException(status_code=404, detail="Event not found")
 
     if lookup_result == EventLookupResult.EXPIRED:
@@ -394,7 +409,7 @@ def event_search(
     from app.services.system_settings import get_system_settings
     from app.services.tidal import search_tidal_tracks
 
-    event_obj, lookup_result = get_event_by_code_with_status(db, code)
+    event_obj, lookup_result = get_event_by_public_code_with_status(db, code)
 
     if lookup_result == EventLookupResult.NOT_FOUND:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -455,6 +470,7 @@ def update_event_endpoint(
         event,
         name=event_data.name,
         expires_at=event_data.expires_at,
+        frictionless_join=event_data.frictionless_join,
     )
     return _event_to_out(updated, request)
 
@@ -618,7 +634,7 @@ def submit_request(
     db: Session = Depends(get_db),
     _human: int | None = Depends(require_verified_human_soft),
 ) -> RequestOut:
-    event, lookup_result = get_event_by_code_with_status(db, code)
+    event, lookup_result = get_event_by_public_code_with_status(db, code)
 
     if lookup_result == EventLookupResult.NOT_FOUND:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -656,7 +672,7 @@ def submit_request(
 
     if not is_duplicate:
         publish_event(
-            code,
+            event.code,  # canonical SSE channel key (matches the stream subscriber)
             "request_created",
             {
                 "request_id": song_request.id,

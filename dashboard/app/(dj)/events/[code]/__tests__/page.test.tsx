@@ -189,6 +189,7 @@ function mockEvent(overrides = {}) {
       collect_url: null, name: 'Test Event',
     created_at: '2026-01-01T00:00:00Z', expires_at: '2026-12-31T00:00:00Z',
     is_active: true, join_url: null, requests_open: true,
+    frictionless_join: false,
     tidal_sync_enabled: false, tidal_playlist_id: null,
     beatport_sync_enabled: false, beatport_playlist_id: null,
     banner_url: null, banner_kiosk_url: null, banner_colors: null,

@@ -2443,4 +2443,55 @@ describe('ApiClient', () => {
       expect(chunks.map((c) => c.text_delta).join('')).toBe('partial');
     });
   });
+
+  describe('frictionless join api', () => {
+    it('getJoinConfig hits the public collect endpoint', async () => {
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify({ frictionless_join: true }), { status: 200 }),
+      );
+      const res = await api.getJoinConfig('CODE01');
+      expect(res.frictionless_join).toBe(true);
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/public/collect/CODE01/join-config');
+    });
+
+    it('ensureGuestName posts to the ensure-name endpoint', async () => {
+      mockFetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ nickname: 'DancingPanda', auto_generated: true }),
+          { status: 200 },
+        ),
+      );
+      const res = await api.ensureGuestName('CODE01');
+      expect(res.nickname).toBe('DancingPanda');
+      const [url, init] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/public/collect/CODE01/guest/ensure-name');
+      expect(init.method).toBe('POST');
+    });
+
+    it('ensureGuestName sends the chosen nickname when renaming', async () => {
+      mockFetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ nickname: 'Alex', auto_generated: false }),
+          { status: 200 },
+        ),
+      );
+      const res = await api.ensureGuestName('CODE01', undefined, 'Alex');
+      expect(res.nickname).toBe('Alex');
+      const [, init] = mockFetch.mock.calls[0];
+      expect(JSON.parse(init.body)).toEqual({ nickname: 'Alex' });
+    });
+
+    it('updateMyPreferences PATCHes the preferences endpoint', async () => {
+      api.setToken('test-token');
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify({ frictionless_join_default: true }), { status: 200 }),
+      );
+      await api.updateMyPreferences({ frictionless_join_default: true });
+      const [url, init] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/auth/me/preferences');
+      expect(init.method).toBe('PATCH');
+      expect(JSON.parse(init.body)).toEqual({ frictionless_join_default: true });
+    });
+  });
 });

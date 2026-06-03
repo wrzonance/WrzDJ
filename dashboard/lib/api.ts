@@ -43,6 +43,7 @@ import type {
   PaginatedResponse,
   PlayHistoryResponse,
   PlaylistListResponse,
+  PublicEvent,
   RecommendationResponse,
   SearchResult,
   SongRequest,
@@ -114,6 +115,7 @@ export type {
   PlayHistoryItem,
   PlayHistoryResponse,
   PublicBridgeStatus,
+  PublicEvent,
   PublicRequestInfo,
   RecommendationResponse,
   RecommendedTrack,
@@ -469,6 +471,7 @@ class ApiClient {
     help_pages_seen: string[];
     pending_email: string | null;
     email: string | null;
+    frictionless_join_default: boolean;
   }> {
     return this.fetch('/api/auth/me');
   }
@@ -595,7 +598,10 @@ class ApiClient {
     return this.fetch(`/api/events/${code}`);
   }
 
-  async updateEvent(code: string, data: { expires_at?: string; name?: string }): Promise<Event> {
+  async updateEvent(
+    code: string,
+    data: { expires_at?: string; name?: string; frictionless_join?: boolean },
+  ): Promise<Event> {
     return this.fetch(`/api/events/${code}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
@@ -802,6 +808,10 @@ class ApiClient {
 
   async getPublicRequests(code: string): Promise<GuestRequestListResponse> {
     return this.publicFetch(`${getApiUrl()}/api/public/events/${code}/requests`);
+  }
+
+  async getPublicEvent(code: string): Promise<PublicEvent> {
+    return this.publicFetch(`${getApiUrl()}/api/public/events/${code}`);
   }
 
   async getKioskDisplay(code: string): Promise<KioskDisplay> {
@@ -1515,6 +1525,32 @@ class ApiClient {
     );
     if (!res.ok) throw new ApiError(`getCollectLeaderboard failed: ${res.status}`, res.status);
     return res.json();
+  }
+
+  async getJoinConfig(code: string): Promise<{ frictionless_join: boolean }> {
+    return this.publicFetch(`${getApiUrl()}/api/public/collect/${code}/join-config`);
+  }
+
+  async ensureGuestName(
+    code: string,
+    reverify?: () => Promise<void>,
+    nickname?: string,
+  ): Promise<{ nickname: string; auto_generated: boolean }> {
+    const doFetch = () =>
+      fetch(`${getApiUrl()}/api/public/collect/${code}/guest/ensure-name`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(nickname ? { nickname } : {}),
+      });
+    return withHumanRetry(doFetch, reverify ?? (async () => {}));
+  }
+
+  async updateMyPreferences(prefs: { frictionless_join_default: boolean }): Promise<void> {
+    await this.fetch('/api/auth/me/preferences', {
+      method: 'PATCH',
+      body: JSON.stringify(prefs),
+    });
   }
 
   async getCollectProfile(code: string): Promise<CollectProfileResponse> {

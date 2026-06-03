@@ -2865,6 +2865,44 @@
         "title": "EnrichPreviewResult",
         "type": "object"
       },
+      "EnsureNameRequest": {
+        "properties": {
+          "nickname": {
+            "anyOf": [
+              {
+                "maxLength": 30,
+                "minLength": 2,
+                "pattern": "^[a-zA-Z0-9 _.-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nickname"
+          }
+        },
+        "title": "EnsureNameRequest",
+        "type": "object"
+      },
+      "EnsureNameResponse": {
+        "properties": {
+          "auto_generated": {
+            "title": "Auto Generated",
+            "type": "boolean"
+          },
+          "nickname": {
+            "title": "Nickname",
+            "type": "string"
+          }
+        },
+        "required": [
+          "auto_generated",
+          "nickname"
+        ],
+        "title": "EnsureNameResponse",
+        "type": "object"
+      },
       "EventCreate": {
         "properties": {
           "expires_hours": {
@@ -3071,6 +3109,11 @@
             "title": "Expires At",
             "type": "string"
           },
+          "frictionless_join": {
+            "default": false,
+            "title": "Frictionless Join",
+            "type": "boolean"
+          },
           "id": {
             "title": "Id",
             "type": "integer"
@@ -3170,6 +3213,7 @@
           "collection_phase_override",
           "created_at",
           "expires_at",
+          "frictionless_join",
           "id",
           "is_active",
           "join_code",
@@ -3209,6 +3253,17 @@
               }
             ],
             "title": "Expires At"
+          },
+          "frictionless_join": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frictionless Join"
           },
           "name": {
             "anyOf": [
@@ -3704,6 +3759,19 @@
         "title": "IntegrationToggleResponse",
         "type": "object"
       },
+      "JoinConfigResponse": {
+        "properties": {
+          "frictionless_join": {
+            "title": "Frictionless Join",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "frictionless_join"
+        ],
+        "title": "JoinConfigResponse",
+        "type": "object"
+      },
       "KioskAssignRequest": {
         "description": "Body for reassigning a kiosk to a different event.",
         "properties": {
@@ -4116,6 +4184,19 @@
           "join_code"
         ],
         "title": "LiveJoinCodeResponse",
+        "type": "object"
+      },
+      "MePreferencesUpdate": {
+        "properties": {
+          "frictionless_join_default": {
+            "title": "Frictionless Join Default",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "frictionless_join_default"
+        ],
+        "title": "MePreferencesUpdate",
         "type": "object"
       },
       "MyRequestInfo": {
@@ -4611,6 +4692,78 @@
           "name"
         ],
         "title": "PublicEventInfo",
+        "type": "object"
+      },
+      "PublicEventResponse": {
+        "description": "Guest-safe live-event projection. Deliberately omits event.id and any\nDJ-only fields (see #382 serializer hygiene).",
+        "properties": {
+          "banner_colors": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Banner Colors"
+          },
+          "banner_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Banner Url"
+          },
+          "collection_code": {
+            "title": "Collection Code",
+            "type": "string"
+          },
+          "frictionless_join": {
+            "title": "Frictionless Join",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "phase": {
+            "enum": [
+              "pre_announce",
+              "collection",
+              "live",
+              "closed"
+            ],
+            "title": "Phase",
+            "type": "string"
+          },
+          "requests_open": {
+            "title": "Requests Open",
+            "type": "boolean"
+          },
+          "submission_cap_per_guest": {
+            "title": "Submission Cap Per Guest",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "banner_colors",
+          "banner_url",
+          "collection_code",
+          "frictionless_join",
+          "name",
+          "phase",
+          "requests_open",
+          "submission_cap_per_guest"
+        ],
+        "title": "PublicEventResponse",
         "type": "object"
       },
       "PublicRequestInfo": {
@@ -6294,6 +6447,11 @@
             ],
             "title": "Email"
           },
+          "frictionless_join_default": {
+            "default": false,
+            "title": "Frictionless Join Default",
+            "type": "boolean"
+          },
           "help_pages_seen": {
             "default": [],
             "items": {
@@ -6333,6 +6491,7 @@
         "required": [
           "created_at",
           "email",
+          "frictionless_join_default",
           "help_pages_seen",
           "id",
           "is_active",
@@ -8074,6 +8233,52 @@
         ]
       }
     },
+    "/api/auth/me/preferences": {
+      "patch": {
+        "operationId": "update_me_preferences_api_auth_me_preferences_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MePreferencesUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Update Me Preferences",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/auth/register": {
       "post": {
         "description": "Register a new user (pending approval).",
@@ -9064,6 +9269,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "summary": "Get Event",
         "tags": [
           "events"
@@ -11384,6 +11594,102 @@
         ]
       }
     },
+    "/api/public/collect/{code}/guest/ensure-name": {
+      "post": {
+        "description": "Frictionless-join name management. Auto-generates a nickname when none is\nset, or applies a manual rename. Gated on event.frictionless_join so it can\nnever bypass email verification on a hardened (non-frictionless) event.\n\nNot anonymous: requires the `wrzdj_human` HMAC-signed verified-human cookie\n(set via Turnstile) through `require_verified_human_soft`. Calls without a\nresolvable verified-human guest are rejected with 403\n`human_verification_required`.",
+        "operationId": "ensure_name_api_public_collect__code__guest_ensure_name_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnsureNameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnsureNameResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ensure Name",
+        "tags": [
+          "collect"
+        ]
+      }
+    },
+    "/api/public/collect/{code}/join-config": {
+      "get": {
+        "description": "Public, unauthenticated: lets the join page decide its gate mode on load.",
+        "operationId": "join_config_api_public_collect__code__join_config_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Join Config",
+        "tags": [
+          "collect"
+        ]
+      }
+    },
     "/api/public/collect/{code}/leaderboard": {
       "get": {
         "operationId": "leaderboard_api_public_collect__code__leaderboard_get",
@@ -11925,6 +12231,49 @@
         "summary": "Get Public Now Playing",
         "tags": [
           "bridge"
+        ]
+      }
+    },
+    "/api/public/events/{code}": {
+      "get": {
+        "description": "Guest-safe event info for the live /join page. Resolves by EITHER public\ncode; never emits event.id. Replaces the join page's use of the DJ EventOut\nendpoint (which leaks the private id) and folds in phase + frictionless_join.",
+        "operationId": "get_public_event_api_public_events__code__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicEventResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Public Event",
+        "tags": [
+          "public"
         ]
       }
     },

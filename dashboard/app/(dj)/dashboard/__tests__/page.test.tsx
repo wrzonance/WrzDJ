@@ -84,6 +84,7 @@ function mockEvent(overrides = {}) {
     banner_kiosk_url: null,
     banner_colors: null,
     requests_open: true,
+    frictionless_join: false,
     collection_opens_at: null,
     live_starts_at: null,
     submission_cap_per_guest: 15,

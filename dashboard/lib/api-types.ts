@@ -21,6 +21,7 @@ type Schemas = components['schemas'];
 // ---------------------------------------------------------------------------
 
 export type Event = Schemas['EventOut'];
+export type PublicEvent = Schemas['PublicEventResponse'];
 export type SongRequest = Schemas['RequestOut'];
 export type PublicRequestInfo = Schemas['PublicRequestInfo'] & { requester_verified?: boolean };
 export type GuestRequestInfo = Schemas['GuestRequestInfo'] & { requester_verified?: boolean };

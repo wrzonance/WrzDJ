@@ -31,7 +31,7 @@ Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`
 
 - Docker + Docker Compose (for PostgreSQL 16)
 - Python 3.11+ with venv
-- Node.js 20+ with npm
+- Node.js 22+ with npm
 
 ### 1. Start the database
 
@@ -84,9 +84,16 @@ All config lives in `.env` at the repo root. Key variables:
 | `CORS_ORIGINS` | Allowed origins (`*` for dev) |
 | `PUBLIC_URL` | Base URL for QR codes (frontend) |
 | `NEXT_PUBLIC_API_URL` | Backend URL for frontend fetch calls |
-| `BRIDGE_API_KEY` | StageLinQ bridge authentication |
+| `BRIDGE_API_KEY` | Bridge service authentication (all DJ-equipment plugins) |
 | `BOOTSTRAP_ADMIN_USERNAME` | Auto-create admin on first startup |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Auto-create admin on first startup |
+| `TOKEN_ENCRYPTION_KEY` | Fernet key encrypting OAuth tokens at rest (prod-fatal if unset) |
+| `HUMAN_COOKIE_SECRET` | Signs the `wrzdj_human` verification cookie (prod-fatal if unset) |
+| `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile (human verification + DJ self-reg) |
+| `BEATPORT_CLIENT_ID` / `BEATPORT_CLIENT_SECRET` | Beatport OAuth credentials (search + playlist sync) |
+| `ANTHROPIC_API_KEY` | Optional — enables AI Assist song recommendations |
+| `RESEND_API_KEY` / `EMAIL_FROM_ADDRESS` | Email verification provider (one-time codes) |
+| `SOUNDCHARTS_APP_ID` / `SOUNDCHARTS_API_KEY` | Soundcharts discovery API (BPM/key/genre) |
 
 ## Available Scripts
 
@@ -99,7 +106,7 @@ All config lives in `.env` at the repo root. Key variables:
 | `.venv/bin/ruff format .` | Auto-format |
 | `.venv/bin/ruff format --check .` | Format check (CI) |
 | `.venv/bin/bandit -r app -c pyproject.toml -q` | Security scan |
-| `.venv/bin/pytest --tb=short -q` | Run tests (70% coverage min) |
+| `.venv/bin/pytest --tb=short -q` | Run tests (85% coverage min) |
 | `.venv/bin/pytest tests/test_requests.py -v` | Run single test file |
 | `alembic upgrade head` | Apply migrations |
 | `alembic revision --autogenerate -m "desc"` | Generate migration |
@@ -159,9 +166,9 @@ npm test -- --run         # Vitest
 
 - Config: `server/pyproject.toml` `[tool.pytest.ini_options]`
 - Test DB: SQLite in-memory (not PostgreSQL)
-- Fixtures: `server/tests/conftest.py` — `db`, `client`, `test_user`, `auth_headers`, `test_event`, `test_request`
+- Fixtures: `server/tests/conftest.py` — `db`, `client`, `test_user`, `auth_headers`, `admin_user`, `admin_headers`, `pending_user`, `pending_headers`, `test_event`, `test_request`
 - TestClient default host: `"testclient"` — use for `client_fingerprint` in fixtures
-- Coverage minimum: 70%
+- Coverage minimum: 85%
 
 ### Frontend (vitest)
 
@@ -193,3 +200,4 @@ npm test -- --run         # Vitest
 - When adding fields to shared interfaces, grep for test fixtures that construct those types
 - TestClient fingerprint is `"testclient"`, not an IP address
 - Backend tests use SQLite, not PostgreSQL — some SQL features may behave differently
+- Events carry two public codes: the collection `code` routes `/collect` (gated pre-event flow), while `join_code` routes `/join`, `/e/{code}/display`, kiosk, OBS overlay, and bridge now-playing — resolve guest requests via the dual-code public resolver and never return the internal `event.id` on public endpoints

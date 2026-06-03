@@ -74,7 +74,7 @@ A real-time song request system for DJs. Guests scan a QR code to submit request
 
 **Security & identity**
 - Fernet-encrypted OAuth tokens at rest (MultiFernet for key rotation)
-- Supply-chain hardening: pinned base-image SHAs, all GitHub Actions pinned to commit SHAs, committed `uv.lock` at CVE-floor versions
+- Supply-chain hardening: all GitHub Actions pinned to commit SHAs, committed lockfiles (`uv.lock` at CVE-floor versions, `package-lock.json`), CI security scans (bandit, pip-audit, npm audit), and a SHA-digest-pinned base image in the bridge build
 - Separate public codes for pre-event collection (`/collect`) and live join (`/join`); guest-facing endpoints never expose internal event IDs
 - IP-free guest identity (cookie + ThumbmarkJS reconciliation, no IP storage or logging)
 - HMAC-signed `wrzdj_human` cookie with 60-min sliding window after Turnstile pass

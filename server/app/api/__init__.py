@@ -12,6 +12,7 @@ from app.api import (
     public,
     requests,
     search,
+    setbuilder,
     sse,
     tidal,
     verify,
@@ -32,6 +33,7 @@ api_router.include_router(events.router, prefix="/events", tags=["events"])
 api_router.include_router(requests.router, prefix="/requests", tags=["requests"])
 api_router.include_router(votes.router, prefix="/requests", tags=["votes"])
 api_router.include_router(search.router, prefix="/search", tags=["search"])
+api_router.include_router(setbuilder.router, prefix="/setbuilder", tags=["setbuilder"])
 api_router.include_router(public.router, prefix="/public", tags=["public"])
 api_router.include_router(guest.router, prefix="/public", tags=["guest"])
 api_router.include_router(verify.router, prefix="/public/guest", tags=["verify"])

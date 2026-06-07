@@ -145,6 +145,26 @@ export interface PlaylistListResponse {
   playlists: PlaylistInfo[];
 }
 
+export interface SetSummary {
+  id: number;
+  name: string;
+  event_id: number | null;
+  status: 'draft' | 'locked' | 'exported';
+  sharing_mode: 'private' | 'invite_only';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SetDetail extends SetSummary {
+  vibe_theme: string | null;
+  target_duration_sec: number | null;
+  bpm_floor: number | null;
+  bpm_ceiling: number | null;
+  key_strictness: number;
+  tidal_playlist_id: string | null;
+  exported_at: string | null;
+}
+
 /** OpenAPI expresses PaginatedResponse with `items: any[]`; keep this
  *  hand-crafted generic wrapper for type-safe consumer sites. */
 export interface PaginatedResponse<T> {

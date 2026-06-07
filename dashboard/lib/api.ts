@@ -32,6 +32,8 @@ import type {
   PublicEvent,
   RecommendationResponse,
   SearchResult,
+  SetDetail,
+  SetSummary,
   SongRequest,
   SystemSettings,
   SystemStats,
@@ -88,6 +90,8 @@ export type {
   RecommendedTrack,
   SearchResult,
   ServiceCapabilities,
+  SetDetail,
+  SetSummary,
   SongRequest,
   SyncResultEntry,
   SystemSettings,
@@ -551,6 +555,29 @@ class ApiClient {
 
   async deleteEvent(code: string): Promise<void> {
     await this.rawFetch(`/api/events/${code}`, { method: 'DELETE' });
+  }
+
+  // WrzDJSet set CRUD
+  async listSets(): Promise<SetSummary[]> {
+    return this.fetch('/api/setbuilder/sets');
+  }
+  async createSet(name: string, eventId?: number): Promise<SetDetail> {
+    return this.fetch('/api/setbuilder/sets', {
+      method: 'POST',
+      body: JSON.stringify({ name, event_id: eventId ?? null }),
+    });
+  }
+  async getSet(setId: number): Promise<SetDetail> {
+    return this.fetch(`/api/setbuilder/sets/${setId}`);
+  }
+  async renameSet(setId: number, name: string): Promise<SetDetail> {
+    return this.fetch(`/api/setbuilder/sets/${setId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    });
+  }
+  async deleteSet(setId: number): Promise<void> {
+    await this.rawFetch(`/api/setbuilder/sets/${setId}`, { method: 'DELETE' });
   }
 
   async bulkDeleteEvents(codes: string[]): Promise<{ status: string; count: number }> {

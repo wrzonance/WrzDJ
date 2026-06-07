@@ -13,6 +13,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Float,
+    ForeignKey,
     Integer,
     String,
     Text,
@@ -68,13 +69,17 @@ class TrackVibeOverride(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     track_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
 
     energy_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
     mood_override: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Good-citizen provenance for future taste training
-    overridden_from_vibe_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    overridden_from_vibe_id: Mapped[int | None] = mapped_column(
+        ForeignKey("track_vibes.id", ondelete="SET NULL"), nullable=True
+    )
     energy_was: Mapped[int | None] = mapped_column(Integer, nullable=True)
     mood_was: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # "explicit_edit" | "upvote" | "downvote_implicit"

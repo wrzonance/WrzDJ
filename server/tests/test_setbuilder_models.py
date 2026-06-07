@@ -83,9 +83,10 @@ def test_track_vibe_same_track_different_model_allowed(db):
 
 
 def test_track_vibe_override_persists(db):
+    user = _make_user(db)
     override = TrackVibeOverride(
         track_id="tidal:12345",
-        user_id=1,
+        user_id=user.id,
         energy_override=9,
         mood_override="dark",
         energy_was=7,

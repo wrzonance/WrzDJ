@@ -268,3 +268,33 @@ async def call_llm(
     )
 
     return result
+
+
+async def raw_messages_create(
+    *,
+    model: str,
+    system: str,
+    tools: list[dict] | None,
+    tool_choice: dict | None,
+    messages: list[dict],
+    max_tokens: int,
+):
+    """Low-level Anthropic messages.create passthrough.
+
+    Exists so the provider-agnostic LLM gateway (``app.services.llm.gateway``)
+    can delegate here without importing a provider SDK itself. The ``anthropic``
+    import stays confined to this module.
+    """
+    settings = get_settings()
+    client = AsyncAnthropic(
+        api_key=settings.anthropic_api_key,
+        timeout=settings.anthropic_timeout_seconds,
+    )
+    kwargs: dict = {"model": model, "max_tokens": max_tokens, "messages": messages}
+    if system:
+        kwargs["system"] = system
+    if tools:
+        kwargs["tools"] = tools
+    if tool_choice:
+        kwargs["tool_choice"] = tool_choice
+    return await client.messages.create(**kwargs)

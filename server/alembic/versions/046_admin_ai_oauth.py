@@ -1,7 +1,7 @@
 """LLM gateway: connectors + call log + audit event + system_settings columns + data migration.
 
 Revision ID: 046
-Revises: 045
+Revises: a11334c031bb
 Create Date: 2026-05-24
 
 Creates:
@@ -30,7 +30,7 @@ from alembic import op
 from app.core.encryption import encrypt_value
 
 revision: str = "046"
-down_revision: str | None = "045"
+down_revision: str | None = "a11334c031bb"
 branch_labels = None
 depends_on = None
 

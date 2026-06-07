@@ -1,7 +1,7 @@
 """add frictionless join flags
 
 Revision ID: a11334c031bb
-Revises: 051
+Revises: 045
 Create Date: 2026-05-29 20:49:39.964139
 
 """
@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "a11334c031bb"
-down_revision: str | None = "051"
+down_revision: str | None = "045"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

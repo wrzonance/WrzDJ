@@ -73,6 +73,7 @@ vi.mock('@/components/IdentityBar', () => ({
 vi.mock('@/lib/api', () => ({
   api: mockApi,
   ApiError: MockApiError,
+  PUBLIC_PAGE_MAX: 500,
 }));
 
 vi.mock('@/lib/useHumanVerification', () => ({

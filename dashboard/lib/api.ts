@@ -115,6 +115,11 @@ export interface CollectEventPreview {
   expires_at: string;
 }
 
+/** Max `limit` the public list endpoints accept in a single request.
+ *  MUST match server/app/core/pagination.py MAX_PAGE_SIZE. Sending a larger
+ *  `limit` returns HTTP 422, so growing-window UIs clamp to this value. */
+export const PUBLIC_PAGE_MAX = 500;
+
 export interface CollectLeaderboardRow {
   id: number;
   title: string;
@@ -742,8 +747,16 @@ class ApiClient {
     return res.json();
   }
 
-  async getPublicRequests(code: string): Promise<GuestRequestListResponse> {
-    return this.publicFetch(`${getApiUrl()}/api/public/events/${code}/requests`);
+  async getPublicRequests(
+    code: string,
+    limit?: number,
+    offset?: number,
+  ): Promise<GuestRequestListResponse> {
+    const qs = new URLSearchParams();
+    if (limit != null) qs.set('limit', String(limit));
+    if (offset != null) qs.set('offset', String(offset));
+    const suffix = qs.toString() ? `?${qs}` : '';
+    return this.publicFetch(`${getApiUrl()}/api/public/events/${code}/requests${suffix}`);
   }
 
   async getPublicEvent(code: string): Promise<PublicEvent> {
@@ -1220,9 +1233,14 @@ class ApiClient {
   async getCollectLeaderboard(
     code: string,
     tab: 'trending' | 'all' = 'trending',
+    limit?: number,
+    offset?: number,
   ): Promise<CollectLeaderboardResponse> {
+    const qs = new URLSearchParams({ tab });
+    if (limit != null) qs.set('limit', String(limit));
+    if (offset != null) qs.set('offset', String(offset));
     const res = await fetch(
-      `${getApiUrl()}/api/public/collect/${code}/leaderboard?tab=${tab}`,
+      `${getApiUrl()}/api/public/collect/${code}/leaderboard?${qs}`,
       { method: 'GET', headers: { 'Content-Type': 'application/json' } },
     );
     if (!res.ok) throw new ApiError(`getCollectLeaderboard failed: ${res.status}`, res.status);

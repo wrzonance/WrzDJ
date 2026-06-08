@@ -9,6 +9,7 @@ import {
   CollectLeaderboardResponse,
   CollectLeaderboardRow,
   CollectMyPicksResponse,
+  PUBLIC_PAGE_MAX,
   SearchResult,
 } from '../../../lib/api';
 import { useGuestIdentity } from '../../../lib/use-guest-identity';
@@ -430,10 +431,10 @@ export default function CollectPage() {
             votedIds={votedIds}
             onRowClick={setDetailRow}
           />
-          {(leaderboard?.requests.length ?? 0) < (leaderboard?.total ?? 0) && (
+          {(leaderboard?.requests.length ?? 0) < Math.min(leaderboard?.total ?? 0, PUBLIC_PAGE_MAX) && (
             <button
               type="button"
-              onClick={() => setDisplayLimit((d) => d + PAGE_SIZE)}
+              onClick={() => setDisplayLimit((d) => Math.min(d + PAGE_SIZE, PUBLIC_PAGE_MAX))}
               style={{
                 width: '100%', marginTop: 10, padding: '13px 16px', borderRadius: 12,
                 background: surface, border: `1px solid ${border}`, color: '#fff',
@@ -441,7 +442,7 @@ export default function CollectPage() {
                 letterSpacing: 1.2, cursor: 'pointer',
               }}
             >
-              LOAD MORE · {(leaderboard?.total ?? 0) - (leaderboard?.requests.length ?? 0)} MORE
+              LOAD MORE · {Math.max(Math.min(leaderboard?.total ?? 0, PUBLIC_PAGE_MAX) - (leaderboard?.requests.length ?? 0), 0)} MORE
             </button>
           )}
         </section>

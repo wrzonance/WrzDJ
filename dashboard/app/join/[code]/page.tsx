@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams } from 'next/navigation';
-import { api, ApiError, PublicEvent, GuestNowPlaying, GuestRequestInfo, SearchResult } from '@/lib/api';
+import { api, ApiError, PublicEvent, GuestNowPlaying, GuestRequestInfo, PUBLIC_PAGE_MAX, SearchResult } from '@/lib/api';
 import { useEventStream } from '@/lib/use-event-stream';
 import { useGuestIdentity } from '@/lib/use-guest-identity';
 import { useHumanVerification } from '@/lib/useHumanVerification';
@@ -784,10 +784,10 @@ export default function JoinEventPage() {
             })
           )}
 
-          {activeTab !== 'mine' && guestRequests.length < total ? (
+          {activeTab !== 'mine' && guestRequests.length < Math.min(total, PUBLIC_PAGE_MAX) ? (
             <button
               type="button"
-              onClick={() => setDisplayLimit((d) => d + PAGE_SIZE)}
+              onClick={() => setDisplayLimit((d) => Math.min(d + PAGE_SIZE, PUBLIC_PAGE_MAX))}
               style={{
                 width: '100%', marginTop: 10, padding: '13px 16px', borderRadius: 10,
                 background: surface, border: `1px solid ${border}`, color: '#fff',
@@ -795,7 +795,7 @@ export default function JoinEventPage() {
                 letterSpacing: 1.4, cursor: 'pointer',
               }}
             >
-              LOAD MORE · {total - guestRequests.length} MORE
+              LOAD MORE · {Math.max(Math.min(total, PUBLIC_PAGE_MAX) - guestRequests.length, 0)} MORE
             </button>
           ) : tabRows.length > 0 ? (
             <div style={{ textAlign: 'center', padding: '10px 0 0', fontFamily: 'var(--font-mono, monospace)', fontSize: 10.9, color: subFg2, letterSpacing: 1.5 }}>

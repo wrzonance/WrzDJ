@@ -179,6 +179,37 @@ def test_collect_leaderboard_rejects_oversized_limit(client, db, test_event):
     assert r.status_code == 422
 
 
+def test_collect_leaderboard_tiebreaker_orders_by_id_desc(client, db, test_event):
+    """Equal-title rows on the 'all' tab order by id desc so offset pages stay
+    stable (no dup/skip). Pins the CodeRabbit pagination finding."""
+    from app.models.request import Request, RequestStatus
+
+    _enable_collection(db, test_event)
+    same_time = utcnow()
+    ids = []
+    for i in range(3):
+        r = Request(
+            event_id=test_event.id,
+            song_title="Same Title",
+            artist=f"Artist {i}",
+            source="spotify",
+            status=RequestStatus.NEW.value,
+            vote_count=0,
+            dedupe_key=f"tie_dk_{i}",
+            submitted_during_collection=True,
+            created_at=same_time,
+        )
+        db.add(r)
+        db.flush()
+        ids.append(r.id)
+    db.commit()
+
+    r = client.get(f"/api/public/collect/{test_event.code}/leaderboard?tab=all")
+    assert r.status_code == 200
+    returned = [row["id"] for row in r.json()["requests"]]
+    assert returned == sorted(ids, reverse=True)
+
+
 def test_collect_profile_set_nickname(client, db, test_event):
     _enable_collection(db, test_event)
     r = client.post(

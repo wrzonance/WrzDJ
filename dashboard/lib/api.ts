@@ -115,6 +115,11 @@ export interface CollectEventPreview {
   expires_at: string;
 }
 
+/** Max `limit` the public list endpoints accept in a single request.
+ *  MUST match server/app/core/pagination.py MAX_PAGE_SIZE. Sending a larger
+ *  `limit` returns HTTP 422, so growing-window UIs clamp to this value. */
+export const PUBLIC_PAGE_MAX = 500;
+
 export interface CollectLeaderboardRow {
   id: number;
   title: string;

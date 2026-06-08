@@ -283,7 +283,13 @@ def get_public_requests(
     # Count before ordering/pagination so the client gets the true total.
     total = base_q.count()
     requests_with_verified = (
-        base_q.order_by(SongRequest.vote_count.desc(), SongRequest.created_at.desc())
+        # id.desc() is a unique final tiebreaker so offset pages stay stable
+        # (no dup/skip) when rows tie on vote_count + created_at.
+        base_q.order_by(
+            SongRequest.vote_count.desc(),
+            SongRequest.created_at.desc(),
+            SongRequest.id.desc(),
+        )
         .offset(offset)
         .limit(limit)
         .all()

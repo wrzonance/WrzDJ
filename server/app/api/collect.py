@@ -138,14 +138,18 @@ def leaderboard(
         .filter(SongRequest.event_id == event.id)
         .filter(SongRequest.submitted_during_collection == True)  # noqa: E712
     )
+    # id.desc() is a unique final tiebreaker so offset pages stay stable
+    # (no dup/skip) when rows tie on the primary sort key.
     if tab == "trending":
         q = q.filter(SongRequest.vote_count >= 1).order_by(
-            SongRequest.vote_count.desc(), SongRequest.created_at.desc()
+            SongRequest.vote_count.desc(),
+            SongRequest.created_at.desc(),
+            SongRequest.id.desc(),
         )
     else:
         # "All" is the discovery view — alphabetical makes it easy to scan
         # and upvote existing submissions rather than recency bias.
-        q = q.order_by(func.lower(SongRequest.song_title).asc())
+        q = q.order_by(func.lower(SongRequest.song_title).asc(), SongRequest.id.desc())
 
     # True count of the full result set, computed before pagination so the
     # client knows how many rows exist beyond this page. order_by(None) drops

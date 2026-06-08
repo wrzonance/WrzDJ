@@ -365,6 +365,32 @@ class TestGuestRequestList:
         r = client.get(f"/api/public/events/{test_event.join_code}/requests?limit=99999")
         assert r.status_code == 422
 
+    def test_tiebreaker_orders_by_id_desc(self, client: TestClient, test_event: Event, db: Session):
+        """Rows tied on (vote_count, created_at) order by id desc so offset pages
+        stay stable (no dup/skip). Pins the CodeRabbit pagination finding."""
+        same_time = utcnow()
+        ids = []
+        for i in range(3):
+            r = Request(
+                event_id=test_event.id,
+                song_title=f"Tie {i}",
+                artist="Artist",
+                source="spotify",
+                status=RequestStatus.NEW.value,
+                dedupe_key=f"tie_{i}",
+                vote_count=0,
+                created_at=same_time,
+            )
+            db.add(r)
+            db.flush()
+            ids.append(r.id)
+        db.commit()
+
+        r = client.get(f"/api/public/events/{test_event.join_code}/requests")
+        assert r.status_code == 200
+        returned = [x["id"] for x in r.json()["requests"]]
+        assert returned == sorted(ids, reverse=True)
+
 
 class TestPublicRequestsEnrichmentFields:
     """bpm/musical_key/genre are exposed in /events/{code}/requests response."""

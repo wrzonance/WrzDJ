@@ -19,6 +19,10 @@ import SongDetailSheet from './components/SongDetailSheet';
 
 const POLL_INTERVAL_MS = 10000;
 const BACKOFF_INTERVAL_MS = 60000;
+/* Request list is a growing window: "Load more" grows displayLimit and every
+   poll/SSE refresh re-fetches [0, displayLimit) so live vote/status updates
+   stay correct without client-side dedup. */
+const PAGE_SIZE = 100;
 
 const ACCENT = '#00f0ff';
 const ACCENT2 = '#ff2bd6';
@@ -63,6 +67,8 @@ export default function JoinEventPage() {
   const [error, setError] = useState<{ message: string; status: number } | null>(null);
 
   const [guestRequests, setGuestRequests] = useState<GuestRequestInfo[]>([]);
+  const [total, setTotal] = useState(0);
+  const [displayLimit, setDisplayLimit] = useState(PAGE_SIZE);
   const [pollInterval, setPollInterval] = useState(POLL_INTERVAL_MS);
   const [nowPlaying, setNowPlaying] = useState<GuestNowPlaying | null>(null);
 
@@ -205,16 +211,17 @@ export default function JoinEventPage() {
   /* Poll guest requests — start as soon as event is loaded */
   const loadRequests = useCallback(async () => {
     try {
-      const data = await api.getPublicRequests(code);
+      const data = await api.getPublicRequests(code, displayLimit);
       setGuestRequests(data.requests);
       setNowPlaying(data.now_playing);
+      setTotal(data.total ?? data.requests.length);
       setPollInterval(POLL_INTERVAL_MS);
     } catch (err) {
       if (err instanceof ApiError && err.status === 429) {
         setPollInterval(BACKOFF_INTERVAL_MS);
       }
     }
-  }, [code]);
+  }, [code, displayLimit]);
 
   useEffect(() => {
     if (!event) return;
@@ -566,7 +573,7 @@ export default function JoinEventPage() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 5 }}>
-            <StatPill label="QUEUE" value={String(guestRequests.length)} accent="#fff" sub={subFg} border={border} />
+            <StatPill label="QUEUE" value={String(total || guestRequests.length)} accent="#fff" sub={subFg} border={border} />
           </div>
         </div>
 
@@ -777,11 +784,24 @@ export default function JoinEventPage() {
             })
           )}
 
-          {tabRows.length > 0 && (
+          {activeTab !== 'mine' && guestRequests.length < total ? (
+            <button
+              type="button"
+              onClick={() => setDisplayLimit((d) => d + PAGE_SIZE)}
+              style={{
+                width: '100%', marginTop: 10, padding: '13px 16px', borderRadius: 10,
+                background: surface, border: `1px solid ${border}`, color: '#fff',
+                fontFamily: 'var(--font-mono, monospace)', fontSize: 11.5, fontWeight: 700,
+                letterSpacing: 1.4, cursor: 'pointer',
+              }}
+            >
+              LOAD MORE · {total - guestRequests.length} MORE
+            </button>
+          ) : tabRows.length > 0 ? (
             <div style={{ textAlign: 'center', padding: '10px 0 0', fontFamily: 'var(--font-mono, monospace)', fontSize: 10.9, color: subFg2, letterSpacing: 1.5 }}>
               ◇ END OF QUEUE ◇
             </div>
-          )}
+          ) : null}
         </div>
       </div>
 

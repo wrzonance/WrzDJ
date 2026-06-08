@@ -4,12 +4,13 @@ import json
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.core.config import get_settings
+from app.core.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.core.rate_limit import get_guest_id, limiter
 from app.core.time import utcnow
 from app.models.event import Event
@@ -82,6 +83,10 @@ class GuestRequestListResponse(BaseModel):
     event: PublicEventInfo
     requests: list[GuestRequestInfo]
     now_playing: GuestNowPlaying | None = None
+    # Full count of NEW/ACCEPTED requests for the event, independent of the
+    # page returned in `requests`. Lets the client offer "load more" / show a
+    # truthful song count instead of inferring from the (capped) page length.
+    total: int = 0
 
 
 class MyRequestInfo(BaseModel):
@@ -251,6 +256,8 @@ def get_public_event(
 def get_public_requests(
     code: str,
     request: Request,
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> GuestRequestListResponse:
     """Get publicly visible requests for an event (NEW and ACCEPTED only)."""
@@ -265,15 +272,20 @@ def get_public_requests(
     if lookup_result == EventLookupResult.ARCHIVED:
         raise HTTPException(status_code=410, detail="Event has been archived")
 
-    requests_with_verified = (
+    base_q = (
         db.query(SongRequest, Guest.email_verified_at)
         .outerjoin(Guest, SongRequest.guest_id == Guest.id)
         .filter(
             SongRequest.event_id == event.id,
             SongRequest.status.in_([RequestStatus.NEW.value, RequestStatus.ACCEPTED.value]),
         )
-        .order_by(SongRequest.vote_count.desc(), SongRequest.created_at.desc())
-        .limit(50)
+    )
+    # Count before ordering/pagination so the client gets the true total.
+    total = base_q.count()
+    requests_with_verified = (
+        base_q.order_by(SongRequest.vote_count.desc(), SongRequest.created_at.desc())
+        .offset(offset)
+        .limit(limit)
         .all()
     )
 
@@ -310,6 +322,7 @@ def get_public_requests(
             for r, email_verified_at in requests_with_verified
         ],
         now_playing=guest_now_playing,
+        total=total,
     )
 
 

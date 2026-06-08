@@ -309,6 +309,62 @@ class TestGuestRequestList:
         data = response.json()
         assert data["requests"][0]["nickname"] is None
 
+    def test_paginates_and_reports_total(self, client: TestClient, test_event: Event, db: Session):
+        """limit/offset slice the list; total reports the full count."""
+        for i in range(5):
+            db.add(
+                Request(
+                    event_id=test_event.id,
+                    song_title=f"Track {i:03d}",
+                    artist="Artist",
+                    source="spotify",
+                    status=RequestStatus.NEW.value,
+                    dedupe_key=f"pub_pg_{i}",
+                    vote_count=i,  # distinct → deterministic vote_count desc order
+                )
+            )
+        db.commit()
+
+        # Order is vote_count desc → Track 004 (4), 003 (3), 002 (2), 001 (1), 000 (0)
+        r1 = client.get(f"/api/public/events/{test_event.join_code}/requests?limit=2&offset=0")
+        assert r1.status_code == 200
+        b1 = r1.json()
+        assert [x["title"] for x in b1["requests"]] == ["Track 004", "Track 003"]
+        assert b1["total"] == 5
+
+        r2 = client.get(f"/api/public/events/{test_event.join_code}/requests?limit=2&offset=2")
+        b2 = r2.json()
+        assert [x["title"] for x in b2["requests"]] == ["Track 002", "Track 001"]
+        assert b2["total"] == 5
+
+    def test_total_reflects_full_count_beyond_page(
+        self, client: TestClient, test_event: Event, db: Session
+    ):
+        """Regression: the list was hard-capped at .limit(50); total must be honest."""
+        for i in range(6):
+            db.add(
+                Request(
+                    event_id=test_event.id,
+                    song_title=f"S{i}",
+                    artist="Artist",
+                    source="spotify",
+                    status=RequestStatus.NEW.value,
+                    dedupe_key=f"pub_tot_{i}",
+                    vote_count=0,
+                )
+            )
+        db.commit()
+
+        r = client.get(f"/api/public/events/{test_event.join_code}/requests?limit=2")
+        assert r.status_code == 200
+        body = r.json()
+        assert len(body["requests"]) == 2
+        assert body["total"] == 6
+
+    def test_rejects_oversized_limit(self, client: TestClient, test_event: Event):
+        r = client.get(f"/api/public/events/{test_event.join_code}/requests?limit=99999")
+        assert r.status_code == 422
+
 
 class TestPublicRequestsEnrichmentFields:
     """bpm/musical_key/genre are exposed in /events/{code}/requests response."""

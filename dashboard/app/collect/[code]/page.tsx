@@ -25,6 +25,10 @@ import MyPicksPanel from './components/MyPicksPanel';
 import SubmitBar from './components/SubmitBar';
 
 const POLL_MS = 5000;
+/* Leaderboard is a growing window: "Load more" grows displayLimit and every
+   poll re-fetches [0, displayLimit) from offset 0. This keeps live vote
+   updates correct without client-side dedup or offset-drift bugs. */
+const PAGE_SIZE = 100;
 
 export default function CollectPage() {
   const router = useRouter();
@@ -44,6 +48,7 @@ export default function CollectPage() {
     ...(myPicks?.submitted ?? []).map((s) => s.id),
   ]);
   const [tab, setTab] = useState<'trending' | 'all'>('all');
+  const [displayLimit, setDisplayLimit] = useState(PAGE_SIZE);
   const [error, setError] = useState<string | null>(null);
   const [emailVerified, setEmailVerified] = useState(false);
   const [nickname, setNickname] = useState<string | null>(null);
@@ -132,7 +137,7 @@ export default function CollectPage() {
 
       const [p, lb] = await Promise.all([
         apiClient.getCollectProfile(code),
-        apiClient.getCollectLeaderboard(code, tab),
+        apiClient.getCollectLeaderboard(code, tab, displayLimit),
       ]);
       setProfile({ submission_count: p.submission_count, submission_cap: p.submission_cap });
       setLeaderboard(lb);
@@ -226,7 +231,7 @@ export default function CollectPage() {
         } else if (ev.phase === 'collection') {
           // Leaderboard is ungated; my-picks requires email verification, so skip
           // it until the guest verifies to avoid surfacing a sticky 403 error.
-          const lb = await apiClient.getCollectLeaderboard(code, tab);
+          const lb = await apiClient.getCollectLeaderboard(code, tab, displayLimit);
           if (!cancelled) setLeaderboard(lb);
           if (emailVerified) {
             const picks = await apiClient.getCollectMyPicks(code);
@@ -252,7 +257,7 @@ export default function CollectPage() {
       if (timer) clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [code, tab, gateComplete, emailVerified, humanState, router]);
+  }, [code, tab, displayLimit, gateComplete, emailVerified, humanState, router]);
 
   const leaderboardAvgBpm = useMemo(() => {
     const withBpm = (leaderboard?.requests ?? []).filter((r) => r.bpm != null);
@@ -401,7 +406,7 @@ export default function CollectPage() {
             </div>
             <div style={{ padding: '5px 10px', borderRadius: 7, border: `1px solid ${border}`, flexShrink: 0 }}>
               <span style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 15.7, fontWeight: 800, color: '#fff' }}>
-                {(leaderboard?.requests ?? []).length}
+                {leaderboard?.total ?? 0}
               </span>
               <div style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 9, color: subFg, letterSpacing: 1.2, marginTop: 2 }}>
                 SONGS
@@ -420,11 +425,25 @@ export default function CollectPage() {
           <LeaderboardTabs
             rows={leaderboard?.requests ?? []}
             tab={tab}
-            onTabChange={setTab}
+            onTabChange={(t) => { setTab(t); setDisplayLimit(PAGE_SIZE); }}
             onVote={(id) => apiClient.voteCollectRequest(code, id, reverify)}
             votedIds={votedIds}
             onRowClick={setDetailRow}
           />
+          {(leaderboard?.requests.length ?? 0) < (leaderboard?.total ?? 0) && (
+            <button
+              type="button"
+              onClick={() => setDisplayLimit((d) => d + PAGE_SIZE)}
+              style={{
+                width: '100%', marginTop: 10, padding: '13px 16px', borderRadius: 12,
+                background: surface, border: `1px solid ${border}`, color: '#fff',
+                fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5, fontWeight: 700,
+                letterSpacing: 1.2, cursor: 'pointer',
+              }}
+            >
+              LOAD MORE · {(leaderboard?.total ?? 0) - (leaderboard?.requests.length ?? 0)} MORE
+            </button>
+          )}
         </section>
 
         {myPicks && <MyPicksPanel picks={myPicks} />}
@@ -456,7 +475,7 @@ export default function CollectPage() {
           row={detailRow}
           code={code}
           rank={(leaderboard?.requests ?? []).findIndex((r) => r.id === detailRow.id) + 1 || 1}
-          totalCount={leaderboard?.requests.length ?? 0}
+          totalCount={leaderboard?.total ?? 0}
           voted={detailVoted || votedIds.has(detailRow.id)}
           onVote={async () => {
             if (!detailVoted && !votedIds.has(detailRow.id)) {

@@ -108,6 +108,77 @@ def test_collect_leaderboard_all_tab_includes_zero_votes(
     assert 0 in votes
 
 
+def _make_collection_requests(db, event: Event, count: int) -> None:
+    """Create `count` collection-phase NEW requests titled 'Song NNN', 0 votes.
+
+    Titled with zero-padded indices so the "all" tab's alphabetical sort is
+    deterministic for offset/limit assertions.
+    """
+    from app.models.request import Request, RequestStatus
+
+    now = utcnow()
+    for i in range(count):
+        db.add(
+            Request(
+                event_id=event.id,
+                song_title=f"Song {i:03d}",
+                artist=f"Artist {i:03d}",
+                source="spotify",
+                status=RequestStatus.NEW.value,
+                vote_count=0,
+                dedupe_key=f"pg_dk_{i}",
+                submitted_during_collection=True,
+                created_at=now,
+            )
+        )
+    db.commit()
+
+
+def test_collect_leaderboard_paginates_with_limit_and_offset(client, db, test_event):
+    _enable_collection(db, test_event)
+    _make_collection_requests(db, test_event, 5)
+
+    # "all" tab sorts alphabetically → deterministic ordering across pages.
+    r1 = client.get(f"/api/public/collect/{test_event.code}/leaderboard?tab=all&limit=2&offset=0")
+    assert r1.status_code == 200
+    b1 = r1.json()
+    assert [row["title"] for row in b1["requests"]] == ["Song 000", "Song 001"]
+    assert b1["total"] == 5
+
+    r2 = client.get(f"/api/public/collect/{test_event.code}/leaderboard?tab=all&limit=2&offset=2")
+    b2 = r2.json()
+    assert [row["title"] for row in b2["requests"]] == ["Song 002", "Song 003"]
+    assert b2["total"] == 5
+
+    # Final partial page: one row left, total still reports the full set.
+    r3 = client.get(f"/api/public/collect/{test_event.code}/leaderboard?tab=all&limit=2&offset=4")
+    b3 = r3.json()
+    assert [row["title"] for row in b3["requests"]] == ["Song 004"]
+    assert b3["total"] == 5
+
+
+def test_collect_leaderboard_total_reflects_full_count_beyond_page(client, db, test_event):
+    """Regression: total is the full DB count, not the size of the returned page.
+
+    The endpoint previously hard-capped at `.limit(200).all()` and returned
+    `total=len(rows)`, so any submission past the cap was invisible AND the
+    reported total silently froze at the cap. Pin the fixed behavior.
+    """
+    _enable_collection(db, test_event)
+    _make_collection_requests(db, test_event, 7)
+    r = client.get(f"/api/public/collect/{test_event.code}/leaderboard?tab=all&limit=3")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["requests"]) == 3
+    assert body["total"] == 7
+
+
+def test_collect_leaderboard_rejects_oversized_limit(client, db, test_event):
+    _enable_collection(db, test_event)
+    r = client.get(f"/api/public/collect/{test_event.code}/leaderboard?limit=99999")
+    assert r.status_code == 422
+
+
 def test_collect_profile_set_nickname(client, db, test_event):
     _enable_collection(db, test_event)
     r = client.post(

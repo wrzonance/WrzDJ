@@ -742,8 +742,16 @@ class ApiClient {
     return res.json();
   }
 
-  async getPublicRequests(code: string): Promise<GuestRequestListResponse> {
-    return this.publicFetch(`${getApiUrl()}/api/public/events/${code}/requests`);
+  async getPublicRequests(
+    code: string,
+    limit?: number,
+    offset?: number,
+  ): Promise<GuestRequestListResponse> {
+    const qs = new URLSearchParams();
+    if (limit != null) qs.set('limit', String(limit));
+    if (offset != null) qs.set('offset', String(offset));
+    const suffix = qs.toString() ? `?${qs}` : '';
+    return this.publicFetch(`${getApiUrl()}/api/public/events/${code}/requests${suffix}`);
   }
 
   async getPublicEvent(code: string): Promise<PublicEvent> {
@@ -1220,9 +1228,14 @@ class ApiClient {
   async getCollectLeaderboard(
     code: string,
     tab: 'trending' | 'all' = 'trending',
+    limit?: number,
+    offset?: number,
   ): Promise<CollectLeaderboardResponse> {
+    const qs = new URLSearchParams({ tab });
+    if (limit != null) qs.set('limit', String(limit));
+    if (offset != null) qs.set('offset', String(offset));
     const res = await fetch(
-      `${getApiUrl()}/api/public/collect/${code}/leaderboard?tab=${tab}`,
+      `${getApiUrl()}/api/public/collect/${code}/leaderboard?${qs}`,
       { method: 'GET', headers: { 'Content-Type': 'application/json' } },
     );
     if (!res.ok) throw new ApiError(`getCollectLeaderboard failed: ${res.status}`, res.status);

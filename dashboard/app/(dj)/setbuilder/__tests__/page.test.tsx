@@ -14,12 +14,16 @@ vi.mock('next/link', () => ({
 
 const mockListSets = vi.fn();
 const mockRenameSet = vi.fn();
+const mockDuplicateSet = vi.fn();
 vi.mock('@/lib/api', () => ({
   api: {
     listSets: () => mockListSets(),
     createSet: vi.fn(),
     deleteSet: vi.fn(),
     renameSet: (id: number, name: string) => mockRenameSet(id, name),
+    duplicateSet: (id: number) => mockDuplicateSet(id),
+    shareSet: vi.fn(),
+    revokeSetShare: vi.fn(),
   },
 }));
 
@@ -31,6 +35,7 @@ describe('SetbuilderPage', () => {
   beforeEach(() => {
     mockListSets.mockReset();
     mockRenameSet.mockReset();
+    mockDuplicateSet.mockReset();
   });
 
   it('renders the empty state when there are no sets', async () => {
@@ -49,6 +54,7 @@ describe('SetbuilderPage', () => {
         event_id: null,
         status: 'draft',
         sharing_mode: 'private',
+        share_token: null,
         created_at: '2026-06-07T00:00:00Z',
         updated_at: '2026-06-07T00:00:00Z',
       },
@@ -67,6 +73,7 @@ describe('SetbuilderPage', () => {
         event_id: null,
         status: 'draft',
         sharing_mode: 'private',
+        share_token: null,
         created_at: '2026-06-07T00:00:00Z',
         updated_at: '2026-06-07T00:00:00Z',
       },
@@ -77,6 +84,7 @@ describe('SetbuilderPage', () => {
       event_id: null,
       status: 'draft',
       sharing_mode: 'private',
+      share_token: null,
       created_at: '2026-06-07T00:00:00Z',
       updated_at: '2026-06-07T01:00:00Z',
     });
@@ -92,6 +100,59 @@ describe('SetbuilderPage', () => {
     await waitFor(() => {
       expect(mockRenameSet).toHaveBeenCalledWith(1, 'Saturday Gala');
       expect(screen.getByText('Saturday Gala')).toBeInTheDocument();
+    });
+  });
+
+  it('shows a Shared badge when a set has a share token', async () => {
+    mockListSets.mockResolvedValue([
+      {
+        id: 1,
+        name: 'Friday Wedding',
+        event_id: null,
+        status: 'draft',
+        sharing_mode: 'private',
+        share_token: 'tok_live',
+        created_at: '2026-06-07T00:00:00Z',
+        updated_at: '2026-06-07T00:00:00Z',
+      },
+    ]);
+    render(<SetbuilderPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Shared')).toBeInTheDocument();
+    });
+  });
+
+  it('duplicates a set and prepends the copy to the list', async () => {
+    mockListSets.mockResolvedValue([
+      {
+        id: 1,
+        name: 'Friday Wedding',
+        event_id: null,
+        status: 'draft',
+        sharing_mode: 'private',
+        share_token: null,
+        created_at: '2026-06-07T00:00:00Z',
+        updated_at: '2026-06-07T00:00:00Z',
+      },
+    ]);
+    mockDuplicateSet.mockResolvedValue({
+      id: 2,
+      name: 'Friday Wedding (copy)',
+      event_id: null,
+      status: 'draft',
+      sharing_mode: 'private',
+      share_token: null,
+      created_at: '2026-06-08T00:00:00Z',
+      updated_at: '2026-06-08T00:00:00Z',
+    });
+    render(<SetbuilderPage />);
+    await waitFor(() => expect(screen.getByText('Friday Wedding')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /duplicate/i }));
+
+    await waitFor(() => {
+      expect(mockDuplicateSet).toHaveBeenCalledWith(1);
+      expect(screen.getByText('Friday Wedding (copy)')).toBeInTheDocument();
     });
   });
 });

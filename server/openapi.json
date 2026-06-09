@@ -6361,6 +6361,17 @@
             "title": "Name",
             "type": "string"
           },
+          "share_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Share Token"
+          },
           "sharing_mode": {
             "enum": [
               "private",
@@ -6426,6 +6437,7 @@
           "id",
           "key_strictness",
           "name",
+          "share_token",
           "sharing_mode",
           "status",
           "target_duration_sec",
@@ -6479,6 +6491,17 @@
             "title": "Name",
             "type": "string"
           },
+          "share_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Share Token"
+          },
           "sharing_mode": {
             "enum": [
               "private",
@@ -6507,11 +6530,215 @@
           "event_id",
           "id",
           "name",
+          "share_token",
           "sharing_mode",
           "status",
           "updated_at"
         ],
         "title": "SetSummary",
+        "type": "object"
+      },
+      "ShareTokenOut": {
+        "description": "Owner response after creating/rotating a share token (issue #398).",
+        "properties": {
+          "share_token": {
+            "title": "Share Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "share_token"
+        ],
+        "title": "ShareTokenOut",
+        "type": "object"
+      },
+      "SharedCurvePointView": {
+        "description": "View-only curve-point projection for public share links.",
+        "properties": {
+          "energy": {
+            "title": "Energy",
+            "type": "integer"
+          },
+          "is_slow_window_end": {
+            "title": "Is Slow Window End",
+            "type": "boolean"
+          },
+          "is_slow_window_start": {
+            "title": "Is Slow Window Start",
+            "type": "boolean"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "position_sec": {
+            "title": "Position Sec",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "energy",
+          "is_slow_window_end",
+          "is_slow_window_start",
+          "label",
+          "position_sec"
+        ],
+        "title": "SharedCurvePointView",
+        "type": "object"
+      },
+      "SharedSetView": {
+        "description": "Public read-only projection of a shared set (issue #398).\n\nNever include owner identity, internal ids, event linkage,\ncollaborator info, or the token itself.",
+        "properties": {
+          "bpm_ceiling": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bpm Ceiling"
+          },
+          "bpm_floor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bpm Floor"
+          },
+          "curve_points": {
+            "items": {
+              "$ref": "#/components/schemas/SharedCurvePointView"
+            },
+            "title": "Curve Points",
+            "type": "array"
+          },
+          "key_strictness": {
+            "title": "Key Strictness",
+            "type": "number"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/SharedSlotView"
+            },
+            "title": "Slots",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "locked",
+              "exported"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "target_duration_sec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Duration Sec"
+          },
+          "vibe_theme": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vibe Theme"
+          }
+        },
+        "required": [
+          "bpm_ceiling",
+          "bpm_floor",
+          "curve_points",
+          "key_strictness",
+          "name",
+          "slots",
+          "status",
+          "target_duration_sec",
+          "vibe_theme"
+        ],
+        "title": "SharedSetView",
+        "type": "object"
+      },
+      "SharedSlotView": {
+        "description": "View-only slot projection for public share links (no DB ids).",
+        "properties": {
+          "locked": {
+            "title": "Locked",
+            "type": "boolean"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "track_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track Id"
+          },
+          "transition_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transition Score"
+          }
+        },
+        "required": [
+          "locked",
+          "notes",
+          "position",
+          "track_id",
+          "transition_score"
+        ],
+        "title": "SharedSlotView",
         "type": "object"
       },
       "StatusMessageResponse": {
@@ -13738,6 +13965,52 @@
         ]
       }
     },
+    "/api/public/setbuilder/shared/{token}": {
+      "get": {
+        "description": "Public read-only projection of a shared set (no auth required).\n\nUnknown, revoked, and malformed tokens all return the same 404.",
+        "operationId": "view_shared_set_api_public_setbuilder_shared__token__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedSetView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Shared set not found (unknown, revoked, or malformed token)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "View Shared Set",
+        "tags": [
+          "setbuilder-public"
+        ]
+      }
+    },
     "/api/requests/{request_id}": {
       "delete": {
         "description": "Delete a single request. Ownership verified via event.",
@@ -14295,6 +14568,54 @@
         ]
       }
     },
+    "/api/setbuilder/sets/{set_id}/duplicate": {
+      "post": {
+        "description": "Duplicate an owned set (slots, curve, targets); copy is a private draft.",
+        "operationId": "duplicate_set_api_setbuilder_sets__set_id__duplicate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Duplicate Set",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
     "/api/setbuilder/sets/{set_id}/pool": {
       "get": {
         "description": "Full pool snapshot (sources + tracks) for one of the DJ's sets.",
@@ -14801,6 +15122,93 @@
           }
         ],
         "summary": "Preview Pool Url",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/share": {
+      "delete": {
+        "description": "Revoke the share token for an owned set; existing links 404.",
+        "operationId": "revoke_share_token_api_setbuilder_sets__set_id__share_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Revoke Share Token",
+        "tags": [
+          "setbuilder"
+        ]
+      },
+      "post": {
+        "description": "Create (or rotate) the read-only share token for an owned set.",
+        "operationId": "create_or_rotate_share_token_api_setbuilder_sets__set_id__share_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareTokenOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Create Or Rotate Share Token",
         "tags": [
           "setbuilder"
         ]

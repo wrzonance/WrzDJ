@@ -24,6 +24,7 @@ import type {
   BeatportSearchResult,
   BeatportStatus,
   BridgeCommandResponse,
+  BuilderPlaylists,
   DisplaySettingsResponse,
   PublicBridgeStatus,
   Event,
@@ -43,6 +44,11 @@ import type {
   PaginatedResponse,
   PlayHistoryResponse,
   PlaylistListResponse,
+  PoolImportManualIn,
+  PoolImportResult,
+  PoolMutationResult,
+  PoolState,
+  PoolUrlPreview,
   PublicEvent,
   RecommendationResponse,
   SearchResult,
@@ -648,6 +654,69 @@ class ApiClient {
   }
   async deleteSet(setId: number): Promise<void> {
     await this.rawFetch(`/api/setbuilder/sets/${setId}`, { method: 'DELETE' });
+  }
+
+  // WrzDJSet pool (issue #388)
+  async getPool(setId: number): Promise<PoolState> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/pool`);
+  }
+  async getBuilderPlaylists(): Promise<BuilderPlaylists> {
+    return this.fetch('/api/setbuilder/playlists');
+  }
+  async importPoolEvent(setId: number, eventId: number): Promise<PoolImportResult> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/pool/import/event`, {
+      method: 'POST',
+      body: JSON.stringify({ event_id: eventId }),
+    });
+  }
+  async importPoolTidal(
+    setId: number,
+    playlistId: string,
+    label?: string
+  ): Promise<PoolImportResult> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/pool/import/tidal`, {
+      method: 'POST',
+      body: JSON.stringify({ playlist_id: playlistId, label: label ?? null }),
+    });
+  }
+  async importPoolBeatport(
+    setId: number,
+    playlistId: string,
+    label?: string
+  ): Promise<PoolImportResult> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/pool/import/beatport`, {
+      method: 'POST',
+      body: JSON.stringify({ playlist_id: playlistId, label: label ?? null }),
+    });
+  }
+  async previewPoolUrl(setId: number, url: string): Promise<PoolUrlPreview> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/pool/url-preview`, {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    });
+  }
+  async importPoolUrl(setId: number, url: string): Promise<PoolImportResult> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/pool/import/url`, {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    });
+  }
+  async importPoolManual(setId: number, track: PoolImportManualIn): Promise<PoolImportResult> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/pool/import/manual`, {
+      method: 'POST',
+      body: JSON.stringify(track),
+    });
+  }
+  async removePoolTracks(setId: number, trackIds: number[]): Promise<PoolMutationResult> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/pool/tracks/remove`, {
+      method: 'POST',
+      body: JSON.stringify({ track_ids: trackIds }),
+    });
+  }
+  async removePoolSource(setId: number, sourceId: number): Promise<PoolMutationResult> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/pool/sources/${sourceId}`, {
+      method: 'DELETE',
+    });
   }
 
   // WrzDJSet sharing + duplication (issue #398)

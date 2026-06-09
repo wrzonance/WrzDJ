@@ -193,6 +193,17 @@ export interface SetDetail extends SetSummary {
   exported_at: string | null;
 }
 
+// WrzDJSet pool (issue #388)
+export type PoolSource = Schemas['PoolSourceOut'];
+export type PoolTrack = Schemas['PoolTrackOut'];
+export type PoolState = Schemas['PoolState'];
+export type PoolImportResult = Schemas['PoolImportResult'];
+export type PoolMutationResult = Schemas['PoolMutationResult'];
+export type PoolUrlPreview = Schemas['PoolUrlPreview'];
+export type PoolImportManualIn = Schemas['PoolImportManualIn'];
+export type BuilderPlaylists = Schemas['BuilderPlaylistsOut'];
+
+// WrzDJSet sharing (issue #398)
 export interface ShareTokenOut {
   share_token: string;
 }

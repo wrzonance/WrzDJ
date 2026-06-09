@@ -20,10 +20,18 @@ export default function BuilderWorkspace({ setId }: { setId: number }) {
   const [scrollRequest, setScrollRequest] = useState<ScrollRequest | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     api
       .getSetSlots(setId)
-      .then((rows) => setSlots(rows.map(slotViewFromApi)))
-      .catch(() => setSlots([]));
+      .then((rows) => {
+        if (!cancelled) setSlots(rows.map(slotViewFromApi));
+      })
+      .catch(() => {
+        if (!cancelled) setSlots([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [setId]);
 
   return (

@@ -86,7 +86,7 @@ describe('CurveTemplateEditorOverlay', () => {
 
   it('deletes a user template after confirm', () => {
     const onDelete = vi.fn();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
     renderOverlay({
       mode: 'edit',
       initial: { id: 4, name: 'Old', points: POINTS },
@@ -94,6 +94,7 @@ describe('CurveTemplateEditorOverlay', () => {
     });
     fireEvent.click(screen.getByTestId('template-delete'));
     expect(onDelete).toHaveBeenCalledWith(4);
+    confirmSpy.mockRestore();
   });
 
   it('escape closes the overlay', () => {

@@ -110,6 +110,8 @@ export default function CurvePanel({
   const windowsLoadedFor = useRef<number | null>(null);
   useEffect(() => {
     if (totalSec <= 0 || windowsLoadedFor.current === setId) return;
+    // Mark eagerly so in-flight fetches dedupe; roll back on failure so a
+    // transient error doesn't block the load for the rest of the session.
     windowsLoadedFor.current = setId;
     api
       .getVibeWindows(setId)
@@ -123,7 +125,10 @@ export default function CurvePanel({
           })),
         );
       })
-      .catch(() => setWindows([]));
+      .catch(() => {
+        if (windowsLoadedFor.current === setId) windowsLoadedFor.current = null;
+        setWindows([]);
+      });
   }, [setId, totalSec]);
 
   const persistWindows = useCallback(
@@ -155,7 +160,7 @@ export default function CurvePanel({
       /* optimistic; refetch on next load */
     });
     if (suggestReplacements && Math.abs(energy - slot.track.energy) >= REPLACE_PROMPT_THRESHOLD) {
-      // Anchor is in SVG viewbox coords; position near the pointer instead.
+      // Anchor arrives in viewport coords (converted in CurveEditor onUp).
       setPrompt({ slotIdx: idx, targetEnergy: energy, anchorX: anchor.x, anchorY: anchor.y });
     } else {
       setPrompt(null);

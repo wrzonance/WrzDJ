@@ -103,11 +103,17 @@ export default function CurveEditor({
     const onUp = () => {
       if (dragEnergy != null && onTargetDragEnd) {
         const b = blocks[dragIdx];
-        onTargetDragEnd(
-          dragIdx,
-          dragEnergy,
-          b ? { x: b.xMid, y: yOf(dragEnergy) } : { x: 0, y: 0 },
-        );
+        // Convert SVG-local coords to viewport coords — the popover positions
+        // with `position: fixed`.
+        const rect = svgRef.current?.getBoundingClientRect();
+        const anchor =
+          b && rect
+            ? {
+                x: rect.left + (b.xMid / Math.max(1, w)) * rect.width,
+                y: rect.top + (yOf(dragEnergy) / Math.max(1, h)) * rect.height,
+              }
+            : { x: 0, y: 0 };
+        onTargetDragEnd(dragIdx, dragEnergy, anchor);
       }
       setDragIdx(null);
       setDragEnergy(null);

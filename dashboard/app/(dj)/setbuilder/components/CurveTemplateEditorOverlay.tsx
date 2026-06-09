@@ -331,7 +331,12 @@ export default function CurveTemplateEditorOverlay({
                         disabled={isEndpoint}
                         onChange={(e) => {
                           const v = parseInt(e.target.value, 10) || 0;
-                          updatePoint(i, { t: Math.max(0, Math.min(1, v / 100)) });
+                          const raw = Math.max(0, Math.min(1, v / 100));
+                          // Clamp to neighbors — manual edits must respect the
+                          // same monotonic ordering the drag logic enforces.
+                          const minT = i > 0 ? points[i - 1].t + 0.005 : 0;
+                          const maxT = i < points.length - 1 ? points[i + 1].t - 0.005 : 1;
+                          updatePoint(i, { t: Math.max(minT, Math.min(maxT, raw)) });
                         }}
                         aria-label={`Point ${i + 1} position`}
                       />

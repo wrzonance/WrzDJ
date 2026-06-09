@@ -32,7 +32,9 @@ def _login(client, username, password):
 
 
 def _mk_set(client, auth_headers, name="Set"):
-    return client.post("/api/setbuilder/sets", json={"name": name}, headers=auth_headers).json()
+    resp = client.post("/api/setbuilder/sets", json={"name": name}, headers=auth_headers)
+    assert resp.status_code == 201, resp.json()
+    return resp.json()
 
 
 def _mk_slots(db, set_id, n):

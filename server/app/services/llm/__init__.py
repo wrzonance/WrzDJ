@@ -1,6 +1,49 @@
-"""Provider-agnostic LLM gateway package.
+"""LLM gateway — provider-agnostic dispatch for agentic features.
 
-WrzDJSet (and any future agentic feature) MUST call LLMs only through
-`app.services.llm.gateway`. Direct provider SDK imports are forbidden in
-feature code — provider/model identifiers are data, not imports.
+See docs/superpowers/specs/2026-05-24-admin-ai-oauth-design.md.
+
+Entrypoint: ``Gateway.dispatch(db, actor, request, *, purpose)`` →
+``ChatResponse``. Adapters live under :mod:`app.services.llm.adapters`.
 """
+
+from app.services.llm.base import (
+    ChatRequest,
+    ChatResponse,
+    ContentBlock,
+    LlmAdapter,
+    Message,
+    TokenUsage,
+    ToolCall,
+    ToolSpec,
+)
+from app.services.llm.exceptions import (
+    AuthInvalid,
+    LlmError,
+    NoLlmConfigured,
+    ProviderUnavailable,
+    QuotaCapReached,
+    QuotaExceeded,
+    RateLimited,
+    ToolTranslationError,
+)
+from app.services.llm.gateway import Gateway
+
+__all__ = [
+    "AuthInvalid",
+    "ChatRequest",
+    "ChatResponse",
+    "ContentBlock",
+    "Gateway",
+    "LlmAdapter",
+    "LlmError",
+    "Message",
+    "NoLlmConfigured",
+    "ProviderUnavailable",
+    "QuotaCapReached",
+    "QuotaExceeded",
+    "RateLimited",
+    "TokenUsage",
+    "ToolCall",
+    "ToolSpec",
+    "ToolTranslationError",
+]

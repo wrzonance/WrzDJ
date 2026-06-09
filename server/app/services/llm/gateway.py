@@ -1,118 +1,492 @@
-"""Provider-agnostic LLM gateway (Phase 0 interface stub).
+"""Gateway entrypoint — resolves a connector and dispatches to the adapter.
 
-This is the single call surface WrzDJSet codes against. The real gateway
-(OAuth multi-provider dispatch) ships in a parallel worktree; until it merges
-this stub delegates to the existing Anthropic path in
-``services/recommendation/llm_client.py``. Per exec-summary 6/9 ("slip
-insurance"), WrzDJSet is NOT blocked on the gateway merge.
+See spec §4.3.
 
-CRITICAL: no provider SDK is imported here. Model identifiers are plain
-strings resolved from a ``model_hint``. The actual provider call is isolated in
-``_raw_provider_call``, which delegates to the existing recommendation LLM
-client; the ``anthropic`` import lives only in that client module, never here.
+Resolution order:
+1. If ``actor`` is not ``None``:
+   a. The DJ's per-feature pin for ``purpose`` if set and the pinned connector
+      is active (``LlmFeaturePreference`` — issue #337). Skipped gracefully when
+      the pinned connector was deleted or is no longer active.
+   b. Else: the DJ's explicit default active connector if one is pinned
+      (``LlmConnector.is_default = True``) — issue #336.
+   c. Else: most-recently-used active connector for the DJ.
+2. Else: ``SystemSettings.llm_default_connector_id`` if set and active.
+3. Else: raise :class:`NoLlmConfigured`.
+
+Auto-fallback (issue #338):
+When ``ChatRequest.fallback_policy`` is not ``"none"`` and the resolved
+connector fails with a transient / credential error (rate-limited, auth
+expired, provider unavailable, quota exceeded), the gateway optionally falls
+back to the org-default connector. Retries are explicitly bounded — at most one
+same-connector retry (for ``retry_then_org_default``) plus one org-default
+attempt; the chain never loops.
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Literal
+from __future__ import annotations
 
-ModelHint = Literal["fast", "strong"]
-MODEL_HINTS: tuple[str, ...] = ("fast", "strong")
+import logging
+from collections.abc import AsyncIterator
+from time import monotonic
+
+from sqlalchemy import desc, nulls_last
+from sqlalchemy.orm import Session
+
+from app.core.time import utcnow
+from app.models.llm_connector import (
+    AUDIT_AUTH_INVALID_OBSERVED,
+    STATUS_ACTIVE,
+    STATUS_AUTH_INVALID,
+    LlmConnector,
+)
+from app.models.system_settings import SystemSettings
+from app.models.user import User
+from app.services.llm.base import ChatRequest, ChatResponse, ChatResponseChunk
+from app.services.llm.connector_storage import (
+    audit_event,
+    current_month_token_usage,
+    get_feature_preference,
+    log_call,
+)
+from app.services.llm.exceptions import (
+    AuthInvalid,
+    LlmError,
+    NoLlmConfigured,
+    ProviderUnavailable,
+    QuotaCapReached,
+    QuotaExceeded,
+    RateLimited,
+    ToolTranslationError,
+)
+from app.services.llm.registry import get_adapter_class
+
+logger = logging.getLogger(__name__)
+
+# Audit event type prefix for auto-fallback. The trigger reason is appended
+# (e.g. ``fallback_triggered:rate_limited``) so it fits the existing
+# ``llm_audit_event.event_type`` String(60) column without a migration. The
+# audit row's ``target_connector_id`` points at the fallback connector.
+AUDIT_FALLBACK_TRIGGERED = "fallback_triggered"
+
+# Maps fallback-eligible exception types → the trigger token recorded in the
+# audit event. Errors NOT in this map (ToolTranslationError, generic LlmError)
+# are never fallback-eligible: a different connector would hit the same problem.
+_FALLBACK_TRIGGERS: dict[type[LlmError], str] = {
+    RateLimited: "rate_limited",
+    AuthInvalid: "auth_invalid",
+    ProviderUnavailable: "provider_unavailable",
+    QuotaExceeded: "quota_exceeded",
+}
 
 
-@dataclass
-class GatewayResponse:
-    """Normalized LLM response: tool calls + free text, provider-agnostic."""
+def _fallback_trigger(exc: LlmError) -> str | None:
+    """Return the trigger token for a fallback-eligible error, else ``None``."""
+    for exc_type, token in _FALLBACK_TRIGGERS.items():
+        if isinstance(exc, exc_type):
+            return token
+    return None
 
-    tool_calls: list[dict[str, Any]] = field(default_factory=list)
-    text: str = ""
 
+def _enforce_monthly_cap(db: Session, connector: LlmConnector) -> None:
+    """Pre-flight: refuse dispatch when the connector's monthly cap is reached.
 
-def _resolve_model(model_hint: ModelHint) -> str:
-    """Map a coarse capability hint to a concrete model string.
+    No-op when the connector has no cap (``monthly_token_cap is None``).
+    Compares the current calendar month's summed token usage against the cap;
+    refuses when usage already meets or exceeds it. Raised BEFORE any provider
+    call, so no tokens are spent and editing the cap never disrupts an
+    already-dispatched (in-flight) call (issue #339).
 
-    Reads the configured Anthropic model for the temporary delegating impl.
-    When the OAuth gateway lands this becomes a provider-aware lookup driven
-    by SystemSettings; the hint contract ("fast" vs "strong") stays stable.
+    The error message is fixed and leaks no internals (usage totals, cap value,
+    connector id) — see the issue's security note.
     """
-    from app.core.config import get_settings
-
-    settings = get_settings()
-    # Phase 0: single-provider delegation. Both hints resolve to the
-    # configured model; the gateway epic differentiates fast/strong tiers.
-    return settings.anthropic_model
-
-
-async def _raw_provider_call(
-    *,
-    model: str,
-    system: str,
-    tools: list[dict[str, Any]],
-    tool_choice: dict[str, Any] | None,
-    messages: list[dict[str, Any]],
-    max_tokens: int,
-) -> Any:
-    """Isolated provider call. Delegates to the existing recommendation client.
-
-    The provider SDK import lives ONLY in services/recommendation/llm_client.py.
-    This module never imports a provider SDK (enforced by test).
-    """
-    from app.services.recommendation import llm_client
-
-    return await llm_client.raw_messages_create(
-        model=model,
-        system=system,
-        tools=tools,
-        tool_choice=tool_choice,
-        messages=messages,
-        max_tokens=max_tokens,
-    )
+    cap = connector.monthly_token_cap
+    if cap is None:
+        return
+    used = current_month_token_usage(db, connector.id)
+    if used >= cap:
+        raise QuotaCapReached("Your monthly token cap is reached. Contact your admin to raise it.")
 
 
-def _normalize(response: Any) -> GatewayResponse:
-    """Translate a provider response into the normalized GatewayResponse."""
-    text = ""
-    tool_calls: list[dict[str, Any]] = []
-    for block in getattr(response, "content", []) or []:
-        btype = getattr(block, "type", None)
-        if btype == "text":
-            text += getattr(block, "text", "")
-        elif btype == "tool_use":
-            tool_calls.append(
-                {"name": getattr(block, "name", ""), "input": getattr(block, "input", {})}
+class Gateway:
+    """Single dispatch entrypoint."""
+
+    @staticmethod
+    async def dispatch(
+        db: Session,
+        actor: User | None,
+        request: ChatRequest,
+        *,
+        purpose: str,
+    ) -> ChatResponse:
+        primary = _resolve_connector(db, actor, purpose=purpose)
+        actor_id = actor.id if actor else _system_actor_id(db, primary)
+
+        # Pre-flight: refuse if the resolved connector's monthly cap is reached
+        # (issue #339). Raised before any provider call — no tokens spent, and
+        # a cap edit never disrupts an in-flight call. QuotaCapReached is not in
+        # _FALLBACK_TRIGGERS, so it short-circuits to the caller (a cap is not a
+        # transient/credential error a different connector would dodge).
+        _enforce_monthly_cap(db, primary)
+
+        # Attempt 1: primary connector.
+        try:
+            return await _attempt(db, primary, request, purpose=purpose, actor_id=actor_id)
+        except LlmError as exc:
+            trigger = _fallback_trigger(exc)
+            policy = request.fallback_policy
+            if policy == "none" or trigger is None:
+                raise
+
+            # Attempt 2 (retry_then_org_default only): one bounded retry on the
+            # SAME connector before falling back.
+            if policy == "retry_then_org_default":
+                try:
+                    return await _attempt(db, primary, request, purpose=purpose, actor_id=actor_id)
+                except LlmError as retry_exc:
+                    retry_trigger = _fallback_trigger(retry_exc)
+                    if retry_trigger is None:
+                        raise
+                    # Carry the retry's trigger forward to the fallback step.
+                    exc, trigger = retry_exc, retry_trigger
+
+            # Attempt 3: org-default fallback (one bounded attempt).
+            fallback = _resolve_org_default(db)
+            if fallback is None or fallback.id == primary.id:
+                # No distinct org default to fall back to — surface the original.
+                raise
+
+            # The fallback connector may itself be capped — refuse rather than
+            # silently spending another DJ's budget (issue #339).
+            _enforce_monthly_cap(db, fallback)
+
+            logger.info(
+                "llm fallback: primary connector %s failed (%s); "
+                "falling back to org-default connector %s",
+                primary.id,
+                trigger,
+                fallback.id,
             )
-    return GatewayResponse(tool_calls=tool_calls, text=text)
+            # Record the fallback before attempting it, referencing the fallback
+            # connector + the trigger. Reuses the existing audit-write path.
+            audit_event(
+                db,
+                actor_user_id=actor_id,
+                target_connector_id=fallback.id,
+                event_type=f"{AUDIT_FALLBACK_TRIGGERED}:{trigger}",
+            )
+            db.commit()
+            # A failure here surfaces the fallback's own error (no further retry).
+            return await _attempt(db, fallback, request, purpose=purpose, actor_id=actor_id)
+
+    @staticmethod
+    async def stream(
+        db: Session,
+        actor: User | None,
+        request: ChatRequest,
+        *,
+        purpose: str,
+    ) -> AsyncIterator[ChatResponseChunk]:
+        """Stream a chat response, mirroring ``dispatch`` resolution + logging.
+
+        Connector resolution is identical to ``dispatch`` (per-feature pin → per-DJ
+        default → MRU → org default). Logging differs only in timing: a single counts-only
+        ``llm_call_log`` row is written when the stream finishes (success),
+        errors, or is cancelled by the consumer. Consumer cancellation (e.g. an
+        SSE client disconnect closing the generator) raises ``GeneratorExit``
+        into ``_attempt_stream``, whose ``finally`` writes the log and lets the
+        adapter's own ``async with`` cleanup close the upstream connection.
+
+        Auto-fallback (``ChatRequest.fallback_policy``) is intentionally NOT
+        applied to streaming: chunks have already been delivered to the consumer
+        by the time a mid-stream error surfaces, so transparently restarting on
+        another connector would corrupt the output. Streaming always fails fast.
+        """
+        primary = _resolve_connector(db, actor, purpose=purpose)
+        actor_id = actor.id if actor else _system_actor_id(db, primary)
+        inner = _attempt_stream(db, primary, request, purpose=purpose, actor_id=actor_id)
+        try:
+            async for chunk in inner:
+                yield chunk
+        finally:
+            # Closing the outer generator (e.g. SSE client disconnect) must
+            # synchronously close the inner one so ``_attempt_stream``'s finally
+            # fires now — writing the call log + closing the upstream connection —
+            # rather than waiting for garbage collection.
+            await inner.aclose()
 
 
-async def dispatch(
+async def _attempt(
+    db: Session,
+    connector: LlmConnector,
+    request: ChatRequest,
     *,
-    messages: list[dict[str, Any]],
-    tool: dict[str, Any] | None = None,
-    system: str = "",
-    model_hint: ModelHint = "fast",
-    max_tokens: int = 2048,
-) -> GatewayResponse:
-    """Dispatch a single LLM turn and return a normalized response.
+    purpose: str,
+    actor_id: int,
+) -> ChatResponse:
+    """Run a single adapter call against ``connector``, logging the outcome.
 
-    Args:
-        messages: provider-agnostic message list ([{"role", "content"}]).
-        tool: a single JSONSchema tool spec ({"name", "input_schema"});
-            when provided, the gateway forces tool use.
-        system: optional system prompt.
-        model_hint: "fast" (batch/chat) or "strong" (critique/grading).
-        max_tokens: response token cap.
-
-    Returns:
-        GatewayResponse with ``tool_calls`` and ``text``.
+    Raises the same typed exceptions the adapter raises after logging the call
+    (and, for auth failures, marking the connector + writing an audit event).
     """
-    model = _resolve_model(model_hint)
-    tools = [tool] if tool else []
-    tool_choice = {"type": "tool", "name": tool["name"]} if tool else None
-    response = await _raw_provider_call(
-        model=model,
-        system=system,
-        tools=tools,
-        tool_choice=tool_choice,
-        messages=messages,
-        max_tokens=max_tokens,
+    adapter_cls = get_adapter_class(connector.connector_type)
+    adapter = adapter_cls(connector)
+
+    started = monotonic()
+    try:
+        response = await adapter.chat(request)
+    except AuthInvalid:
+        connector.status = STATUS_AUTH_INVALID
+        connector.last_error = "auth_invalid"
+        db.commit()
+        log_call(
+            db,
+            connector_id=connector.id,
+            purpose=purpose,
+            status="auth_invalid",
+            latency_ms=int((monotonic() - started) * 1000),
+            error_code="401",
+        )
+        audit_event(
+            db,
+            actor_user_id=actor_id,
+            target_connector_id=connector.id,
+            event_type=AUDIT_AUTH_INVALID_OBSERVED,
+        )
+        db.commit()
+        raise
+    except RateLimited as exc:
+        log_call(
+            db,
+            connector_id=connector.id,
+            purpose=purpose,
+            status="rate_limited",
+            latency_ms=int((monotonic() - started) * 1000),
+            error_code=str(exc.retry_after_seconds or ""),
+        )
+        db.commit()
+        raise
+    except QuotaExceeded:
+        log_call(
+            db,
+            connector_id=connector.id,
+            purpose=purpose,
+            status="quota_exceeded",
+            latency_ms=int((monotonic() - started) * 1000),
+            error_code="402",
+        )
+        db.commit()
+        raise
+    except ProviderUnavailable as exc:
+        log_call(
+            db,
+            connector_id=connector.id,
+            purpose=purpose,
+            status="provider_unavailable",
+            latency_ms=int((monotonic() - started) * 1000),
+            error_code=type(exc).__name__,
+        )
+        db.commit()
+        raise
+    except ToolTranslationError:
+        log_call(
+            db,
+            connector_id=connector.id,
+            purpose=purpose,
+            status="tool_translation_error",
+            latency_ms=int((monotonic() - started) * 1000),
+            error_code="translation",
+        )
+        db.commit()
+        raise
+    except LlmError:
+        log_call(
+            db,
+            connector_id=connector.id,
+            purpose=purpose,
+            status="error",
+            latency_ms=int((monotonic() - started) * 1000),
+            error_code="llm_error",
+        )
+        db.commit()
+        raise
+
+    # success path
+    connector.last_used_at = utcnow()
+    connector.last_error = None
+    latency_ms = int((monotonic() - started) * 1000)
+    tokens_in = response.usage.prompt if response.usage else None
+    tokens_out = response.usage.completion if response.usage else None
+    log_call(
+        db,
+        connector_id=connector.id,
+        purpose=purpose,
+        status="ok",
+        latency_ms=latency_ms,
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
     )
-    return _normalize(response)
+    db.commit()
+    return response
+
+
+async def _attempt_stream(
+    db: Session,
+    connector: LlmConnector,
+    request: ChatRequest,
+    *,
+    purpose: str,
+    actor_id: int,
+) -> AsyncIterator[ChatResponseChunk]:
+    """Run a single adapter stream, logging exactly one outcome row.
+
+    The call log is written in a ``finally`` so it fires on success, on a typed
+    error, AND on consumer cancellation (``GeneratorExit`` raised into the
+    generator when the SSE client disconnects). The status reflects which path
+    fired; token counts come only from a terminal chunk's ``usage`` (never
+    prompt/completion content). Auth failures additionally mark the connector
+    ``auth_invalid`` and write an audit row, mirroring the non-stream ``_attempt``.
+    """
+    adapter_cls = get_adapter_class(connector.connector_type)
+    adapter = adapter_cls(connector)
+
+    started = monotonic()
+    status = "ok"
+    error_code: str | None = None
+    tokens_in: int | None = None
+    tokens_out: int | None = None
+    auth_failed = False
+
+    try:
+        async for chunk in adapter.stream(request):
+            if chunk.usage is not None:
+                tokens_in = chunk.usage.prompt
+                tokens_out = chunk.usage.completion
+            yield chunk
+    except GeneratorExit:
+        # Consumer disconnected — record as cancelled and re-raise so the
+        # adapter's own context-manager cleanup closes the upstream connection.
+        status = "cancelled"
+        error_code = "client_disconnect"
+        raise
+    except AuthInvalid:
+        status = "auth_invalid"
+        error_code = "401"
+        auth_failed = True
+        raise
+    except RateLimited as exc:
+        status = "rate_limited"
+        error_code = str(exc.retry_after_seconds or "")
+        raise
+    except QuotaExceeded:
+        status = "quota_exceeded"
+        error_code = "402"
+        raise
+    except ProviderUnavailable as exc:
+        status = "provider_unavailable"
+        error_code = type(exc).__name__
+        raise
+    except ToolTranslationError:
+        status = "tool_translation_error"
+        error_code = "translation"
+        raise
+    except LlmError:
+        status = "error"
+        error_code = "llm_error"
+        raise
+    finally:
+        latency_ms = int((monotonic() - started) * 1000)
+        if status == "ok":
+            connector.last_used_at = utcnow()
+            connector.last_error = None
+        if auth_failed:
+            connector.status = STATUS_AUTH_INVALID
+            connector.last_error = "auth_invalid"
+        log_call(
+            db,
+            connector_id=connector.id,
+            purpose=purpose,
+            status=status,
+            latency_ms=latency_ms,
+            tokens_in=tokens_in if status == "ok" else None,
+            tokens_out=tokens_out if status == "ok" else None,
+            error_code=error_code,
+        )
+        if auth_failed:
+            audit_event(
+                db,
+                actor_user_id=actor_id,
+                target_connector_id=connector.id,
+                event_type=AUDIT_AUTH_INVALID_OBSERVED,
+            )
+        db.commit()
+
+
+def _resolve_connector(db: Session, actor: User | None, *, purpose: str) -> LlmConnector:
+    if actor is not None:
+        # 0. Per-feature pin (issue #337) takes precedence over the per-DJ
+        #    default and MRU. Skipped gracefully when the pinned connector was
+        #    deleted (FK row gone) or is no longer active, so a stale/broken
+        #    pin never silently breaks the DJ — resolution falls through to the
+        #    per-DJ default / MRU / org-default chain below.
+        pref = get_feature_preference(db, user_id=actor.id, feature=purpose)
+        if pref is not None:
+            pinned_feature = db.get(LlmConnector, pref.connector_id)
+            if (
+                pinned_feature is not None
+                and pinned_feature.user_id == actor.id
+                and pinned_feature.status == STATUS_ACTIVE
+            ):
+                return pinned_feature
+
+        # Per-DJ explicit default takes precedence over MRU (issue #336).
+        # Falls through to MRU if the DJ hasn't pinned a default or the pinned
+        # connector is no longer active (so DJs aren't silently broken when
+        # their default's status flips to ``auth_invalid`` / ``disabled``).
+        pinned = (
+            db.query(LlmConnector)
+            .filter(
+                LlmConnector.user_id == actor.id,
+                LlmConnector.status == STATUS_ACTIVE,
+                LlmConnector.is_default == True,  # noqa: E712 (SQLAlchemy comparison)
+            )
+            .first()
+        )
+        if pinned is not None:
+            return pinned
+
+        row = (
+            db.query(LlmConnector)
+            .filter(
+                LlmConnector.user_id == actor.id,
+                LlmConnector.status == STATUS_ACTIVE,
+            )
+            .order_by(nulls_last(desc(LlmConnector.last_used_at)), desc(LlmConnector.id))
+            .first()
+        )
+        if row is not None:
+            return row
+
+    default = _resolve_org_default(db)
+    if default is not None:
+        return default
+
+    raise NoLlmConfigured("No active LLM connector for this DJ and no system default configured")
+
+
+def _resolve_org_default(db: Session) -> LlmConnector | None:
+    """Return the active org-default connector, or ``None`` if unset/inactive."""
+    settings = db.query(SystemSettings).first()
+    if settings and settings.llm_default_connector_id:
+        default = db.get(LlmConnector, settings.llm_default_connector_id)
+        if default is not None and default.status == STATUS_ACTIVE:
+            return default
+    return None
+
+
+def _system_actor_id(db: Session, connector: LlmConnector) -> int:
+    """Best-effort actor id for system-context audit rows.
+
+    When the gateway is called with ``actor=None`` (system context), audit
+    events should still record an actor; fall back to the connector's owner so
+    the trail is traceable.
+    """
+    return connector.user_id

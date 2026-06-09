@@ -520,6 +520,127 @@ describe('ApiClient', () => {
     });
   });
 
+  describe('LLM Gateway API', () => {
+    beforeEach(() => {
+      api.setToken('test-token');
+    });
+
+    it('lists per-DJ connectors', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          {
+            id: 1,
+            user_id: 42,
+            connector_type: 'openai_apikey',
+            display_name: 'My OpenAI',
+            status: 'active',
+            base_url_plain: null,
+            model_hint: 'gpt-5-mini',
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-01T00:00:00Z',
+            last_used_at: null,
+            last_error: null,
+          },
+        ],
+      });
+
+      const result = await api.listLlmConnectors();
+      expect(result).toHaveLength(1);
+      expect(result[0].connector_type).toBe('openai_apikey');
+    });
+
+    it('creates a connector via POST', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 2,
+          user_id: 42,
+          connector_type: 'openai_compatible',
+          display_name: 'Hermes',
+          status: 'active',
+          base_url_plain: 'http://127.0.0.1:11434/v1',
+          model_hint: null,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+          last_used_at: null,
+          last_error: null,
+        }),
+      });
+
+      const result = await api.createLlmConnector({
+        connector_type: 'openai_compatible',
+        display_name: 'Hermes',
+        base_url: 'http://127.0.0.1:11434/v1',
+        bearer: null,
+        api_key: null,
+        model_hint: null,
+      });
+      expect(result.id).toBe(2);
+
+      const [, options] = mockFetch.mock.calls[0];
+      expect(options.method).toBe('POST');
+    });
+
+    it('updates admin LLM policy via PATCH', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          llm_apikey_connectors_enabled: false,
+          llm_compatible_connector_enabled: true,
+          llm_default_connector_id: null,
+        }),
+      });
+      const result = await api.updateAdminLlmPolicy({
+        llm_apikey_connectors_enabled: false,
+        llm_compatible_connector_enabled: null,
+        llm_default_connector_id: null,
+        clear_default: true,
+      });
+      expect(result.llm_apikey_connectors_enabled).toBe(false);
+
+      const [, options] = mockFetch.mock.calls[0];
+      expect(options.method).toBe('PATCH');
+    });
+
+    it('fetches admin usage with days param', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ days: 30, rows: [] }),
+      });
+
+      await api.getAdminLlmUsage(30);
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/admin/llm/usage?days=30');
+    });
+
+    it('sets a connector monthly cap via PATCH', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 7, monthly_token_cap: 5000, current_month_tokens: 200 }),
+      });
+
+      const result = await api.setAdminLlmConnectorCap(7, 5000);
+      expect(result.monthly_token_cap).toBe(5000);
+
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/admin/llm/connectors/7/cap');
+      expect(options.method).toBe('PATCH');
+      expect(JSON.parse(options.body)).toEqual({ monthly_token_cap: 5000 });
+    });
+
+    it('clears a connector cap by passing null', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 7, monthly_token_cap: null, current_month_tokens: 0 }),
+      });
+
+      await api.setAdminLlmConnectorCap(7, null);
+      const [, options] = mockFetch.mock.calls[0];
+      expect(JSON.parse(options.body)).toEqual({ monthly_token_cap: null });
+    });
+  });
+
   describe('Activity Log API', () => {
     beforeEach(() => {
       api.setToken('test-token');
@@ -2290,6 +2411,107 @@ describe('ApiClient', () => {
         name: 'NicknameConflictError',
         claimed: false,
       });
+    });
+  });
+
+  describe('streamConnectorTest', () => {
+    it('parses SSE data frames and invokes onChunk per frame', async () => {
+      const sse =
+        'data: {"text_delta":"Hi","done":false}\n\n' +
+        'data: {"text_delta":" there","done":false}\n\n' +
+        'data: {"text_delta":"","stop_reason":"end_turn","done":true}\n\n';
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(sse));
+          controller.close();
+        },
+      });
+      const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(stream, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      );
+
+      api.setToken('jwt-token');
+      const chunks: Array<{ text_delta?: string; done?: boolean }> = [];
+      await api.streamConnectorTest(7, (c) => chunks.push(c));
+
+      expect(chunks.map((c) => c.text_delta).join('')).toBe('Hi there');
+      expect(chunks.at(-1)?.done).toBe(true);
+
+      const init = fetchMock.mock.calls[0][1] as RequestInit;
+      const headers = new Headers(init.headers);
+      expect(headers.get('Authorization')).toBe('Bearer jwt-token');
+      expect(init.method).toBe('POST');
+    });
+
+    it('parses CRLF-delimited SSE frames, including event: error (#354)', async () => {
+      // A spec-compliant server or proxy may frame SSE with CRLF (\r\n\r\n)
+      // rather than LF. The parser must split frames and lines on either, or it
+      // silently drops every frame — including the typed `event: error`.
+      const sse =
+        'data: {"text_delta":"Hi","done":false}\r\n\r\n' +
+        'event: error\r\ndata: {"code":"ProviderUnavailable"}\r\n\r\n';
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(sse));
+          controller.close();
+        },
+      });
+      vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(stream, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      );
+
+      api.setToken('jwt-token');
+      const chunks: Array<{ text_delta?: string }> = [];
+      await expect(
+        api.streamConnectorTest(7, (c) => chunks.push(c)),
+      ).rejects.toThrowError(/ProviderUnavailable/);
+      // The CRLF-framed data frame before the error was still parsed.
+      expect(chunks.map((c) => c.text_delta).join('')).toBe('Hi');
+    });
+
+    it('throws ApiError on non-OK response', async () => {
+      vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response('nope', { status: 500 }),
+      );
+      api.setToken('jwt-token');
+      await expect(api.streamConnectorTest(7, () => {})).rejects.toBeInstanceOf(ApiError);
+    });
+
+    it('surfaces an SSE event: error frame as a thrown ApiError (#379)', async () => {
+      // The backend emits `event: error` + a sanitised `{code}` data line for
+      // typed gateway failures; the consumer must reject, not swallow it.
+      const sse =
+        'data: {"text_delta":"partial","done":false}\n\n' +
+        'event: error\ndata: {"code":"ProviderUnavailable"}\n\n';
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(sse));
+          controller.close();
+        },
+      });
+      vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(stream, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      );
+
+      api.setToken('jwt-token');
+      const chunks: Array<{ text_delta?: string }> = [];
+      await expect(
+        api.streamConnectorTest(7, (c) => chunks.push(c)),
+      ).rejects.toThrowError(/ProviderUnavailable/);
+      // The leading valid chunk was still delivered before the error surfaced.
+      expect(chunks.map((c) => c.text_delta).join('')).toBe('partial');
     });
   });
 

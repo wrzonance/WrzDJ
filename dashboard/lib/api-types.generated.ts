@@ -169,6 +169,149 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/llm/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Audit Events
+         * @description Browse the LLM audit trail (admin-only).
+         *
+         *     Read-only view over ``llm_audit_event`` with optional filters and
+         *     pagination. The target connector's display name is joined in — credential
+         *     material is never read or returned.
+         */
+        get: operations["list_audit_events_api_admin_llm_audit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/llm/audit.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Audit Events Csv
+         * @description Export the (filtered) audit trail as CSV (admin-only).
+         *
+         *     Honors the same filters as ``GET /audit``. Capped at
+         *     ``_AUDIT_CSV_ROW_CAP`` rows to avoid unbounded streaming. Columns:
+         *     timestamp, actor, event_type, target_connector, notes. Never includes
+         *     credential material.
+         */
+        get: operations["export_audit_events_csv_api_admin_llm_audit_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/llm/connectors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Connectors Admin */
+        get: operations["list_connectors_admin_api_admin_llm_connectors_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/llm/connectors/{connector_id}/cap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set Connector Cap Admin
+         * @description Set or clear a connector's monthly token cap (admin-only, issue #339).
+         *
+         *     ``monthly_token_cap = null`` clears the cap (unlimited). The change is
+         *     pre-flight only: an in-flight gateway call already past its cap check is
+         *     unaffected. Pydantic enforces the non-negative bound (``ge=0``); the
+         *     service layer re-validates defensively.
+         */
+        patch: operations["set_connector_cap_admin_api_admin_llm_connectors__connector_id__cap_patch"];
+        trace?: never;
+    };
+    "/api/admin/llm/connectors/{connector_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke Connector Admin */
+        post: operations["revoke_connector_admin_api_admin_llm_connectors__connector_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/llm/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Policy */
+        get: operations["get_policy_api_admin_llm_policy_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Patch Policy */
+        patch: operations["patch_policy_api_admin_llm_policy_patch"];
+        trace?: never;
+    };
+    "/api/admin/llm/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Usage */
+        get: operations["get_usage_api_admin_llm_usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/settings": {
         parameters: {
             query?: never;
@@ -1299,6 +1442,248 @@ export interface paths {
         patch: operations["assign_kiosk_api_kiosk__kiosk_id__assign_patch"];
         trace?: never;
     };
+    "/api/llm/connectors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Connectors */
+        get: operations["list_connectors_api_llm_connectors_get"];
+        put?: never;
+        /** Create Connector Endpoint */
+        post: operations["create_connector_endpoint_api_llm_connectors_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/llm/connectors/{connector_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Connector Endpoint */
+        delete: operations["delete_connector_endpoint_api_llm_connectors__connector_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Connector Metadata */
+        patch: operations["update_connector_metadata_api_llm_connectors__connector_id__patch"];
+        trace?: never;
+    };
+    "/api/llm/connectors/{connector_id}/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Rotate Connector Credentials */
+        put: operations["rotate_connector_credentials_api_llm_connectors__connector_id__credentials_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/llm/connectors/{connector_id}/default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set Connector As Default
+         * @description Pin this connector as the DJ's explicit default (issue #336).
+         *
+         *     Atomically clears any other defaults the DJ owns before flipping this row,
+         *     so the partial unique index never sees two True rows for the same user.
+         *
+         *     Setting a disabled / auth_invalid connector as default is rejected with 400
+         *     so DJs don't silently break their own routing — a default that the gateway
+         *     would skip anyway is a footgun.
+         */
+        post: operations["set_connector_as_default_api_llm_connectors__connector_id__default_post"];
+        /**
+         * Unset Connector As Default
+         * @description Clear the explicit default — gateway resolution falls back to MRU.
+         */
+        delete: operations["unset_connector_as_default_api_llm_connectors__connector_id__default_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/llm/connectors/{connector_id}/stream-test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stream Test Connector
+         * @description Stream a short sentence through the connector as ``text/event-stream``.
+         *
+         *     Validates ownership up front (404 for connectors the DJ doesn't own — never
+         *     leaks existence). Each SSE ``data:`` frame is a JSON ``ChatResponseChunk``.
+         *     On a typed gateway error an ``event: error`` frame is emitted carrying only a
+         *     sanitised code (never the upstream payload), then the stream ends. Client
+         *     disconnect cancels the upstream provider request — the gateway generator's
+         *     ``finally`` writes the counts-only call log and closes the adapter.
+         *
+         *     Unlike the public guest SSE stream (``api/sse.py``), this endpoint is
+         *     authenticated, rate-limited (10/min), and strictly bounded (max 64 output
+         *     tokens), so it holds the request-scoped DB session for the brief stream
+         *     lifetime rather than opening a detached ``SessionLocal`` — the pool-pinning
+         *     concern that drove ``api/sse.py``'s pattern applies to unauthenticated,
+         *     indefinitely-open guest connections, not a short admin health probe.
+         */
+        post: operations["stream_test_connector_api_llm_connectors__connector_id__stream_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/llm/connectors/{connector_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Connector
+         * @description Run a health check and return a sanitised result.
+         *
+         *     Behaviour identical to the background monitor (issue #340), so the
+         *     ``last_health_check_at`` / ``last_health_check_status`` columns and audit
+         *     rows are written the same way on every invocation regardless of trigger
+         *     source. See ``services/llm/health_check.py`` for the shared helper.
+         */
+        post: operations["test_connector_api_llm_connectors__connector_id__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/llm/feature-preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Feature Preferences
+         * @description List the DJ's per-feature connector pins (issue #337).
+         */
+        get: operations["list_feature_preferences_api_llm_feature_preferences_get"];
+        put?: never;
+        /**
+         * Set Feature Preference Endpoint
+         * @description Pin (or re-pin) a connector to a feature for the current DJ.
+         *
+         *     Validates connector ownership server-side (404 for IDs the DJ doesn't own,
+         *     so another DJ's connector existence is never leaked) and rejects pinning a
+         *     non-active connector (400) — the gateway would skip it anyway, so silently
+         *     accepting it is a footgun.
+         */
+        post: operations["set_feature_preference_endpoint_api_llm_feature_preferences_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/llm/feature-preferences/{feature}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Clear Feature Preference Endpoint
+         * @description Clear the DJ's pin for ``feature`` (no-op if unset). Returns the new list.
+         */
+        delete: operations["clear_feature_preference_endpoint_api_llm_feature_preferences__feature__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/llm/openrouter/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Openrouter Models
+         * @description Return the OpenRouter model catalogue for the model-hint dropdown.
+         *
+         *     Served from a process-wide TTL cache (refreshed hourly). The OpenRouter
+         *     ``/models`` endpoint is public, so no connector credentials are required.
+         *     Returns an empty list if the catalogue is unavailable — the frontend then
+         *     falls back to a free-text model input.
+         */
+        get: operations["list_openrouter_models_api_llm_openrouter_models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/llm/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Dj Policy
+         * @description DJ-readable connector policy (non-sensitive subset).
+         *
+         *     The settings/ai page consumes this to fail *closed* — hiding connector
+         *     types the admin has disabled rather than showing every provider and only
+         *     discovering the block when the create call returns 403. Admin-only fields
+         *     (e.g. ``llm_default_connector_id``) are intentionally excluded.
+         */
+        get: operations["get_dj_policy_api_llm_policy_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/collect/{code}": {
         parameters: {
             query?: never;
@@ -1701,6 +2086,14 @@ export interface paths {
          *     unauthenticated DoS (unlimited long-lived connections exhausting FDs)
          *     and passive eavesdropping via 6-char event-code brute force.
          *
+         *     POOL SAFETY (issue #356): the one-shot existence/auth check runs inside a
+         *     short-lived ``with SessionLocal()`` block whose pooled connection is
+         *     returned BEFORE the EventSourceResponse is returned. An EventSource
+         *     connection can stay open indefinitely, so we must NOT hold a
+         *     request-scoped ``get_db`` session across the stream lifetime — doing so
+         *     pinned one pooled connection per open stream and exhausted the QueuePool
+         *     (size 5 + overflow 10 = 15 connections) under modest guest load.
+         *
          *     Event types:
          *     - request_created: New request submitted
          *     - request_status_changed: Request status update
@@ -2019,6 +2412,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setbuilder/sets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Sets
+         * @description List the current DJ's sets, newest first.
+         */
+        get: operations["list_sets_api_setbuilder_sets_get"];
+        put?: never;
+        /**
+         * Create Set
+         * @description Create a new empty set owned by the current DJ.
+         */
+        post: operations["create_set_api_setbuilder_sets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Set
+         * @description Get one of the current DJ's sets, or 404.
+         */
+        get: operations["get_set_api_setbuilder_sets__set_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Set
+         * @description Delete one of the current DJ's sets, or 404.
+         */
+        delete: operations["delete_set_api_setbuilder_sets__set_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename Set
+         * @description Rename one of the current DJ's sets, or 404.
+         */
+        patch: operations["rename_set_api_setbuilder_sets__set_id__patch"];
+        trace?: never;
+    };
     "/api/tidal/auth/cancel": {
         parameters: {
             query?: never;
@@ -2288,6 +2733,94 @@ export interface components {
             /** Source */
             source: string;
         };
+        /**
+         * AdminAuditOut
+         * @description Paginated audit-event browse response.
+         */
+        AdminAuditOut: {
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Rows */
+            rows: components["schemas"]["AuditEventRow"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * AdminConnectorCapPatch
+         * @description Admin set/clear a connector's monthly token cap (issue #339).
+         *
+         *     ``monthly_token_cap`` is **required** so intent is always explicit: an
+         *     integer sets the cap, ``null`` clears it (unlimited). Omitting the field
+         *     (an empty ``{}`` body) is rejected with 422 rather than silently treated as
+         *     ``null`` — that would let an accidental no-field PATCH wipe a configured
+         *     cap. A non-null value must be a non-negative integer; ``0`` means "no
+         *     further calls this month". The upper bound is a sanity ceiling, not a
+         *     billing limit.
+         */
+        AdminConnectorCapPatch: {
+            /** Monthly Token Cap */
+            monthly_token_cap: number | null;
+        };
+        /**
+         * AdminConnectorOut
+         * @description Admin view — adds the DJ's username for display.
+         */
+        AdminConnectorOut: {
+            /** Base Url Plain */
+            base_url_plain: string | null;
+            /**
+             * Connector Type
+             * @enum {string}
+             */
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey" | "xai_apikey" | "bedrock" | "azure_openai" | "gemini_apikey";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Current Month Tokens
+             * @default 0
+             */
+            current_month_tokens: number;
+            /** Display Name */
+            display_name: string;
+            /** Dj Username */
+            dj_username: string;
+            /** Id */
+            id: number;
+            /**
+             * Is Default
+             * @default false
+             */
+            is_default: boolean;
+            /** Last Error */
+            last_error: string | null;
+            /** Last Health Check At */
+            last_health_check_at: string | null;
+            /** Last Health Check Status */
+            last_health_check_status: ("ok" | "auth_invalid" | "rate_limited" | "quota_exceeded" | "provider_unavailable" | "error") | null;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Model Hint */
+            model_hint: string | null;
+            /** Monthly Token Cap */
+            monthly_token_cap: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "auth_invalid" | "disabled";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** User Id */
+            user_id: number;
+        };
         /** AdminEventOut */
         AdminEventOut: {
             /** Code */
@@ -2319,6 +2852,40 @@ export interface components {
              * @default 0
              */
             request_count: number;
+        };
+        /** AdminPolicyOut */
+        AdminPolicyOut: {
+            /** Llm Apikey Connectors Enabled */
+            llm_apikey_connectors_enabled: boolean;
+            /** Llm Call Log Retention Days */
+            llm_call_log_retention_days: number;
+            /** Llm Compatible Connector Enabled */
+            llm_compatible_connector_enabled: boolean;
+            /** Llm Default Connector Id */
+            llm_default_connector_id: number | null;
+        };
+        /** AdminPolicyPatch */
+        AdminPolicyPatch: {
+            /**
+             * Clear Default
+             * @default false
+             */
+            clear_default: boolean;
+            /** Llm Apikey Connectors Enabled */
+            llm_apikey_connectors_enabled?: boolean | null;
+            /** Llm Call Log Retention Days */
+            llm_call_log_retention_days?: number | null;
+            /** Llm Compatible Connector Enabled */
+            llm_compatible_connector_enabled?: boolean | null;
+            /** Llm Default Connector Id */
+            llm_default_connector_id?: number | null;
+        };
+        /** AdminUsageOut */
+        AdminUsageOut: {
+            /** Days */
+            days: number;
+            /** Rows */
+            rows: components["schemas"]["UsageRow"][];
         };
         /** AdminUserCreate */
         AdminUserCreate: {
@@ -2361,6 +2928,34 @@ export interface components {
             password?: string | null;
             /** Role */
             role?: string | null;
+        };
+        /**
+         * AuditEventRow
+         * @description A single audit-trail row with joined display labels.
+         *
+         *     Never includes credential material — only the target connector's
+         *     human-readable display name (joined from ``llm_connectors``).
+         */
+        AuditEventRow: {
+            /** Actor User Id */
+            actor_user_id: number;
+            /** Actor Username */
+            actor_username: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Event Type */
+            event_type: string;
+            /** Id */
+            id: number;
+            /** Notes */
+            notes: string | null;
+            /** Target Connector Display Name */
+            target_connector_display_name: string | null;
+            /** Target Connector Id */
+            target_connector_id: number | null;
         };
         /**
          * BeatportEventSettings
@@ -2806,6 +3401,156 @@ export interface components {
             request_id: number;
         };
         /**
+         * ConnectorCreate
+         * @description Provider-agnostic create payload.
+         *
+         *     Field requirements vary by ``connector_type``:
+         *
+         *     - ``openai_apikey`` / ``anthropic_apikey`` / ``openrouter_apikey`` /
+         *       ``xai_apikey`` / ``gemini_apikey``: ``api_key`` required; ``base_url``
+         *       and ``bearer`` are ignored.
+         *     - ``openai_compatible``: ``base_url`` required; ``bearer`` optional;
+         *       ``api_key`` is ignored.
+         *     - ``bedrock``: ``aws_access_key_id``, ``aws_secret_access_key``,
+         *       ``aws_region`` and ``aws_model_id`` required; other fields ignored.
+         *     - ``azure_openai``: ``api_key``, ``azure_resource_name``,
+         *       ``azure_deployment_name`` and ``azure_api_version`` all required.
+         *
+         *     The combination is enforced by :meth:`_require_credentials_for_type`.
+         *     See ``build_create_payload`` in ``services/llm/connector_storage.py``
+         *     for the full validation flow (including key shape checks).
+         */
+        ConnectorCreate: {
+            /** Api Key */
+            api_key?: string | null;
+            /** Aws Access Key Id */
+            aws_access_key_id?: string | null;
+            /** Aws Model Id */
+            aws_model_id?: string | null;
+            /** Aws Region */
+            aws_region?: string | null;
+            /** Aws Secret Access Key */
+            aws_secret_access_key?: string | null;
+            /** Azure Api Version */
+            azure_api_version?: string | null;
+            /** Azure Deployment Name */
+            azure_deployment_name?: string | null;
+            /** Azure Resource Name */
+            azure_resource_name?: string | null;
+            /** Base Url */
+            base_url?: string | null;
+            /** Bearer */
+            bearer?: string | null;
+            /**
+             * Connector Type
+             * @enum {string}
+             */
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey" | "xai_apikey" | "bedrock" | "azure_openai" | "gemini_apikey";
+            /** Display Name */
+            display_name: string;
+            /** Model Hint */
+            model_hint?: string | null;
+        };
+        /**
+         * ConnectorCredentialsRotate
+         * @description Rotation payload — at least one credential field must be supplied.
+         *
+         *     Field semantics mirror :class:`ConnectorCreate`. The actual field required
+         *     depends on the connector being rotated (validated in ``rotate_credentials``).
+         */
+        ConnectorCredentialsRotate: {
+            /** Api Key */
+            api_key?: string | null;
+            /** Aws Access Key Id */
+            aws_access_key_id?: string | null;
+            /** Aws Model Id */
+            aws_model_id?: string | null;
+            /** Aws Region */
+            aws_region?: string | null;
+            /** Aws Secret Access Key */
+            aws_secret_access_key?: string | null;
+            /** Azure Api Version */
+            azure_api_version?: string | null;
+            /** Azure Deployment Name */
+            azure_deployment_name?: string | null;
+            /** Azure Resource Name */
+            azure_resource_name?: string | null;
+            /** Base Url */
+            base_url?: string | null;
+            /** Bearer */
+            bearer?: string | null;
+        };
+        /**
+         * ConnectorOut
+         * @description Public-safe connector view — never includes the credential blob.
+         */
+        ConnectorOut: {
+            /** Base Url Plain */
+            base_url_plain: string | null;
+            /**
+             * Connector Type
+             * @enum {string}
+             */
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey" | "xai_apikey" | "bedrock" | "azure_openai" | "gemini_apikey";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Display Name */
+            display_name: string;
+            /** Id */
+            id: number;
+            /**
+             * Is Default
+             * @default false
+             */
+            is_default: boolean;
+            /** Last Error */
+            last_error: string | null;
+            /** Last Health Check At */
+            last_health_check_at: string | null;
+            /** Last Health Check Status */
+            last_health_check_status: ("ok" | "auth_invalid" | "rate_limited" | "quota_exceeded" | "provider_unavailable" | "error") | null;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Model Hint */
+            model_hint: string | null;
+            /** Monthly Token Cap */
+            monthly_token_cap: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "auth_invalid" | "disabled";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** User Id */
+            user_id: number;
+        };
+        /**
+         * ConnectorPatch
+         * @description Metadata-only patch (no credential rotation here).
+         */
+        ConnectorPatch: {
+            /** Display Name */
+            display_name?: string | null;
+            /** Model Hint */
+            model_hint?: string | null;
+        };
+        /** ConnectorTestResult */
+        ConnectorTestResult: {
+            /** Error Code */
+            error_code: string | null;
+            /** Message */
+            message: string | null;
+            /** Ok */
+            ok: boolean;
+        };
+        /**
          * DisplaySettingsResponse
          * @description Response for display settings update.
          */
@@ -2846,6 +3591,28 @@ export interface components {
             now_playing_hidden?: boolean | null;
             /** Requests Open */
             requests_open?: boolean | null;
+        };
+        /**
+         * DjPolicyOut
+         * @description DJ-readable connector policy — the non-sensitive subset of the admin
+         *     policy surface.
+         *
+         *     Lets the settings/ai page fail *closed*: a normal DJ can learn which
+         *     connector types the admin has enabled (so disallowed providers are hidden
+         *     in the picker) without exposing admin-only fields such as
+         *     ``llm_default_connector_id``.
+         *
+         *     ``allowed_connector_types`` is the pre-computed set of connector types a DJ
+         *     may create given the two toggles, so the frontend doesn't have to hard-code
+         *     the api-key-vs-compatible mapping.
+         */
+        DjPolicyOut: {
+            /** Allowed Connector Types */
+            allowed_connector_types: ("openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey" | "xai_apikey" | "bedrock" | "azure_openai" | "gemini_apikey")[];
+            /** Llm Apikey Connectors Enabled */
+            llm_apikey_connectors_enabled: boolean;
+            /** Llm Compatible Connector Enabled */
+            llm_compatible_connector_enabled: boolean;
         };
         /** EnrichPreviewItem */
         EnrichPreviewItem: {
@@ -3011,6 +3778,42 @@ export interface components {
             frictionless_join?: boolean | null;
             /** Name */
             name?: string | null;
+        };
+        /**
+         * FeaturePreferenceOut
+         * @description A single per-feature connector pin (issue #337).
+         */
+        FeaturePreferenceOut: {
+            /** Connector Id */
+            connector_id: number;
+            /**
+             * Feature
+             * @enum {string}
+             */
+            feature: "recommendation" | "set_builder";
+        };
+        /**
+         * FeaturePreferenceSet
+         * @description Set/change a per-feature pin. Upsert — replaces any existing pin.
+         */
+        FeaturePreferenceSet: {
+            /** Connector Id */
+            connector_id: number;
+            /**
+             * Feature
+             * @enum {string}
+             */
+            feature: "recommendation" | "set_builder";
+        };
+        /**
+         * FeaturePreferencesListOut
+         * @description All of a DJ's per-feature pins + the catalogue of pinnable features.
+         */
+        FeaturePreferencesListOut: {
+            /** Known Features */
+            known_features: ("recommendation" | "set_builder")[];
+            /** Preferences */
+            preferences: components["schemas"]["FeaturePreferenceOut"][];
         };
         /** GuestNowPlaying */
         GuestNowPlaying: {
@@ -3767,6 +4570,102 @@ export interface components {
             catalog_search: components["schemas"]["CapabilityStatus"];
             playlist_sync: components["schemas"]["CapabilityStatus"];
         };
+        /**
+         * SetCreate
+         * @description Body for creating a new (empty) set.
+         */
+        SetCreate: {
+            /** Event Id */
+            event_id?: number | null;
+            /** Name */
+            name: string;
+        };
+        /**
+         * SetDetail
+         * @description Full set record (Phase 0: no slot/curve expansion yet).
+         */
+        SetDetail: {
+            /** Bpm Ceiling */
+            bpm_ceiling: number | null;
+            /** Bpm Floor */
+            bpm_floor: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Event Id */
+            event_id: number | null;
+            /** Exported At */
+            exported_at: string | null;
+            /** Id */
+            id: number;
+            /** Key Strictness */
+            key_strictness: number;
+            /** Name */
+            name: string;
+            /**
+             * Sharing Mode
+             * @enum {string}
+             */
+            sharing_mode: "private" | "invite_only";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "locked" | "exported";
+            /** Target Duration Sec */
+            target_duration_sec: number | null;
+            /** Tidal Playlist Id */
+            tidal_playlist_id: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Vibe Theme */
+            vibe_theme: string | null;
+        };
+        /**
+         * SetRename
+         * @description Body for renaming a set.
+         */
+        SetRename: {
+            /** Name */
+            name: string;
+        };
+        /**
+         * SetSummary
+         * @description Set list item (no children).
+         */
+        SetSummary: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Event Id */
+            event_id: number | null;
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /**
+             * Sharing Mode
+             * @enum {string}
+             */
+            sharing_mode: "private" | "invite_only";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "locked" | "exported";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
         /** StatusMessageResponse */
         StatusMessageResponse: {
             /** Message */
@@ -3994,6 +4893,30 @@ export interface components {
             tidal_collection_bidirectional?: boolean | null;
             /** Tidal Sync Enabled */
             tidal_sync_enabled?: boolean | null;
+        };
+        /** UsageRow */
+        UsageRow: {
+            /** Connector Id */
+            connector_id: number;
+            /**
+             * Connector Type
+             * @enum {string}
+             */
+            connector_type: "openai_apikey" | "anthropic_apikey" | "openai_compatible" | "openrouter_apikey" | "xai_apikey" | "bedrock" | "azure_openai" | "gemini_apikey";
+            /** Display Name */
+            display_name: string;
+            /** Dj Username */
+            dj_username: string;
+            /** Error Count */
+            error_count: number;
+            /** Error Rate */
+            error_rate: number;
+            /** Total Calls */
+            total_calls: number;
+            /** Total Tokens In */
+            total_tokens_in: number;
+            /** Total Tokens Out */
+            total_tokens_out: number;
         };
         /** UserOut */
         UserOut: {
@@ -4390,6 +5313,246 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IntegrationCheckResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_audit_events_api_admin_llm_audit_get: {
+        parameters: {
+            query?: {
+                event_type?: string | null;
+                actor_user_id?: number | null;
+                target_connector_id?: number | null;
+                days?: number;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminAuditOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_audit_events_csv_api_admin_llm_audit_csv_get: {
+        parameters: {
+            query?: {
+                event_type?: string | null;
+                actor_user_id?: number | null;
+                target_connector_id?: number | null;
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV export of the filtered audit trail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_connectors_admin_api_admin_llm_connectors_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminConnectorOut"][];
+                };
+            };
+        };
+    };
+    set_connector_cap_admin_api_admin_llm_connectors__connector_id__cap_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminConnectorCapPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminConnectorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_connector_admin_api_admin_llm_connectors__connector_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminConnectorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_policy_api_admin_llm_policy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminPolicyOut"];
+                };
+            };
+        };
+    };
+    patch_policy_api_admin_llm_policy_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminPolicyPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminPolicyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_usage_api_admin_llm_usage_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUsageOut"];
                 };
             };
             /** @description Validation Error */
@@ -6484,6 +7647,455 @@ export interface operations {
             };
         };
     };
+    list_connectors_api_llm_connectors_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorOut"][];
+                };
+            };
+        };
+    };
+    create_connector_endpoint_api_llm_connectors_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_connector_endpoint_api_llm_connectors__connector_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_connector_metadata_api_llm_connectors__connector_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rotate_connector_credentials_api_llm_connectors__connector_id__credentials_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorCredentialsRotate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_connector_as_default_api_llm_connectors__connector_id__default_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorOut"];
+                };
+            };
+            /** @description Connector cannot be set as default (e.g. disabled or auth_invalid). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Connector not found for current user. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unset_connector_as_default_api_llm_connectors__connector_id__default_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorOut"];
+                };
+            };
+            /** @description Connector not found for current user. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stream_test_connector_api_llm_connectors__connector_id__stream_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_connector_api_llm_connectors__connector_id__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorTestResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_feature_preferences_api_llm_feature_preferences_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeaturePreferencesListOut"];
+                };
+            };
+        };
+    };
+    set_feature_preference_endpoint_api_llm_feature_preferences_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeaturePreferenceSet"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeaturePreferencesListOut"];
+                };
+            };
+            /** @description Connector is not active and cannot be pinned. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Connector not found for current user. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_feature_preference_endpoint_api_llm_feature_preferences__feature__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                feature: "recommendation" | "set_builder";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeaturePreferencesListOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_openrouter_models_api_llm_openrouter_models_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIModelsResponse"];
+                };
+            };
+        };
+    };
+    get_dj_policy_api_llm_policy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DjPolicyOut"];
+                };
+            };
+            /** @description Not authenticated (missing or invalid bearer token). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authenticated but not an active DJ (e.g. pending approval). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     preview_api_public_collect__code__get: {
         parameters: {
             query?: never;
@@ -7613,6 +9225,154 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CacheClearResponse"];
+                };
+            };
+        };
+    };
+    list_sets_api_setbuilder_sets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetSummary"][];
+                };
+            };
+        };
+    };
+    create_set_api_setbuilder_sets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_set_api_setbuilder_sets__set_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_set_api_setbuilder_sets__set_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_set_api_setbuilder_sets__set_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetRename"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

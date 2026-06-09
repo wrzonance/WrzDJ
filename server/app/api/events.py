@@ -191,7 +191,7 @@ def _request_to_out(r) -> RequestOut:
     )
 
 
-def _build_recommendation_response(result, db) -> RecommendationResponse:
+def _build_recommendation_response(result, db, actor=None) -> RecommendationResponse:
     """Build a RecommendationResponse from a recommendation engine result."""
     from app.services.recommendation.camelot import parse_key
     from app.services.recommendation.llm_hooks import is_llm_available
@@ -234,7 +234,7 @@ def _build_recommendation_response(result, db) -> RecommendationResponse:
         profile=profile,
         services_used=result.services_used,
         total_candidates_searched=result.total_candidates_searched,
-        llm_available=is_llm_available(db),
+        llm_available=is_llm_available(db, actor=actor),
     )
 
 
@@ -856,7 +856,7 @@ def get_recommendations(
         )
 
     result = generate_recommendations(db, user, event)
-    return _build_recommendation_response(result, db)
+    return _build_recommendation_response(result, db, actor=user)
 
 
 @router.get("/{code}/playlists")
@@ -933,7 +933,7 @@ def get_recommendations_from_template(
         template_source=template_request.source,
         template_id=template_request.playlist_id,
     )
-    return _build_recommendation_response(result, db)
+    return _build_recommendation_response(result, db, actor=user)
 
 
 @router.post("/{code}/recommendations/llm")
@@ -954,13 +954,13 @@ async def get_llm_recommendations(
     sys_settings = get_system_settings(db)
     _llm_rate_limit_cache["value"] = sys_settings.llm_rate_limit_per_minute
 
-    if not is_llm_available(db):
+    user = event.created_by
+
+    if not is_llm_available(db, actor=user):
         raise HTTPException(
             status_code=503,
-            detail="LLM recommendations not configured. Set ANTHROPIC_API_KEY to enable.",
+            detail="LLM recommendations not configured. Add a DJ/admin AI connector to enable.",
         )
-
-    user = event.created_by
 
     has_services = bool(user.tidal_access_token) or bool(user.beatport_access_token)
     if not has_services:
@@ -969,8 +969,13 @@ async def get_llm_recommendations(
             detail="No music services connected. Link Tidal or Beatport to get recommendations.",
         )
 
+    from app.services.llm.exceptions import QuotaCapReached
+
     try:
         result = await generate_recommendations_from_llm(db, user, event, prompt_request.prompt)
+    except QuotaCapReached as exc:
+        # DJ-facing message only — no internal usage/cap details leaked (issue #339).
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     except Exception:
         import logging
 
@@ -980,7 +985,7 @@ async def get_llm_recommendations(
             detail="LLM service error. Try again or use algorithmic recommendations.",
         )
 
-    base = _build_recommendation_response(result, db)
+    base = _build_recommendation_response(result, db, actor=user)
 
     llm_queries = [
         LLMQueryInfo(
@@ -999,7 +1004,7 @@ async def get_llm_recommendations(
         services_used=base.services_used,
         total_candidates_searched=base.total_candidates_searched,
         llm_queries=llm_queries,
-        llm_model=get_settings().anthropic_model,
+        llm_model=result.llm_model or get_settings().anthropic_model,
     )
 
 

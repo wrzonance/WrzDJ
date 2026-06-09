@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
+import AiProvidersSection from '@/components/AiProvidersSection';
 
 export default function AccountPage() {
   const router = useRouter();
@@ -115,7 +116,7 @@ export default function AccountPage() {
   if (isLoading || !isAuthenticated) return null;
 
   return (
-    <main style={{ maxWidth: '480px', margin: '0 auto', padding: '2rem 1rem' }}>
+    <main style={{ maxWidth: '720px', margin: '0 auto', padding: '2rem 1rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem' }}>
         <Link href="/dashboard" style={{ color: 'var(--text-secondary)', textDecoration: 'none', fontSize: '0.875rem' }}>
           ← Dashboard
@@ -221,6 +222,10 @@ export default function AccountPage() {
             </button>
           </form>
         )}
+      </div>
+
+      <div style={{ background: 'var(--card)', borderRadius: '0.75rem', padding: '1.5rem', marginTop: '1.5rem' }}>
+        <AiProvidersSection />
       </div>
 
       <div style={{ background: 'var(--card)', borderRadius: '0.75rem', padding: '1.5rem', marginTop: '1.5rem' }}>

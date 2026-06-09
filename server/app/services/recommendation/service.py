@@ -811,6 +811,7 @@ class LLMRecommendationResult:
     total_candidates_searched: int
     services_used: list[str]
     llm_queries: list  # list of LLMSuggestionQuery
+    llm_model: str | None = None  # Provider model that produced the queries
     mb_verified: dict[str, bool] = None  # type: ignore[assignment]
 
     def __post_init__(self):
@@ -848,13 +849,16 @@ async def generate_recommendations_from_llm(
         (playing.artist, playing.song_title, getattr(playing, "bpm", None)) if playing else None
     )
 
-    # Step 2: Call LLM (pass enriched tracks + rejected + currently playing)
+    # Step 2: Call LLM (pass enriched tracks + rejected + currently playing).
+    # Route via the gateway by supplying db + actor (the event owner).
     llm_result = await generate_llm_suggestions(
         profile,
         prompt,
         tracks=enriched or None,
         rejected_tracks=rejected_names or None,
         currently_playing=currently_playing,
+        db=db,
+        actor=user,
     )
 
     if not llm_result.queries:
@@ -865,6 +869,7 @@ async def generate_recommendations_from_llm(
             total_candidates_searched=0,
             services_used=[],
             llm_queries=[],
+            llm_model=llm_result.model,
         )
 
     # Step 3: Use LLM query strings as search queries
@@ -915,6 +920,7 @@ async def generate_recommendations_from_llm(
         total_candidates_searched=total_searched,
         services_used=services_used,
         llm_queries=llm_result.queries,
+        llm_model=llm_result.model,
         mb_verified=mb_verified,
     )
 

@@ -5,6 +5,20 @@ import type {
   AISettings,
   AISettingsUpdate,
   ActivityLogEntry,
+  LlmAdminAudit,
+  LlmAdminConnector,
+  LlmAdminPolicy,
+  LlmAdminPolicyPatch,
+  LlmAdminUsage,
+  LlmConnector,
+  LlmConnectorCreate,
+  LlmConnectorCredentialsRotate,
+  LlmConnectorPatch,
+  LlmConnectorTestResult,
+  LlmDjPolicy,
+  LlmFeatureKey,
+  LlmFeaturePreferences,
+  LlmFeaturePreferenceSet,
   ArchivedEvent,
   BeatportEventSettings,
   BeatportSearchResult,
@@ -52,6 +66,25 @@ export type {
   AIModelsResponse,
   AISettings,
   AISettingsUpdate,
+  LlmAdminAudit,
+  LlmAdminConnector,
+  LlmAdminPolicy,
+  LlmAdminPolicyPatch,
+  LlmAdminUsage,
+  LlmAuditRow,
+  LlmConnector,
+  LlmConnectorCreate,
+  LlmConnectorCredentialsRotate,
+  LlmConnectorPatch,
+  LlmConnectorStatus,
+  LlmConnectorTestResult,
+  LlmConnectorType,
+  LlmDjPolicy,
+  LlmFeatureKey,
+  LlmFeaturePreference,
+  LlmFeaturePreferences,
+  LlmFeaturePreferenceSet,
+  LlmUsageRow,
   ArchivedEvent,
   BeatportEventSettings,
   BeatportSearchResult,
@@ -102,6 +135,17 @@ export type {
   TidalStatus,
   VoteResponse,
 } from './api-types';
+
+// ========== Admin LLM audit trail filters (issue #341) ==========
+
+export interface AdminLlmAuditFilters {
+  event_type?: string;
+  actor_user_id?: number;
+  target_connector_id?: number;
+  days?: number;
+  limit?: number;
+  offset?: number;
+}
 
 // ========== Pre-Event Collection Types ==========
 
@@ -229,6 +273,26 @@ export class HumanVerificationRequiredError extends ApiError {
     super('Human verification required', 403);
     this.name = 'HumanVerificationRequiredError';
   }
+}
+
+/**
+ * One incremental chunk of a streamed LLM response (mirrors the backend
+ * `ChatResponseChunk`). Non-final chunks carry `text_delta` and/or
+ * `tool_call_deltas`; the final chunk has `done: true` plus `stop_reason` and
+ * (when reported) `usage`. Hand-written client type — SSE chunks are not part of
+ * the REST OpenAPI schema.
+ */
+export interface LlmStreamChunk {
+  text_delta?: string;
+  tool_call_deltas?: Array<{
+    index: number;
+    id?: string | null;
+    name?: string | null;
+    input_json_fragment?: string;
+  }>;
+  stop_reason?: 'end_turn' | 'tool_use' | 'max_tokens' | 'error' | null;
+  usage?: { prompt: number; completion: number } | null;
+  done?: boolean;
 }
 
 /**
@@ -1171,6 +1235,244 @@ class ApiClient {
       method: 'PUT',
       body: JSON.stringify(data),
     });
+  }
+
+  // ========== LLM connectors (per-DJ) ==========
+
+  async listLlmConnectors(): Promise<LlmConnector[]> {
+    return this.fetch('/api/llm/connectors');
+  }
+
+  // DJ-readable connector policy (non-sensitive subset). The settings/ai page
+  // uses this to fail closed — hiding connector types the admin disabled —
+  // instead of falling back to "all types allowed" on the admin-only endpoint.
+  async getLlmPolicy(): Promise<LlmDjPolicy> {
+    return this.fetch('/api/llm/policy');
+  }
+
+  async listOpenRouterModels(): Promise<AIModelsResponse> {
+    return this.fetch('/api/llm/openrouter/models');
+  }
+
+  async createLlmConnector(data: LlmConnectorCreate): Promise<LlmConnector> {
+    return this.fetch('/api/llm/connectors', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateLlmConnector(id: number, data: LlmConnectorPatch): Promise<LlmConnector> {
+    return this.fetch(`/api/llm/connectors/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async rotateLlmConnectorCredentials(
+    id: number,
+    data: LlmConnectorCredentialsRotate,
+  ): Promise<LlmConnector> {
+    return this.fetch(`/api/llm/connectors/${id}/credentials`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async testLlmConnector(id: number): Promise<LlmConnectorTestResult> {
+    return this.fetch(`/api/llm/connectors/${id}/test`, { method: 'POST' });
+  }
+
+  /**
+   * Stream a short health-check sentence through a connector via SSE.
+   *
+   * Uses fetch + ReadableStream rather than EventSource because EventSource
+   * cannot send the Authorization header this authenticated endpoint requires.
+   * Pass an AbortSignal to cancel — aborting closes the connection, which the
+   * backend treats as a client disconnect and cancels the upstream provider
+   * request. `onChunk` is invoked for every parsed SSE data frame.
+   */
+  async streamConnectorTest(
+    id: number,
+    onChunk: (chunk: LlmStreamChunk) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const headers = new Headers({ Accept: 'text/event-stream' });
+    if (this.token) headers.set('Authorization', `Bearer ${this.token}`);
+
+    const response = await fetch(`${getApiUrl()}/api/llm/connectors/${id}/stream-test`, {
+      method: 'POST',
+      headers,
+      signal,
+    });
+    if (!response.ok || !response.body) {
+      if (response.status === 401 && this.onUnauthorized) this.onUnauthorized();
+      throw new ApiError('Stream test failed', response.status);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    // SSE frames are separated by a blank line. The spec allows LF (`\n\n`) or
+    // CRLF (`\r\n\r\n`) terminators, so match either — a CRLF-emitting server or
+    // proxy must not leave frames (including `event: error`) unparsed.
+    const frameBoundary = /\r?\n\r?\n/;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let sep: number;
+        while ((sep = buffer.search(frameBoundary)) !== -1) {
+          const frame = buffer.slice(0, sep);
+          const boundary = buffer.slice(sep).match(frameBoundary)?.[0] ?? '\n\n';
+          buffer = buffer.slice(sep + boundary.length);
+          // A frame may carry an `event:` name plus one or more `data:` lines.
+          // The backend emits `event: error` for typed gateway failures, so we
+          // must inspect the event type — not just blindly parse `data:`.
+          let eventType = 'message';
+          const dataLines: string[] = [];
+          for (const line of frame.split(/\r?\n/)) {
+            if (line.startsWith('event:')) {
+              eventType = line.slice('event:'.length).trim();
+            } else if (line.startsWith('data:')) {
+              dataLines.push(line.slice('data:'.length).trim());
+            }
+          }
+          const data = dataLines.join('\n').trim();
+          if (!data || data === '[DONE]') continue;
+
+          if (eventType === 'error') {
+            // Surface the sanitised backend error code as a thrown failure
+            // rather than passing it through as an inert chunk.
+            let code: string | undefined;
+            try {
+              code = (JSON.parse(data) as { code?: string }).code;
+            } catch {
+              code = undefined;
+            }
+            throw new ApiError(`Stream test failed${code ? `: ${code}` : ''}`, 500);
+          }
+
+          try {
+            onChunk(JSON.parse(data) as LlmStreamChunk);
+          } catch {
+            // Ignore unparseable keepalive frames.
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  async deleteLlmConnector(id: number): Promise<void> {
+    await this.fetch(`/api/llm/connectors/${id}`, { method: 'DELETE' });
+  }
+
+  // Pin / unpin a connector as the DJ's explicit default (issue #336). When
+  // pinned, the gateway routes through this connector regardless of which one
+  // is most-recently-used.
+  async setLlmConnectorDefault(id: number): Promise<LlmConnector> {
+    return this.fetch(`/api/llm/connectors/${id}/default`, { method: 'POST' });
+  }
+
+  async unsetLlmConnectorDefault(id: number): Promise<LlmConnector> {
+    return this.fetch(`/api/llm/connectors/${id}/default`, { method: 'DELETE' });
+  }
+
+  // ========== Per-feature connector preferences (issue #337) ==========
+
+  async listLlmFeaturePreferences(): Promise<LlmFeaturePreferences> {
+    return this.fetch('/api/llm/feature-preferences');
+  }
+
+  async setLlmFeaturePreference(data: LlmFeaturePreferenceSet): Promise<LlmFeaturePreferences> {
+    return this.fetch('/api/llm/feature-preferences', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async clearLlmFeaturePreference(feature: LlmFeatureKey): Promise<LlmFeaturePreferences> {
+    return this.fetch(`/api/llm/feature-preferences/${feature}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ========== Admin LLM policy + oversight ==========
+
+  async getAdminLlmPolicy(): Promise<LlmAdminPolicy> {
+    return this.fetch('/api/admin/llm/policy');
+  }
+
+  async updateAdminLlmPolicy(data: LlmAdminPolicyPatch): Promise<LlmAdminPolicy> {
+    return this.fetch('/api/admin/llm/policy', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listAllLlmConnectors(): Promise<LlmAdminConnector[]> {
+    return this.fetch('/api/admin/llm/connectors');
+  }
+
+  async revokeAdminLlmConnector(id: number): Promise<LlmAdminConnector> {
+    return this.fetch(`/api/admin/llm/connectors/${id}/revoke`, { method: 'POST' });
+  }
+
+  async getAdminLlmUsage(days = 30): Promise<LlmAdminUsage> {
+    return this.fetch(`/api/admin/llm/usage?days=${days}`);
+  }
+
+  /**
+   * Set or clear a connector's monthly token cap (admin-only, issue #339).
+   * Pass `null` to clear the cap (unlimited).
+   */
+  async setAdminLlmConnectorCap(
+    id: number,
+    monthlyTokenCap: number | null,
+  ): Promise<LlmAdminConnector> {
+    return this.fetch(`/api/admin/llm/connectors/${id}/cap`, {
+      method: 'PATCH',
+      body: JSON.stringify({ monthly_token_cap: monthlyTokenCap }),
+    });
+  }
+
+  // ========== Admin LLM audit trail (issue #341) ==========
+
+  private buildAuditQuery(filters: AdminLlmAuditFilters = {}): URLSearchParams {
+    const params = new URLSearchParams();
+    if (filters.event_type) params.set('event_type', filters.event_type);
+    if (filters.actor_user_id != null) {
+      params.set('actor_user_id', String(filters.actor_user_id));
+    }
+    if (filters.target_connector_id != null) {
+      params.set('target_connector_id', String(filters.target_connector_id));
+    }
+    if (filters.days != null) params.set('days', String(filters.days));
+    if (filters.limit != null) params.set('limit', String(filters.limit));
+    if (filters.offset != null) params.set('offset', String(filters.offset));
+    return params;
+  }
+
+  async getAdminLlmAudit(filters: AdminLlmAuditFilters = {}): Promise<LlmAdminAudit> {
+    const params = this.buildAuditQuery(filters);
+    return this.fetch(`/api/admin/llm/audit?${params.toString()}`);
+  }
+
+  /**
+   * Download the (filtered) audit trail as a CSV Blob. Pagination params are
+   * ignored server-side for the export — it honors only the filter fields.
+   */
+  async downloadAdminLlmAuditCsv(filters: AdminLlmAuditFilters = {}): Promise<Blob> {
+    const params = this.buildAuditQuery({
+      event_type: filters.event_type,
+      actor_user_id: filters.actor_user_id,
+      target_connector_id: filters.target_connector_id,
+      days: filters.days,
+    });
+    const response = await this.rawFetch(`/api/admin/llm/audit.csv?${params.toString()}`);
+    return response.blob();
   }
 
   // ========== Kiosk Pairing ==========

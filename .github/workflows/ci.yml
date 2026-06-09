@@ -65,7 +65,17 @@ jobs:
         #   PYSEC-2025-183 (pyjwt 2.10.1+ weak encryption, DISPUTED) - no fix released, the
         #                  pyjwt maintainers contest the advisory. We already pin pyjwt to the
         #                  latest available (2.12.1). Revisit when an upstream fix lands.
-        run: pip-audit --ignore-vuln CVE-2024-23342 --ignore-vuln CVE-2026-3219 --ignore-vuln CVE-2026-6357 --ignore-vuln PYSEC-2025-183
+        #   MAL-2026-4750  (fastapi 0.136.3 "malicious code", WITHDRAWN by OSV 2026-05-26) -
+        #                  False positive. 0.136.3 is an official tiangolo release; the flagged
+        #                  dependency 'fastar' is a legitimate Rust-tar-bindings package
+        #                  (published Oct 2025, predates the release) and is pulled ONLY via
+        #                  fastapi's [standard] extra, which we do NOT install (we use plain
+        #                  fastapi + uvicorn[standard]) - so it never enters our dependency tree.
+        #                  We deliberately stay on 0.136.3 for its underscore-header rejection
+        #                  (PR #15589) and SSE field validation (PR #15588). OSV withdrew the
+        #                  advisory; pip-audit's feed still serves it. REMOVE this ignore once
+        #                  the withdrawn entry is purged from the feed.
+        run: pip-audit --ignore-vuln CVE-2024-23342 --ignore-vuln CVE-2026-3219 --ignore-vuln CVE-2026-6357 --ignore-vuln PYSEC-2025-183 --ignore-vuln MAL-2026-4750
 
       - name: Run tests with coverage
         env:

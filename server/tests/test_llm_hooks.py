@@ -19,36 +19,66 @@ from app.services.recommendation.llm_hooks import (
 from app.services.recommendation.scorer import EventProfile
 
 
-class TestIsLLMAvailable:
-    @patch("app.core.config.get_settings")
-    def test_returns_true_when_key_set(self, mock_settings):
-        mock_settings.return_value.anthropic_api_key = "sk-ant-test"
-        assert is_llm_available() is True
+def _add_active_connector(db, user):
+    """Insert an active LLM connector owned by ``user`` so the gateway resolver
+    (and therefore ``is_llm_available``) sees an available connector."""
+    import json
 
-    @patch("app.core.config.get_settings")
-    def test_returns_false_when_key_empty(self, mock_settings):
-        mock_settings.return_value.anthropic_api_key = ""
+    from app.models.llm_connector import LlmConnector
+
+    connector = LlmConnector(
+        user_id=user.id,
+        connector_type="anthropic_apikey",
+        display_name="Test",
+        status="active",
+        credentials=json.dumps({"api_key": "sk-ant-fakefakefakefakefakefakefakefakefakefake"}),
+        model_hint="claude-haiku-4-5-20251001",
+    )
+    db.add(connector)
+    db.commit()
+    db.refresh(connector)
+    return connector
+
+
+class TestIsLLMAvailable:
+    """``is_llm_available`` is connector-backed only.
+
+    The legacy ``ANTHROPIC_API_KEY`` env-var fallback was removed in #343, so a
+    call without ``db`` can never resolve a connector and returns ``False``.
+    """
+
+    def test_returns_false_without_db(self):
         assert is_llm_available() is False
 
-    @patch("app.core.config.get_settings")
-    def test_returns_false_when_llm_disabled_in_settings(self, mock_settings, db: Session):
-        """When API key is set but llm_enabled is False in DB, returns False."""
-        mock_settings.return_value.anthropic_api_key = "sk-ant-test"
+    def test_returns_false_without_db_even_with_actor(self):
+        from unittest.mock import MagicMock
+
+        assert is_llm_available(actor=MagicMock()) is False
+
+    def test_returns_false_when_llm_disabled_in_settings(self, db: Session, test_user):
+        """When a connector exists but llm_enabled is False in DB, returns False."""
         from app.services.system_settings import update_system_settings
 
+        _add_active_connector(db, test_user)
         update_system_settings(db, llm_enabled=False)
-        assert is_llm_available(db) is False
+        assert is_llm_available(db, actor=test_user) is False
         # Reset
         update_system_settings(db, llm_enabled=True)
 
-    @patch("app.core.config.get_settings")
-    def test_returns_true_when_llm_enabled_and_key_set(self, mock_settings, db: Session):
-        """When API key is set and llm_enabled is True in DB, returns True."""
-        mock_settings.return_value.anthropic_api_key = "sk-ant-test"
+    def test_returns_true_when_llm_enabled_and_actor_connector(self, db: Session, test_user):
+        """When the actor owns an active connector and llm_enabled is True, returns True."""
+        from app.services.system_settings import update_system_settings
+
+        _add_active_connector(db, test_user)
+        update_system_settings(db, llm_enabled=True)
+        assert is_llm_available(db, actor=test_user) is True
+
+    def test_returns_false_without_connector(self, db: Session, test_user):
+        """No connector and no org default -> not available."""
         from app.services.system_settings import update_system_settings
 
         update_system_settings(db, llm_enabled=True)
-        assert is_llm_available(db) is True
+        assert is_llm_available(db, actor=test_user) is False
 
 
 class TestGenerateLLMSuggestions:
@@ -72,6 +102,8 @@ class TestGenerateLLMSuggestions:
             tracks=None,
             rejected_tracks=None,
             currently_playing=None,
+            db=None,
+            actor=None,
         )
 
     @pytest.mark.asyncio
@@ -97,6 +129,8 @@ class TestGenerateLLMSuggestions:
             tracks=tracks,
             rejected_tracks=None,
             currently_playing=None,
+            db=None,
+            actor=None,
         )
 
 

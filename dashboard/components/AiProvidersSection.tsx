@@ -1,0 +1,803 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+
+import { api } from '@/lib/api';
+import type {
+  AIModelInfo,
+  LlmConnector,
+  LlmConnectorCreate,
+  LlmConnectorType,
+  LlmDjPolicy,
+  LlmFeatureKey,
+  LlmFeaturePreferences,
+} from '@/lib/api-types';
+
+const CONNECTOR_TYPE_LABELS: Record<LlmConnectorType, string> = {
+  openai_apikey: 'OpenAI API key',
+  anthropic_apikey: 'Anthropic API key',
+  openrouter_apikey: 'OpenRouter API key',
+  xai_apikey: 'xAI Grok API key',
+  gemini_apikey: 'Google Gemini API key',
+  openai_compatible: 'Custom OpenAI-compatible endpoint',
+  bedrock: 'AWS Bedrock',
+  azure_openai: 'Azure OpenAI',
+};
+
+const STATUS_LABELS: Record<string, { text: string; color: string }> = {
+  active: { text: 'Active', color: 'var(--color-success)' },
+  auth_invalid: { text: 'Auth invalid', color: 'var(--color-danger)' },
+  disabled: { text: 'Disabled', color: 'var(--text-secondary)' },
+};
+
+// Human-readable labels for the pinnable agentic features (issue #337). Falls
+// back to the raw feature key for any feature the backend adds before the UI
+// learns its label.
+const FEATURE_LABELS: Record<string, string> = {
+  recommendation: 'Recommendations',
+  set_builder: 'Set builder',
+};
+
+// Provider-specific input placeholders. Missing entries fall back to the
+// per-field default below (openai_apikey for the key, openai_compatible for
+// the model hint), preserving the previous nested-ternary behavior.
+const API_KEY_PLACEHOLDERS: Partial<Record<LlmConnectorType, string>> = {
+  anthropic_apikey: 'sk-ant-…',
+  openrouter_apikey: 'sk-or-…',
+  xai_apikey: 'xai-…',
+  gemini_apikey: 'AIza…',
+};
+const API_KEY_PLACEHOLDER_DEFAULT = 'sk-proj-… / sk-…';
+
+const MODEL_HINT_PLACEHOLDERS: Partial<Record<LlmConnectorType, string>> = {
+  anthropic_apikey: 'claude-haiku-4-5-20251001',
+  openai_apikey: 'gpt-5-mini',
+  openrouter_apikey: 'e.g. openai/gpt-4o-mini',
+  xai_apikey: 'grok-3-mini',
+  gemini_apikey: 'gemini-2.5-flash',
+};
+const MODEL_HINT_PLACEHOLDER_DEFAULT = 'e.g. llama3';
+
+interface FormState {
+  open: boolean;
+  connector_type: LlmConnectorType;
+  display_name: string;
+  api_key: string;
+  base_url: string;
+  bearer: string;
+  model_hint: string;
+  aws_access_key_id: string;
+  aws_secret_access_key: string;
+  aws_region: string;
+  aws_model_id: string;
+  azure_resource_name: string;
+  azure_deployment_name: string;
+  azure_api_version: string;
+}
+
+const EMPTY_FORM: FormState = {
+  open: false,
+  connector_type: 'openai_apikey',
+  display_name: '',
+  api_key: '',
+  base_url: '',
+  bearer: '',
+  model_hint: '',
+  aws_access_key_id: '',
+  aws_secret_access_key: '',
+  aws_region: '',
+  aws_model_id: '',
+  azure_resource_name: '',
+  azure_deployment_name: '',
+  azure_api_version: '',
+};
+
+/**
+ * DJ-facing AI connector management UI (connect / test / delete, model hint,
+ * Hermes onboarding). Relocated from the standalone `/settings/ai` route into
+ * the `/account` page (issue #357). The component assumes the parent already
+ * enforces authentication — it does no auth gating of its own.
+ *
+ * Fail-closed behavior is preserved: when the DJ-scoped policy endpoint can't
+ * be read, NO provider types are offered rather than leaking every type.
+ */
+export default function AiProvidersSection() {
+  const [policy, setPolicy] = useState<LlmDjPolicy | null>(null);
+  const [connectors, setConnectors] = useState<LlmConnector[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitMessage, setSubmitMessage] = useState('');
+  const [submitError, setSubmitError] = useState('');
+  const [testStateById, setTestStateById] = useState<Record<number, string>>({});
+  // Live streamed text per connector for the "Stream test" button, plus the id
+  // currently streaming (drives the disabled state + label).
+  const [streamTextById, setStreamTextById] = useState<Record<number, string>>({});
+  const [streamingId, setStreamingId] = useState<number | null>(null);
+  const [openrouterModels, setOpenrouterModels] = useState<AIModelInfo[]>([]);
+  const [openrouterModelsLoaded, setOpenrouterModelsLoaded] = useState(false);
+  const [featurePrefs, setFeaturePrefs] = useState<LlmFeaturePreferences | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError('');
+    Promise.all([api.listLlmConnectors(), fetchPolicySoft(), fetchFeaturePrefsSoft()])
+      .then(([rows, p, prefs]) => {
+        if (!active) return;
+        setConnectors(rows);
+        setPolicy(p);
+        setFeaturePrefs(prefs);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setError(err instanceof Error ? err.message : 'Failed to load');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Lazily fetch the OpenRouter model catalogue the first time a DJ opens the
+  // form on the OpenRouter type. Best-effort: an empty list (or a failed fetch)
+  // simply falls back to the free-text model input. Fetched once per mount.
+  const wantsOpenrouterModels = form.open && form.connector_type === 'openrouter_apikey';
+  useEffect(() => {
+    if (!wantsOpenrouterModels || openrouterModelsLoaded) return;
+    setOpenrouterModelsLoaded(true);
+    api
+      .listOpenRouterModels()
+      .then((res) => setOpenrouterModels(res.models))
+      .catch(() => {
+        // Swallow — the dropdown gracefully degrades to free-text entry.
+      });
+  }, [wantsOpenrouterModels, openrouterModelsLoaded]);
+
+  const allowedTypes = useMemo<LlmConnectorType[]>(() => {
+    // Fail closed: when the policy can't be read, offer no providers rather than
+    // surfacing every type and letting the DJ pick one the admin disabled (the
+    // create call would 403). The server is the source of truth for the set.
+    if (!policy) return [];
+    return policy.allowed_connector_types as LlmConnectorType[];
+  }, [policy]);
+
+  // onChange factory for the plain string form fields — every text input/select
+  // updates exactly one FormState key with the raw value. connector_type stays
+  // inline because it needs a cast to LlmConnectorType.
+  const handleField =
+    (key: Exclude<keyof FormState, 'open' | 'connector_type'>) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const handleOpenForm = () => {
+    if (allowedTypes.length === 0) {
+      setSubmitError('Connector creation is currently disabled by admin policy.');
+      setSubmitMessage('');
+      return;
+    }
+    setForm({ ...EMPTY_FORM, open: true, connector_type: allowedTypes[0] });
+    setSubmitMessage('');
+    setSubmitError('');
+  };
+
+  const handleCancel = () => {
+    setForm(EMPTY_FORM);
+    setSubmitError('');
+  };
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setSubmitMessage('');
+    setSubmitError('');
+    const isCompatible = form.connector_type === 'openai_compatible';
+    const isBedrock = form.connector_type === 'bedrock';
+    const isAzure = form.connector_type === 'azure_openai';
+    // API-key providers: everything that isn't openai_compatible or bedrock.
+    // Azure also carries an api_key (plus its azure_* fields).
+    const isApiKey = !isCompatible && !isBedrock;
+    const payload: LlmConnectorCreate = {
+      connector_type: form.connector_type,
+      display_name: form.display_name,
+      // Bedrock has no model_hint field (it uses aws_model_id); never post a
+      // stale hint left over from a prior connector-type selection.
+      model_hint: isBedrock ? null : form.model_hint || null,
+      api_key: isApiKey ? form.api_key : null,
+      base_url: isCompatible ? form.base_url : null,
+      bearer: isCompatible ? form.bearer || null : null,
+      aws_access_key_id: isBedrock ? form.aws_access_key_id : null,
+      aws_secret_access_key: isBedrock ? form.aws_secret_access_key : null,
+      aws_region: isBedrock ? form.aws_region : null,
+      aws_model_id: isBedrock ? form.aws_model_id : null,
+      azure_resource_name: isAzure ? form.azure_resource_name : null,
+      azure_deployment_name: isAzure ? form.azure_deployment_name : null,
+      azure_api_version: isAzure ? form.azure_api_version : null,
+    };
+    try {
+      const created = await api.createLlmConnector(payload);
+      setConnectors((prev) => [created, ...prev]);
+      setForm(EMPTY_FORM);
+      setSubmitMessage(`Created "${created.display_name}". Run "Test" to verify it works.`);
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error ? err.message : 'Create failed (check your inputs)',
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleTest = async (id: number) => {
+    setTestStateById((s) => ({ ...s, [id]: 'Testing…' }));
+    try {
+      const result = await api.testLlmConnector(id);
+      setTestStateById((s) => ({
+        ...s,
+        [id]: result.ok ? 'OK' : `Failed: ${result.error_code ?? 'unknown'}`,
+      }));
+      // Refresh the row so updated status renders
+      const fresh = await api.listLlmConnectors();
+      setConnectors(fresh);
+    } catch (err) {
+      setTestStateById((s) => ({
+        ...s,
+        [id]: err instanceof Error ? err.message : 'Test failed',
+      }));
+    }
+  };
+
+  const handleStreamTest = async (id: number) => {
+    setStreamTextById((s) => ({ ...s, [id]: '' }));
+    setStreamingId(id);
+    try {
+      await api.streamConnectorTest(id, (chunk) => {
+        if (chunk.text_delta) {
+          setStreamTextById((s) => ({ ...s, [id]: (s[id] ?? '') + chunk.text_delta }));
+        }
+      });
+    } catch (err) {
+      setStreamTextById((s) => ({
+        ...s,
+        [id]: err instanceof Error ? `(stream test failed: ${err.message})` : '(stream test failed)',
+      }));
+    } finally {
+      setStreamingId(null);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!window.confirm('Delete this connector? This cannot be undone.')) return;
+    try {
+      await api.deleteLlmConnector(id);
+      setConnectors((prev) => prev.filter((c) => c.id !== id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed');
+    }
+  };
+
+  // Set / unset the per-DJ explicit default (issue #336). Optimistic update on
+  // the full list keeps the radio state consistent (exactly one row is default
+  // at any time) without waiting for a refetch.
+  const handleSetDefault = async (id: number) => {
+    try {
+      const updated = await api.setLlmConnectorDefault(id);
+      setConnectors((prev) =>
+        prev.map((c) =>
+          c.id === updated.id
+            ? updated
+            : c.user_id === updated.user_id
+            ? { ...c, is_default: false }
+            : c,
+        ),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to set default');
+    }
+  };
+
+  const handleUnsetDefault = async (id: number) => {
+    try {
+      const updated = await api.unsetLlmConnectorDefault(id);
+      setConnectors((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear default');
+    }
+  };
+
+  // Per-feature pin (issue #337). An empty select value clears the pin (use the
+  // account default); any connector id sets/replaces it. The endpoint returns
+  // the full updated list, so we store it verbatim.
+  const handleFeaturePrefChange = async (feature: LlmFeatureKey, value: string) => {
+    try {
+      const updated =
+        value === ''
+          ? await api.clearLlmFeaturePreference(feature)
+          : await api.setLlmFeaturePreference({ feature, connector_id: Number(value) });
+      setFeaturePrefs(updated);
+      setError('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update feature default');
+    }
+  };
+
+  return (
+    <div>
+      <h2 style={{ marginTop: 0, marginBottom: '1.25rem', fontSize: '1.1rem' }}>
+        AI / Model providers
+      </h2>
+
+      <p style={{ color: 'var(--text-secondary)' }}>
+        Connect your own LLM provider so AI-assisted features (recommendations, etc.) bill to
+        your account. Credentials are encrypted at rest. Calls consume your account&apos;s API or
+        subscription quota directly.
+      </p>
+
+      {loading && <div className="loading">Loading…</div>}
+      {error && <div style={{ color: 'var(--color-danger)', marginTop: '1rem' }}>{error}</div>}
+      {submitMessage && (
+        <div style={{ color: 'var(--color-success)', marginTop: '1rem' }}>{submitMessage}</div>
+      )}
+      {submitError && (
+        <div style={{ color: 'var(--color-danger)', marginTop: '1rem' }}>{submitError}</div>
+      )}
+
+      <section style={{ marginTop: '2rem' }}>
+        <h3 style={{ marginTop: 0 }}>Connected providers</h3>
+        {connectors.length === 0 && !loading && (
+          <p style={{ color: 'var(--text-secondary)' }}>No connectors yet.</p>
+        )}
+        {connectors.map((c) => {
+          const status = STATUS_LABELS[c.status] ?? { text: c.status, color: 'var(--text-secondary)' };
+          // Pin / unpin is only meaningful for active connectors — the gateway
+          // skips inactive defaults, so don't let the DJ pin a row that
+          // resolution would silently bypass.
+          const canPin = c.status === 'active';
+          const radioId = `connector-default-${c.id}`;
+          return (
+            <div key={c.id} className="card" style={{ marginTop: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <div style={{ fontWeight: 600 }}>{c.display_name}</div>
+                    {c.is_default && (
+                      <span
+                        style={{
+                          fontSize: '0.7rem',
+                          padding: '0.125rem 0.5rem',
+                          borderRadius: '0.5rem',
+                          background: 'var(--color-success)',
+                          color: '#0a0a0a',
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em',
+                        }}
+                      >
+                        Default
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+                    {CONNECTOR_TYPE_LABELS[c.connector_type as LlmConnectorType] ?? c.connector_type}
+                    {c.model_hint ? ` · ${c.model_hint}` : ''}
+                    {c.base_url_plain ? ` · ${c.base_url_plain}` : ''}
+                  </div>
+                  <div style={{ marginTop: '0.5rem', fontSize: '0.875rem', color: status.color, fontWeight: 600 }}>
+                    {status.text}
+                    {testStateById[c.id] ? ` · ${testStateById[c.id]}` : ''}
+                  </div>
+                  {/* Radio for "Set as default" — exactly one connector per DJ may be pinned. */}
+                  <label
+                    htmlFor={radioId}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      marginTop: '0.5rem',
+                      fontSize: '0.85rem',
+                      color: canPin ? 'var(--text)' : 'var(--text-secondary)',
+                      cursor: canPin ? 'pointer' : 'not-allowed',
+                    }}
+                  >
+                    <input
+                      id={radioId}
+                      type="radio"
+                      name="llm-connector-default"
+                      checked={c.is_default}
+                      disabled={!canPin && !c.is_default}
+                      onChange={() => {
+                        if (canPin) {
+                          handleSetDefault(c.id);
+                        }
+                      }}
+                    />
+                    {c.is_default ? (
+                      <>
+                        Pinned as default ·{' '}
+                        <button
+                          type="button"
+                          className="btn-link"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleUnsetDefault(c.id);
+                          }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            color: 'var(--text-secondary)',
+                            textDecoration: 'underline',
+                            cursor: 'pointer',
+                            font: 'inherit',
+                          }}
+                        >
+                          Unpin
+                        </button>
+                      </>
+                    ) : (
+                      <span>Set as default</span>
+                    )}
+                  </label>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button className="btn btn-secondary" onClick={() => handleTest(c.id)}>
+                    Test
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => handleStreamTest(c.id)}
+                    disabled={streamingId !== null}
+                  >
+                    {streamingId === c.id ? 'Streaming…' : 'Stream test'}
+                  </button>
+                  <button className="btn btn-danger" onClick={() => handleDelete(c.id)}>
+                    Delete
+                  </button>
+                </div>
+                {streamTextById[c.id] !== undefined && streamTextById[c.id] !== '' && (
+                  <div
+                    style={{
+                      marginTop: '0.5rem',
+                      fontSize: '0.875rem',
+                      color: 'var(--text-secondary)',
+                      fontStyle: 'italic',
+                    }}
+                  >
+                    {streamTextById[c.id]}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </section>
+
+      {featurePrefs && featurePrefs.known_features.length > 0 && (
+        <section style={{ marginTop: '2rem' }}>
+          <h3 style={{ marginTop: 0 }}>Per-feature defaults</h3>
+          <p style={{ color: 'var(--text-secondary)' }}>
+            Pin a specific provider to each AI feature. Unpinned features use your account
+            default (or most-recently-used) connector. Inactive connectors are skipped
+            automatically.
+          </p>
+          {featurePrefs.known_features.map((feature) => {
+            const current =
+              featurePrefs.preferences.find((p) => p.feature === feature)?.connector_id ?? '';
+            const selectId = `feature-pref-${feature}`;
+            const activeConnectors = connectors.filter((c) => c.status === 'active');
+            return (
+              <div className="form-group" key={feature}>
+                <label htmlFor={selectId}>{FEATURE_LABELS[feature] ?? feature}</label>
+                <select
+                  id={selectId}
+                  className="input"
+                  value={current === '' ? '' : String(current)}
+                  onChange={(e) =>
+                    handleFeaturePrefChange(feature as LlmFeatureKey, e.target.value)
+                  }
+                >
+                  <option value="">Use account default</option>
+                  {activeConnectors.map((c) => (
+                    <option key={c.id} value={String(c.id)}>
+                      {c.display_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            );
+          })}
+        </section>
+      )}
+
+      <section style={{ marginTop: '2rem' }}>
+        {allowedTypes.length === 0 && !form.open && !loading && (
+          <p style={{ color: 'var(--text-secondary)' }}>
+            Connector creation is currently disabled by admin policy.
+          </p>
+        )}
+        {allowedTypes.length > 0 && !form.open && (
+          <button className="btn btn-primary" onClick={handleOpenForm}>
+            + Add provider
+          </button>
+        )}
+        {form.open && (
+          <form className="card" onSubmit={handleCreate} style={{ marginTop: '1rem' }}>
+            <h3 style={{ marginTop: 0 }}>Add provider</h3>
+
+            <div className="form-group">
+              <label htmlFor="connector_type">Provider</label>
+              <select
+                id="connector_type"
+                className="input"
+                value={form.connector_type}
+                onChange={(e) =>
+                  setForm({ ...form, connector_type: e.target.value as LlmConnectorType })
+                }
+              >
+                {allowedTypes.map((t) => (
+                  <option key={t} value={t}>
+                    {CONNECTOR_TYPE_LABELS[t]}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="display_name">Display name</label>
+              <input
+                id="display_name"
+                className="input"
+                value={form.display_name}
+                onChange={handleField('display_name')}
+                placeholder="e.g. My OpenAI"
+                maxLength={80}
+                required
+              />
+            </div>
+
+            {form.connector_type === 'bedrock' ? (
+              <>
+                <div className="form-group">
+                  <label htmlFor="aws_access_key_id">AWS access key ID</label>
+                  <input
+                    id="aws_access_key_id"
+                    className="input"
+                    value={form.aws_access_key_id}
+                    onChange={handleField('aws_access_key_id')}
+                    placeholder="AKIA…"
+                    autoComplete="off"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="aws_secret_access_key">AWS secret access key</label>
+                  <input
+                    id="aws_secret_access_key"
+                    className="input"
+                    type="password"
+                    value={form.aws_secret_access_key}
+                    onChange={handleField('aws_secret_access_key')}
+                    autoComplete="off"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="aws_region">AWS region</label>
+                  <input
+                    id="aws_region"
+                    className="input"
+                    value={form.aws_region}
+                    onChange={handleField('aws_region')}
+                    placeholder="us-east-1"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="aws_model_id">Bedrock model ID</label>
+                  <input
+                    id="aws_model_id"
+                    className="input"
+                    value={form.aws_model_id}
+                    onChange={handleField('aws_model_id')}
+                    placeholder="anthropic.claude-3-5-sonnet-20241022-v2:0"
+                    required
+                  />
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0.5rem 0 0' }}>
+                    Calls are signed with AWS SigV4 and billed to your AWS account.
+                    Claude (<code>anthropic.*</code>) and Llama (<code>meta.*</code>)
+                    model families are supported.
+                  </p>
+                </div>
+              </>
+            ) : form.connector_type === 'azure_openai' ? (
+              <>
+                <div className="form-group">
+                  <label htmlFor="api_key">API key</label>
+                  <input
+                    id="api_key"
+                    className="input"
+                    type="password"
+                    value={form.api_key}
+                    onChange={handleField('api_key')}
+                    placeholder="Azure OpenAI key"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="azure_resource_name">Resource name</label>
+                  <input
+                    id="azure_resource_name"
+                    className="input"
+                    value={form.azure_resource_name}
+                    onChange={handleField('azure_resource_name')}
+                    placeholder="e.g. my-company"
+                    required
+                  />
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0.5rem 0 0' }}>
+                    The resource subdomain in{' '}
+                    <code>https://&lt;resource&gt;.openai.azure.com</code>.
+                  </p>
+                </div>
+                <div className="form-group">
+                  <label htmlFor="azure_deployment_name">Deployment name</label>
+                  <input
+                    id="azure_deployment_name"
+                    className="input"
+                    value={form.azure_deployment_name}
+                    onChange={handleField('azure_deployment_name')}
+                    placeholder="e.g. gpt-4o-prod"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="azure_api_version">API version</label>
+                  <input
+                    id="azure_api_version"
+                    className="input"
+                    value={form.azure_api_version}
+                    onChange={handleField('azure_api_version')}
+                    placeholder="e.g. 2024-06-01"
+                    required
+                  />
+                </div>
+              </>
+            ) : form.connector_type !== 'openai_compatible' ? (
+              <div className="form-group">
+                <label htmlFor="api_key">API key</label>
+                <input
+                  id="api_key"
+                  className="input"
+                  type="password"
+                  value={form.api_key}
+                  onChange={handleField('api_key')}
+                  placeholder={
+                    API_KEY_PLACEHOLDERS[form.connector_type] ?? API_KEY_PLACEHOLDER_DEFAULT
+                  }
+                  required
+                />
+              </div>
+            ) : (
+              <>
+                <div className="form-group">
+                  <label htmlFor="base_url">Base URL</label>
+                  <input
+                    id="base_url"
+                    className="input"
+                    value={form.base_url}
+                    onChange={handleField('base_url')}
+                    placeholder="http://127.0.0.1:11434/v1"
+                    required
+                  />
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0.5rem 0 0' }}>
+                    HTTPS is required for public hosts. HTTP is only allowed for loopback (
+                    <code>127.0.0.1</code>, <code>localhost</code>) and private (RFC1918) IPs.
+                  </p>
+                </div>
+                <div className="form-group">
+                  <label htmlFor="bearer">Bearer token (optional)</label>
+                  <input
+                    id="bearer"
+                    className="input"
+                    type="password"
+                    value={form.bearer}
+                    onChange={handleField('bearer')}
+                  />
+                </div>
+                <details style={{ marginTop: '1rem' }}>
+                  <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+                    Want to use your ChatGPT Plus / Pro subscription?
+                  </summary>
+                  <p style={{ marginTop: '0.5rem' }}>
+                    Install{' '}
+                    <a
+                      href="https://github.com/NousResearch/hermes-agent"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Hermes Agent
+                    </a>
+                    , run <code>hermes proxy</code>, and paste the URL it prints below. Your
+                    ChatGPT account never leaves your machine — WrzDJ only talks to your local
+                    Hermes proxy.
+                  </p>
+                </details>
+              </>
+            )}
+
+            {form.connector_type !== 'bedrock' && (
+              <div className="form-group">
+                <label htmlFor="model_hint">Model (optional)</label>
+                {form.connector_type === 'openrouter_apikey' && openrouterModels.length > 0 ? (
+                  <>
+                    <select
+                      id="model_hint"
+                      className="input"
+                      value={form.model_hint}
+                      onChange={handleField('model_hint')}
+                    >
+                      <option value="">Default (openai/gpt-4o-mini)</option>
+                      {openrouterModels.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} ({m.id})
+                        </option>
+                      ))}
+                    </select>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0.5rem 0 0' }}>
+                      Each model routes through OpenRouter and bills your account at that model&apos;s
+                      OpenRouter rate (see openrouter.ai/models for per-token pricing).
+                    </p>
+                  </>
+                ) : (
+                  <input
+                    id="model_hint"
+                    className="input"
+                    value={form.model_hint}
+                    onChange={handleField('model_hint')}
+                    placeholder={
+                      MODEL_HINT_PLACEHOLDERS[form.connector_type] ?? MODEL_HINT_PLACEHOLDER_DEFAULT
+                    }
+                  />
+                )}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+              <button type="submit" className="btn btn-primary" disabled={submitting}>
+                {submitting ? 'Saving…' : 'Save'}
+              </button>
+              <button type="button" className="btn btn-secondary" onClick={handleCancel}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+      </section>
+    </div>
+  );
+}
+
+async function fetchPolicySoft(): Promise<LlmDjPolicy | null> {
+  // Read the DJ-scoped policy endpoint. On any failure we return null and the
+  // UI fails *closed* (no providers offered) — see `allowedTypes`. This avoids
+  // showing a DJ a provider the admin disabled, only to have the create call
+  // reject it with a 403.
+  try {
+    return await api.getLlmPolicy();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchFeaturePrefsSoft(): Promise<LlmFeaturePreferences | null> {
+  // Read the DJ's per-feature pins. On any failure we return null and the
+  // "Per-feature defaults" section is simply hidden — it's an enhancement, not
+  // load-bearing, so a transient error must not break the whole page.
+  try {
+    return await api.listLlmFeaturePreferences();
+  } catch {
+    return null;
+  }
+}

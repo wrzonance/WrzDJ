@@ -2,6 +2,11 @@ from sqlalchemy.orm import Session
 
 from app.models.system_settings import SystemSettings
 
+# Sentinel for "field intentionally not provided" — distinguishes from explicit
+# None (which means "clear the FK"). update_system_settings uses this for the
+# llm_default_connector_id field which accepts None as a valid value.
+_UNSET: object = object()
+
 
 def get_system_settings(db: Session) -> SystemSettings:
     """Get the singleton system settings row, creating with defaults if missing."""
@@ -19,6 +24,10 @@ def get_system_settings(db: Session) -> SystemSettings:
             llm_enabled=True,
             llm_model="claude-haiku-4-5-20251001",
             llm_rate_limit_per_minute=3,
+            llm_apikey_connectors_enabled=True,
+            llm_compatible_connector_enabled=True,
+            llm_default_connector_id=None,
+            llm_call_log_retention_days=30,
         )
         db.add(settings)
         db.commit()
@@ -38,6 +47,10 @@ def update_system_settings(
     llm_enabled: bool | None = None,
     llm_model: str | None = None,
     llm_rate_limit_per_minute: int | None = None,
+    llm_apikey_connectors_enabled: bool | None = None,
+    llm_compatible_connector_enabled: bool | None = None,
+    llm_default_connector_id: int | None | object = _UNSET,
+    llm_call_log_retention_days: int | None = None,
 ) -> SystemSettings:
     """Update system settings fields."""
     settings = get_system_settings(db)
@@ -61,6 +74,14 @@ def update_system_settings(
         settings.llm_model = llm_model
     if llm_rate_limit_per_minute is not None:
         settings.llm_rate_limit_per_minute = llm_rate_limit_per_minute
+    if llm_apikey_connectors_enabled is not None:
+        settings.llm_apikey_connectors_enabled = llm_apikey_connectors_enabled
+    if llm_compatible_connector_enabled is not None:
+        settings.llm_compatible_connector_enabled = llm_compatible_connector_enabled
+    if llm_default_connector_id is not _UNSET:
+        settings.llm_default_connector_id = llm_default_connector_id  # type: ignore[assignment]
+    if llm_call_log_retention_days is not None:
+        settings.llm_call_log_retention_days = llm_call_log_retention_days
     db.commit()
     db.refresh(settings)
     return settings

@@ -234,7 +234,9 @@ export function RecommendationsCard({
     return false;
   })();
 
-  // Derive short display name from model ID (e.g., "claude-haiku-4-5-20251001" → "Haiku 4.5")
+  // Derive short display name from model ID (e.g., "claude-haiku-4-5-20251001" → "Haiku 4.5").
+  // Non-Anthropic models (gpt-5.x, gemini, grok, bedrock, …) fall back to the raw model id
+  // so the badge reflects whichever provider connector actually produced the suggestions.
   const modelDisplayName = (() => {
     if (!llmModel) return 'AI';
     const m = llmModel.toLowerCase();
@@ -250,7 +252,7 @@ export function RecommendationsCard({
       const ver = m.match(/opus-(\d+)-(\d+)/);
       return ver ? `Opus ${ver[1]}.${ver[2]}` : 'Opus';
     }
-    return 'AI';
+    return llmModel;
   })();
 
   const modeButtonStyle = (active: boolean) => ({

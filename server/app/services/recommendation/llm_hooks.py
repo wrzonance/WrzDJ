@@ -30,6 +30,7 @@ class LLMSuggestionResult:
 
     queries: list[LLMSuggestionQuery]
     raw_response: str  # Full LLM response for debugging
+    model: str | None = None  # Provider model that actually produced the response
 
 
 async def generate_llm_suggestions(
@@ -39,12 +40,15 @@ async def generate_llm_suggestions(
     tracks: list[TrackProfile] | None = None,
     rejected_tracks: list[tuple[str, str]] | None = None,
     currently_playing: tuple[str, str, float | None] | None = None,
+    *,
+    db=None,
+    actor=None,
 ) -> LLMSuggestionResult:
-    """Generate search queries via LLM (Claude Haiku).
+    """Generate search queries via the LLM gateway.
 
-    Calls Claude to interpret the DJ's prompt in context of the event's
-    musical profile and track list, returning structured search queries
-    that feed into the existing search + scoring pipeline.
+    The gateway routes to the actor DJ's connector (or org default). ``db`` is
+    required by ``call_llm`` — the legacy direct-Anthropic env-var path was
+    removed in #343 now that the connector system is the source of truth.
     """
     from app.services.recommendation.llm_client import call_llm
 
@@ -55,24 +59,55 @@ async def generate_llm_suggestions(
         tracks=tracks,
         rejected_tracks=rejected_tracks,
         currently_playing=currently_playing,
+        db=db,
+        actor=actor,
     )
 
 
-def is_llm_available(db=None) -> bool:
+def is_llm_available(db=None, actor=None) -> bool:
     """Check if LLM recommendations are configured and available.
 
-    When db is provided, also checks the DB-backed llm_enabled toggle.
-    """
-    from app.core.config import get_settings
+    Mirrors :func:`app.services.llm.gateway._resolve_connector` semantics so the
+    "feature available" signal aligns with whether dispatch will actually
+    succeed:
 
-    if not get_settings().anthropic_api_key:
+    - If ``actor`` is provided: returns True when the actor owns an active
+      connector (matches the per-DJ MRU lookup).
+    - Otherwise (no actor or no actor-owned active connector): returns True
+      when an active system-default connector is configured.
+
+    Connector-backed only. Without ``db`` no connector can be resolved, so it
+    returns ``False`` — the legacy Anthropic env-var fallback was removed in #343.
+    """
+    if db is None:
         return False
 
-    if db is not None:
-        from app.services.system_settings import get_system_settings
+    from app.models.llm_connector import STATUS_ACTIVE, LlmConnector
+    from app.models.system_settings import SystemSettings
+    from app.services.system_settings import get_system_settings
 
-        settings = get_system_settings(db)
-        if not settings.llm_enabled:
-            return False
+    settings = get_system_settings(db)
+    if not settings.llm_enabled:
+        return False
 
-    return True
+    # Per-DJ active connector — matches gateway resolver step 1.
+    if actor is not None:
+        actor_active = (
+            db.query(LlmConnector.id)
+            .filter(
+                LlmConnector.user_id == actor.id,
+                LlmConnector.status == STATUS_ACTIVE,
+            )
+            .first()
+        )
+        if actor_active is not None:
+            return True
+
+    # System default fallback — matches gateway resolver step 2.
+    sys_settings = db.query(SystemSettings).first()
+    if sys_settings and sys_settings.llm_default_connector_id:
+        default = db.get(LlmConnector, sys_settings.llm_default_connector_id)
+        if default is not None and default.status == STATUS_ACTIVE:
+            return True
+
+    return False

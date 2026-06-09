@@ -131,4 +131,526 @@ describe('AdminAISettingsPage', () => {
       expect(screen.getByText('Failed to load AI settings')).toBeInTheDocument();
     });
   });
+
+  it('renders connector policy + per-DJ connector cards when gateway data loads', async () => {
+    vi.spyOn(api, 'getAISettings').mockResolvedValue({
+      llm_enabled: true,
+      llm_model: 'claude-haiku-4-5-20251001',
+      llm_rate_limit_per_minute: 3,
+      api_key_configured: true,
+      api_key_masked: '...abcd',
+    });
+    vi.spyOn(api, 'getAIModels').mockResolvedValue({
+      models: [{ id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' }],
+    });
+    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: true,
+      llm_default_connector_id: null,
+      llm_call_log_retention_days: 30,
+    });
+    vi.spyOn(api, 'listAllLlmConnectors').mockResolvedValue([
+      {
+        id: 1,
+        user_id: 42,
+        dj_username: 'someDJ',
+        connector_type: 'openai_apikey',
+        display_name: 'My OpenAI',
+        status: 'active',
+        base_url_plain: null,
+        model_hint: 'gpt-5-mini',
+        created_at: '2026-05-01T00:00:00Z',
+        updated_at: '2026-05-01T00:00:00Z',
+        last_used_at: null,
+        last_error: null,
+        is_default: false,
+        last_health_check_at: null,
+        last_health_check_status: null,
+        monthly_token_cap: null,
+        current_month_tokens: 0,
+      },
+    ]);
+    vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({
+      days: 30,
+      rows: [],
+    });
+
+    render(<AdminAISettingsPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText('Connector policy')).toBeInTheDocument(),
+    );
+    expect(screen.getByText('Per-DJ connectors')).toBeInTheDocument();
+    expect(screen.getByText('someDJ')).toBeInTheDocument();
+    expect(screen.getByText(/Usage — last 30 days/)).toBeInTheDocument();
+  });
+
+  it('renders the audit trail card with seeded events', async () => {
+    vi.spyOn(api, 'getAISettings').mockResolvedValue({
+      llm_enabled: true,
+      llm_model: 'claude-haiku-4-5-20251001',
+      llm_rate_limit_per_minute: 3,
+      api_key_configured: true,
+      api_key_masked: '...abcd',
+    });
+    vi.spyOn(api, 'getAIModels').mockResolvedValue({ models: [] });
+    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: true,
+      llm_default_connector_id: null,
+      llm_call_log_retention_days: 30,
+    });
+    vi.spyOn(api, 'listAllLlmConnectors').mockResolvedValue([]);
+    vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({ days: 30, rows: [] });
+    vi.spyOn(api, 'getAdminLlmAudit').mockResolvedValue({
+      rows: [
+        {
+          id: 1,
+          created_at: '2026-05-20T12:00:00Z',
+          event_type: 'connector_created',
+          actor_user_id: 42,
+          actor_username: 'someDJ',
+          target_connector_id: 7,
+          target_connector_display_name: 'My OpenAI',
+          notes: null,
+        },
+      ],
+      total: 1,
+      limit: 50,
+      offset: 0,
+    });
+
+    render(<AdminAISettingsPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText('Audit trail')).toBeInTheDocument(),
+    );
+    expect(screen.getByText('connector_created')).toBeInTheDocument();
+    expect(screen.getByText('My OpenAI')).toBeInTheDocument();
+    // someDJ appears in the audit row (no connectors table rows to collide)
+    expect(screen.getByText('someDJ')).toBeInTheDocument();
+    // Filter + export controls
+    expect(screen.getByLabelText('Event type')).toBeInTheDocument();
+    expect(screen.getByText('Export CSV')).toBeInTheDocument();
+  });
+
+  it('refetches audit events when the event-type filter changes', async () => {
+    vi.spyOn(api, 'getAISettings').mockResolvedValue({
+      llm_enabled: true,
+      llm_model: 'claude-haiku-4-5-20251001',
+      llm_rate_limit_per_minute: 3,
+      api_key_configured: true,
+      api_key_masked: '...abcd',
+    });
+    vi.spyOn(api, 'getAIModels').mockResolvedValue({ models: [] });
+    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: true,
+      llm_default_connector_id: null,
+      llm_call_log_retention_days: 30,
+    });
+    vi.spyOn(api, 'listAllLlmConnectors').mockResolvedValue([]);
+    vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({ days: 30, rows: [] });
+    const auditSpy = vi.spyOn(api, 'getAdminLlmAudit').mockResolvedValue({
+      rows: [],
+      total: 0,
+      limit: 50,
+      offset: 0,
+    });
+    const exportSpy = vi
+      .spyOn(api, 'downloadAdminLlmAuditCsv')
+      .mockResolvedValue(new Blob(['ok'], { type: 'text/csv' }));
+    // jsdom doesn't implement these — handleExportCsv triggers a browser download.
+    const createObjectURL = vi.fn(() => 'blob:mock');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL });
+
+    try {
+      render(<AdminAISettingsPage />);
+
+      await waitFor(() => expect(screen.getByText('Audit trail')).toBeInTheDocument());
+      auditSpy.mockClear();
+
+      fireEvent.change(screen.getByLabelText('Event type'), {
+        target: { value: 'connector_credentials_rotated' },
+      });
+
+      await waitFor(() =>
+        expect(auditSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ event_type: 'connector_credentials_rotated' }),
+        ),
+      );
+
+      // CSV export must honor the active event-type filter.
+      fireEvent.click(screen.getByText('Export CSV'));
+      await waitFor(() =>
+        expect(exportSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ event_type: 'connector_credentials_rotated' }),
+        ),
+      );
+    } finally {
+      // Guarantee the URL stub is restored even if an assertion fails early,
+      // so it can't leak into later tests.
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('force-revokes a connector via the admin table', async () => {
+    vi.spyOn(api, 'getAISettings').mockResolvedValue({
+      llm_enabled: true,
+      llm_model: 'claude-haiku-4-5-20251001',
+      llm_rate_limit_per_minute: 3,
+      api_key_configured: true,
+      api_key_masked: '...abcd',
+    });
+    vi.spyOn(api, 'getAIModels').mockResolvedValue({ models: [] });
+    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: true,
+      llm_default_connector_id: null,
+      llm_call_log_retention_days: 30,
+    });
+    vi.spyOn(api, 'listAllLlmConnectors').mockResolvedValue([
+      {
+        id: 9,
+        user_id: 42,
+        dj_username: 'badDJ',
+        connector_type: 'openai_apikey',
+        display_name: 'Compromised',
+        status: 'active',
+        base_url_plain: null,
+        model_hint: null,
+        created_at: '2026-05-01T00:00:00Z',
+        updated_at: '2026-05-01T00:00:00Z',
+        last_used_at: null,
+        last_error: null,
+        is_default: false,
+        last_health_check_at: null,
+        last_health_check_status: null,
+        monthly_token_cap: null,
+        current_month_tokens: 0,
+      },
+    ]);
+    vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({ days: 30, rows: [] });
+    const revokeSpy = vi.spyOn(api, 'revokeAdminLlmConnector').mockResolvedValue({
+      id: 9,
+      user_id: 42,
+      dj_username: 'badDJ',
+      connector_type: 'openai_apikey',
+      display_name: 'Compromised',
+      status: 'disabled',
+      base_url_plain: null,
+      model_hint: null,
+      created_at: '2026-05-01T00:00:00Z',
+      updated_at: '2026-05-01T00:00:00Z',
+      last_used_at: null,
+      last_error: null,
+      is_default: false,
+      last_health_check_at: null,
+      last_health_check_status: null,
+      monthly_token_cap: null,
+      current_month_tokens: 0,
+    });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    render(<AdminAISettingsPage />);
+
+    await waitFor(() => expect(screen.getByText('Compromised')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Force-revoke'));
+    await waitFor(() => expect(revokeSpy).toHaveBeenCalledWith(9));
+  });
+
+  it('persists call-log retention on blur via the policy patch (issue #342)', async () => {
+    vi.spyOn(api, 'getAISettings').mockResolvedValue({
+      llm_enabled: true,
+      llm_model: 'claude-haiku-4-5-20251001',
+      llm_rate_limit_per_minute: 3,
+      api_key_configured: true,
+      api_key_masked: '...abcd',
+    });
+    vi.spyOn(api, 'getAIModels').mockResolvedValue({ models: [] });
+    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: true,
+      llm_default_connector_id: null,
+      llm_call_log_retention_days: 30,
+    });
+    vi.spyOn(api, 'listAllLlmConnectors').mockResolvedValue([]);
+    vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({ days: 30, rows: [] });
+    const patchSpy = vi.spyOn(api, 'updateAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: true,
+      llm_default_connector_id: null,
+      llm_call_log_retention_days: 90,
+    });
+
+    render(<AdminAISettingsPage />);
+
+    const input = (await screen.findByLabelText(
+      /Call log retention/i,
+    )) as HTMLInputElement;
+    expect(input.value).toBe('30');
+
+    fireEvent.change(input, { target: { value: '90' } });
+    fireEvent.blur(input);
+
+    await waitFor(() =>
+      expect(patchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ llm_call_log_retention_days: 90 }),
+      ),
+    );
+  });
+
+  it('clamps an out-of-range retention value before patching (issue #342)', async () => {
+    vi.spyOn(api, 'getAISettings').mockResolvedValue({
+      llm_enabled: true,
+      llm_model: 'claude-haiku-4-5-20251001',
+      llm_rate_limit_per_minute: 3,
+      api_key_configured: true,
+      api_key_masked: '...abcd',
+    });
+    vi.spyOn(api, 'getAIModels').mockResolvedValue({ models: [] });
+    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: true,
+      llm_default_connector_id: null,
+      llm_call_log_retention_days: 30,
+    });
+    vi.spyOn(api, 'listAllLlmConnectors').mockResolvedValue([]);
+    vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({ days: 30, rows: [] });
+    const patchSpy = vi.spyOn(api, 'updateAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: true,
+      llm_default_connector_id: null,
+      llm_call_log_retention_days: 365,
+    });
+
+    render(<AdminAISettingsPage />);
+
+    const input = (await screen.findByLabelText(
+      /Call log retention/i,
+    )) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '9999' } });
+    fireEvent.blur(input);
+
+    await waitFor(() =>
+      expect(patchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ llm_call_log_retention_days: 365 }),
+      ),
+    );
+  });
+
+  // Use 5 (not 0) for the below-min value: the onChange handler treats a falsy
+  // parsed value as "no change" (`parseInt(...) || policy.value`), so 0 would be
+  // coerced back to the current policy before blur ever sees it. 5 is a genuine
+  // below-min entry that the blur clamp must lift to 7.
+  it('clamps a below-min retention value before patching (issue #342)', async () => {
+    vi.spyOn(api, 'getAISettings').mockResolvedValue({
+      llm_enabled: true,
+      llm_model: 'claude-haiku-4-5-20251001',
+      llm_rate_limit_per_minute: 3,
+      api_key_configured: true,
+      api_key_masked: '...abcd',
+    });
+    vi.spyOn(api, 'getAIModels').mockResolvedValue({ models: [] });
+    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: true,
+      llm_default_connector_id: null,
+      llm_call_log_retention_days: 30,
+    });
+    vi.spyOn(api, 'listAllLlmConnectors').mockResolvedValue([]);
+    vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({ days: 30, rows: [] });
+    const patchSpy = vi.spyOn(api, 'updateAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: true,
+      llm_default_connector_id: null,
+      llm_call_log_retention_days: 7,
+    });
+
+    render(<AdminAISettingsPage />);
+
+    const input = (await screen.findByLabelText(
+      /Call log retention/i,
+    )) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '5' } });
+    fireEvent.blur(input);
+
+    await waitFor(() =>
+      expect(patchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ llm_call_log_retention_days: 7 }),
+      ),
+    );
+  });
+
+  // -------- issue #346: surface health-check columns in connectors table --------
+  it('renders last-health-check column with a status badge per connector', async () => {
+    vi.spyOn(api, 'getAISettings').mockResolvedValue({
+      llm_enabled: true,
+      llm_model: 'claude-haiku-4-5-20251001',
+      llm_rate_limit_per_minute: 3,
+      api_key_configured: true,
+      api_key_masked: '...abcd',
+    });
+    vi.spyOn(api, 'getAIModels').mockResolvedValue({ models: [] });
+    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: true,
+      llm_default_connector_id: null,
+      llm_call_log_retention_days: 30,
+    });
+    vi.spyOn(api, 'listAllLlmConnectors').mockResolvedValue([
+      {
+        id: 1,
+        user_id: 1,
+        dj_username: 'alpha',
+        connector_type: 'openai_apikey',
+        display_name: 'Alpha key',
+        status: 'active',
+        base_url_plain: null,
+        model_hint: null,
+        created_at: '2026-05-01T00:00:00Z',
+        updated_at: '2026-05-01T00:00:00Z',
+        last_used_at: null,
+        last_error: null,
+        is_default: false,
+        last_health_check_at: '2026-05-28T10:00:00Z',
+        last_health_check_status: 'ok',
+        monthly_token_cap: null,
+        current_month_tokens: 0,
+      },
+      {
+        id: 2,
+        user_id: 2,
+        dj_username: 'bravo',
+        connector_type: 'anthropic_apikey',
+        display_name: 'Bravo key',
+        status: 'auth_invalid',
+        base_url_plain: null,
+        model_hint: null,
+        created_at: '2026-05-01T00:00:00Z',
+        updated_at: '2026-05-01T00:00:00Z',
+        last_used_at: null,
+        last_error: 'auth_invalid',
+        is_default: false,
+        last_health_check_at: '2026-05-28T09:00:00Z',
+        last_health_check_status: 'auth_invalid',
+        monthly_token_cap: null,
+        current_month_tokens: 0,
+      },
+      {
+        id: 3,
+        user_id: 3,
+        dj_username: 'charlie',
+        connector_type: 'openai_apikey',
+        display_name: 'Charlie key',
+        status: 'active',
+        base_url_plain: null,
+        model_hint: null,
+        created_at: '2026-05-01T00:00:00Z',
+        updated_at: '2026-05-01T00:00:00Z',
+        last_used_at: null,
+        last_error: null,
+        is_default: false,
+        last_health_check_at: null,
+        last_health_check_status: null,
+        monthly_token_cap: null,
+        current_month_tokens: 0,
+      },
+    ]);
+    vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({ days: 30, rows: [] });
+
+    render(<AdminAISettingsPage />);
+
+    await waitFor(() => expect(screen.getByText('Alpha key')).toBeInTheDocument());
+    // Column header rendered with sortable affordance
+    expect(screen.getByText('Last health check')).toBeInTheDocument();
+    // Each badge visible
+    expect(screen.getByText('OK')).toBeInTheDocument();
+    expect(screen.getByText('Auth invalid')).toBeInTheDocument();
+    expect(screen.getByText('Never checked')).toBeInTheDocument();
+  });
+
+  it('toggles sort direction when clicking the last-health-check header', async () => {
+    vi.spyOn(api, 'getAISettings').mockResolvedValue({
+      llm_enabled: true,
+      llm_model: 'claude-haiku-4-5-20251001',
+      llm_rate_limit_per_minute: 3,
+      api_key_configured: true,
+      api_key_masked: '...abcd',
+    });
+    vi.spyOn(api, 'getAIModels').mockResolvedValue({ models: [] });
+    vi.spyOn(api, 'getAdminLlmPolicy').mockResolvedValue({
+      llm_apikey_connectors_enabled: true,
+      llm_compatible_connector_enabled: true,
+      llm_default_connector_id: null,
+      llm_call_log_retention_days: 30,
+    });
+    vi.spyOn(api, 'listAllLlmConnectors').mockResolvedValue([
+      {
+        id: 1,
+        user_id: 1,
+        dj_username: 'older',
+        connector_type: 'openai_apikey',
+        display_name: 'Older check',
+        status: 'active',
+        base_url_plain: null,
+        model_hint: null,
+        created_at: '2026-05-01T00:00:00Z',
+        updated_at: '2026-05-01T00:00:00Z',
+        last_used_at: null,
+        last_error: null,
+        is_default: false,
+        last_health_check_at: '2026-05-01T00:00:00Z',
+        last_health_check_status: 'ok',
+        monthly_token_cap: null,
+        current_month_tokens: 0,
+      },
+      {
+        id: 2,
+        user_id: 2,
+        dj_username: 'newer',
+        connector_type: 'openai_apikey',
+        display_name: 'Newer check',
+        status: 'active',
+        base_url_plain: null,
+        model_hint: null,
+        created_at: '2026-05-01T00:00:00Z',
+        updated_at: '2026-05-01T00:00:00Z',
+        last_used_at: null,
+        last_error: null,
+        is_default: false,
+        last_health_check_at: '2026-05-28T00:00:00Z',
+        last_health_check_status: 'ok',
+        monthly_token_cap: null,
+        current_month_tokens: 0,
+      },
+    ]);
+    vi.spyOn(api, 'getAdminLlmUsage').mockResolvedValue({ days: 30, rows: [] });
+
+    render(<AdminAISettingsPage />);
+
+    await waitFor(() => expect(screen.getByText('Newer check')).toBeInTheDocument());
+
+    const findRow = (text: string) => {
+      const td = screen.getByText(text);
+      const tr = td.closest('tr');
+      if (!tr) throw new Error(`row for ${text} not found`);
+      return tr;
+    };
+
+    // Default sort = last_health_check_at DESC → newer first.
+    const tbody = findRow('Newer check').parentElement!;
+    const beforeRows = Array.from(tbody.querySelectorAll('tr'));
+    const beforeOrder = beforeRows.map((r) => r.querySelector('td')!.textContent);
+    expect(beforeOrder).toEqual(['newer', 'older']);
+
+    // Click the Last health check header → should flip to ASC (older first).
+    fireEvent.click(screen.getByText('Last health check'));
+    await waitFor(() => {
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+      const order = rows.map((r) => r.querySelector('td')!.textContent);
+      expect(order).toEqual(['older', 'newer']);
+    });
+  });
 });

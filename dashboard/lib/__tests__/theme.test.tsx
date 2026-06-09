@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
+import { renderToString } from 'react-dom/server';
 import { ThemeProvider, useTheme } from '../theme';
 import { getThemeVars } from '../theme-vars';
 
@@ -134,5 +135,20 @@ describe('ThemeProvider', () => {
     localStorage.setItem('wrzdj-theme', 'invalid-theme');
     renderWithProvider();
     expect(screen.getByTestId('theme').textContent).toBe('dark');
+  });
+
+  it('server-renders the default theme regardless of saved theme (hydration-safe)', () => {
+    // The server has no localStorage, so its markup must match the client's
+    // FIRST render. If the provider read localStorage during render, the
+    // server (dark) and client (daylight) markup would diverge → React
+    // hydration mismatch. Saved theme is loaded post-mount instead.
+    localStorage.setItem('wrzdj-theme', 'daylight');
+    const html = renderToString(
+      <ThemeProvider>
+        <ThemeConsumer />
+      </ThemeProvider>
+    );
+    expect(html).toContain('data-testid="theme">dark<');
+    expect(html).not.toContain('data-testid="theme">daylight<');
   });
 });

@@ -1,5 +1,6 @@
 from app.models.activity_log import ActivityLog
 from app.models.base import Base
+from app.models.curve_template import SetCurveTemplate
 from app.models.email_verification_code import EmailVerificationCode
 from app.models.event import Event
 from app.models.guest import Guest
@@ -41,6 +42,7 @@ __all__ = [
     "Set",
     "SetCollaborator",
     "SetCurvePoint",
+    "SetCurveTemplate",
     "SetSlot",
     "SystemSettings",
     "TrackVibe",

@@ -681,6 +681,75 @@
         "title": "AdminUserUpdate",
         "type": "object"
       },
+      "ApplyTemplateRequest": {
+        "description": "Apply a template's shape onto the set's slots.\n\nExactly one of ``builtin`` / ``template_id``. ``slot_midpoints`` are the\nnormalized slot midpoints (client knows track durations); omitted means\nuniform buckets.",
+        "properties": {
+          "builtin": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Builtin"
+          },
+          "slot_midpoints": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Midpoints"
+          },
+          "template_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template Id"
+          }
+        },
+        "title": "ApplyTemplateRequest",
+        "type": "object"
+      },
+      "ApplyTemplateResponse": {
+        "description": "Per-slot targets persisted by an apply, plus suggested vibe windows.",
+        "properties": {
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/SlotTargetOut"
+            },
+            "title": "Targets",
+            "type": "array"
+          },
+          "windows": {
+            "items": {
+              "$ref": "#/components/schemas/TemplateWindowOut"
+            },
+            "title": "Windows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "targets",
+          "windows"
+        ],
+        "title": "ApplyTemplateResponse",
+        "type": "object"
+      },
       "AuditEventRow": {
         "description": "A single audit-trail row with joined display labels.\n\nNever includes credential material \u2014 only the target connector's\nhuman-readable display name (joined from ``llm_connectors``).",
         "properties": {
@@ -1064,7 +1133,7 @@
       "Body_upload_banner_api_events__code__banner_post": {
         "properties": {
           "file": {
-            "format": "binary",
+            "contentMediaType": "application/octet-stream",
             "title": "File",
             "type": "string"
           }
@@ -1338,6 +1407,28 @@
           "uptime_seconds"
         ],
         "title": "BridgeStatusResponse",
+        "type": "object"
+      },
+      "BuiltinTemplateOut": {
+        "description": "A built-in (code-defined) template.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/CurvePointModel"
+            },
+            "title": "Points",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "points"
+        ],
+        "title": "BuiltinTemplateOut",
         "type": "object"
       },
       "BulkActionResponse": {
@@ -2620,6 +2711,136 @@
           "ok"
         ],
         "title": "ConnectorTestResult",
+        "type": "object"
+      },
+      "CurvePointModel": {
+        "description": "One normalized template point: position t in [0,1], energy e in [0,10].",
+        "properties": {
+          "e": {
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "E",
+            "type": "number"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "slow_end": {
+            "default": false,
+            "title": "Slow End",
+            "type": "boolean"
+          },
+          "slow_start": {
+            "default": false,
+            "title": "Slow Start",
+            "type": "boolean"
+          },
+          "t": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "T",
+            "type": "number"
+          }
+        },
+        "required": [
+          "e",
+          "label",
+          "slow_end",
+          "slow_start",
+          "t"
+        ],
+        "title": "CurvePointModel",
+        "type": "object"
+      },
+      "CurveTemplateCreate": {
+        "description": "Body for creating (or fully updating) a user curve template.",
+        "properties": {
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/CurvePointModel"
+            },
+            "title": "Points",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "points"
+        ],
+        "title": "CurveTemplateCreate",
+        "type": "object"
+      },
+      "CurveTemplateOut": {
+        "description": "A persisted per-DJ template.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/CurvePointModel"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "points",
+          "updated_at"
+        ],
+        "title": "CurveTemplateOut",
+        "type": "object"
+      },
+      "CurveTemplatesResponse": {
+        "description": "All templates available to the DJ.",
+        "properties": {
+          "builtin": {
+            "items": {
+              "$ref": "#/components/schemas/BuiltinTemplateOut"
+            },
+            "title": "Builtin",
+            "type": "array"
+          },
+          "user": {
+            "items": {
+              "$ref": "#/components/schemas/CurveTemplateOut"
+            },
+            "title": "User",
+            "type": "array"
+          }
+        },
+        "required": [
+          "builtin",
+          "user"
+        ],
+        "title": "CurveTemplatesResponse",
         "type": "object"
       },
       "DisplaySettingsResponse": {
@@ -5862,6 +6083,112 @@
         "title": "SetSummary",
         "type": "object"
       },
+      "SlotOut": {
+        "description": "Timeline slot (curve-editor surface; track metadata joins with #388).",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "locked": {
+            "title": "Locked",
+            "type": "boolean"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "target_energy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Energy"
+          },
+          "track_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track Id"
+          }
+        },
+        "required": [
+          "id",
+          "locked",
+          "notes",
+          "position",
+          "target_energy",
+          "track_id"
+        ],
+        "title": "SlotOut",
+        "type": "object"
+      },
+      "SlotTargetOut": {
+        "description": "One slot's persisted target after an update/apply.",
+        "properties": {
+          "slot_id": {
+            "title": "Slot Id",
+            "type": "integer"
+          },
+          "target_energy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Energy"
+          }
+        },
+        "required": [
+          "slot_id",
+          "target_energy"
+        ],
+        "title": "SlotTargetOut",
+        "type": "object"
+      },
+      "SlotTargetUpdate": {
+        "description": "Body for setting/clearing a slot's energy target. None = reset.",
+        "properties": {
+          "target_energy": {
+            "anyOf": [
+              {
+                "maximum": 10.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Energy"
+          }
+        },
+        "title": "SlotTargetUpdate",
+        "type": "object"
+      },
       "StatusMessageResponse": {
         "properties": {
           "message": {
@@ -6128,6 +6455,25 @@
           "playlist_id"
         ],
         "title": "TemplatePlaylistRequest",
+        "type": "object"
+      },
+      "TemplateWindowOut": {
+        "description": "Suggested vibe window from a template's slow_start/slow_end flags.",
+        "properties": {
+          "t0": {
+            "title": "T0",
+            "type": "number"
+          },
+          "t1": {
+            "title": "T1",
+            "type": "number"
+          }
+        },
+        "required": [
+          "t0",
+          "t1"
+        ],
+        "title": "TemplateWindowOut",
         "type": "object"
       },
       "TidalAuthCheckResponse": {
@@ -6922,6 +7268,69 @@
           "verified"
         ],
         "title": "VerifyStatusResponse",
+        "type": "object"
+      },
+      "VibeWindowModel": {
+        "description": "A named region of the set timeline, in seconds.",
+        "properties": {
+          "label": {
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "t0_sec": {
+            "minimum": 0.0,
+            "title": "T0 Sec",
+            "type": "integer"
+          },
+          "t1_sec": {
+            "minimum": 0.0,
+            "title": "T1 Sec",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "label",
+          "t0_sec",
+          "t1_sec"
+        ],
+        "title": "VibeWindowModel",
+        "type": "object"
+      },
+      "VibeWindowsPut": {
+        "description": "Replace-all body for a set's vibe windows.",
+        "properties": {
+          "windows": {
+            "items": {
+              "$ref": "#/components/schemas/VibeWindowModel"
+            },
+            "maxItems": 30,
+            "title": "Windows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "windows"
+        ],
+        "title": "VibeWindowsPut",
+        "type": "object"
+      },
+      "VibeWindowsResponse": {
+        "description": "A set's stored vibe windows.",
+        "properties": {
+          "windows": {
+            "items": {
+              "$ref": "#/components/schemas/VibeWindowModel"
+            },
+            "title": "Windows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "windows"
+        ],
+        "title": "VibeWindowsResponse",
         "type": "object"
       },
       "VoteResponse": {
@@ -13397,6 +13806,175 @@
         ]
       }
     },
+    "/api/setbuilder/curve-templates": {
+      "get": {
+        "description": "Built-in templates plus the current DJ's saved templates.",
+        "operationId": "list_curve_templates_api_setbuilder_curve_templates_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurveTemplatesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Curve Templates",
+        "tags": [
+          "setbuilder"
+        ]
+      },
+      "post": {
+        "description": "Save a new per-DJ curve template.",
+        "operationId": "create_curve_template_api_setbuilder_curve_templates_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CurveTemplateCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurveTemplateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Create Curve Template",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/curve-templates/{template_id}": {
+      "delete": {
+        "description": "Delete one of the current DJ's templates, or 404.",
+        "operationId": "delete_curve_template_api_setbuilder_curve_templates__template_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "title": "Template Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Delete Curve Template",
+        "tags": [
+          "setbuilder"
+        ]
+      },
+      "put": {
+        "description": "Overwrite one of the current DJ's templates, or 404.",
+        "operationId": "update_curve_template_api_setbuilder_curve_templates__template_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "title": "Template Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CurveTemplateCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurveTemplateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Update Curve Template",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
     "/api/setbuilder/sets": {
       "get": {
         "description": "List the current DJ's sets, newest first.",
@@ -13611,6 +14189,287 @@
           }
         ],
         "summary": "Rename Set",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/curve/apply-template": {
+      "post": {
+        "description": "Re-target every slot from a built-in or saved template shape.",
+        "operationId": "apply_curve_template_api_setbuilder_sets__set_id__curve_apply_template_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyTemplateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyTemplateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Apply Curve Template",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/slots": {
+      "get": {
+        "description": "Ordered timeline slots for one of the current DJ's sets.",
+        "operationId": "list_set_slots_api_setbuilder_sets__set_id__slots_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SlotOut"
+                  },
+                  "title": "Response List Set Slots Api Setbuilder Sets  Set Id  Slots Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Set Slots",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/slots/{slot_id}/target": {
+      "patch": {
+        "description": "Set (or clear with null) a slot's energy target.",
+        "operationId": "update_slot_target_api_setbuilder_sets__set_id__slots__slot_id__target_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "slot_id",
+            "required": true,
+            "schema": {
+              "title": "Slot Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlotTargetUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlotTargetOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Update Slot Target",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/vibe-windows": {
+      "get": {
+        "description": "The set's stored vibe windows.",
+        "operationId": "get_vibe_windows_api_setbuilder_sets__set_id__vibe_windows_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VibeWindowsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Vibe Windows",
+        "tags": [
+          "setbuilder"
+        ]
+      },
+      "put": {
+        "description": "Replace-all update of the set's vibe windows.",
+        "operationId": "put_vibe_windows_api_setbuilder_sets__set_id__vibe_windows_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VibeWindowsPut"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VibeWindowsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Put Vibe Windows",
         "tags": [
           "setbuilder"
         ]

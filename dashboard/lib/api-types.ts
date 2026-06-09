@@ -191,6 +191,17 @@ export interface SetDetail extends SetSummary {
   exported_at: string | null;
 }
 
+// WrzDJSet energy curve editor (#389)
+export type CurvePoint = Schemas['CurvePointModel'];
+export type BuiltinCurveTemplate = Schemas['BuiltinTemplateOut'];
+export type CurveTemplate = Schemas['CurveTemplateOut'];
+export type CurveTemplatesResponse = Schemas['CurveTemplatesResponse'];
+export type SetSlotOut = Schemas['SlotOut'];
+export type SlotTargetOut = Schemas['SlotTargetOut'];
+export type ApplyTemplateResponse = Schemas['ApplyTemplateResponse'];
+export type VibeWindow = Schemas['VibeWindowModel'];
+export type VibeWindowsResponse = Schemas['VibeWindowsResponse'];
+
 /** OpenAPI expresses PaginatedResponse with `items: any[]`; keep this
  *  hand-crafted generic wrapper for type-safe consumer sites. */
 export interface PaginatedResponse<T> {

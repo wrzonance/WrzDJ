@@ -37,6 +37,10 @@ import type {
   KioskPairResponse,
   KioskPairStatusResponse,
   KioskSessionResponse,
+  ApplyTemplateResponse,
+  CurvePoint,
+  CurveTemplate,
+  CurveTemplatesResponse,
   LLMRecommendationResponse,
   MyRequestsResponse,
   NowPlayingInfo,
@@ -47,7 +51,9 @@ import type {
   RecommendationResponse,
   SearchResult,
   SetDetail,
+  SetSlotOut,
   SetSummary,
+  SlotTargetOut,
   SongRequest,
   SystemSettings,
   SystemStats,
@@ -55,6 +61,8 @@ import type {
   TidalSearchResult,
   TidalSyncResult,
   TidalStatus,
+  VibeWindow,
+  VibeWindowsResponse,
   VoteResponse,
 } from './api-types';
 
@@ -642,6 +650,62 @@ class ApiClient {
   }
   async deleteSet(setId: number): Promise<void> {
     await this.rawFetch(`/api/setbuilder/sets/${setId}`, { method: 'DELETE' });
+  }
+
+  // WrzDJSet energy curve editor (#389)
+  async getCurveTemplates(): Promise<CurveTemplatesResponse> {
+    return this.fetch('/api/setbuilder/curve-templates');
+  }
+  async createCurveTemplate(name: string, points: CurvePoint[]): Promise<CurveTemplate> {
+    return this.fetch('/api/setbuilder/curve-templates', {
+      method: 'POST',
+      body: JSON.stringify({ name, points }),
+    });
+  }
+  async updateCurveTemplate(
+    templateId: number,
+    name: string,
+    points: CurvePoint[],
+  ): Promise<CurveTemplate> {
+    return this.fetch(`/api/setbuilder/curve-templates/${templateId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name, points }),
+    });
+  }
+  async deleteCurveTemplate(templateId: number): Promise<void> {
+    await this.rawFetch(`/api/setbuilder/curve-templates/${templateId}`, { method: 'DELETE' });
+  }
+  async getSetSlots(setId: number): Promise<SetSlotOut[]> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/slots`);
+  }
+  async updateSlotTarget(
+    setId: number,
+    slotId: number,
+    targetEnergy: number | null,
+  ): Promise<SlotTargetOut> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/slots/${slotId}/target`, {
+      method: 'PATCH',
+      body: JSON.stringify({ target_energy: targetEnergy }),
+    });
+  }
+  async applyCurveTemplate(
+    setId: number,
+    source: { builtin?: string; template_id?: number },
+    slotMidpoints?: number[],
+  ): Promise<ApplyTemplateResponse> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/curve/apply-template`, {
+      method: 'POST',
+      body: JSON.stringify({ ...source, slot_midpoints: slotMidpoints ?? null }),
+    });
+  }
+  async getVibeWindows(setId: number): Promise<VibeWindowsResponse> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/vibe-windows`);
+  }
+  async putVibeWindows(setId: number, windows: VibeWindow[]): Promise<VibeWindowsResponse> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/vibe-windows`, {
+      method: 'PUT',
+      body: JSON.stringify({ windows }),
+    });
   }
 
   async bulkDeleteEvents(codes: string[]): Promise<{ status: string; count: number }> {

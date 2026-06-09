@@ -2447,6 +2447,36 @@ describe('ApiClient', () => {
       expect(init.method).toBe('POST');
     });
 
+    it('parses CRLF-delimited SSE frames, including event: error (#354)', async () => {
+      // A spec-compliant server or proxy may frame SSE with CRLF (\r\n\r\n)
+      // rather than LF. The parser must split frames and lines on either, or it
+      // silently drops every frame — including the typed `event: error`.
+      const sse =
+        'data: {"text_delta":"Hi","done":false}\r\n\r\n' +
+        'event: error\r\ndata: {"code":"ProviderUnavailable"}\r\n\r\n';
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(sse));
+          controller.close();
+        },
+      });
+      vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(stream, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      );
+
+      api.setToken('jwt-token');
+      const chunks: Array<{ text_delta?: string }> = [];
+      await expect(
+        api.streamConnectorTest(7, (c) => chunks.push(c)),
+      ).rejects.toThrowError(/ProviderUnavailable/);
+      // The CRLF-framed data frame before the error was still parsed.
+      expect(chunks.map((c) => c.text_delta).join('')).toBe('Hi');
+    });
+
     it('throws ApiError on non-OK response', async () => {
       vi.spyOn(global, 'fetch').mockResolvedValueOnce(
         new Response('nope', { status: 500 }),

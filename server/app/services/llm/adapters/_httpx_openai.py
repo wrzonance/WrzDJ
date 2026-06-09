@@ -151,6 +151,23 @@ def _map_stream_status(status_code: int) -> None:
     raise ToolTranslationError(f"Upstream rejected request (HTTP {status_code})")
 
 
+def _decode_openai_sse_event_data(data: str) -> ChatResponseChunk | None:
+    """Decode one assembled SSE event body into a chunk.
+
+    ``data`` is the event's ``data:`` payload lines already joined on newlines
+    and stripped. Returns ``None`` for an empty body; raises
+    ``ToolTranslationError`` on malformed JSON. The ``[DONE]`` sentinel and event
+    framing are handled by the caller.
+    """
+    if not data:
+        return None
+    try:
+        obj = json.loads(data)
+    except json.JSONDecodeError as exc:
+        raise ToolTranslationError("Upstream returned malformed SSE JSON") from exc
+    return parse_openai_stream_event(obj)
+
+
 async def stream_openai_chat(
     *,
     base_url: str,
@@ -203,22 +220,32 @@ async def stream_openai_chat(
                     # then map to a typed error. The body is never surfaced.
                     await resp.aread()
                     _map_stream_status(resp.status_code)
+                # SSE events are delimited by a blank line, and a single event
+                # may span multiple ``data:`` lines (joined on newlines). Buffer
+                # per event and decode the whole body, so a multi-line JSON object
+                # isn't decoded as broken fragments. Comment frames (":") and
+                # other fields (event:/id:/retry:) are ignored.
+                event_lines: list[str] = []
                 async for line in resp.aiter_lines():
-                    if not line or not line.startswith("data:"):
+                    if line.startswith(":"):
                         continue
-                    data = line[len("data:") :].strip()
+                    if line.startswith("data:"):
+                        event_lines.append(line[len("data:") :].lstrip())
+                        continue
+                    if line:
+                        continue
+                    data = "\n".join(event_lines).strip()
+                    event_lines.clear()
                     if data == "[DONE]":
                         break
-                    try:
-                        obj = json.loads(data)
-                    except json.JSONDecodeError as exc:
-                        # SSE comment / keepalive frames start with ":" (or are
-                        # blank) and never reach here — they fail the "data:"
-                        # prefix check above. A "data:" line that isn't "[DONE]"
-                        # yet won't parse is a genuine protocol fault; surface it
-                        # rather than silently truncating the stream.
-                        raise ToolTranslationError("Upstream returned malformed SSE JSON") from exc
-                    chunk = parse_openai_stream_event(obj)
+                    chunk = _decode_openai_sse_event_data(data)
+                    if chunk is not None:
+                        yield chunk
+                # A non-compliant server may close without a trailing blank line
+                # after the final event; flush whatever remains buffered.
+                data = "\n".join(event_lines).strip()
+                if data and data != "[DONE]":
+                    chunk = _decode_openai_sse_event_data(data)
                     if chunk is not None:
                         yield chunk
     except httpx.TimeoutException as exc:

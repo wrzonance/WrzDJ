@@ -1285,22 +1285,26 @@ class ApiClient {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    // SSE frames are separated by a blank line. The spec allows LF (`\n\n`) or
+    // CRLF (`\r\n\r\n`) terminators, so match either — a CRLF-emitting server or
+    // proxy must not leave frames (including `event: error`) unparsed.
+    const frameBoundary = /\r?\n\r?\n/;
     try {
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        // SSE frames are separated by a blank line.
         let sep: number;
-        while ((sep = buffer.indexOf('\n\n')) !== -1) {
+        while ((sep = buffer.search(frameBoundary)) !== -1) {
           const frame = buffer.slice(0, sep);
-          buffer = buffer.slice(sep + 2);
+          const boundary = buffer.slice(sep).match(frameBoundary)?.[0] ?? '\n\n';
+          buffer = buffer.slice(sep + boundary.length);
           // A frame may carry an `event:` name plus one or more `data:` lines.
           // The backend emits `event: error` for typed gateway failures, so we
           // must inspect the event type — not just blindly parse `data:`.
           let eventType = 'message';
           const dataLines: string[] = [];
-          for (const line of frame.split('\n')) {
+          for (const line of frame.split(/\r?\n/)) {
             if (line.startsWith('event:')) {
               eventType = line.slice('event:'.length).trim();
             } else if (line.startsWith('data:')) {

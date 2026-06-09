@@ -28,7 +28,20 @@ def upgrade() -> None:
         "llm_connectors",
         sa.Column("monthly_token_cap", sa.Integer(), nullable=True),
     )
+    # Defence-in-depth: the API schema (ge=0) and service layer already reject
+    # negatives, but a DB CHECK guarantees a bad write can never persist a
+    # negative cap (which would make the connector permanently "over budget").
+    op.create_check_constraint(
+        "ck_llm_connectors_monthly_token_cap_nonnegative",
+        "llm_connectors",
+        "monthly_token_cap IS NULL OR monthly_token_cap >= 0",
+    )
 
 
 def downgrade() -> None:
+    op.drop_constraint(
+        "ck_llm_connectors_monthly_token_cap_nonnegative",
+        "llm_connectors",
+        type_="check",
+    )
     op.drop_column("llm_connectors", "monthly_token_cap")

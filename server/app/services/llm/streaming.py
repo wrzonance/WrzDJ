@@ -71,17 +71,22 @@ def parse_openai_stream_event(payload: dict) -> ChatResponseChunk | None:
     done = finish_reason is not None
 
     stop_reason: CanonicalStopReason | None = None
-    usage: TokenUsage | None = None
     if done:
         stop_reason = _FINISH_REASON_OPENAI.get(finish_reason, "error")
-        usage_payload = payload.get("usage") or {}
-        if usage_payload:
-            usage = TokenUsage(
-                prompt=_as_int(usage_payload.get("prompt_tokens", 0)),
-                completion=_as_int(usage_payload.get("completion_tokens", 0)),
-            )
 
-    if not text_delta and not tool_call_deltas and not done:
+    # Usage can arrive on a *separate* terminal frame that carries no text/tool
+    # delta and no finish_reason: OpenAI's ``stream_options.include_usage`` emits a
+    # final ``choices: []`` event whose only payload is ``usage``. Compute it
+    # unconditionally (not just when ``done``) so token accounting survives.
+    usage: TokenUsage | None = None
+    usage_payload = payload.get("usage") or {}
+    if usage_payload:
+        usage = TokenUsage(
+            prompt=_as_int(usage_payload.get("prompt_tokens", 0)),
+            completion=_as_int(usage_payload.get("completion_tokens", 0)),
+        )
+
+    if not text_delta and not tool_call_deltas and not done and usage is None:
         return None
 
     return ChatResponseChunk(

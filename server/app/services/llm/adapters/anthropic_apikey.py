@@ -180,6 +180,18 @@ class AnthropicApiKeyAdapter(LlmAdapter):
         raise ToolTranslationError(f"Upstream rejected request (HTTP {status})") from exc
 
 
+def _field(obj: Any, name: str) -> Any:
+    """Read ``name`` from an SDK object (attribute) or a plain dict (key).
+
+    The Anthropic SDK yields typed event objects in production, but tests feed
+    plain dicts. Plain ``getattr`` returns ``None`` for dict keys, which would
+    silently drop every delta on a dict-backed event — so fall back to ``.get``.
+    """
+    if isinstance(obj, dict):
+        return obj.get(name)
+    return getattr(obj, name, None)
+
+
 def _translate_anthropic_event(
     event: Any,
 ) -> tuple[ChatResponseChunk | None, bool, str | None, int | None]:
@@ -190,18 +202,18 @@ def _translate_anthropic_event(
     ``tool_translation.parse_anthropic_response`` so it tolerates either the
     typed SDK events or plain dicts (used in tests).
     """
-    etype = getattr(event, "type", None)
+    etype = _field(event, "type")
 
     if etype == "content_block_start":
-        block = getattr(event, "content_block", None)
-        if getattr(block, "type", None) == "tool_use":
-            idx = int(getattr(event, "index", 0))
+        block = _field(event, "content_block")
+        if _field(block, "type") == "tool_use":
+            idx = int(_field(event, "index") or 0)
             chunk = ChatResponseChunk(
                 tool_call_deltas=[
                     ToolCallDelta(
                         index=idx,
-                        id=getattr(block, "id", None),
-                        name=getattr(block, "name", None),
+                        id=_field(block, "id"),
+                        name=_field(block, "name"),
                     )
                 ]
             )
@@ -209,17 +221,17 @@ def _translate_anthropic_event(
         return None, False, None, None
 
     if etype == "content_block_delta":
-        delta = getattr(event, "delta", None)
-        dtype = getattr(delta, "type", None)
+        delta = _field(event, "delta")
+        dtype = _field(delta, "type")
         if dtype == "text_delta":
-            return ChatResponseChunk(text_delta=getattr(delta, "text", "") or ""), False, None, None
+            return ChatResponseChunk(text_delta=_field(delta, "text") or ""), False, None, None
         if dtype == "input_json_delta":
-            idx = int(getattr(event, "index", 0))
+            idx = int(_field(event, "index") or 0)
             chunk = ChatResponseChunk(
                 tool_call_deltas=[
                     ToolCallDelta(
                         index=idx,
-                        input_json_fragment=getattr(delta, "partial_json", "") or "",
+                        input_json_fragment=_field(delta, "partial_json") or "",
                     )
                 ]
             )
@@ -227,12 +239,12 @@ def _translate_anthropic_event(
         return None, False, None, None
 
     if etype == "message_delta":
-        delta = getattr(event, "delta", None)
-        stop_reason = getattr(delta, "stop_reason", None)
-        usage = getattr(event, "usage", None)
+        delta = _field(event, "delta")
+        stop_reason = _field(delta, "stop_reason")
+        usage = _field(event, "usage")
         output_tokens = None
         if usage is not None:
-            ot = getattr(usage, "output_tokens", None)
+            ot = _field(usage, "output_tokens")
             if ot is not None:
                 output_tokens = int(ot)
         return None, False, stop_reason, output_tokens

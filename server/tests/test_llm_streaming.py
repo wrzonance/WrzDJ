@@ -194,6 +194,28 @@ def test_parse_openai_stream_tolerates_non_numeric_usage():
     assert chunk.usage.completion == 0
 
 
+def test_parse_openai_stream_usage_only_terminal_event_preserved():
+    """A usage-only terminal event (empty ``choices``) must not be dropped (#354).
+
+    With ``stream_options.include_usage`` OpenAI emits a final frame carrying only
+    ``usage`` and ``choices: []`` — no delta, no ``finish_reason``. Previously the
+    parser returned ``None`` for it (``done`` is driven solely by ``finish_reason``)
+    so token accounting was silently lost. It must now yield a usage-bearing chunk.
+    """
+    from app.services.llm.streaming import parse_openai_stream_event
+
+    chunk = parse_openai_stream_event(
+        {"choices": [], "usage": {"prompt_tokens": 9, "completion_tokens": 4}}
+    )
+    assert chunk is not None
+    assert chunk.done is False
+    assert chunk.text_delta == ""
+    assert chunk.tool_call_deltas == []
+    assert chunk.usage is not None
+    assert chunk.usage.prompt == 9
+    assert chunk.usage.completion == 4
+
+
 # ---------------------------------------------------------------------------
 # Task 4 — httpx OpenAI streaming generator
 # ---------------------------------------------------------------------------
@@ -239,13 +261,20 @@ class _FakeStreamClient:
 async def test_stream_openai_chat_yields_text_then_final(monkeypatch):
     from app.services.llm.adapters import _httpx_openai
 
+    # SSE events are blank-line delimited (``aiter_lines`` yields "" for a blank
+    # line). Real OpenAI frames each ``data:`` line that way.
     sse_lines = [
         'data: {"choices":[{"delta":{"role":"assistant"},"finish_reason":null}]}',
+        "",
         'data: {"choices":[{"delta":{"content":"Hi"},"finish_reason":null}]}',
+        "",
         'data: {"choices":[{"delta":{"content":" there"},"finish_reason":null}]}',
+        "",
         'data: {"choices":[{"delta":{},"finish_reason":"stop"}],'
         '"usage":{"prompt_tokens":4,"completion_tokens":2}}',
+        "",
         "data: [DONE]",
+        "",
     ]
     fake_resp = _FakeStreamResponse(sse_lines)
     monkeypatch.setattr(
@@ -296,7 +325,9 @@ async def test_stream_openai_chat_malformed_data_raises(monkeypatch):
 
     sse_lines = [
         'data: {"choices":[{"delta":{"content":"Hi"},"finish_reason":null}]}',
+        "",
         "data: {not valid json",
+        "",
     ]
     fake_resp = _FakeStreamResponse(sse_lines)
     monkeypatch.setattr(
@@ -315,6 +346,43 @@ async def test_stream_openai_chat_malformed_data_raises(monkeypatch):
             collected.append(c)
     # The valid leading chunk was still delivered before the fault surfaced.
     assert collected and collected[0].text_delta == "Hi"
+
+
+async def test_stream_openai_chat_reassembles_multiline_data_event(monkeypatch):
+    """One SSE event split across multiple ``data:`` lines is reassembled (#354).
+
+    SSE permits a single event to span several ``data:`` lines (joined on
+    newlines); an OpenAI-compatible server may emit JSON that way. Decoding each
+    line on its own would raise on the first fragment and truncate the stream, so
+    the parser must buffer the whole event before JSON-decoding it.
+    """
+    from app.services.llm.adapters import _httpx_openai
+
+    sse_lines = [
+        # A single JSON object wrapped across two data lines — valid only once
+        # the two payloads are rejoined with a newline.
+        'data: {"choices":[{"delta":{"content":"Hi there"},',
+        'data: "finish_reason":null}]}',
+        "",
+        "data: [DONE]",
+        "",
+    ]
+    fake_resp = _FakeStreamResponse(sse_lines)
+    monkeypatch.setattr(
+        _httpx_openai.httpx, "AsyncClient", lambda *a, **k: _FakeStreamClient(fake_resp)
+    )
+
+    req = ChatRequest(messages=[Message(role="user", content="hi")], model="gpt-x")
+    chunks = [
+        c
+        async for c in _httpx_openai.stream_openai_chat(
+            base_url="https://api.openai.com/v1",
+            api_key="sk-test",
+            request=req,
+            fallback_model="gpt-x",
+        )
+    ]
+    assert "".join(c.text_delta for c in chunks) == "Hi there"
 
 
 # ---------------------------------------------------------------------------
@@ -550,3 +618,60 @@ async def test_anthropic_stream_unmodelled_stop_matches_chat(monkeypatch, native
     # The streamed canonical stop_reason equals what the buffered path would give.
     assert chunks[-1].stop_reason == normalise_anthropic_stop_reason(native_stop)
     assert chunks[-1].stop_reason == "error"
+
+
+def test_translate_anthropic_event_handles_plain_dicts():
+    """Dict-backed events (not only SDK objects) must yield deltas (#354).
+
+    ``_translate_anthropic_event``'s docstring promises dict support, but the
+    original implementation read fields via ``getattr`` only — so dict events
+    silently produced empty chunks. Each branch must honour dict access.
+    """
+    from app.services.llm.adapters.anthropic_apikey import _translate_anthropic_event
+
+    # tool_use block start
+    chunk, saw_tool, stop, out_tokens = _translate_anthropic_event(
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "tool_use", "id": "toolu_1", "name": "search"},
+        }
+    )
+    assert saw_tool is True
+    assert chunk is not None
+    assert chunk.tool_call_deltas[0].id == "toolu_1"
+    assert chunk.tool_call_deltas[0].name == "search"
+
+    # text delta
+    chunk, _saw, _stop, _ot = _translate_anthropic_event(
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "Hello"},
+        }
+    )
+    assert chunk is not None
+    assert chunk.text_delta == "Hello"
+
+    # input_json (tool argument) delta
+    chunk, _saw, _stop, _ot = _translate_anthropic_event(
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "input_json_delta", "partial_json": '{"q":'},
+        }
+    )
+    assert chunk is not None
+    assert chunk.tool_call_deltas[0].input_json_fragment == '{"q":'
+
+    # message_delta carries stop_reason + usage
+    chunk, _saw, stop, out_tokens = _translate_anthropic_event(
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": "end_turn"},
+            "usage": {"output_tokens": 7},
+        }
+    )
+    assert chunk is None
+    assert stop == "end_turn"
+    assert out_tokens == 7

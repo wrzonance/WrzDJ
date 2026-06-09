@@ -93,6 +93,31 @@ def test_connector_stores_cap(db):
     assert connector.monthly_token_cap == 100_000
 
 
+def test_db_rejects_negative_cap(db):
+    """The DB CHECK constraint backstops the app-layer ``ge=0`` guard (#354).
+
+    The API schema (``ge=0``) and ``set_monthly_cap`` already reject negatives;
+    this proves ``ck_llm_connectors_monthly_token_cap_nonnegative`` refuses to
+    persist one even if those layers were bypassed (defence-in-depth).
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    user = _make_dj(db, username="capneg")
+    row = LlmConnector(
+        user_id=user.id,
+        connector_type="openai_apikey",
+        display_name="neg cap",
+        status="active",
+        credentials=json.dumps({"api_key": "sk-fake-key"}),
+        model_hint="gpt-5-mini",
+        monthly_token_cap=-1,
+    )
+    db.add(row)
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
+
+
 # --- Aggregation + setter helpers --------------------------------------------
 
 

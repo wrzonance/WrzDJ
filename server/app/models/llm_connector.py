@@ -12,6 +12,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -162,6 +163,13 @@ class LlmConnector(Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", "connector_type", "display_name", name="uq_dj_connector_label"),
+        # A negative cap would make the connector permanently "over budget". The
+        # API schema (ge=0) and service layer already reject negatives; this DB
+        # CHECK is the defence-in-depth backstop so a bad write can never persist.
+        CheckConstraint(
+            "monthly_token_cap IS NULL OR monthly_token_cap >= 0",
+            name="ck_llm_connectors_monthly_token_cap_nonnegative",
+        ),
         Index("ix_user_active", "user_id", "status"),
         # Partial unique index — only enforced on Postgres. SQLite ignores
         # the postgresql_where clause but still creates an unfiltered index;

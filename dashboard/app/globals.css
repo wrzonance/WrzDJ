@@ -209,6 +209,25 @@ a {
   color: white;
 }
 
+/* WrzDJSet set-lifecycle badges — subtle, theme-token based (compose with .badge) */
+.badge-set-draft {
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.badge-set-locked {
+  background: var(--color-warning-subtle);
+  color: var(--color-warning);
+  border: 1px solid transparent;
+}
+
+.badge-set-exported {
+  background: var(--color-success-subtle);
+  color: var(--color-success);
+  border: 1px solid transparent;
+}
+
 .header {
   display: flex;
   justify-content: space-between;

@@ -210,7 +210,6 @@ export default function SetbuilderPage() {
                 <>
                   <Link href={`/setbuilder/${s.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
                     <h3>{s.name}</h3>
-                    <div className="code">{s.status}</div>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
                       Updated: {new Date(s.updated_at).toLocaleString()}
                     </p>

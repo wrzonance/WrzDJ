@@ -118,7 +118,6 @@ export default function CurveEditor({
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dragIdx, dragEnergy, h]);
 
   // Vibe-window move/resize drag

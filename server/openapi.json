@@ -5617,6 +5617,251 @@
         "title": "ServiceCapabilities",
         "type": "object"
       },
+      "SetCreate": {
+        "description": "Body for creating a new (empty) set.",
+        "properties": {
+          "event_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Id"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "SetCreate",
+        "type": "object"
+      },
+      "SetDetail": {
+        "description": "Full set record (Phase 0: no slot/curve expansion yet).",
+        "properties": {
+          "bpm_ceiling": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bpm Ceiling"
+          },
+          "bpm_floor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bpm Floor"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Id"
+          },
+          "exported_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exported At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "key_strictness": {
+            "title": "Key Strictness",
+            "type": "number"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "sharing_mode": {
+            "enum": [
+              "private",
+              "invite_only"
+            ],
+            "title": "Sharing Mode",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "locked",
+              "exported"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "target_duration_sec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Duration Sec"
+          },
+          "tidal_playlist_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tidal Playlist Id"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "vibe_theme": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vibe Theme"
+          }
+        },
+        "required": [
+          "bpm_ceiling",
+          "bpm_floor",
+          "created_at",
+          "event_id",
+          "exported_at",
+          "id",
+          "key_strictness",
+          "name",
+          "sharing_mode",
+          "status",
+          "target_duration_sec",
+          "tidal_playlist_id",
+          "updated_at",
+          "vibe_theme"
+        ],
+        "title": "SetDetail",
+        "type": "object"
+      },
+      "SetRename": {
+        "description": "Body for renaming a set.",
+        "properties": {
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "SetRename",
+        "type": "object"
+      },
+      "SetSummary": {
+        "description": "Set list item (no children).",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Id"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "sharing_mode": {
+            "enum": [
+              "private",
+              "invite_only"
+            ],
+            "title": "Sharing Mode",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "locked",
+              "exported"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_at",
+          "event_id",
+          "id",
+          "name",
+          "sharing_mode",
+          "status",
+          "updated_at"
+        ],
+        "title": "SetSummary",
+        "type": "object"
+      },
       "StatusMessageResponse": {
         "properties": {
           "message": {
@@ -13149,6 +13394,225 @@
         "summary": "Clear Search Cache",
         "tags": [
           "search"
+        ]
+      }
+    },
+    "/api/setbuilder/sets": {
+      "get": {
+        "description": "List the current DJ's sets, newest first.",
+        "operationId": "list_sets_api_setbuilder_sets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SetSummary"
+                  },
+                  "title": "Response List Sets Api Setbuilder Sets Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Sets",
+        "tags": [
+          "setbuilder"
+        ]
+      },
+      "post": {
+        "description": "Create a new empty set owned by the current DJ.",
+        "operationId": "create_set_api_setbuilder_sets_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Create Set",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}": {
+      "delete": {
+        "description": "Delete one of the current DJ's sets, or 404.",
+        "operationId": "delete_set_api_setbuilder_sets__set_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Delete Set",
+        "tags": [
+          "setbuilder"
+        ]
+      },
+      "get": {
+        "description": "Get one of the current DJ's sets, or 404.",
+        "operationId": "get_set_api_setbuilder_sets__set_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Set",
+        "tags": [
+          "setbuilder"
+        ]
+      },
+      "patch": {
+        "description": "Rename one of the current DJ's sets, or 404.",
+        "operationId": "rename_set_api_setbuilder_sets__set_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRename"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Rename Set",
+        "tags": [
+          "setbuilder"
         ]
       }
     },

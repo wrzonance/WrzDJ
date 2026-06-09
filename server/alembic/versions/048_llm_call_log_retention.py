@@ -1,7 +1,7 @@
 """Configurable llm_call_log retention.
 
-Revision ID: 047
-Revises: 046
+Revision ID: 048
+Revises: 047
 Create Date: 2026-05-26
 
 Adds system_settings.llm_call_log_retention_days (int, default 30, NOT NULL).
@@ -13,8 +13,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "047"
-down_revision: str | None = "046"
+revision: str = "048"
+down_revision: str | None = "047"
 branch_labels = None
 depends_on = None
 

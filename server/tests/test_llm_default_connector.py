@@ -454,8 +454,8 @@ class TestServiceLayer:
         assert a.is_default is False
 
 
-def _load_migration_048():
-    """Import the 048 migration module by file path so the backfill helper is
+def _load_migration_049():
+    """Import the 049 migration module by file path so the backfill helper is
     callable from tests (alembic versions/ has no ``__init__.py``).
     """
     import importlib.util
@@ -465,9 +465,9 @@ def _load_migration_048():
         Path(__file__).resolve().parent.parent
         / "alembic"
         / "versions"
-        / "048_llm_connector_is_default.py"
+        / "049_llm_connector_is_default.py"
     )
-    spec = importlib.util.spec_from_file_location("_migration_048", path)
+    spec = importlib.util.spec_from_file_location("_migration_049", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -487,7 +487,7 @@ class TestMigrationBackfill:
 
         from app.core.time import utcnow
 
-        migration = _load_migration_048()
+        migration = _load_migration_049()
 
         # User A: two active connectors, neither default. MRU = newer.
         older_a = _make_connector(db, dj_user, display_name="A-older")
@@ -512,7 +512,7 @@ class TestMigrationBackfill:
         assert only_b.is_default is True
 
     def test_backfill_skips_users_with_existing_default(self, db, dj_user):
-        migration = _load_migration_048()
+        migration = _load_migration_049()
 
         already = _make_connector(db, dj_user, display_name="already", is_default=True)
         also = _make_connector(db, dj_user, display_name="also")
@@ -526,7 +526,7 @@ class TestMigrationBackfill:
         assert also.is_default is False  # Untouched
 
     def test_backfill_skips_inactive_only(self, db, dj_user):
-        migration = _load_migration_048()
+        migration = _load_migration_049()
 
         broken = _make_connector(db, dj_user, display_name="only-broken", status="auth_invalid")
 

@@ -2412,6 +2412,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setbuilder/sets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Sets
+         * @description List the current DJ's sets, newest first.
+         */
+        get: operations["list_sets_api_setbuilder_sets_get"];
+        put?: never;
+        /**
+         * Create Set
+         * @description Create a new empty set owned by the current DJ.
+         */
+        post: operations["create_set_api_setbuilder_sets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Set
+         * @description Get one of the current DJ's sets, or 404.
+         */
+        get: operations["get_set_api_setbuilder_sets__set_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Set
+         * @description Delete one of the current DJ's sets, or 404.
+         */
+        delete: operations["delete_set_api_setbuilder_sets__set_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename Set
+         * @description Rename one of the current DJ's sets, or 404.
+         */
+        patch: operations["rename_set_api_setbuilder_sets__set_id__patch"];
+        trace?: never;
+    };
     "/api/tidal/auth/cancel": {
         parameters: {
             query?: never;
@@ -4517,6 +4569,102 @@ export interface components {
             auth: components["schemas"]["CapabilityStatus"];
             catalog_search: components["schemas"]["CapabilityStatus"];
             playlist_sync: components["schemas"]["CapabilityStatus"];
+        };
+        /**
+         * SetCreate
+         * @description Body for creating a new (empty) set.
+         */
+        SetCreate: {
+            /** Event Id */
+            event_id?: number | null;
+            /** Name */
+            name: string;
+        };
+        /**
+         * SetDetail
+         * @description Full set record (Phase 0: no slot/curve expansion yet).
+         */
+        SetDetail: {
+            /** Bpm Ceiling */
+            bpm_ceiling: number | null;
+            /** Bpm Floor */
+            bpm_floor: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Event Id */
+            event_id: number | null;
+            /** Exported At */
+            exported_at: string | null;
+            /** Id */
+            id: number;
+            /** Key Strictness */
+            key_strictness: number;
+            /** Name */
+            name: string;
+            /**
+             * Sharing Mode
+             * @enum {string}
+             */
+            sharing_mode: "private" | "invite_only";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "locked" | "exported";
+            /** Target Duration Sec */
+            target_duration_sec: number | null;
+            /** Tidal Playlist Id */
+            tidal_playlist_id: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Vibe Theme */
+            vibe_theme: string | null;
+        };
+        /**
+         * SetRename
+         * @description Body for renaming a set.
+         */
+        SetRename: {
+            /** Name */
+            name: string;
+        };
+        /**
+         * SetSummary
+         * @description Set list item (no children).
+         */
+        SetSummary: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Event Id */
+            event_id: number | null;
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /**
+             * Sharing Mode
+             * @enum {string}
+             */
+            sharing_mode: "private" | "invite_only";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "locked" | "exported";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** StatusMessageResponse */
         StatusMessageResponse: {
@@ -9077,6 +9225,154 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CacheClearResponse"];
+                };
+            };
+        };
+    };
+    list_sets_api_setbuilder_sets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetSummary"][];
+                };
+            };
+        };
+    };
+    create_set_api_setbuilder_sets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_set_api_setbuilder_sets__set_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_set_api_setbuilder_sets__set_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_set_api_setbuilder_sets__set_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetRename"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

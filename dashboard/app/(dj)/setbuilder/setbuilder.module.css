@@ -1,0 +1,70 @@
+.workspace {
+  display: grid;
+  grid-template-columns: 320px 1fr 360px;
+  grid-template-rows: minmax(200px, 40%) 1fr;
+  grid-template-areas:
+    'pool curve chat'
+    'pool timeline chat';
+  gap: 1px;
+  height: calc(100vh - 56px);
+  background: var(--border-subtle);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 56px;
+  padding: 0 1rem;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbarTitle {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.panel {
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panelPool {
+  grid-area: pool;
+}
+.panelCurve {
+  grid-area: curve;
+}
+.panelTimeline {
+  grid-area: timeline;
+}
+.panelChat {
+  grid-area: chat;
+}
+
+.panelHeader {
+  padding: 0.75rem 1rem;
+  font-family: var(--font-display), sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.panelBody {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  text-align: center;
+}

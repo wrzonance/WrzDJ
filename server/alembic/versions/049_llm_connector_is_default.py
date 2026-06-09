@@ -1,7 +1,7 @@
 """Per-DJ explicit default connector toggle (issue #336).
 
-Revision ID: 048
-Revises: 047
+Revision ID: 049
+Revises: 048
 Create Date: 2026-05-28
 
 Adds llm_connectors.is_default (bool, NOT NULL, default false) plus a partial
@@ -19,8 +19,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "048"
-down_revision: str | None = "047"
+revision: str = "049"
+down_revision: str | None = "048"
 branch_labels = None
 depends_on = None
 

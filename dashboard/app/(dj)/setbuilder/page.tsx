@@ -15,6 +15,9 @@ export default function SetbuilderPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [savingRename, setSavingRename] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -58,6 +61,34 @@ export default function SetbuilderPage() {
       setSets((prev) => prev.filter((s) => s.id !== id));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete set');
+    }
+  };
+
+  const startRename = (s: SetSummary) => {
+    setRenamingId(s.id);
+    setRenameValue(s.name);
+  };
+
+  const cancelRename = () => {
+    setRenamingId(null);
+    setRenameValue('');
+  };
+
+  const handleRename = async (e: React.FormEvent, id: number) => {
+    e.preventDefault();
+    const name = renameValue.trim();
+    if (!name) return;
+    setSavingRename(true);
+    try {
+      const updated = await api.renameSet(id, name);
+      setSets((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, name: updated.name, updated_at: updated.updated_at } : s))
+      );
+      cancelRename();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to rename set');
+    } finally {
+      setSavingRename(false);
     }
   };
 
@@ -146,20 +177,58 @@ export default function SetbuilderPage() {
         <div className="event-grid">
           {sets.map((s) => (
             <div key={s.id} className="event-card" style={{ position: 'relative' }}>
-              <Link href={`/setbuilder/${s.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
-                <h3>{s.name}</h3>
-                <div className="code">{s.status}</div>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-                  Updated: {new Date(s.updated_at).toLocaleString()}
-                </p>
-              </Link>
-              <button
-                className="btn btn-sm btn-danger"
-                style={{ marginTop: '0.75rem' }}
-                onClick={() => handleDelete(s.id)}
-              >
-                Delete
-              </button>
+              {renamingId === s.id ? (
+                <form onSubmit={(e) => handleRename(e, s.id)}>
+                  <div className="form-group">
+                    <label htmlFor={`rename-${s.id}`}>Set Name</label>
+                    <input
+                      id={`rename-${s.id}`}
+                      type="text"
+                      className="input"
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      maxLength={120}
+                      autoFocus
+                      required
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button type="submit" className="btn btn-sm btn-primary" disabled={savingRename}>
+                      {savingRename ? 'Saving...' : 'Save'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      style={{ background: 'var(--surface-raised)' }}
+                      onClick={cancelRename}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <>
+                  <Link href={`/setbuilder/${s.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+                    <h3>{s.name}</h3>
+                    <div className="code">{s.status}</div>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+                      Updated: {new Date(s.updated_at).toLocaleString()}
+                    </p>
+                  </Link>
+                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
+                    <button
+                      className="btn btn-sm"
+                      style={{ background: 'var(--surface-raised)' }}
+                      onClick={() => startRename(s)}
+                    >
+                      Rename
+                    </button>
+                    <button className="btn btn-sm btn-danger" onClick={() => handleDelete(s.id)}>
+                      Delete
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           ))}
         </div>

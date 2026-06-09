@@ -191,6 +191,16 @@ export interface SetDetail extends SetSummary {
   exported_at: string | null;
 }
 
+// WrzDJSet pool (issue #388)
+export type PoolSource = Schemas['PoolSourceOut'];
+export type PoolTrack = Schemas['PoolTrackOut'];
+export type PoolState = Schemas['PoolState'];
+export type PoolImportResult = Schemas['PoolImportResult'];
+export type PoolMutationResult = Schemas['PoolMutationResult'];
+export type PoolUrlPreview = Schemas['PoolUrlPreview'];
+export type PoolImportManualIn = Schemas['PoolImportManualIn'];
+export type BuilderPlaylists = Schemas['BuilderPlaylistsOut'];
+
 /** OpenAPI expresses PaginatedResponse with `items: any[]`; keep this
  *  hand-crafted generic wrapper for type-safe consumer sites. */
 export interface PaginatedResponse<T> {

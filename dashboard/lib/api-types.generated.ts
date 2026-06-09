@@ -2412,6 +2412,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setbuilder/playlists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Builder Playlists
+         * @description Connected-service playlists for the import modal pickers.
+         */
+        get: operations["list_builder_playlists_api_setbuilder_playlists_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setbuilder/sets": {
         parameters: {
             query?: never;
@@ -2462,6 +2482,186 @@ export interface paths {
          * @description Rename one of the current DJ's sets, or 404.
          */
         patch: operations["rename_set_api_setbuilder_sets__set_id__patch"];
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/pool": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Pool State
+         * @description Full pool snapshot (sources + tracks) for one of the DJ's sets.
+         */
+        get: operations["get_pool_state_api_setbuilder_sets__set_id__pool_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/pool/import/beatport": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Pool Beatport
+         * @description Import a connected-account Beatport playlist into the pool.
+         */
+        post: operations["import_pool_beatport_api_setbuilder_sets__set_id__pool_import_beatport_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/pool/import/event": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Pool Event
+         * @description Import a DJ-owned event's non-rejected requests into the pool.
+         */
+        post: operations["import_pool_event_api_setbuilder_sets__set_id__pool_import_event_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/pool/import/manual": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Pool Manual
+         * @description Add a single manually-searched track to the pool.
+         */
+        post: operations["import_pool_manual_api_setbuilder_sets__set_id__pool_import_manual_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/pool/import/tidal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Pool Tidal
+         * @description Import a connected-account Tidal playlist into the pool.
+         */
+        post: operations["import_pool_tidal_api_setbuilder_sets__set_id__pool_import_tidal_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/pool/import/url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Pool Url
+         * @description Import a validated public playlist URL into the pool.
+         */
+        post: operations["import_pool_url_api_setbuilder_sets__set_id__pool_import_url_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/pool/sources/{source_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove Pool Source
+         * @description Remove an import source and exactly its tracks.
+         */
+        delete: operations["remove_pool_source_api_setbuilder_sets__set_id__pool_sources__source_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/pool/tracks/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove Pool Tracks
+         * @description Remove pool tracks by id (per-track context menu + multi-select).
+         */
+        post: operations["remove_pool_tracks_api_setbuilder_sets__set_id__pool_tracks_remove_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/pool/url-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Pool Url
+         * @description Validate a public playlist URL and return the preview card payload.
+         */
+        post: operations["preview_pool_url_api_setbuilder_sets__set_id__pool_url_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/tidal/auth/cancel": {
@@ -3069,10 +3269,7 @@ export interface components {
         };
         /** Body_upload_banner_api_events__code__banner_post */
         Body_upload_banner_api_events__code__banner_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
         };
         /** BridgeApiKeyResponse */
@@ -3165,6 +3362,20 @@ export interface components {
             plugin_id: string | null;
             /** Uptime Seconds */
             uptime_seconds: number | null;
+        };
+        /**
+         * BuilderPlaylistsOut
+         * @description Connected-service playlist pickers for the import modal.
+         */
+        BuilderPlaylistsOut: {
+            /** Beatport */
+            beatport: components["schemas"]["PlaylistInfo"][];
+            /** Beatport Connected */
+            beatport_connected: boolean;
+            /** Tidal */
+            tidal: components["schemas"]["PlaylistInfo"][];
+            /** Tidal Connected */
+            tidal_connected: boolean;
         };
         /** BulkActionResponse */
         BulkActionResponse: {
@@ -4279,6 +4490,199 @@ export interface components {
             items: components["schemas"]["PlayHistoryEntry"][];
             /** Total */
             total: number;
+        };
+        /** PlaylistInfo */
+        PlaylistInfo: {
+            /** Cover Url */
+            cover_url: string | null;
+            /** Description */
+            description: string | null;
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Num Tracks */
+            num_tracks: number;
+            /** Source */
+            source: string;
+        };
+        /**
+         * PoolImportEventIn
+         * @description Body for importing a WrzDJ event's requests.
+         */
+        PoolImportEventIn: {
+            /** Event Id */
+            event_id: number;
+        };
+        /**
+         * PoolImportManualIn
+         * @description Body for adding a single track picked from manual search.
+         */
+        PoolImportManualIn: {
+            /** Album */
+            album?: string | null;
+            /** Artist */
+            artist: string;
+            /** Artwork Url */
+            artwork_url?: string | null;
+            /** Bpm */
+            bpm?: number | null;
+            /** Duration Sec */
+            duration_sec?: number | null;
+            /** Genre */
+            genre?: string | null;
+            /** Isrc */
+            isrc?: string | null;
+            /** Key */
+            key?: string | null;
+            /**
+             * Source Service
+             * @default manual
+             * @enum {string}
+             */
+            source_service: "spotify" | "beatport" | "tidal" | "manual";
+            /** Source Track Id */
+            source_track_id?: string | null;
+            /** Title */
+            title: string;
+        };
+        /**
+         * PoolImportPlaylistIn
+         * @description Body for importing a connected-account (Tidal/Beatport) playlist.
+         */
+        PoolImportPlaylistIn: {
+            /** Label */
+            label?: string | null;
+            /** Playlist Id */
+            playlist_id: string;
+        };
+        /**
+         * PoolImportResult
+         * @description Result of any import flow — toast reads 'added new · deduped de-duped'.
+         */
+        PoolImportResult: {
+            /** Added */
+            added: number;
+            /** Deduped */
+            deduped: number;
+            pool: components["schemas"]["PoolState"];
+            source: components["schemas"]["PoolSourceOut"];
+        };
+        /**
+         * PoolImportUrlIn
+         * @description Body for public playlist URL preview/import.
+         */
+        PoolImportUrlIn: {
+            /** Url */
+            url: string;
+        };
+        /**
+         * PoolMutationResult
+         * @description Result of a removal flow.
+         */
+        PoolMutationResult: {
+            pool: components["schemas"]["PoolState"];
+            /** Removed */
+            removed: number;
+        };
+        /**
+         * PoolRemoveTracksIn
+         * @description Body for per-track / multi-select removal.
+         */
+        PoolRemoveTracksIn: {
+            /** Track Ids */
+            track_ids: number[];
+        };
+        /**
+         * PoolSourceOut
+         * @description An import source row for the sources accordion.
+         */
+        PoolSourceOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** External Ref */
+            external_ref: string | null;
+            /** Id */
+            id: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "event" | "tidal" | "beatport" | "public_url" | "manual";
+            /** Label */
+            label: string;
+            /** Meta */
+            meta: string | null;
+        };
+        /**
+         * PoolState
+         * @description Full pool snapshot: sources + tracks.
+         */
+        PoolState: {
+            /** Sources */
+            sources: components["schemas"]["PoolSourceOut"][];
+            /** Tracks */
+            tracks: components["schemas"]["PoolTrackOut"][];
+        };
+        /**
+         * PoolTrackOut
+         * @description A pool track row (badges: camelot, bpm, energy; chip: source_id).
+         */
+        PoolTrackOut: {
+            /** Album */
+            album: string | null;
+            /** Artist */
+            artist: string;
+            /** Artwork Url */
+            artwork_url: string | null;
+            /** Bpm */
+            bpm: number | null;
+            /** Camelot */
+            camelot: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Duration Sec */
+            duration_sec: number | null;
+            /** Energy */
+            energy: number | null;
+            /** Genre */
+            genre: string | null;
+            /** Id */
+            id: number;
+            /** Isrc */
+            isrc: string | null;
+            /** Key */
+            key: string | null;
+            /** Source Id */
+            source_id: number;
+            /** Title */
+            title: string;
+            /** Track Id */
+            track_id: string | null;
+        };
+        /**
+         * PoolUrlPreview
+         * @description Validate → preview card payload for a public playlist URL.
+         */
+        PoolUrlPreview: {
+            /** Message */
+            message: string | null;
+            /** Name */
+            name: string | null;
+            /** Owner */
+            owner: string | null;
+            /** Provider */
+            provider: string;
+            /** Supported */
+            supported: boolean;
+            /** Track Count */
+            track_count: number | null;
         };
         /** PublicEventInfo */
         PublicEventInfo: {
@@ -9229,6 +9633,26 @@ export interface operations {
             };
         };
     };
+    list_builder_playlists_api_setbuilder_playlists_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuilderPlaylistsOut"];
+                };
+            };
+        };
+    };
     list_sets_api_setbuilder_sets_get: {
         parameters: {
             query?: never;
@@ -9364,6 +9788,314 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SetDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_pool_state_api_setbuilder_sets__set_id__pool_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_pool_beatport_api_setbuilder_sets__set_id__pool_import_beatport_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PoolImportPlaylistIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolImportResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_pool_event_api_setbuilder_sets__set_id__pool_import_event_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PoolImportEventIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolImportResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_pool_manual_api_setbuilder_sets__set_id__pool_import_manual_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PoolImportManualIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolImportResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_pool_tidal_api_setbuilder_sets__set_id__pool_import_tidal_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PoolImportPlaylistIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolImportResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_pool_url_api_setbuilder_sets__set_id__pool_import_url_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PoolImportUrlIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolImportResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_pool_source_api_setbuilder_sets__set_id__pool_sources__source_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+                source_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolMutationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_pool_tracks_api_setbuilder_sets__set_id__pool_tracks_remove_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PoolRemoveTracksIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolMutationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_pool_url_api_setbuilder_sets__set_id__pool_url_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PoolImportUrlIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolUrlPreview"];
                 };
             };
             /** @description Validation Error */

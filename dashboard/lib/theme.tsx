@@ -55,7 +55,18 @@ function applyTheme(theme: Theme): void {
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(detectInitialTheme);
+  // Start from a deterministic default so the server-rendered markup matches
+  // the client's first (hydration) render. Reading localStorage during render
+  // would diverge server (no storage → 'dark') from client (saved → e.g.
+  // 'daylight') and trip React's hydration-mismatch warning. The persisted /
+  // auto-detected theme is loaded just below, after mount.
+  const [theme, setThemeState] = useState<Theme>('dark');
+
+  // Resolve the real theme on the client, post-hydration.
+  useEffect(() => {
+    const initial = detectInitialTheme();
+    if (initial !== 'dark') setThemeState(initial);
+  }, []);
 
   const setTheme = useCallback((newTheme: Theme) => {
     setThemeState(newTheme);

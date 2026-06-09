@@ -49,6 +49,7 @@ describe('SetbuilderPage', () => {
         event_id: null,
         status: 'draft',
         sharing_mode: 'private',
+        share_token: null,
         created_at: '2026-06-07T00:00:00Z',
         updated_at: '2026-06-07T00:00:00Z',
       },
@@ -67,6 +68,7 @@ describe('SetbuilderPage', () => {
         event_id: null,
         status: 'draft',
         sharing_mode: 'private',
+        share_token: null,
         created_at: '2026-06-07T00:00:00Z',
         updated_at: '2026-06-07T00:00:00Z',
       },
@@ -77,6 +79,7 @@ describe('SetbuilderPage', () => {
       event_id: null,
       status: 'draft',
       sharing_mode: 'private',
+      share_token: null,
       created_at: '2026-06-07T00:00:00Z',
       updated_at: '2026-06-07T01:00:00Z',
     });

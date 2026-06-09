@@ -177,6 +177,8 @@ export interface SetSummary {
   event_id: number | null;
   status: 'draft' | 'locked' | 'exported';
   sharing_mode: 'private' | 'invite_only';
+  /** Owner-only; non-null means a public read-only share link exists. */
+  share_token: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -189,6 +191,39 @@ export interface SetDetail extends SetSummary {
   key_strictness: number;
   tidal_playlist_id: string | null;
   exported_at: string | null;
+}
+
+export interface ShareTokenOut {
+  share_token: string;
+}
+
+export interface SharedSlotView {
+  position: number;
+  track_id: string | null;
+  locked: boolean;
+  notes: string | null;
+  transition_score: number | null;
+}
+
+export interface SharedCurvePointView {
+  position_sec: number;
+  energy: number;
+  label: string | null;
+  is_slow_window_start: boolean;
+  is_slow_window_end: boolean;
+}
+
+/** Public read-only projection of a shared set (no ids, no owner info). */
+export interface SharedSetView {
+  name: string;
+  status: 'draft' | 'locked' | 'exported';
+  vibe_theme: string | null;
+  target_duration_sec: number | null;
+  bpm_floor: number | null;
+  bpm_ceiling: number | null;
+  key_strictness: number;
+  slots: SharedSlotView[];
+  curve_points: SharedCurvePointView[];
 }
 
 /** OpenAPI expresses PaginatedResponse with `items: any[]`; keep this

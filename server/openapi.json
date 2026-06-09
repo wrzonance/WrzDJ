@@ -13339,6 +13339,9 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "description": "Shared set not found (unknown, revoked, or malformed token)."
+          },
           "422": {
             "content": {
               "application/json": {

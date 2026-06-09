@@ -78,7 +78,13 @@ def duplicate_set(
     return SetDetail.model_validate(share_service.duplicate_set(db, set_obj))
 
 
-@public_router.get("/shared/{token}", response_model=SharedSetView)
+@public_router.get(
+    "/shared/{token}",
+    response_model=SharedSetView,
+    responses={
+        404: {"description": "Shared set not found (unknown, revoked, or malformed token)."},
+    },
+)
 @limiter.limit("30/minute")
 def view_shared_set(
     token: str,

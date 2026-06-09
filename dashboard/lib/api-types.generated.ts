@@ -9178,6 +9178,13 @@ export interface operations {
                     "application/json": components["schemas"]["SharedSetView"];
                 };
             };
+            /** @description Shared set not found (unknown, revoked, or malformed token). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Validation Error */
             422: {
                 headers: {

@@ -7,8 +7,9 @@ import type { SharedSetView } from '@/lib/api-types';
 
 /** Format seconds as "1h 05m" / "45m". */
 function formatDuration(totalSec: number): string {
-  const hours = Math.floor(totalSec / 3600);
-  const minutes = Math.round((totalSec % 3600) / 60);
+  const totalMinutes = Math.round(totalSec / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
   if (hours === 0) return `${minutes}m`;
   return `${hours}h ${String(minutes).padStart(2, '0')}m`;
 }
@@ -34,10 +35,20 @@ export default function SharedSetPage() {
 
   useEffect(() => {
     if (!token) return;
+    let cancelled = false;
+    setError(false);
+    setView(null);
     api
       .getSharedSet(token)
-      .then(setView)
-      .catch(() => setError(true));
+      .then((data) => {
+        if (!cancelled) setView(data);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [token]);
 
   if (error) {

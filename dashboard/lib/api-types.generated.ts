@@ -2303,6 +2303,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/public/setbuilder/shared/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * View Shared Set
+         * @description Public read-only projection of a shared set (no auth required).
+         *
+         *     Unknown, revoked, and malformed tokens all return the same 404.
+         */
+        get: operations["view_shared_set_api_public_setbuilder_shared__token__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/requests/{request_id}": {
         parameters: {
             query?: never;
@@ -2462,6 +2484,50 @@ export interface paths {
          * @description Rename one of the current DJ's sets, or 404.
          */
         patch: operations["rename_set_api_setbuilder_sets__set_id__patch"];
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate Set
+         * @description Duplicate an owned set (slots, curve, targets); copy is a private draft.
+         */
+        post: operations["duplicate_set_api_setbuilder_sets__set_id__duplicate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/share": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Or Rotate Share Token
+         * @description Create (or rotate) the read-only share token for an owned set.
+         */
+        post: operations["create_or_rotate_share_token_api_setbuilder_sets__set_id__share_post"];
+        /**
+         * Revoke Share Token
+         * @description Revoke the share token for an owned set; existing links 404.
+         */
+        delete: operations["revoke_share_token_api_setbuilder_sets__set_id__share_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/tidal/auth/cancel": {
@@ -3069,10 +3135,7 @@ export interface components {
         };
         /** Body_upload_banner_api_events__code__banner_post */
         Body_upload_banner_api_events__code__banner_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
         };
         /** BridgeApiKeyResponse */
@@ -4604,6 +4667,8 @@ export interface components {
             key_strictness: number;
             /** Name */
             name: string;
+            /** Share Token */
+            share_token: string | null;
             /**
              * Sharing Mode
              * @enum {string}
@@ -4650,6 +4715,8 @@ export interface components {
             id: number;
             /** Name */
             name: string;
+            /** Share Token */
+            share_token: string | null;
             /**
              * Sharing Mode
              * @enum {string}
@@ -4665,6 +4732,76 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * ShareTokenOut
+         * @description Owner response after creating/rotating a share token (issue #398).
+         */
+        ShareTokenOut: {
+            /** Share Token */
+            share_token: string;
+        };
+        /**
+         * SharedCurvePointView
+         * @description View-only curve-point projection for public share links.
+         */
+        SharedCurvePointView: {
+            /** Energy */
+            energy: number;
+            /** Is Slow Window End */
+            is_slow_window_end: boolean;
+            /** Is Slow Window Start */
+            is_slow_window_start: boolean;
+            /** Label */
+            label: string | null;
+            /** Position Sec */
+            position_sec: number;
+        };
+        /**
+         * SharedSetView
+         * @description Public read-only projection of a shared set (issue #398).
+         *
+         *     Never include owner identity, internal ids, event linkage,
+         *     collaborator info, or the token itself.
+         */
+        SharedSetView: {
+            /** Bpm Ceiling */
+            bpm_ceiling: number | null;
+            /** Bpm Floor */
+            bpm_floor: number | null;
+            /** Curve Points */
+            curve_points: components["schemas"]["SharedCurvePointView"][];
+            /** Key Strictness */
+            key_strictness: number;
+            /** Name */
+            name: string;
+            /** Slots */
+            slots: components["schemas"]["SharedSlotView"][];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "locked" | "exported";
+            /** Target Duration Sec */
+            target_duration_sec: number | null;
+            /** Vibe Theme */
+            vibe_theme: string | null;
+        };
+        /**
+         * SharedSlotView
+         * @description View-only slot projection for public share links (no DB ids).
+         */
+        SharedSlotView: {
+            /** Locked */
+            locked: boolean;
+            /** Notes */
+            notes: string | null;
+            /** Position */
+            position: number;
+            /** Track Id */
+            track_id: string | null;
+            /** Transition Score */
+            transition_score: number | null;
         };
         /** StatusMessageResponse */
         StatusMessageResponse: {
@@ -9021,6 +9158,37 @@ export interface operations {
             };
         };
     };
+    view_shared_set_api_public_setbuilder_shared__token__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedSetView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     delete_request_endpoint_api_requests__request_id__delete: {
         parameters: {
             query?: never;
@@ -9365,6 +9533,97 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SetDetail"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    duplicate_set_api_setbuilder_sets__set_id__duplicate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_or_rotate_share_token_api_setbuilder_sets__set_id__share_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareTokenOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_share_token_api_setbuilder_sets__set_id__share_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

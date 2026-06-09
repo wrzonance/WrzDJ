@@ -2434,6 +2434,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setbuilder/curve-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Curve Templates
+         * @description Built-in templates plus the current DJ's saved templates.
+         */
+        get: operations["list_curve_templates_api_setbuilder_curve_templates_get"];
+        put?: never;
+        /**
+         * Create Curve Template
+         * @description Save a new per-DJ curve template.
+         */
+        post: operations["create_curve_template_api_setbuilder_curve_templates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/curve-templates/{template_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update Curve Template
+         * @description Overwrite one of the current DJ's templates, or 404.
+         */
+        put: operations["update_curve_template_api_setbuilder_curve_templates__template_id__put"];
+        post?: never;
+        /**
+         * Delete Curve Template
+         * @description Delete one of the current DJ's templates, or 404.
+         */
+        delete: operations["delete_curve_template_api_setbuilder_curve_templates__template_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setbuilder/playlists": {
         parameters: {
             query?: never;
@@ -2504,6 +2552,26 @@ export interface paths {
          * @description Rename one of the current DJ's sets, or 404.
          */
         patch: operations["rename_set_api_setbuilder_sets__set_id__patch"];
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/curve/apply-template": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply Curve Template
+         * @description Re-target every slot from a built-in or saved template shape.
+         */
+        post: operations["apply_curve_template_api_setbuilder_sets__set_id__curve_apply_template_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/setbuilder/sets/{set_id}/duplicate": {
@@ -2725,6 +2793,70 @@ export interface paths {
          * @description Revoke the share token for an owned set; existing links 404.
          */
         delete: operations["revoke_share_token_api_setbuilder_sets__set_id__share_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/slots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Set Slots
+         * @description Ordered timeline slots for one of the current DJ's sets.
+         */
+        get: operations["list_set_slots_api_setbuilder_sets__set_id__slots_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/slots/{slot_id}/target": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Slot Target
+         * @description Set (or clear with null) a slot's energy target.
+         */
+        patch: operations["update_slot_target_api_setbuilder_sets__set_id__slots__slot_id__target_patch"];
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/vibe-windows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Vibe Windows
+         * @description The set's stored vibe windows.
+         */
+        get: operations["get_vibe_windows_api_setbuilder_sets__set_id__vibe_windows_get"];
+        /**
+         * Put Vibe Windows
+         * @description Replace-all update of the set's vibe windows.
+         */
+        put: operations["put_vibe_windows_api_setbuilder_sets__set_id__vibe_windows_put"];
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3196,6 +3328,32 @@ export interface components {
             role?: string | null;
         };
         /**
+         * ApplyTemplateRequest
+         * @description Apply a template's shape onto the set's slots.
+         *
+         *     Exactly one of ``builtin`` / ``template_id``. ``slot_midpoints`` are the
+         *     normalized slot midpoints (client knows track durations); omitted means
+         *     uniform buckets.
+         */
+        ApplyTemplateRequest: {
+            /** Builtin */
+            builtin?: string | null;
+            /** Slot Midpoints */
+            slot_midpoints?: number[] | null;
+            /** Template Id */
+            template_id?: number | null;
+        };
+        /**
+         * ApplyTemplateResponse
+         * @description Per-slot targets persisted by an apply, plus suggested vibe windows.
+         */
+        ApplyTemplateResponse: {
+            /** Targets */
+            targets: components["schemas"]["SlotTargetOut"][];
+            /** Windows */
+            windows: components["schemas"]["TemplateWindowOut"][];
+        };
+        /**
          * AuditEventRow
          * @description A single audit-trail row with joined display labels.
          *
@@ -3442,6 +3600,16 @@ export interface components {
             tidal: components["schemas"]["PlaylistInfo"][];
             /** Tidal Connected */
             tidal_connected: boolean;
+        };
+        /**
+         * BuiltinTemplateOut
+         * @description A built-in (code-defined) template.
+         */
+        BuiltinTemplateOut: {
+            /** Name */
+            name: string;
+            /** Points */
+            points: components["schemas"]["CurvePointModel"][];
         };
         /** BulkActionResponse */
         BulkActionResponse: {
@@ -3826,6 +3994,65 @@ export interface components {
             message: string | null;
             /** Ok */
             ok: boolean;
+        };
+        /**
+         * CurvePointModel
+         * @description One normalized template point: position t in [0,1], energy e in [0,10].
+         */
+        CurvePointModel: {
+            /** E */
+            e: number;
+            /** Label */
+            label: string | null;
+            /**
+             * Slow End
+             * @default false
+             */
+            slow_end: boolean;
+            /**
+             * Slow Start
+             * @default false
+             */
+            slow_start: boolean;
+            /** T */
+            t: number;
+        };
+        /**
+         * CurveTemplateCreate
+         * @description Body for creating (or fully updating) a user curve template.
+         */
+        CurveTemplateCreate: {
+            /** Name */
+            name: string;
+            /** Points */
+            points: components["schemas"]["CurvePointModel"][];
+        };
+        /**
+         * CurveTemplateOut
+         * @description A persisted per-DJ template.
+         */
+        CurveTemplateOut: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Points */
+            points: components["schemas"]["CurvePointModel"][];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * CurveTemplatesResponse
+         * @description All templates available to the DJ.
+         */
+        CurveTemplatesResponse: {
+            /** Builtin */
+            builtin: components["schemas"]["BuiltinTemplateOut"][];
+            /** User */
+            user: components["schemas"]["CurveTemplateOut"][];
         };
         /**
          * DisplaySettingsResponse
@@ -5210,6 +5437,42 @@ export interface components {
             /** Transition Score */
             transition_score: number | null;
         };
+        /**
+         * SlotOut
+         * @description Timeline slot (curve-editor surface; track metadata joins with #388).
+         */
+        SlotOut: {
+            /** Id */
+            id: number;
+            /** Locked */
+            locked: boolean;
+            /** Notes */
+            notes: string | null;
+            /** Position */
+            position: number;
+            /** Target Energy */
+            target_energy: number | null;
+            /** Track Id */
+            track_id: string | null;
+        };
+        /**
+         * SlotTargetOut
+         * @description One slot's persisted target after an update/apply.
+         */
+        SlotTargetOut: {
+            /** Slot Id */
+            slot_id: number;
+            /** Target Energy */
+            target_energy: number | null;
+        };
+        /**
+         * SlotTargetUpdate
+         * @description Body for setting/clearing a slot's energy target. None = reset.
+         */
+        SlotTargetUpdate: {
+            /** Target Energy */
+            target_energy?: number | null;
+        };
         /** StatusMessageResponse */
         StatusMessageResponse: {
             /** Message */
@@ -5289,6 +5552,16 @@ export interface components {
             playlist_id: string;
             /** Source */
             source: string;
+        };
+        /**
+         * TemplateWindowOut
+         * @description Suggested vibe window from a template's slow_start/slow_end flags.
+         */
+        TemplateWindowOut: {
+            /** T0 */
+            t0: number;
+            /** T1 */
+            t1: number;
         };
         /** TidalAuthCheckResponse */
         TidalAuthCheckResponse: {
@@ -5563,6 +5836,34 @@ export interface components {
             expires_in: number;
             /** Verified */
             verified: boolean;
+        };
+        /**
+         * VibeWindowModel
+         * @description A named region of the set timeline, in seconds.
+         */
+        VibeWindowModel: {
+            /** Label */
+            label: string;
+            /** T0 Sec */
+            t0_sec: number;
+            /** T1 Sec */
+            t1_sec: number;
+        };
+        /**
+         * VibeWindowsPut
+         * @description Replace-all body for a set's vibe windows.
+         */
+        VibeWindowsPut: {
+            /** Windows */
+            windows: components["schemas"]["VibeWindowModel"][];
+        };
+        /**
+         * VibeWindowsResponse
+         * @description A set's stored vibe windows.
+         */
+        VibeWindowsResponse: {
+            /** Windows */
+            windows: components["schemas"]["VibeWindowModel"][];
         };
         /** VoteResponse */
         VoteResponse: {
@@ -9811,6 +10112,123 @@ export interface operations {
             };
         };
     };
+    list_curve_templates_api_setbuilder_curve_templates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CurveTemplatesResponse"];
+                };
+            };
+        };
+    };
+    create_curve_template_api_setbuilder_curve_templates_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CurveTemplateCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CurveTemplateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_curve_template_api_setbuilder_curve_templates__template_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                template_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CurveTemplateCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CurveTemplateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_curve_template_api_setbuilder_curve_templates__template_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                template_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_builder_playlists_api_setbuilder_playlists_get: {
         parameters: {
             query?: never;
@@ -9966,6 +10384,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SetDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_curve_template_api_setbuilder_sets__set_id__curve_apply_template_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyTemplateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplyTemplateResponse"];
                 };
             };
             /** @description Validation Error */
@@ -10366,6 +10819,139 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_set_slots_api_setbuilder_sets__set_id__slots_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlotOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_slot_target_api_setbuilder_sets__set_id__slots__slot_id__target_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+                slot_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SlotTargetUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlotTargetOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_vibe_windows_api_setbuilder_sets__set_id__vibe_windows_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VibeWindowsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_vibe_windows_api_setbuilder_sets__set_id__vibe_windows_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VibeWindowsPut"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VibeWindowsResponse"];
+                };
             };
             /** @description Validation Error */
             422: {

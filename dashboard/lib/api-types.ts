@@ -193,6 +193,17 @@ export interface SetDetail extends SetSummary {
   exported_at: string | null;
 }
 
+// WrzDJSet energy curve editor (#389)
+export type CurvePoint = Schemas['CurvePointModel'];
+export type BuiltinCurveTemplate = Schemas['BuiltinTemplateOut'];
+export type CurveTemplate = Schemas['CurveTemplateOut'];
+export type CurveTemplatesResponse = Schemas['CurveTemplatesResponse'];
+export type SetSlotOut = Schemas['SlotOut'];
+export type SlotTargetOut = Schemas['SlotTargetOut'];
+export type ApplyTemplateResponse = Schemas['ApplyTemplateResponse'];
+export type VibeWindow = Schemas['VibeWindowModel'];
+export type VibeWindowsResponse = Schemas['VibeWindowsResponse'];
+
 // WrzDJSet pool (issue #388)
 export type PoolSource = Schemas['PoolSourceOut'];
 export type PoolTrack = Schemas['PoolTrackOut'];
@@ -203,7 +214,7 @@ export type PoolUrlPreview = Schemas['PoolUrlPreview'];
 export type PoolImportManualIn = Schemas['PoolImportManualIn'];
 export type BuilderPlaylists = Schemas['BuilderPlaylistsOut'];
 
-// WrzDJSet sharing (issue #398)
+// WrzDJSet sharing + duplication (issue #398)
 export interface ShareTokenOut {
   share_token: string;
 }

@@ -106,6 +106,9 @@ class SetSlot(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     transition_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     transition_warnings: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
+    # Per-slot energy target (0-10, 0.1 resolution). NULL = no explicit
+    # target; UI falls back to the track's intrinsic energy. (#389)
+    target_energy: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     set: Mapped["Set"] = relationship("Set", back_populates="slots")
 

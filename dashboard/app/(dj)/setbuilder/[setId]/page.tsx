@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
 import type { SetDetail } from '@/lib/api-types';
+import BuilderWorkspace from '../components/BuilderWorkspace';
 import PoolPanel from '../components/PoolPanel';
 import SetActionsMenu from '../SetActionsMenu';
 import styles from '../setbuilder.module.css';
@@ -87,15 +88,7 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
           <PoolPanel setId={Number(setId)} />
         </section>
 
-        <section className={`${styles.panel} ${styles.panelCurve}`} aria-label="Curve">
-          <div className={styles.panelHeader}>Curve</div>
-          <div className={styles.panelBody}>Energy curve editor coming soon.</div>
-        </section>
-
-        <section className={`${styles.panel} ${styles.panelTimeline}`} aria-label="Timeline">
-          <div className={styles.panelHeader}>Timeline</div>
-          <div className={styles.panelBody}>Ordered set timeline coming soon.</div>
-        </section>
+        <BuilderWorkspace setId={Number(setId)} />
 
         <section className={`${styles.panel} ${styles.panelChat}`} aria-label="Chat">
           <div className={styles.panelHeader}>Chat</div>

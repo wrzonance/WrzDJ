@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
 import type { SetSummary } from '@/lib/api-types';
+import ShareDialog from './ShareDialog';
 
 export default function SetbuilderPage() {
   const { isAuthenticated, isLoading, role } = useAuth();
@@ -18,6 +19,7 @@ export default function SetbuilderPage() {
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [savingRename, setSavingRename] = useState(false);
+  const [shareTarget, setShareTarget] = useState<SetSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -62,6 +64,20 @@ export default function SetbuilderPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete set');
     }
+  };
+
+  const handleDuplicate = async (id: number) => {
+    try {
+      const dup = await api.duplicateSet(id);
+      setSets((prev) => [dup, ...prev]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to duplicate set');
+    }
+  };
+
+  const handleShareChanged = (id: number, token: string | null) => {
+    setSets((prev) => prev.map((s) => (s.id === id ? { ...s, share_token: token } : s)));
+    setShareTarget((prev) => (prev && prev.id === id ? { ...prev, share_token: token } : prev));
   };
 
   const startRename = (s: SetSummary) => {
@@ -209,18 +225,43 @@ export default function SetbuilderPage() {
               ) : (
                 <>
                   <Link href={`/setbuilder/${s.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
-                    <h3>{s.name}</h3>
+                    <h3>
+                      {s.name}
+                      {s.share_token && (
+                        <span
+                          className="badge"
+                          style={{ marginLeft: '0.5rem', verticalAlign: 'middle' }}
+                          title="A public read-only link exists for this set"
+                        >
+                          Shared
+                        </span>
+                      )}
+                    </h3>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
                       Updated: {new Date(s.updated_at).toLocaleString()}
                     </p>
                   </Link>
-                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
+                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
                     <button
                       className="btn btn-sm"
                       style={{ background: 'var(--surface-raised)' }}
                       onClick={() => startRename(s)}
                     >
                       Rename
+                    </button>
+                    <button
+                      className="btn btn-sm"
+                      style={{ background: 'var(--surface-raised)' }}
+                      onClick={() => handleDuplicate(s.id)}
+                    >
+                      Duplicate
+                    </button>
+                    <button
+                      className="btn btn-sm"
+                      style={{ background: 'var(--surface-raised)' }}
+                      onClick={() => setShareTarget(s)}
+                    >
+                      Share
                     </button>
                     <button className="btn btn-sm btn-danger" onClick={() => handleDelete(s.id)}>
                       Delete
@@ -231,6 +272,14 @@ export default function SetbuilderPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {shareTarget && (
+        <ShareDialog
+          set={shareTarget}
+          onClose={() => setShareTarget(null)}
+          onChanged={(token) => handleShareChanged(shareTarget.id, token)}
+        />
       )}
     </div>
   );

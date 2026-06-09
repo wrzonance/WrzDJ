@@ -15,6 +15,7 @@ from app.api import (
     requests,
     search,
     setbuilder,
+    setbuilder_share,
     sse,
     tidal,
     verify,
@@ -36,6 +37,10 @@ api_router.include_router(requests.router, prefix="/requests", tags=["requests"]
 api_router.include_router(votes.router, prefix="/requests", tags=["votes"])
 api_router.include_router(search.router, prefix="/search", tags=["search"])
 api_router.include_router(setbuilder.router, prefix="/setbuilder", tags=["setbuilder"])
+api_router.include_router(setbuilder_share.router, prefix="/setbuilder", tags=["setbuilder"])
+api_router.include_router(
+    setbuilder_share.public_router, prefix="/public/setbuilder", tags=["setbuilder-public"]
+)
 api_router.include_router(public.router, prefix="/public", tags=["public"])
 api_router.include_router(guest.router, prefix="/public", tags=["guest"])
 api_router.include_router(verify.router, prefix="/public/guest", tags=["verify"])

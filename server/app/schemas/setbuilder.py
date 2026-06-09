@@ -29,6 +29,8 @@ class SetSummary(BaseModel):
     event_id: int | None
     status: Literal["draft", "locked", "exported"]
     sharing_mode: Literal["private", "invite_only"]
+    # Owner-only surfaces; non-null means a public read-only link exists.
+    share_token: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -202,3 +204,56 @@ class VibeWindowsResponse(BaseModel):
     """A set's stored vibe windows."""
 
     windows: list[VibeWindowModel]
+
+
+# ---------------------------------------------------------------------------
+# Share links (#398)
+# ---------------------------------------------------------------------------
+
+
+class ShareTokenOut(BaseModel):
+    """Owner response after creating/rotating a share token (issue #398)."""
+
+    share_token: str
+
+
+class SharedSlotView(BaseModel):
+    """View-only slot projection for public share links (no DB ids)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    position: int
+    track_id: str | None
+    locked: bool
+    notes: str | None
+    transition_score: float | None
+
+
+class SharedCurvePointView(BaseModel):
+    """View-only curve-point projection for public share links."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    position_sec: int
+    energy: int
+    label: str | None
+    is_slow_window_start: bool
+    is_slow_window_end: bool
+
+
+class SharedSetView(BaseModel):
+    """Public read-only projection of a shared set (issue #398).
+
+    Never include owner identity, internal ids, event linkage,
+    collaborator info, or the token itself.
+    """
+
+    name: str
+    status: Literal["draft", "locked", "exported"]
+    vibe_theme: str | None
+    target_duration_sec: int | None
+    bpm_floor: int | None
+    bpm_ceiling: int | None
+    key_strictness: float
+    slots: list[SharedSlotView]
+    curve_points: list[SharedCurvePointView]

@@ -53,6 +53,8 @@ import type {
   SetDetail,
   SetSlotOut,
   SetSummary,
+  SharedSetView,
+  ShareTokenOut,
   SlotTargetOut,
   SongRequest,
   SystemSettings,
@@ -133,6 +135,10 @@ export type {
   ServiceCapabilities,
   SetDetail,
   SetSummary,
+  SharedCurvePointView,
+  SharedSetView,
+  SharedSlotView,
+  ShareTokenOut,
   SongRequest,
   SyncResultEntry,
   SystemSettings,
@@ -706,6 +712,23 @@ class ApiClient {
       method: 'PUT',
       body: JSON.stringify({ windows }),
     });
+  }
+
+  // WrzDJSet sharing + duplication (issue #398)
+  async duplicateSet(setId: number): Promise<SetDetail> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/duplicate`, { method: 'POST' });
+  }
+  async shareSet(setId: number): Promise<ShareTokenOut> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/share`, { method: 'POST' });
+  }
+  async revokeSetShare(setId: number): Promise<void> {
+    await this.rawFetch(`/api/setbuilder/sets/${setId}/share`, { method: 'DELETE' });
+  }
+  /** Public, unauthenticated read-only view of a shared set. */
+  async getSharedSet(token: string): Promise<SharedSetView> {
+    return this.publicFetch(
+      `${getApiUrl()}/api/public/setbuilder/shared/${encodeURIComponent(token)}`
+    );
   }
 
   async bulkDeleteEvents(codes: string[]): Promise<{ status: string; count: number }> {

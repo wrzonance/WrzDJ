@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
 import type { SetDetail } from '@/lib/api-types';
+import SetActionsMenu from '../SetActionsMenu';
 import styles from '../setbuilder.module.css';
 
 export default function BuilderPage({ params }: { params: Promise<{ setId: string }> }) {
@@ -68,7 +69,16 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
           ← Sets
         </Link>
         <span className={styles.topbarTitle}>{set?.name ?? 'Loading…'}</span>
-        <span style={{ width: 60 }} />
+        {set ? (
+          <SetActionsMenu
+            set={set}
+            onShareChanged={(token) =>
+              setSet((prev) => (prev ? { ...prev, share_token: token } : prev))
+            }
+          />
+        ) : (
+          <span style={{ width: 60 }} />
+        )}
       </div>
 
       <div className={styles.workspace}>

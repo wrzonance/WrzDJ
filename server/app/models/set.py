@@ -55,6 +55,10 @@ class Set(Base):
     sharing_mode: Mapped[str] = mapped_column(
         String(20), nullable=False, default="private", server_default="private"
     )
+    # CSPRNG read-only share token; NULL = not shared (issue #398)
+    share_token: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, unique=True, index=True
+    )
 
     tidal_playlist_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     exported_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

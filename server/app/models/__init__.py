@@ -12,7 +12,9 @@ from app.models.play_history import PlayHistory
 from app.models.request import Request
 from app.models.request_vote import RequestVote
 from app.models.search_cache import SearchCache
+from app.models.set import Set, SetCollaborator, SetCurvePoint, SetSlot
 from app.models.system_settings import SystemSettings
+from app.models.track_vibe import TrackVibe, TrackVibeOverride
 from app.models.user import User
 
 __all__ = [
@@ -30,6 +32,12 @@ __all__ = [
     "Request",
     "RequestVote",
     "SearchCache",
+    "Set",
+    "SetCollaborator",
+    "SetCurvePoint",
+    "SetSlot",
     "SystemSettings",
+    "TrackVibe",
+    "TrackVibeOverride",
     "User",
 ]

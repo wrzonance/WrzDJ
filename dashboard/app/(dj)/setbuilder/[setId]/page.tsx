@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
 import type { SetDetail } from '@/lib/api-types';
 import BuilderWorkspace from '../components/BuilderWorkspace';
+import PoolPanel from '../components/PoolPanel';
 import SetActionsMenu from '../SetActionsMenu';
 import styles from '../setbuilder.module.css';
 
@@ -84,8 +85,7 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
 
       <div className={styles.workspace}>
         <section className={`${styles.panel} ${styles.panelPool}`} aria-label="Pool">
-          <div className={styles.panelHeader}>Pool</div>
-          <div className={styles.panelBody}>Candidate tracks will appear here.</div>
+          <PoolPanel setId={Number(setId)} />
         </section>
 
         <BuilderWorkspace setId={Number(setId)} />

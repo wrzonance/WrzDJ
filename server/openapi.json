@@ -1409,6 +1409,41 @@
         "title": "BridgeStatusResponse",
         "type": "object"
       },
+      "BuilderPlaylistsOut": {
+        "description": "Connected-service playlist pickers for the import modal.",
+        "properties": {
+          "beatport": {
+            "items": {
+              "$ref": "#/components/schemas/PlaylistInfo"
+            },
+            "title": "Beatport",
+            "type": "array"
+          },
+          "beatport_connected": {
+            "title": "Beatport Connected",
+            "type": "boolean"
+          },
+          "tidal": {
+            "items": {
+              "$ref": "#/components/schemas/PlaylistInfo"
+            },
+            "title": "Tidal",
+            "type": "array"
+          },
+          "tidal_connected": {
+            "title": "Tidal Connected",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "beatport",
+          "beatport_connected",
+          "tidal",
+          "tidal_connected"
+        ],
+        "title": "BuilderPlaylistsOut",
+        "type": "object"
+      },
       "BuiltinTemplateOut": {
         "description": "A built-in (code-defined) template.",
         "properties": {
@@ -4901,6 +4936,623 @@
           "total"
         ],
         "title": "PlayHistoryResponse",
+        "type": "object"
+      },
+      "PlaylistInfo": {
+        "properties": {
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "num_tracks": {
+            "title": "Num Tracks",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cover_url",
+          "description",
+          "id",
+          "name",
+          "num_tracks",
+          "source"
+        ],
+        "title": "PlaylistInfo",
+        "type": "object"
+      },
+      "PoolImportEventIn": {
+        "description": "Body for importing a WrzDJ event's requests.",
+        "properties": {
+          "event_id": {
+            "minimum": 1.0,
+            "title": "Event Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "event_id"
+        ],
+        "title": "PoolImportEventIn",
+        "type": "object"
+      },
+      "PoolImportManualIn": {
+        "description": "Body for adding a single track picked from manual search.",
+        "properties": {
+          "album": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Album"
+          },
+          "artist": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Artist",
+            "type": "string"
+          },
+          "artwork_url": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "pattern": "^https://",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artwork Url"
+          },
+          "bpm": {
+            "anyOf": [
+              {
+                "maximum": 400.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bpm"
+          },
+          "duration_sec": {
+            "anyOf": [
+              {
+                "maximum": 36000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Sec"
+          },
+          "genre": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Genre"
+          },
+          "isrc": {
+            "anyOf": [
+              {
+                "maxLength": 15,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isrc"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "source_service": {
+            "default": "manual",
+            "enum": [
+              "spotify",
+              "beatport",
+              "tidal",
+              "manual"
+            ],
+            "title": "Source Service",
+            "type": "string"
+          },
+          "source_track_id": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Track Id"
+          },
+          "title": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "artist"
+        ],
+        "title": "PoolImportManualIn",
+        "type": "object"
+      },
+      "PoolImportPlaylistIn": {
+        "description": "Body for importing a connected-account (Tidal/Beatport) playlist.",
+        "properties": {
+          "label": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "playlist_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Playlist Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "playlist_id"
+        ],
+        "title": "PoolImportPlaylistIn",
+        "type": "object"
+      },
+      "PoolImportResult": {
+        "description": "Result of any import flow \u2014 toast reads 'added new \u00b7 deduped de-duped'.",
+        "properties": {
+          "added": {
+            "title": "Added",
+            "type": "integer"
+          },
+          "deduped": {
+            "title": "Deduped",
+            "type": "integer"
+          },
+          "pool": {
+            "$ref": "#/components/schemas/PoolState"
+          },
+          "source": {
+            "$ref": "#/components/schemas/PoolSourceOut"
+          }
+        },
+        "required": [
+          "added",
+          "deduped",
+          "pool",
+          "source"
+        ],
+        "title": "PoolImportResult",
+        "type": "object"
+      },
+      "PoolImportUrlIn": {
+        "description": "Body for public playlist URL preview/import.",
+        "properties": {
+          "url": {
+            "maxLength": 500,
+            "minLength": 12,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "PoolImportUrlIn",
+        "type": "object"
+      },
+      "PoolMutationResult": {
+        "description": "Result of a removal flow.",
+        "properties": {
+          "pool": {
+            "$ref": "#/components/schemas/PoolState"
+          },
+          "removed": {
+            "title": "Removed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "pool",
+          "removed"
+        ],
+        "title": "PoolMutationResult",
+        "type": "object"
+      },
+      "PoolRemoveTracksIn": {
+        "description": "Body for per-track / multi-select removal.",
+        "properties": {
+          "track_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Track Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "track_ids"
+        ],
+        "title": "PoolRemoveTracksIn",
+        "type": "object"
+      },
+      "PoolSourceOut": {
+        "description": "An import source row for the sources accordion.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "external_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Ref"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "event",
+              "tidal",
+              "beatport",
+              "public_url",
+              "manual"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          }
+        },
+        "required": [
+          "created_at",
+          "external_ref",
+          "id",
+          "kind",
+          "label",
+          "meta"
+        ],
+        "title": "PoolSourceOut",
+        "type": "object"
+      },
+      "PoolState": {
+        "description": "Full pool snapshot: sources + tracks.",
+        "properties": {
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/PoolSourceOut"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "tracks": {
+            "items": {
+              "$ref": "#/components/schemas/PoolTrackOut"
+            },
+            "title": "Tracks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sources",
+          "tracks"
+        ],
+        "title": "PoolState",
+        "type": "object"
+      },
+      "PoolTrackOut": {
+        "description": "A pool track row (badges: camelot, bpm, energy; chip: source_id).",
+        "properties": {
+          "album": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Album"
+          },
+          "artist": {
+            "title": "Artist",
+            "type": "string"
+          },
+          "artwork_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artwork Url"
+          },
+          "bpm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bpm"
+          },
+          "camelot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Camelot"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "duration_sec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Sec"
+          },
+          "energy": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy"
+          },
+          "genre": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Genre"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "isrc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isrc"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "track_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track Id"
+          }
+        },
+        "required": [
+          "album",
+          "artist",
+          "artwork_url",
+          "bpm",
+          "camelot",
+          "created_at",
+          "duration_sec",
+          "energy",
+          "genre",
+          "id",
+          "isrc",
+          "key",
+          "source_id",
+          "title",
+          "track_id"
+        ],
+        "title": "PoolTrackOut",
+        "type": "object"
+      },
+      "PoolUrlPreview": {
+        "description": "Validate \u2192 preview card payload for a public playlist URL.",
+        "properties": {
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "supported": {
+            "title": "Supported",
+            "type": "boolean"
+          },
+          "track_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track Count"
+          }
+        },
+        "required": [
+          "message",
+          "name",
+          "owner",
+          "provider",
+          "supported",
+          "track_count"
+        ],
+        "title": "PoolUrlPreview",
         "type": "object"
       },
       "PublicEventInfo": {
@@ -14248,6 +14900,33 @@
         ]
       }
     },
+    "/api/setbuilder/playlists": {
+      "get": {
+        "description": "Connected-service playlists for the import modal pickers.",
+        "operationId": "list_builder_playlists_api_setbuilder_playlists_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuilderPlaylistsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Builder Playlists",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
     "/api/setbuilder/sets": {
       "get": {
         "description": "List the current DJ's sets, newest first.",
@@ -14568,6 +15247,517 @@
           }
         ],
         "summary": "Duplicate Set",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/pool": {
+      "get": {
+        "description": "Full pool snapshot (sources + tracks) for one of the DJ's sets.",
+        "operationId": "get_pool_state_api_setbuilder_sets__set_id__pool_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PoolState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Pool State",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/pool/import/beatport": {
+      "post": {
+        "description": "Import a connected-account Beatport playlist into the pool.",
+        "operationId": "import_pool_beatport_api_setbuilder_sets__set_id__pool_import_beatport_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PoolImportPlaylistIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PoolImportResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Import Pool Beatport",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/pool/import/event": {
+      "post": {
+        "description": "Import a DJ-owned event's non-rejected requests into the pool.",
+        "operationId": "import_pool_event_api_setbuilder_sets__set_id__pool_import_event_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PoolImportEventIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PoolImportResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Import Pool Event",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/pool/import/manual": {
+      "post": {
+        "description": "Add a single manually-searched track to the pool.",
+        "operationId": "import_pool_manual_api_setbuilder_sets__set_id__pool_import_manual_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PoolImportManualIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PoolImportResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Import Pool Manual",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/pool/import/tidal": {
+      "post": {
+        "description": "Import a connected-account Tidal playlist into the pool.",
+        "operationId": "import_pool_tidal_api_setbuilder_sets__set_id__pool_import_tidal_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PoolImportPlaylistIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PoolImportResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Import Pool Tidal",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/pool/import/url": {
+      "post": {
+        "description": "Import a validated public playlist URL into the pool.",
+        "operationId": "import_pool_url_api_setbuilder_sets__set_id__pool_import_url_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PoolImportUrlIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PoolImportResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Import Pool Url",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/pool/sources/{source_id}": {
+      "delete": {
+        "description": "Remove an import source and exactly its tracks.",
+        "operationId": "remove_pool_source_api_setbuilder_sets__set_id__pool_sources__source_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PoolMutationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Remove Pool Source",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/pool/tracks/remove": {
+      "post": {
+        "description": "Remove pool tracks by id (per-track context menu + multi-select).",
+        "operationId": "remove_pool_tracks_api_setbuilder_sets__set_id__pool_tracks_remove_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PoolRemoveTracksIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PoolMutationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Remove Pool Tracks",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/pool/url-preview": {
+      "post": {
+        "description": "Validate a public playlist URL and return the preview card payload.",
+        "operationId": "preview_pool_url_api_setbuilder_sets__set_id__pool_url_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PoolImportUrlIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PoolUrlPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Preview Pool Url",
         "tags": [
           "setbuilder"
         ]

@@ -16,6 +16,7 @@ from app.models.request import Request
 from app.models.request_vote import RequestVote
 from app.models.search_cache import SearchCache
 from app.models.set import Set, SetCollaborator, SetCurvePoint, SetSlot
+from app.models.set_pool import SetPoolSource, SetPoolTrack
 from app.models.system_settings import SystemSettings
 from app.models.track_vibe import TrackVibe, TrackVibeOverride
 from app.models.user import User
@@ -43,6 +44,8 @@ __all__ = [
     "SetCollaborator",
     "SetCurvePoint",
     "SetCurveTemplate",
+    "SetPoolSource",
+    "SetPoolTrack",
     "SetSlot",
     "SystemSettings",
     "TrackVibe",

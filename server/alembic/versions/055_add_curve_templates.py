@@ -1,7 +1,7 @@
 """Curve templates table + per-slot energy target (issue #389).
 
 Revision ID: 055
-Revises: 054
+Revises: 053
 Create Date: 2026-06-09
 
 Two changes for the WrzDJSet energy-curve editor:
@@ -13,8 +13,8 @@ Two changes for the WrzDJSet energy-curve editor:
   (0-10, 0.1 resolution). NULL means "no explicit target"; the UI falls back
   to the track's intrinsic energy.
 
-Re-anchored on 054 after #413 merged (053 remains reserved by sibling PR #414;
-whichever of #414/#415 merges second re-anchors once more at merge time).
+Re-anchored on 053 after #413 (054) and #414 (053) merged — main's chain is
+052 -> 054 -> 053, so 053 is the head this revision extends.
 """
 
 import sqlalchemy as sa
@@ -22,7 +22,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "055"
-down_revision: str | None = "054"
+down_revision: str | None = "053"
 branch_labels = None
 depends_on = None
 

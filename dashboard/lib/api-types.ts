@@ -204,6 +204,16 @@ export type ApplyTemplateResponse = Schemas['ApplyTemplateResponse'];
 export type VibeWindow = Schemas['VibeWindowModel'];
 export type VibeWindowsResponse = Schemas['VibeWindowsResponse'];
 
+// WrzDJSet pool (issue #388)
+export type PoolSource = Schemas['PoolSourceOut'];
+export type PoolTrack = Schemas['PoolTrackOut'];
+export type PoolState = Schemas['PoolState'];
+export type PoolImportResult = Schemas['PoolImportResult'];
+export type PoolMutationResult = Schemas['PoolMutationResult'];
+export type PoolUrlPreview = Schemas['PoolUrlPreview'];
+export type PoolImportManualIn = Schemas['PoolImportManualIn'];
+export type BuilderPlaylists = Schemas['BuilderPlaylistsOut'];
+
 // WrzDJSet sharing + duplication (issue #398)
 export interface ShareTokenOut {
   share_token: string;

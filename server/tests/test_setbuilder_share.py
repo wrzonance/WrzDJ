@@ -161,3 +161,131 @@ def test_get_by_token_rejects_bad_format(db, test_user):
     assert share_service.get_set_by_share_token(db, "short") is None
     assert share_service.get_set_by_share_token(db, "x" * 200) is None
     assert share_service.get_set_by_share_token(db, "bad token!@#" + "a" * 20) is None
+
+
+# ---------------------------------------------------------------------------
+# API: owner share routes
+# ---------------------------------------------------------------------------
+
+
+def test_share_create_and_rotate(client, auth_headers, db, test_user):
+    src = _seed_set(db, test_user.id)
+    resp = client.post(f"/api/setbuilder/sets/{src.id}/share", headers=auth_headers)
+    assert resp.status_code == 200, resp.json()
+    first = resp.json()["share_token"]
+    assert len(first) >= 32
+
+    # rotating invalidates the old link
+    resp = client.post(f"/api/setbuilder/sets/{src.id}/share", headers=auth_headers)
+    second = resp.json()["share_token"]
+    assert second != first
+    assert client.get(f"/api/public/setbuilder/shared/{first}").status_code == 404
+    assert client.get(f"/api/public/setbuilder/shared/{second}").status_code == 200
+
+
+def test_share_revoke(client, auth_headers, db, test_user):
+    src = _seed_set(db, test_user.id)
+    token = client.post(f"/api/setbuilder/sets/{src.id}/share", headers=auth_headers).json()[
+        "share_token"
+    ]
+    resp = client.delete(f"/api/setbuilder/sets/{src.id}/share", headers=auth_headers)
+    assert resp.status_code == 204
+    assert client.get(f"/api/public/setbuilder/shared/{token}").status_code == 404
+
+
+def test_share_routes_owner_scoped(client, auth_headers, db, test_user):
+    other = _make_second_dj(db)
+    theirs = _seed_set(db, other.id)
+    assert (
+        client.post(f"/api/setbuilder/sets/{theirs.id}/share", headers=auth_headers).status_code
+        == 404
+    )
+    assert (
+        client.delete(f"/api/setbuilder/sets/{theirs.id}/share", headers=auth_headers).status_code
+        == 404
+    )
+    assert (
+        client.post(f"/api/setbuilder/sets/{theirs.id}/duplicate", headers=auth_headers).status_code
+        == 404
+    )
+
+
+def test_share_routes_require_auth(client, db, test_user, pending_headers):
+    src = _seed_set(db, test_user.id)
+    assert client.post(f"/api/setbuilder/sets/{src.id}/share").status_code == 401
+    assert client.delete(f"/api/setbuilder/sets/{src.id}/share").status_code == 401
+    assert client.post(f"/api/setbuilder/sets/{src.id}/duplicate").status_code == 401
+    assert (
+        client.post(f"/api/setbuilder/sets/{src.id}/share", headers=pending_headers).status_code
+        == 403
+    )
+    assert (
+        client.post(f"/api/setbuilder/sets/{src.id}/duplicate", headers=pending_headers).status_code
+        == 403
+    )
+
+
+def test_set_list_surfaces_share_state(client, auth_headers, db, test_user):
+    src = _seed_set(db, test_user.id)
+    sets = client.get("/api/setbuilder/sets", headers=auth_headers).json()
+    assert sets[0]["share_token"] is None
+    token = client.post(f"/api/setbuilder/sets/{src.id}/share", headers=auth_headers).json()[
+        "share_token"
+    ]
+    sets = client.get("/api/setbuilder/sets", headers=auth_headers).json()
+    assert sets[0]["share_token"] == token
+
+
+# ---------------------------------------------------------------------------
+# API: duplicate route
+# ---------------------------------------------------------------------------
+
+
+def test_duplicate_endpoint(client, auth_headers, db, test_user):
+    src = _seed_set(db, test_user.id)
+    resp = client.post(f"/api/setbuilder/sets/{src.id}/duplicate", headers=auth_headers)
+    assert resp.status_code == 201, resp.json()
+    body = resp.json()
+    assert body["name"] == "Warehouse Closer (copy)"
+    assert body["status"] == "draft"
+    assert body["sharing_mode"] == "private"
+    assert body["share_token"] is None
+    assert body["id"] != src.id
+
+
+# ---------------------------------------------------------------------------
+# API: public view-only projection
+# ---------------------------------------------------------------------------
+
+
+def test_public_shared_view_projection(client, auth_headers, db, test_user):
+    src = _seed_set(db, test_user.id)
+    token = client.post(f"/api/setbuilder/sets/{src.id}/share", headers=auth_headers).json()[
+        "share_token"
+    ]
+
+    # no auth header at all
+    resp = client.get(f"/api/public/setbuilder/shared/{token}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["name"] == "Warehouse Closer"
+    assert body["vibe_theme"] == "dark-techno"
+    assert body["bpm_floor"] == 124
+    assert [s["position"] for s in body["slots"]] == [1, 2]
+    assert body["slots"][0]["notes"] == "opener"
+    assert [c["energy"] for c in body["curve_points"]] == [4, 9]
+    assert body["curve_points"][0]["is_slow_window_start"] is True
+
+    # never leak owner identity, internal ids, event linkage or the token
+    for forbidden in ("id", "owner_id", "event_id", "tidal_playlist_id", "share_token"):
+        assert forbidden not in body, forbidden
+    for slot in body["slots"]:
+        assert "id" not in slot and "set_id" not in slot
+    for point in body["curve_points"]:
+        assert "id" not in point and "set_id" not in point
+
+
+def test_public_shared_view_unknown_or_malformed_token(client):
+    assert client.get(f"/api/public/setbuilder/shared/{'A' * 43}").status_code == 404
+    assert client.get("/api/public/setbuilder/shared/short").status_code == 404
+    assert client.get("/api/public/setbuilder/shared/bad%20token%21aaaaaaaaaaaa").status_code == 404

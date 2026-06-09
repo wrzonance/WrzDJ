@@ -53,6 +53,7 @@ const mockEnrichPreview = vi.fn();
 const mockGetLiveJoinCode = vi.fn().mockResolvedValue({ join_code: "ABC" });
 
 vi.mock("../../../lib/api", () => ({
+  PUBLIC_PAGE_MAX: 500,
   ApiError: class ApiError extends Error {
     status: number;
     constructor(message: string, status: number) {

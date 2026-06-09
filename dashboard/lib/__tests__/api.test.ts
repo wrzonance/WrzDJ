@@ -1439,6 +1439,47 @@ describe('ApiClient', () => {
       const [url] = mockFetch.mock.calls[0];
       expect(url).toContain('/api/public/events/ABC123/requests');
     });
+
+    it('appends limit and offset when provided', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ requests: [], now_playing: null, total: 0 }),
+      });
+
+      await api.getPublicRequests('ABC123', 100, 200);
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('limit=100');
+      expect(url).toContain('offset=200');
+    });
+
+    it('omits the query string when no paging args are given', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ requests: [], now_playing: null, total: 0 }),
+      });
+
+      await api.getPublicRequests('ABC123');
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).not.toContain('?');
+    });
+  });
+
+  describe('getCollectLeaderboard', () => {
+    it('includes tab and paging params in the URL', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ requests: [], total: 0 }),
+      });
+
+      await api.getCollectLeaderboard('ABC123', 'all', 100, 50);
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('tab=all');
+      expect(url).toContain('limit=100');
+      expect(url).toContain('offset=50');
+    });
   });
 
   describe('getKioskDisplay', () => {

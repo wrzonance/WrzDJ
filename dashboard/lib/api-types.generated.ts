@@ -3017,7 +3017,10 @@ export interface components {
         };
         /** Body_upload_banner_api_events__code__banner_post */
         Body_upload_banner_api_events__code__banner_post: {
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
         };
         /** BridgeApiKeyResponse */
@@ -3811,6 +3814,11 @@ export interface components {
             now_playing: components["schemas"]["GuestNowPlaying"] | null;
             /** Requests */
             requests: components["schemas"]["GuestRequestInfo"][];
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -8076,6 +8084,8 @@ export interface operations {
         parameters: {
             query?: {
                 tab?: "trending" | "all";
+                limit?: number;
+                offset?: number;
             };
             header?: never;
             path: {
@@ -8557,7 +8567,10 @@ export interface operations {
     };
     get_public_requests_api_public_events__code__requests_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
             header?: never;
             path: {
                 code: string;

@@ -7,7 +7,7 @@ endpoints. See docs/RECOVERY-IP-IDENTITY.md.
 import logging
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import desc, func
 from sqlalchemy.exc import IntegrityError
@@ -19,6 +19,7 @@ from app.api.deps import (
     require_verified_human,
     require_verified_human_soft,
 )
+from app.core.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.core.rate_limit import limiter
 from app.models.event import Event
 from app.models.guest import Guest
@@ -125,6 +126,8 @@ def leaderboard(
     code: str,
     request: Request,
     tab: Literal["trending", "all"] = "trending",
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
     event = _get_event_or_404(db, code)
@@ -135,16 +138,24 @@ def leaderboard(
         .filter(SongRequest.event_id == event.id)
         .filter(SongRequest.submitted_during_collection == True)  # noqa: E712
     )
+    # id.desc() is a unique final tiebreaker so offset pages stay stable
+    # (no dup/skip) when rows tie on the primary sort key.
     if tab == "trending":
         q = q.filter(SongRequest.vote_count >= 1).order_by(
-            SongRequest.vote_count.desc(), SongRequest.created_at.desc()
+            SongRequest.vote_count.desc(),
+            SongRequest.created_at.desc(),
+            SongRequest.id.desc(),
         )
     else:
         # "All" is the discovery view — alphabetical makes it easy to scan
         # and upvote existing submissions rather than recency bias.
-        q = q.order_by(func.lower(SongRequest.song_title).asc())
+        q = q.order_by(func.lower(SongRequest.song_title).asc(), SongRequest.id.desc())
 
-    rows = q.limit(200).all()
+    # True count of the full result set, computed before pagination so the
+    # client knows how many rows exist beyond this page. order_by(None) drops
+    # the ORDER BY from the COUNT subquery (it can't change the count).
+    total = q.order_by(None).count()
+    rows = q.offset(offset).limit(limit).all()
     return CollectLeaderboardResponse(
         requests=[
             CollectLeaderboardRow(
@@ -163,7 +174,7 @@ def leaderboard(
             )
             for r, email_verified_at in rows
         ],
-        total=len(rows),
+        total=total,
     )
 
 

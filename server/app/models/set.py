@@ -77,6 +77,16 @@ class Set(Base):
         back_populates="set",
         cascade="all, delete-orphan",
     )
+    pool_sources: Mapped[list["SetPoolSource"]] = relationship(
+        "SetPoolSource",
+        back_populates="set",
+        cascade="all, delete-orphan",
+    )
+    pool_tracks: Mapped[list["SetPoolTrack"]] = relationship(
+        "SetPoolTrack",
+        back_populates="set",
+        cascade="all, delete-orphan",
+    )
 
 
 class SetSlot(Base):

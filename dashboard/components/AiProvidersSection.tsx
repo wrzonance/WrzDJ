@@ -352,9 +352,14 @@ export default function AiProvidersSection() {
           fallback toggle is on, this DJ's AI calls run on the house connector
           (house-billed) — say so. Otherwise AI features are simply unavailable.
           A failed policy fetch leaves `policy` null, which renders the danger
-          banner — fail-closed messaging, matching `allowedTypes` above.
+          banner — fail-closed messaging, matching `allowedTypes` above. The
+          "connect a provider" instruction is only appended when the admin
+          policy actually allows creating one (otherwise the section below says
+          creation is disabled, and the copy would contradict it). A hard load
+          failure (`error`) suppresses both banners — we don't know whether the
+          DJ has connectors, so we make no availability claims.
         */}
-        {connectors.length === 0 && !loading && (
+        {connectors.length === 0 && !loading && !error && (
           policy?.org_fallback_available ? (
             <div
               style={{
@@ -378,7 +383,9 @@ export default function AiProvidersSection() {
                 fontSize: '0.875rem',
               }}
             >
-              AI features unavailable — connect a provider below to enable them.
+              {allowedTypes.length > 0
+                ? 'AI features unavailable — connect a provider below to enable them.'
+                : 'AI features unavailable.'}
             </div>
           )
         )}

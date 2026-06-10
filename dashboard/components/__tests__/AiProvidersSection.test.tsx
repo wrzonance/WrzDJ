@@ -134,6 +134,11 @@ describe('AiProvidersSection', () => {
     );
     expect(screen.queryByText('+ Add provider')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Provider')).not.toBeInTheDocument();
+    // Fail-closed banner: a null policy never claims house billing exists…
+    expect(screen.getByText(/AI features unavailable/i)).toBeInTheDocument();
+    // …and never tells the DJ to "connect a provider" while the same screen
+    // says connector creation is disabled by admin policy.
+    expect(screen.queryByText(/connect a provider below/i)).not.toBeInTheDocument();
   });
 
   it('fails closed: only api-key types when compatible is disabled (no leak of all)', async () => {
@@ -505,6 +510,22 @@ describe('AiProvidersSection', () => {
     expect(
       screen.queryByText(/AI features unavailable — connect a provider/i),
     ).not.toBeInTheDocument();
+  });
+
+  it('shows no availability banner when the connector list fails to load', async () => {
+    // A hard load failure means we don't actually know whether the DJ has
+    // connectors — show only the load error, never a claim about AI
+    // availability or house billing.
+    vi.spyOn(api, 'listLlmConnectors').mockRejectedValue(new Error('boom'));
+    vi.spyOn(api, 'getLlmPolicy').mockResolvedValue(makePolicy(true, true, true));
+
+    render(<AiProvidersSection />);
+
+    await waitFor(() => expect(screen.getByText('boom')).toBeInTheDocument());
+    expect(
+      screen.queryByText(/using the organization's connector/i),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/AI features unavailable/i)).not.toBeInTheDocument();
   });
 
   it('deletes after confirmation', async () => {

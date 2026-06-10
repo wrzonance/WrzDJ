@@ -560,29 +560,13 @@ async def test_org_connector(
     Mirrors the DJ-facing ``POST /api/llm/connectors/{id}/test`` — same shared
     helper, same status columns and audit rows, same code → message mapping.
     """
-    from app.services.llm.health_check import run_health_check
+    from app.services.llm.health_check import outcome_to_test_result, run_health_check
 
     row = _get_org_connector_or_404(db, connector_id)
 
     outcome = await run_health_check(db, row, actor_user_id=admin.id)
     db.commit()
-
-    if outcome.ok:
-        return ConnectorTestResult(ok=True)
-    # Reuse the same code → message mapping the gateway uses for transient
-    # errors. The helper has already sanitised any upstream payload.
-    message = {
-        "auth_invalid": "Authentication failed against the provider",
-        "rate_limited": "Provider rate limited the request",
-        "quota_exceeded": "Provider quota or billing failure",
-        "provider_unavailable": "Provider unreachable or timed out",
-        "error": "Unknown error",
-    }.get(outcome.status, "Unknown error")
-    return ConnectorTestResult(
-        ok=False,
-        error_code=outcome.error_code or outcome.status,
-        message=message,
-    )
+    return outcome_to_test_result(outcome)
 
 
 @router.put("/org-connectors/{connector_id}/credentials", response_model=ConnectorOut)

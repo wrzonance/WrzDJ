@@ -41,6 +41,7 @@ from app.models.llm_connector import (
     STATUS_DISABLED,
     LlmConnector,
 )
+from app.schemas.llm import ConnectorTestResult
 from app.services.llm.connector_storage import audit_event
 from app.services.llm.exceptions import (
     AuthInvalid,
@@ -175,3 +176,31 @@ async def run_health_check(
     if connector.status == STATUS_AUTH_INVALID:
         connector.status = STATUS_ACTIVE
     return HealthCheckOutcome(ok=True, status=HEALTH_CHECK_OK)
+
+
+# Sanitised status → message mapping shared by every connector test endpoint.
+# The health-check helper has already stripped any upstream payload from the
+# outcome, so these fixed strings are all a client ever sees.
+_HEALTH_CHECK_MESSAGES = {
+    HEALTH_CHECK_AUTH_INVALID: "Authentication failed against the provider",
+    HEALTH_CHECK_RATE_LIMITED: "Provider rate limited the request",
+    HEALTH_CHECK_QUOTA_EXCEEDED: "Provider quota or billing failure",
+    HEALTH_CHECK_PROVIDER_UNAVAILABLE: "Provider unreachable or timed out",
+    HEALTH_CHECK_ERROR: "Unknown error",
+}
+
+
+def outcome_to_test_result(outcome: HealthCheckOutcome) -> ConnectorTestResult:
+    """Sanitised DJ/admin-facing test result for a health-check outcome.
+
+    Single source for the status → message mapping so the DJ test endpoint
+    (``POST /api/llm/connectors/{id}/test``) and the admin org-connector test
+    endpoint (``POST /api/admin/llm/org-connectors/{id}/test``) can never drift.
+    """
+    if outcome.ok:
+        return ConnectorTestResult(ok=True)
+    return ConnectorTestResult(
+        ok=False,
+        error_code=outcome.error_code or outcome.status,
+        message=_HEALTH_CHECK_MESSAGES.get(outcome.status, "Unknown error"),
+    )

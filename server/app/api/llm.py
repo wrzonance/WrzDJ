@@ -330,29 +330,13 @@ async def test_connector(
     rows are written the same way on every invocation regardless of trigger
     source. See ``services/llm/health_check.py`` for the shared helper.
     """
-    from app.services.llm.health_check import run_health_check
+    from app.services.llm.health_check import outcome_to_test_result, run_health_check
 
     row = _get_owned_connector_or_404(db, connector_id, user.id)
 
     outcome = await run_health_check(db, row, actor_user_id=user.id)
     db.commit()
-
-    if outcome.ok:
-        return ConnectorTestResult(ok=True)
-    # Reuse the same code → message mapping the gateway uses for transient
-    # errors. The helper has already sanitised any upstream payload.
-    message = {
-        "auth_invalid": "Authentication failed against the provider",
-        "rate_limited": "Provider rate limited the request",
-        "quota_exceeded": "Provider quota or billing failure",
-        "provider_unavailable": "Provider unreachable or timed out",
-        "error": "Unknown error",
-    }.get(outcome.status, "Unknown error")
-    return ConnectorTestResult(
-        ok=False,
-        error_code=outcome.error_code or outcome.status,
-        message=message,
-    )
+    return outcome_to_test_result(outcome)
 
 
 # A short, fixed prompt for the streaming health probe. Streams a single

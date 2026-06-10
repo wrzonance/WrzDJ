@@ -3,7 +3,7 @@
  *
  * Tier 1 — surfaces & structure (9 vars)
  * Tier 2 — semantic action colors (14 vars)
- * Tier 3 — named UI roles (14 vars)
+ * Tier 3 — named UI roles (15 vars)
  *
  * dark:          Default. Pure dark, standard contrast.
  * high-contrast: Boosted contrast for accessibility / bright environments.
@@ -58,6 +58,7 @@ const THEME_VARS: Record<Theme, Record<string, string>> = {
     '--color-accent-checkbox':  '#3b82f6',
     '--color-live-badge':       '#ef4444',
     '--color-status-accepted':  '#8b5cf6',
+    '--color-curve-accent':     '#00f5d4',
   },
 
   'high-contrast': {
@@ -103,6 +104,7 @@ const THEME_VARS: Record<Theme, Record<string, string>> = {
     '--color-accent-checkbox':  '#60a5fa',
     '--color-live-badge':       '#f87171',
     '--color-status-accepted':  '#a78bfa',
+    '--color-curve-accent':     '#00f5d4',
   },
 
   daylight: {
@@ -148,6 +150,7 @@ const THEME_VARS: Record<Theme, Record<string, string>> = {
     '--color-accent-checkbox':  '#2563eb',
     '--color-live-badge':       '#dc2626',
     '--color-status-accepted':  '#7c3aed',
+    '--color-curve-accent':     '#0f766e',
   },
 };
 

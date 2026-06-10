@@ -221,6 +221,13 @@ export default function DashboardPage() {
                 Create Event
               </button>
             </HelpSpot>
+            <Link
+              href="/setbuilder"
+              className="btn"
+              style={{ background: 'var(--surface-raised)', textDecoration: 'none', color: 'var(--text)' }}
+            >
+              Set Builder
+            </Link>
             <a
               href="https://github.com/thewrz/WrzDJ/releases/latest"
               target="_blank"

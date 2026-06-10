@@ -22,6 +22,7 @@ const EXPECTED_TOKENS = [
   '--color-log-warning-bg', '--color-log-warning-text',
   '--color-log-error-bg', '--color-log-error-text',
   '--color-accent-checkbox', '--color-live-badge', '--color-status-accepted',
+  '--color-curve-accent',
 ] as const;
 
 describe('getThemeVars', () => {
@@ -67,7 +68,7 @@ describe('getThemeVars', () => {
       expect(darkKeys).toEqual(dayKeys);
     });
 
-    it('every theme includes all 37 expected tokens', () => {
+    it('every theme includes all 38 expected tokens', () => {
       for (const theme of THEMES) {
         const vars = getThemeVars(theme);
         for (const key of EXPECTED_TOKENS) {
@@ -77,9 +78,9 @@ describe('getThemeVars', () => {
       }
     });
 
-    it('has exactly 37 tokens — no extras, no missing', () => {
+    it('has exactly 38 tokens — no extras, no missing', () => {
       const darkKeys = Object.keys(getThemeVars('dark'));
-      expect(darkKeys).toHaveLength(37);
+      expect(darkKeys).toHaveLength(38);
     });
   });
 

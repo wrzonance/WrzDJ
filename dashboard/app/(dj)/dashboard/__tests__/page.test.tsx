@@ -120,6 +120,12 @@ describe('DashboardPage', () => {
     expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute('href', '/account');
   });
 
+  it('renders Set Builder link to /setbuilder', async () => {
+    vi.mocked(api.getEvents).mockResolvedValue([]);
+    render(<DashboardPage />);
+    expect(screen.getByRole('link', { name: 'Set Builder' })).toHaveAttribute('href', '/setbuilder');
+  });
+
   it('renders activity log panel', async () => {
     vi.mocked(api.getEvents).mockResolvedValue([]);
     render(<DashboardPage />);

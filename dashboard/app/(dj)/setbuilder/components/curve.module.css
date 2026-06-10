@@ -67,6 +67,7 @@
 
 .viewSwitch {
   display: inline-flex;
+  background: var(--surface-raised);
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
@@ -83,12 +84,12 @@
 }
 
 .viewBtnActive {
-  background: var(--surface-raised);
-  color: #00f5d4;
+  background: var(--card);
+  color: var(--color-curve-accent);
 }
 
 .toolbarBtn {
-  background: transparent;
+  background: var(--surface-raised);
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text-secondary);

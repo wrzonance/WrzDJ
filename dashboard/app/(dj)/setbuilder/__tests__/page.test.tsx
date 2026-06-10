@@ -31,6 +31,12 @@ vi.mock('@/lib/auth', () => ({
   useAuth: () => ({ isAuthenticated: true, isLoading: false, role: 'dj' }),
 }));
 
+// ThemeToggle renders inline here (the (dj) layout's floating toggle is
+// suppressed on /setbuilder routes to avoid overlapping the topbar actions).
+vi.mock('@/components/ThemeToggle', () => ({
+  ThemeToggle: () => <button data-testid="theme-toggle-mock">Theme</button>,
+}));
+
 describe('SetbuilderPage', () => {
   beforeEach(() => {
     mockListSets.mockReset();
@@ -43,6 +49,14 @@ describe('SetbuilderPage', () => {
     render(<SetbuilderPage />);
     await waitFor(() => {
       expect(screen.getByText(/no sets yet/i)).toBeInTheDocument();
+    });
+  });
+
+  it('renders the theme toggle inline in the header', async () => {
+    mockListSets.mockResolvedValue([]);
+    render(<SetbuilderPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId('theme-toggle-mock')).toBeInTheDocument();
     });
   });
 

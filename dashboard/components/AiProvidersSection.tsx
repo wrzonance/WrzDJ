@@ -347,8 +347,40 @@ export default function AiProvidersSection() {
 
       <section style={{ marginTop: '2rem' }}>
         <h3 style={{ marginTop: 0 }}>Connected providers</h3>
+        {/*
+          Connector-less DJ banners. When an org connector exists AND the admin
+          fallback toggle is on, this DJ's AI calls run on the house connector
+          (house-billed) — say so. Otherwise AI features are simply unavailable.
+          A failed policy fetch leaves `policy` null, which renders the danger
+          banner — fail-closed messaging, matching `allowedTypes` above.
+        */}
         {connectors.length === 0 && !loading && (
-          <p style={{ color: 'var(--text-secondary)' }}>No connectors yet.</p>
+          policy?.org_fallback_available ? (
+            <div
+              style={{
+                background: 'var(--color-warning-subtle)',
+                color: 'var(--color-warning)',
+                padding: '0.75rem 1rem',
+                borderRadius: '0.5rem',
+                fontSize: '0.875rem',
+              }}
+            >
+              You&apos;re using the organization&apos;s connector — usage is billed to the
+              organization. Connect your own provider below to use your own account.
+            </div>
+          ) : (
+            <div
+              style={{
+                background: 'var(--color-danger-subtle)',
+                color: 'var(--color-danger)',
+                padding: '0.75rem 1rem',
+                borderRadius: '0.5rem',
+                fontSize: '0.875rem',
+              }}
+            >
+              AI features unavailable — connect a provider below to enable them.
+            </div>
+          )
         )}
         {connectors.map((c) => {
           const status = STATUS_LABELS[c.status] ?? { text: c.status, color: 'var(--text-secondary)' };

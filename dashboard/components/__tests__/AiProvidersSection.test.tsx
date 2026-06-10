@@ -20,6 +20,7 @@ const ALL_APIKEY_TYPES: LlmConnectorType[] = [
 function makePolicy(
   apikeyEnabled: boolean,
   compatibleEnabled: boolean,
+  orgFallbackAvailable = false,
 ): LlmDjPolicy {
   const allowed: LlmConnectorType[] = [];
   if (apikeyEnabled) allowed.push(...ALL_APIKEY_TYPES);
@@ -28,6 +29,7 @@ function makePolicy(
     llm_apikey_connectors_enabled: apikeyEnabled,
     llm_compatible_connector_enabled: compatibleEnabled,
     allowed_connector_types: allowed,
+    org_fallback_available: orgFallbackAvailable,
   };
 }
 
@@ -37,6 +39,7 @@ function makeConnector(overrides: Partial<LlmConnector> = {}): LlmConnector {
   return {
     id: 1,
     user_id: 42,
+    scope: 'user',
     connector_type: 'openai_apikey',
     display_name: 'My OpenAI',
     status: 'active',
@@ -454,6 +457,54 @@ describe('AiProvidersSection', () => {
       const card = badge.closest('.card');
       expect(card?.textContent).toContain('B');
     });
+  });
+
+  // ---------- connector-less DJ banners (org fallback) ----------
+
+  it('shows the house-billed banner for a connector-less DJ when fallback is on', async () => {
+    vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
+    vi.spyOn(api, 'getLlmPolicy').mockResolvedValue(makePolicy(true, true, true));
+
+    render(<AiProvidersSection />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/using the organization's connector/i)).toBeInTheDocument(),
+    );
+    // The danger banner must not show alongside the house-billed one.
+    expect(
+      screen.queryByText(/AI features unavailable — connect a provider/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows the connect-a-provider banner when no fallback exists', async () => {
+    vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([]);
+    vi.spyOn(api, 'getLlmPolicy').mockResolvedValue(makePolicy(true, true, false));
+
+    render(<AiProvidersSection />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/AI features unavailable — connect a provider/i),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText(/using the organization's connector/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows no banner when the DJ has their own connector', async () => {
+    vi.spyOn(api, 'listLlmConnectors').mockResolvedValue([makeConnector()]);
+    vi.spyOn(api, 'getLlmPolicy').mockResolvedValue(makePolicy(true, true, true));
+
+    render(<AiProvidersSection />);
+
+    await waitFor(() => expect(screen.getByText('My OpenAI')).toBeInTheDocument());
+    expect(
+      screen.queryByText(/using the organization's connector/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/AI features unavailable — connect a provider/i),
+    ).not.toBeInTheDocument();
   });
 
   it('deletes after confirmation', async () => {

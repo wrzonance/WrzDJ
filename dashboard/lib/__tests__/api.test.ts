@@ -462,39 +462,18 @@ describe('ApiClient', () => {
       api.setToken('admin-token');
     });
 
-    it('fetches AI models', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          models: [
-            { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
-          ],
-        }),
-      });
-
-      const result = await api.getAIModels();
-      expect(result.models).toHaveLength(1);
-      expect(result.models[0].id).toBe('claude-haiku-4-5-20251001');
-
-      const [url] = mockFetch.mock.calls[0];
-      expect(url).toContain('/api/admin/ai/models');
-    });
-
     it('fetches AI settings', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
           llm_enabled: true,
-          llm_model: 'claude-haiku-4-5-20251001',
           llm_rate_limit_per_minute: 3,
-          api_key_configured: true,
-          api_key_masked: '...test',
         }),
       });
 
       const result = await api.getAISettings();
       expect(result.llm_enabled).toBe(true);
-      expect(result.api_key_configured).toBe(true);
+      expect(result.llm_rate_limit_per_minute).toBe(3);
     });
 
     it('updates AI settings', async () => {
@@ -502,16 +481,13 @@ describe('ApiClient', () => {
         ok: true,
         json: async () => ({
           llm_enabled: false,
-          llm_model: 'claude-sonnet-4-5-20250929',
           llm_rate_limit_per_minute: 5,
-          api_key_configured: true,
-          api_key_masked: '...test',
         }),
       });
 
       const result = await api.updateAISettings({
         llm_enabled: false,
-        llm_model: 'claude-sonnet-4-5-20250929',
+        llm_rate_limit_per_minute: 5,
       });
       expect(result.llm_enabled).toBe(false);
 
@@ -638,6 +614,117 @@ describe('ApiClient', () => {
       await api.setAdminLlmConnectorCap(7, null);
       const [, options] = mockFetch.mock.calls[0];
       expect(JSON.parse(options.body)).toEqual({ monthly_token_cap: null });
+    });
+  });
+
+  describe('Org LLM connectors API', () => {
+    beforeEach(() => {
+      api.setToken('admin-token');
+    });
+
+    it('lists org connectors', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          {
+            id: 9,
+            user_id: null,
+            scope: 'org',
+            connector_type: 'anthropic_apikey',
+            display_name: 'House Anthropic',
+            status: 'active',
+            base_url_plain: null,
+            model_hint: null,
+            created_at: '2026-06-01T00:00:00Z',
+            updated_at: '2026-06-01T00:00:00Z',
+            last_used_at: null,
+            last_error: null,
+          },
+        ],
+      });
+
+      const result = await api.listOrgConnectors();
+      expect(result).toHaveLength(1);
+      expect(result[0].scope).toBe('org');
+      expect(result[0].user_id).toBeNull();
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/admin/llm/org-connectors');
+    });
+
+    it('creates an org connector via POST', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 10, scope: 'org', user_id: null }),
+      });
+
+      const result = await api.createOrgConnector({
+        connector_type: 'anthropic_apikey',
+        display_name: 'House Anthropic',
+        base_url: null,
+        bearer: null,
+        api_key: 'sk-ant-test',
+        model_hint: null,
+      });
+      expect(result.id).toBe(10);
+
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/admin/llm/org-connectors');
+      expect(options.method).toBe('POST');
+    });
+
+    it('tests an org connector via POST to the scoped URL', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ ok: true, message: 'pong' }),
+      });
+
+      await api.testOrgConnector(9);
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/admin/llm/org-connectors/9/test');
+      expect(options.method).toBe('POST');
+    });
+
+    it('rotates org connector credentials via PUT', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 9, scope: 'org', user_id: null }),
+      });
+
+      await api.rotateOrgConnectorCredentials(9, {
+        api_key: 'sk-ant-rotated',
+        bearer: null,
+      });
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/admin/llm/org-connectors/9/credentials');
+      expect(options.method).toBe('PUT');
+    });
+
+    it('deletes an org connector via DELETE', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => null });
+
+      await api.deleteOrgConnector(9);
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/admin/llm/org-connectors/9');
+      expect(options.method).toBe('DELETE');
+    });
+
+    it('fetches per-DJ effective LLM status', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          rows: [
+            { user_id: 42, username: 'dj42', effective_source: 'org_fallback' },
+          ],
+        }),
+      });
+
+      const result = await api.getDjLlmStatus();
+      expect(result.rows).toHaveLength(1);
+      expect(result.rows[0].effective_source).toBe('org_fallback');
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/admin/llm/dj-status');
     });
   });
 

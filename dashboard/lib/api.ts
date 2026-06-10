@@ -16,6 +16,7 @@ import type {
   LlmConnectorPatch,
   LlmConnectorTestResult,
   LlmDjPolicy,
+  LlmDjStatus,
   LlmFeatureKey,
   LlmFeaturePreferences,
   LlmFeaturePreferenceSet,
@@ -96,6 +97,8 @@ export type {
   LlmConnectorTestResult,
   LlmConnectorType,
   LlmDjPolicy,
+  LlmDjStatus,
+  LlmDjStatusRow,
   LlmFeatureKey,
   LlmFeaturePreference,
   LlmFeaturePreferences,
@@ -1378,10 +1381,6 @@ class ApiClient {
 
   // ========== Admin AI Settings ==========
 
-  async getAIModels(): Promise<AIModelsResponse> {
-    return this.fetch('/api/admin/ai/models');
-  }
-
   async getAISettings(): Promise<AISettings> {
     return this.fetch('/api/admin/ai/settings');
   }
@@ -1592,6 +1591,44 @@ class ApiClient {
       method: 'PATCH',
       body: JSON.stringify({ monthly_token_cap: monthlyTokenCap }),
     });
+  }
+
+  // ========== Admin org-scoped house connector ==========
+
+  async listOrgConnectors(): Promise<LlmConnector[]> {
+    return this.fetch('/api/admin/llm/org-connectors');
+  }
+
+  async createOrgConnector(data: LlmConnectorCreate): Promise<LlmConnector> {
+    return this.fetch('/api/admin/llm/org-connectors', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async testOrgConnector(id: number): Promise<LlmConnectorTestResult> {
+    return this.fetch(`/api/admin/llm/org-connectors/${id}/test`, { method: 'POST' });
+  }
+
+  async rotateOrgConnectorCredentials(
+    id: number,
+    data: LlmConnectorCredentialsRotate,
+  ): Promise<LlmConnector> {
+    return this.fetch(`/api/admin/llm/org-connectors/${id}/credentials`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteOrgConnector(id: number): Promise<void> {
+    await this.fetch(`/api/admin/llm/org-connectors/${id}`, { method: 'DELETE' });
+  }
+
+  // Effective LLM credential source per DJ (own / org_fallback / none) —
+  // backend-computed by the same rules the gateway resolver applies, so the
+  // admin UI never duplicates resolution logic.
+  async getDjLlmStatus(): Promise<LlmDjStatus> {
+    return this.fetch('/api/admin/llm/dj-status');
   }
 
   // ========== Admin LLM audit trail (issue #341) ==========

@@ -55,6 +55,12 @@ STATUS_ACTIVE = "active"
 STATUS_AUTH_INVALID = "auth_invalid"
 STATUS_DISABLED = "disabled"
 
+# Connector scope — 'user' rows belong to a DJ; 'org' rows belong to the
+# organization itself (house-billed fallback). Org rows have user_id NULL,
+# enforced by ck_llm_connectors_org_scope_no_user below.
+SCOPE_USER = "user"
+SCOPE_ORG = "org"
+
 # Health-check status values written to ``last_health_check_status``. Kept here
 # so the API/background loop/admin UI all use the same vocabulary. These are
 # *outcomes*, not connector statuses — a single connector accumulates many
@@ -113,10 +119,13 @@ class LlmConnector(Base):
     __tablename__ = "llm_connectors"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
     )
     connector_type: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
+    scope: Mapped[str] = mapped_column(
+        String(10), nullable=False, default=SCOPE_USER, server_default=text("'user'")
+    )
     display_name: Mapped[str] = mapped_column(String(80), nullable=False)
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default=STATUS_ACTIVE, server_default=STATUS_ACTIVE
@@ -170,6 +179,11 @@ class LlmConnector(Base):
             "monthly_token_cap IS NULL OR monthly_token_cap >= 0",
             name="ck_llm_connectors_monthly_token_cap_nonnegative",
         ),
+        # Org rows must have no owner; user rows must have one.
+        CheckConstraint(
+            "(scope = 'org') = (user_id IS NULL)",
+            name="ck_llm_connectors_org_scope_no_user",
+        ),
         Index("ix_user_active", "user_id", "status"),
         # Partial unique index — only enforced on Postgres. SQLite ignores
         # the postgresql_where clause but still creates an unfiltered index;
@@ -219,7 +233,10 @@ class LlmAuditEvent(Base):
     __tablename__ = "llm_audit_event"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    actor_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    # NULL actor = system-context call (no DJ actor); see gateway dispatch.
+    actor_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), index=True, nullable=True
+    )
     target_connector_id: Mapped[int | None] = mapped_column(
         ForeignKey("llm_connectors.id", ondelete="SET NULL"), nullable=True
     )

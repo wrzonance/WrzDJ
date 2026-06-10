@@ -30,6 +30,8 @@ from app.models.llm_connector import (
     CONNECTOR_TYPE_OPENAI_COMPATIBLE,
     CONNECTOR_TYPE_OPENROUTER_APIKEY,
     CONNECTOR_TYPE_XAI_APIKEY,
+    SCOPE_ORG,
+    SCOPE_USER,
     STATUS_ACTIVE,
     STATUS_AUTH_INVALID,
     STATUS_DISABLED,
@@ -51,7 +53,7 @@ logger = logging.getLogger(__name__)
 def list_connectors_for_user(db: Session, user_id: int) -> list[LlmConnector]:
     return (
         db.query(LlmConnector)
-        .filter(LlmConnector.user_id == user_id)
+        .filter(LlmConnector.user_id == user_id, LlmConnector.scope == SCOPE_USER)
         .order_by(LlmConnector.created_at.desc())
         .all()
     )
@@ -61,6 +63,15 @@ def list_all_connectors(db: Session) -> list[LlmConnector]:
     return (
         db.query(LlmConnector)
         .order_by(LlmConnector.user_id.asc(), LlmConnector.created_at.desc())
+        .all()
+    )
+
+
+def list_org_connectors(db: Session) -> list[LlmConnector]:
+    return (
+        db.query(LlmConnector)
+        .filter(LlmConnector.scope == SCOPE_ORG)
+        .order_by(LlmConnector.created_at.desc())
         .all()
     )
 
@@ -365,10 +376,36 @@ def _load_existing_blob(connector: LlmConnector) -> dict[str, Any]:
     return blob if isinstance(blob, dict) else {}
 
 
-def create_connector(db: Session, *, user_id: int, payload: CreateConnectorPayload) -> LlmConnector:
-    """Persist a new connector. Caller is responsible for audit event + commit."""
+def create_connector(
+    db: Session,
+    *,
+    user_id: int | None,
+    payload: CreateConnectorPayload,
+    scope: str = SCOPE_USER,
+) -> LlmConnector:
+    """Persist a new connector. Caller is responsible for audit event + commit.
+
+    Org-scoped rows (scope='org') must pass user_id=None — the DB CHECK
+    enforces it; this assert catches programming errors early. Org rows are
+    exempt from the per-user unique label constraint (NULL user_id rows are
+    NULLS-DISTINCT on Postgres), so duplicate org labels are rejected here.
+    """
+    assert (scope == SCOPE_ORG) == (user_id is None), "org scope requires user_id=None"
+    if scope == SCOPE_ORG:
+        duplicate = (
+            db.query(LlmConnector.id)
+            .filter(
+                LlmConnector.scope == SCOPE_ORG,
+                LlmConnector.connector_type == payload.connector_type,
+                LlmConnector.display_name == payload.display_name,
+            )
+            .first()
+        )
+        if duplicate is not None:
+            raise ValueError("An org connector with this label already exists")
     row = LlmConnector(
         user_id=user_id,
+        scope=scope,
         connector_type=payload.connector_type,
         display_name=payload.display_name,
         status=STATUS_ACTIVE,
@@ -599,7 +636,7 @@ def clear_feature_preference(db: Session, *, user_id: int, feature: str) -> bool
 def audit_event(
     db: Session,
     *,
-    actor_user_id: int,
+    actor_user_id: int | None,
     target_connector_id: int | None,
     event_type: str,
 ) -> LlmAuditEvent:
@@ -663,9 +700,18 @@ def purge_call_log_older_than(db: Session, *, retention_days: int) -> int:
     return result.rowcount or 0
 
 
-def get_user_label(db: Session, user_id: int) -> str:
+def get_user_label(db: Session, user_id: int | None) -> str:
+    if user_id is None:
+        return "Organization"
     user = db.get(User, user_id)
     return user.username if user else f"user#{user_id}"
+
+
+def owner_label(user_id: int | None, usernames: dict[int, str]) -> str:
+    """Batch-friendly sibling of get_user_label (no DB hit)."""
+    if user_id is None:
+        return "Organization"
+    return usernames.get(user_id) or f"user#{user_id}"
 
 
 def get_usage_stats(db: Session, *, days: int = 30) -> list[dict]:
@@ -803,7 +849,9 @@ __all__ = [
     "get_user_label",
     "list_all_connectors",
     "list_connectors_for_user",
+    "list_org_connectors",
     "log_call",
+    "owner_label",
     "purge_call_log_older_than",
     "revoke_connector",
     "rotate_credentials",

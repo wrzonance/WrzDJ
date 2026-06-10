@@ -37,21 +37,9 @@
       },
       "AISettingsOut": {
         "properties": {
-          "api_key_configured": {
-            "title": "Api Key Configured",
-            "type": "boolean"
-          },
-          "api_key_masked": {
-            "title": "Api Key Masked",
-            "type": "string"
-          },
           "llm_enabled": {
             "title": "Llm Enabled",
             "type": "boolean"
-          },
-          "llm_model": {
-            "title": "Llm Model",
-            "type": "string"
           },
           "llm_rate_limit_per_minute": {
             "title": "Llm Rate Limit Per Minute",
@@ -59,10 +47,7 @@
           }
         },
         "required": [
-          "api_key_configured",
-          "api_key_masked",
           "llm_enabled",
-          "llm_model",
           "llm_rate_limit_per_minute"
         ],
         "title": "AISettingsOut",
@@ -80,17 +65,6 @@
               }
             ],
             "title": "Llm Enabled"
-          },
-          "llm_model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Llm Model"
           },
           "llm_rate_limit_per_minute": {
             "anyOf": [
@@ -358,6 +332,15 @@
             ],
             "title": "Monthly Token Cap"
           },
+          "scope": {
+            "default": "user",
+            "enum": [
+              "user",
+              "org"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
           "status": {
             "enum": [
               "active",
@@ -373,8 +356,15 @@
             "type": "string"
           },
           "user_id": {
-            "title": "User Id",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
           }
         },
         "required": [
@@ -392,6 +382,7 @@
           "last_used_at",
           "model_hint",
           "monthly_token_cap",
+          "scope",
           "status",
           "updated_at",
           "user_id"
@@ -754,8 +745,15 @@
         "description": "A single audit-trail row with joined display labels.\n\nNever includes credential material \u2014 only the target connector's\nhuman-readable display name (joined from ``llm_connectors``).",
         "properties": {
           "actor_user_id": {
-            "title": "Actor User Id",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor User Id"
           },
           "actor_username": {
             "title": "Actor Username",
@@ -1133,7 +1131,7 @@
       "Body_upload_banner_api_events__code__banner_post": {
         "properties": {
           "file": {
-            "contentMediaType": "application/octet-stream",
+            "format": "binary",
             "title": "File",
             "type": "string"
           }
@@ -2640,6 +2638,15 @@
             ],
             "title": "Monthly Token Cap"
           },
+          "scope": {
+            "default": "user",
+            "enum": [
+              "user",
+              "org"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
           "status": {
             "enum": [
               "active",
@@ -2655,8 +2662,15 @@
             "type": "string"
           },
           "user_id": {
-            "title": "User Id",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
           }
         },
         "required": [
@@ -2672,6 +2686,7 @@
           "last_used_at",
           "model_hint",
           "monthly_token_cap",
+          "scope",
           "status",
           "updated_at",
           "user_id"
@@ -2969,6 +2984,50 @@
         "title": "DisplaySettingsUpdate",
         "type": "object"
       },
+      "DjLlmStatusOut": {
+        "properties": {
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/DjLlmStatusRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "title": "DjLlmStatusOut",
+        "type": "object"
+      },
+      "DjLlmStatusRow": {
+        "properties": {
+          "effective_source": {
+            "enum": [
+              "own",
+              "org_fallback",
+              "none"
+            ],
+            "title": "Effective Source",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "integer"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "effective_source",
+          "user_id",
+          "username"
+        ],
+        "title": "DjLlmStatusRow",
+        "type": "object"
+      },
       "DjPolicyOut": {
         "description": "DJ-readable connector policy \u2014 the non-sensitive subset of the admin\npolicy surface.\n\nLets the settings/ai page fail *closed*: a normal DJ can learn which\nconnector types the admin has enabled (so disallowed providers are hidden\nin the picker) without exposing admin-only fields such as\n``llm_default_connector_id``.\n\n``allowed_connector_types`` is the pre-computed set of connector types a DJ\nmay create given the two toggles, so the frontend doesn't have to hard-code\nthe api-key-vs-compatible mapping.",
         "properties": {
@@ -2996,12 +3055,18 @@
           "llm_compatible_connector_enabled": {
             "title": "Llm Compatible Connector Enabled",
             "type": "boolean"
+          },
+          "org_fallback_available": {
+            "default": false,
+            "title": "Org Fallback Available",
+            "type": "boolean"
           }
         },
         "required": [
           "allowed_connector_types",
           "llm_apikey_connectors_enabled",
-          "llm_compatible_connector_enabled"
+          "llm_compatible_connector_enabled",
+          "org_fallback_available"
         ],
         "title": "DjPolicyOut",
         "type": "object"
@@ -7117,10 +7182,6 @@
             "title": "Llm Enabled",
             "type": "boolean"
           },
-          "llm_model": {
-            "title": "Llm Model",
-            "type": "string"
-          },
           "llm_rate_limit_per_minute": {
             "title": "Llm Rate Limit Per Minute",
             "type": "integer"
@@ -7147,7 +7208,6 @@
           "bridge_enabled",
           "human_verification_enforced",
           "llm_enabled",
-          "llm_model",
           "llm_rate_limit_per_minute",
           "registration_enabled",
           "search_rate_limit_per_minute",
@@ -7202,17 +7262,6 @@
               }
             ],
             "title": "Llm Enabled"
-          },
-          "llm_model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Llm Model"
           },
           "llm_rate_limit_per_minute": {
             "anyOf": [
@@ -8255,36 +8304,9 @@
   },
   "openapi": "3.1.0",
   "paths": {
-    "/api/admin/ai/models": {
-      "get": {
-        "description": "List available AI models.",
-        "operationId": "admin_get_ai_models_api_admin_ai_models_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AIModelsResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "OAuth2PasswordBearer": []
-          }
-        ],
-        "summary": "Admin Get Ai Models",
-        "tags": [
-          "admin"
-        ]
-      }
-    },
     "/api/admin/ai/settings": {
       "get": {
-        "description": "Get AI/LLM configuration.",
+        "description": "Get AI/LLM configuration.\n\n``llm_enabled`` gates only the org-connector fallback \u2014 DJs with their own\nconnector are never blocked by it. Credential status lives on the connector\nsurfaces (``/api/admin/llm/*``).",
         "operationId": "admin_get_ai_settings_api_admin_ai_settings_get",
         "responses": {
           "200": {
@@ -8309,7 +8331,7 @@
         ]
       },
       "put": {
-        "description": "Update AI/LLM configuration.",
+        "description": "Update AI/LLM configuration (org-fallback gate + public rate limit).",
         "operationId": "admin_update_ai_settings_api_admin_ai_settings_put",
         "requestBody": {
           "content": {
@@ -8821,7 +8843,7 @@
     },
     "/api/admin/llm/audit.csv": {
       "get": {
-        "description": "Export the (filtered) audit trail as CSV (admin-only).\n\nHonors the same filters as ``GET /audit``. Capped at\n``_AUDIT_CSV_ROW_CAP`` rows to avoid unbounded streaming. Columns:\ntimestamp, actor, event_type, target_connector, notes. Never includes\ncredential material.",
+        "description": "Export the (filtered) audit trail as CSV (admin-only).\n\nHonors the same filters as ``GET /audit``. Capped at\n``_AUDIT_CSV_ROW_CAP`` rows to avoid unbounded streaming. Columns:\ntimestamp, actor, actor_user_id, event_type, target_connector, notes.\n``actor_user_id`` is empty for system rows, so a DJ literally named\n\"system\" can never be confused with the NULL-actor system label. Never\nincludes credential material.",
         "operationId": "export_audit_events_csv_api_admin_llm_audit_csv_get",
         "parameters": [
           {
@@ -9055,6 +9077,259 @@
           }
         ],
         "summary": "Revoke Connector Admin",
+        "tags": [
+          "admin",
+          "llm"
+        ]
+      }
+    },
+    "/api/admin/llm/dj-status": {
+      "get": {
+        "description": "Effective LLM credential source per DJ.\n\nBackend-computed from the same rules the gateway resolver applies, so the\nadmin UI never duplicates resolution logic.",
+        "operationId": "dj_llm_status_api_admin_llm_dj_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DjLlmStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Dj Llm Status",
+        "tags": [
+          "admin",
+          "llm"
+        ]
+      }
+    },
+    "/api/admin/llm/org-connectors": {
+      "get": {
+        "operationId": "list_org_connectors_admin_api_admin_llm_org_connectors_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ConnectorOut"
+                  },
+                  "title": "Response List Org Connectors Admin Api Admin Llm Org Connectors Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Org Connectors Admin",
+        "tags": [
+          "admin",
+          "llm"
+        ]
+      },
+      "post": {
+        "description": "Create the organization's house connector (admin-only).\n\nReuses the DJ-connector validation pipeline; the row is org-scoped with no\nowner. Credentials are encrypted at rest via EncryptedText. The DJ-facing\nconnector-type policy toggles are not applied \u2014 org connectors are an\nadmin decision.",
+        "operationId": "create_org_connector_api_admin_llm_org_connectors_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Create Org Connector",
+        "tags": [
+          "admin",
+          "llm"
+        ]
+      }
+    },
+    "/api/admin/llm/org-connectors/{connector_id}": {
+      "delete": {
+        "operationId": "delete_org_connector_api_admin_llm_org_connectors__connector_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_id",
+            "required": true,
+            "schema": {
+              "title": "Connector Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Delete Org Connector",
+        "tags": [
+          "admin",
+          "llm"
+        ]
+      }
+    },
+    "/api/admin/llm/org-connectors/{connector_id}/credentials": {
+      "put": {
+        "operationId": "rotate_org_connector_credentials_api_admin_llm_org_connectors__connector_id__credentials_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_id",
+            "required": true,
+            "schema": {
+              "title": "Connector Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorCredentialsRotate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Rotate Org Connector Credentials",
+        "tags": [
+          "admin",
+          "llm"
+        ]
+      }
+    },
+    "/api/admin/llm/org-connectors/{connector_id}/test": {
+      "post": {
+        "description": "Run a health check against an org connector and return a sanitised result.\n\nMirrors the DJ-facing ``POST /api/llm/connectors/{id}/test`` \u2014 same shared\nhelper, same status columns and audit rows, same code \u2192 message mapping.",
+        "operationId": "test_org_connector_api_admin_llm_org_connectors__connector_id__test_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_id",
+            "required": true,
+            "schema": {
+              "title": "Connector Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorTestResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Test Org Connector",
         "tags": [
           "admin",
           "llm"

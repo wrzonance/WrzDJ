@@ -11,6 +11,7 @@ function makeConnector(overrides: Partial<LlmConnector> = {}): LlmConnector {
   return {
     id: 1,
     user_id: 42,
+    scope: 'user',
     connector_type: 'openai_apikey',
     display_name: 'My OpenAI',
     status: 'active',
@@ -36,6 +37,7 @@ describe('AiProvidersSection per-feature defaults', () => {
       llm_apikey_connectors_enabled: true,
       llm_compatible_connector_enabled: true,
       allowed_connector_types: ['openai_apikey'],
+      org_fallback_available: false,
     });
     vi.spyOn(api, 'listLlmFeaturePreferences').mockResolvedValue({
       preferences: [],

@@ -40,6 +40,26 @@ def _add_active_connector(db, user):
     return connector
 
 
+def _add_org_default_connector(db):
+    """Insert an active ORG-scoped connector and point the system default at it."""
+    from app.models.llm_connector import SCOPE_ORG, LlmConnector
+    from app.services.system_settings import update_system_settings
+
+    connector = LlmConnector(
+        user_id=None,
+        scope=SCOPE_ORG,
+        connector_type="anthropic_apikey",
+        display_name="House",
+        status="active",
+        credentials="{}",
+    )
+    db.add(connector)
+    db.commit()
+    db.refresh(connector)
+    update_system_settings(db, llm_default_connector_id=connector.id)
+    return connector
+
+
 class TestIsLLMAvailable:
     """``is_llm_available`` is connector-backed only.
 
@@ -55,15 +75,36 @@ class TestIsLLMAvailable:
 
         assert is_llm_available(actor=MagicMock()) is False
 
-    def test_returns_false_when_llm_disabled_in_settings(self, db: Session, test_user):
-        """When a connector exists but llm_enabled is False in DB, returns False."""
+    def test_available_for_byo_dj_even_when_llm_disabled(self, db: Session, test_user):
+        """HEADLINE REGRESSION (spec §2): a DJ's own connector is never blocked
+        by ``llm_enabled``.
+
+        Replaces the old-semantics test that asserted the inverse — per
+        docs/superpowers/specs/2026-06-09-admin-ai-policy-design.md the
+        ``llm_enabled`` toggle governs ONLY the org-fallback path, never BYO
+        credentials.
+        """
         from app.services.system_settings import update_system_settings
 
         _add_active_connector(db, test_user)
         update_system_settings(db, llm_enabled=False)
+        assert is_llm_available(db, actor=test_user) is True
+
+    def test_unavailable_for_connectorless_dj_when_llm_disabled(self, db: Session, test_user):
+        """Org default exists but llm_enabled=False -> connectorless DJ blocked."""
+        from app.services.system_settings import update_system_settings
+
+        _add_org_default_connector(db)
+        update_system_settings(db, llm_enabled=False)
         assert is_llm_available(db, actor=test_user) is False
-        # Reset
+
+    def test_available_via_org_fallback_when_enabled(self, db: Session, test_user):
+        """Org default exists and llm_enabled=True -> connectorless DJ available."""
+        from app.services.system_settings import update_system_settings
+
+        _add_org_default_connector(db)
         update_system_settings(db, llm_enabled=True)
+        assert is_llm_available(db, actor=test_user) is True
 
     def test_returns_true_when_llm_enabled_and_actor_connector(self, db: Session, test_user):
         """When the actor owns an active connector and llm_enabled is True, returns True."""

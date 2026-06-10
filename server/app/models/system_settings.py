@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, ForeignKey, Integer, String, text
+from sqlalchemy import Boolean, ForeignKey, Integer, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -21,9 +21,11 @@ class SystemSettings(Base):
     # Soft-warn-only when False; hard-enforce 403 when True. See docs/HUMAN-VERIFICATION.md.
     human_verification_enforced: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    # LLM / AI settings
+    # LLM / AI settings.
+    # llm_enabled gates ONLY the org-connector fallback (connector-less DJs and
+    # system-context calls). DJs with their own active connector are never
+    # blocked by this flag. See docs/superpowers/specs/2026-06-09-admin-ai-policy-design.md.
     llm_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    llm_model: Mapped[str] = mapped_column(String(100), default="claude-haiku-4-5-20251001")
     llm_rate_limit_per_minute: Mapped[int] = mapped_column(Integer, default=3)
 
     # llm_call_log retention (days). Daily cleanup deletes rows older than this.

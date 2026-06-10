@@ -65,6 +65,9 @@ export type LlmAdminPolicyPatch = Schemas['AdminPolicyPatch'];
 // Monthly token cap (issue #339)
 export type LlmAdminConnectorCapPatch = Schemas['AdminConnectorCapPatch'];
 export type LlmDjPolicy = Schemas['DjPolicyOut'];
+// Org-scoped house connector: per-DJ effective credential source rollup
+export type LlmDjStatus = Schemas['DjLlmStatusOut'];
+export type LlmDjStatusRow = Schemas['DjLlmStatusRow'];
 export type LlmAdminUsage = Schemas['AdminUsageOut'];
 export type LlmUsageRow = Schemas['UsageRow'];
 // LLM audit trail (issue #341)

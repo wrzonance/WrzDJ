@@ -150,7 +150,6 @@ SYSTEM_SETTINGS_KEYS = {
     "bridge_enabled",
     "human_verification_enforced",
     "llm_enabled",
-    "llm_model",
     "llm_rate_limit_per_minute",
 }
 

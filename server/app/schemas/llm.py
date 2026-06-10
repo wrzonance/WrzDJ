@@ -57,7 +57,9 @@ class ConnectorOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    user_id: int
+    # NULL for org-scoped rows (scope='org') — there is no owning DJ.
+    user_id: int | None
+    scope: Literal["user", "org"] = "user"
     connector_type: ConnectorType
     display_name: str
     status: ConnectorStatus
@@ -254,6 +256,21 @@ class DjPolicyOut(BaseModel):
     llm_apikey_connectors_enabled: bool
     llm_compatible_connector_enabled: bool
     allowed_connector_types: list[ConnectorType]
+    # True when an active org-scoped default exists AND llm_enabled is on —
+    # i.e. a connector-less DJ will fall back to the house connector.
+    org_fallback_available: bool = False
+
+
+class DjLlmStatusRow(BaseModel):
+    user_id: int
+    username: str
+    # "own" = DJ has an active connector; "org_fallback" = will use the org
+    # connector (house-billed); "none" = AI unavailable for this DJ.
+    effective_source: Literal["own", "org_fallback", "none"]
+
+
+class DjLlmStatusOut(BaseModel):
+    rows: list[DjLlmStatusRow]
 
 
 class AdminPolicyPatch(BaseModel):
@@ -292,6 +309,7 @@ class AdminConnectorCapPatch(BaseModel):
 
 class UsageRow(BaseModel):
     connector_id: int
+    # "Organization" for org-scoped connectors; otherwise the owning DJ's username.
     dj_username: str
     display_name: str
     connector_type: ConnectorType
@@ -317,7 +335,9 @@ class AuditEventRow(BaseModel):
     id: int
     created_at: datetime
     event_type: str
-    actor_user_id: int
+    # NULL for system-context events (gateway system calls, org-row health
+    # checks) — rendered as "system" in actor_username.
+    actor_user_id: int | None
     actor_username: str
     target_connector_id: int | None = None
     target_connector_display_name: str | None = None

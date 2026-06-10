@@ -22,7 +22,6 @@ def get_system_settings(db: Session) -> SystemSettings:
             bridge_enabled=True,
             human_verification_enforced=False,
             llm_enabled=True,
-            llm_model="claude-haiku-4-5-20251001",
             llm_rate_limit_per_minute=3,
             llm_apikey_connectors_enabled=True,
             llm_compatible_connector_enabled=True,
@@ -45,7 +44,6 @@ def update_system_settings(
     bridge_enabled: bool | None = None,
     human_verification_enforced: bool | None = None,
     llm_enabled: bool | None = None,
-    llm_model: str | None = None,
     llm_rate_limit_per_minute: int | None = None,
     llm_apikey_connectors_enabled: bool | None = None,
     llm_compatible_connector_enabled: bool | None = None,
@@ -70,8 +68,6 @@ def update_system_settings(
         settings.human_verification_enforced = human_verification_enforced
     if llm_enabled is not None:
         settings.llm_enabled = llm_enabled
-    if llm_model is not None:
-        settings.llm_model = llm_model
     if llm_rate_limit_per_minute is not None:
         settings.llm_rate_limit_per_minute = llm_rate_limit_per_minute
     if llm_apikey_connectors_enabled is not None:

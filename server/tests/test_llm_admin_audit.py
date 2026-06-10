@@ -247,10 +247,20 @@ class TestAuditCsvExport:
 
         reader = list(csv.reader(io.StringIO(resp.text)))
         header = reader[0]
-        assert header == ["timestamp", "actor", "event_type", "target_connector", "notes"]
+        assert header == [
+            "timestamp",
+            "actor",
+            "actor_user_id",
+            "event_type",
+            "target_connector",
+            "notes",
+        ]
         assert any("connector_created" in r for r in reader[1:])
         assert any("My OpenAI" in r for r in reader[1:])
-        assert any("testuser" in r for r in reader[1:])
+        # actor column carries the username, actor_user_id the numeric id —
+        # so a DJ literally named "system" can't shadow the NULL-actor label.
+        dj_rows = [r for r in reader[1:] if r[1] == "testuser"]
+        assert dj_rows and all(r[2] == str(test_user.id) for r in dj_rows)
 
     def test_csv_honors_event_type_filter(self, client: TestClient, admin_headers, db, test_user):
         conn = _make_connector(db, user_id=test_user.id, display_name="C")

@@ -65,16 +65,14 @@ async def generate_llm_suggestions(
 
 
 def is_llm_available(db=None, actor=None) -> bool:
-    """Check if LLM recommendations are configured and available.
+    """Check if LLM features are available for this actor.
 
-    Mirrors :func:`app.services.llm.gateway._resolve_connector` semantics so the
-    "feature available" signal aligns with whether dispatch will actually
-    succeed:
+    Mirrors :func:`app.services.llm.gateway._resolve_connector` semantics:
 
-    - If ``actor`` is provided: returns True when the actor owns an active
-      connector (matches the per-DJ MRU lookup).
-    - Otherwise (no actor or no actor-owned active connector): returns True
-      when an active system-default connector is configured.
+    - A DJ with an active connector of their own is ALWAYS available —
+      ``llm_enabled`` does not apply to BYO credentials.
+    - Otherwise availability equals the gated org fallback: an active
+      org-scoped default connector AND ``llm_enabled`` true.
 
     Connector-backed only. Without ``db`` no connector can be resolved, so it
     returns ``False`` — the legacy Anthropic env-var fallback was removed in #343.
@@ -82,20 +80,15 @@ def is_llm_available(db=None, actor=None) -> bool:
     if db is None:
         return False
 
-    from app.models.llm_connector import STATUS_ACTIVE, LlmConnector
-    from app.models.system_settings import SystemSettings
-    from app.services.system_settings import get_system_settings
+    from app.models.llm_connector import SCOPE_USER, STATUS_ACTIVE, LlmConnector
+    from app.services.llm.gateway import _resolve_org_default
 
-    settings = get_system_settings(db)
-    if not settings.llm_enabled:
-        return False
-
-    # Per-DJ active connector — matches gateway resolver step 1.
     if actor is not None:
         actor_active = (
             db.query(LlmConnector.id)
             .filter(
                 LlmConnector.user_id == actor.id,
+                LlmConnector.scope == SCOPE_USER,
                 LlmConnector.status == STATUS_ACTIVE,
             )
             .first()
@@ -103,11 +96,4 @@ def is_llm_available(db=None, actor=None) -> bool:
         if actor_active is not None:
             return True
 
-    # System default fallback — matches gateway resolver step 2.
-    sys_settings = db.query(SystemSettings).first()
-    if sys_settings and sys_settings.llm_default_connector_id:
-        default = db.get(LlmConnector, sys_settings.llm_default_connector_id)
-        if default is not None and default.status == STATUS_ACTIVE:
-            return True
-
-    return False
+    return _resolve_org_default(db) is not None

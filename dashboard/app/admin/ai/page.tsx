@@ -5,28 +5,27 @@ import { api } from '@/lib/api';
 import type { AdminLlmAuditFilters } from '@/lib/api';
 import type {
   AISettings,
-  AIModelInfo,
   LlmAdminAudit,
   LlmAdminConnector,
   LlmAdminPolicy,
   LlmAdminUsage,
+  LlmConnector,
+  LlmDjStatusRow,
 } from '@/lib/api-types';
 import { useAdminPage } from '@/lib/useAdminPage';
 import { HelpSpot } from '@/components/help/HelpSpot';
 import { HelpButton } from '@/components/help/HelpButton';
 import { OnboardingOverlay } from '@/components/help/OnboardingOverlay';
+import { OrgConnectorSection, TYPE_LABELS } from './OrgConnectorSection';
 
 const PAGE_ID = 'admin-ai';
 
-const TYPE_LABELS: Record<string, string> = {
-  openai_apikey: 'OpenAI',
-  anthropic_apikey: 'Anthropic',
-  openrouter_apikey: 'OpenRouter',
-  xai_apikey: 'xAI',
-  gemini_apikey: 'Gemini',
-  openai_compatible: 'OpenAI-compatible',
-  bedrock: 'AWS Bedrock',
-  azure_openai: 'Azure OpenAI',
+// Effective LLM credential source per DJ — computed by the backend with the
+// same rules the gateway resolver applies (see /api/admin/llm/dj-status).
+const SOURCE_LABELS: Record<string, { text: string; color: string }> = {
+  own: { text: 'Own connector', color: 'var(--color-success)' },
+  org_fallback: { text: 'Org fallback', color: 'var(--color-warning)' },
+  none: { text: 'None — AI unavailable', color: 'var(--color-danger)' },
 };
 
 // Audit event types — mirrors AUDIT_* constants in models/llm_connector.py.
@@ -137,7 +136,7 @@ function capBarColor(percent: number): string {
 function PlainHeader({ label }: { label: string }) {
   return (
     <th
-      style={{ textAlign: 'left', padding: '0.5rem', borderBottom: '1px solid var(--border-color)' }}
+      style={{ textAlign: 'left', padding: '0.5rem', borderBottom: '1px solid var(--border)' }}
     >
       {label}
     </th>
@@ -174,7 +173,7 @@ function SortableHeader({
       style={{
         textAlign: 'left',
         padding: '0.5rem',
-        borderBottom: '1px solid var(--border-color)',
+        borderBottom: '1px solid var(--border)',
         cursor: 'pointer',
         userSelect: 'none',
       }}
@@ -224,7 +223,6 @@ const AUDIT_DAY_OPTIONS: Array<{ value: number; label: string }> = [
 ];
 
 export default function AdminAISettingsPage() {
-  const [models, setModels] = useState<AIModelInfo[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -232,6 +230,8 @@ export default function AdminAISettingsPage() {
   // LLM gateway state
   const [policy, setPolicy] = useState<LlmAdminPolicy | null>(null);
   const [connectors, setConnectors] = useState<LlmAdminConnector[]>([]);
+  const [orgConnectors, setOrgConnectors] = useState<LlmConnector[]>([]);
+  const [djStatus, setDjStatus] = useState<LlmDjStatusRow[]>([]);
   const [usage, setUsage] = useState<LlmAdminUsage | null>(null);
   const [policyMessage, setPolicyMessage] = useState('');
 
@@ -275,14 +275,7 @@ export default function AdminAISettingsPage() {
 
   const { data: settings, loading, error: loadError, setData: setSettings } = useAdminPage<AISettings>({
     pageId: PAGE_ID,
-    loader: async () => {
-      const [settingsData, modelsData] = await Promise.all([
-        api.getAISettings(),
-        api.getAIModels(),
-      ]);
-      setModels(modelsData.models);
-      return settingsData;
-    },
+    loader: () => api.getAISettings(),
     onError: () => 'Failed to load AI settings',
   });
 
@@ -295,22 +288,38 @@ export default function AdminAISettingsPage() {
       api.getAdminLlmPolicy(),
       api.listAllLlmConnectors(),
       api.getAdminLlmUsage(30),
-    ]).then(([p, c, u]) => {
+      api.listOrgConnectors(),
+      api.getDjLlmStatus(),
+    ]).then(([p, c, u, o, d]) => {
       if (!active) return;
       if (p.status === 'fulfilled') setPolicy(p.value);
       if (c.status === 'fulfilled') setConnectors(c.value);
       if (u.status === 'fulfilled') setUsage(u.value);
-      if (
-        p.status === 'rejected' ||
-        c.status === 'rejected' ||
-        u.status === 'rejected'
-      ) {
+      if (o.status === 'fulfilled') setOrgConnectors(o.value);
+      if (d.status === 'fulfilled') setDjStatus(d.value.rows);
+      if ([p, c, u, o, d].some((r) => r.status === 'rejected')) {
         setPolicyMessage('Some LLM gateway data failed to load');
       }
     });
     return () => {
       active = false;
     };
+  }, []);
+
+  // Reload the org connector list + per-DJ effective sources after any org
+  // connector mutation — both derive from the same scope-aware resolver. Also
+  // refresh the policy: deleting the default org connector clears
+  // llm_default_connector_id server-side, and handlePolicyPatch re-sends the
+  // full payload, so a stale id would make every later policy edit 400.
+  const reloadOrgConnectors = useCallback(async () => {
+    const [o, d, p] = await Promise.allSettled([
+      api.listOrgConnectors(),
+      api.getDjLlmStatus(),
+      api.getAdminLlmPolicy(),
+    ]);
+    if (o.status === 'fulfilled') setOrgConnectors(o.value);
+    if (d.status === 'fulfilled') setDjStatus(d.value.rows);
+    if (p.status === 'fulfilled') setPolicy(p.value);
   }, []);
 
   // Load audit events whenever filters or the page change.
@@ -371,7 +380,6 @@ export default function AdminAISettingsPage() {
     try {
       const updated = await api.updateAISettings({
         llm_enabled: settings.llm_enabled,
-        llm_model: settings.llm_model,
         llm_rate_limit_per_minute: settings.llm_rate_limit_per_minute,
       });
       setSettings(updated);
@@ -475,39 +483,11 @@ export default function AdminAISettingsPage() {
       )}
 
       <div className="card">
-        {/* API Key Status */}
-        <HelpSpot spotId="admin-ai-key" page={PAGE_ID} order={1} title="API Key Status" description="Whether an Anthropic API key is configured. Required for AI features.">
+        {/* Org-fallback toggle: gates ONLY whether connector-less DJs fall back
+            to the org connector (house-billed). DJs with their own connectors
+            are never blocked by it. */}
+        <HelpSpot spotId="admin-ai-enable" page={PAGE_ID} order={1} title="Organization fallback" description="When off, only DJs who connected their own provider can use AI features. DJs' own connectors are never blocked by this switch.">
           <div className="form-group">
-            <label style={{ fontWeight: 500 }}>API Key Status</label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.25rem' }}>
-              <span
-                style={{
-                  display: 'inline-block',
-                  padding: '0.25rem 0.75rem',
-                  borderRadius: '9999px',
-                  fontSize: '0.75rem',
-                  fontWeight: 600,
-                  background: settings.api_key_configured ? 'var(--color-success-subtle)' : 'var(--color-danger-subtle)',
-                  color: settings.api_key_configured ? 'var(--color-success)' : 'var(--color-danger)',
-                }}
-              >
-                {settings.api_key_configured ? 'Configured' : 'Not Configured'}
-              </span>
-              <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-                {settings.api_key_masked}
-              </span>
-            </div>
-            {!settings.api_key_configured && (
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: '0.5rem' }}>
-                Set ANTHROPIC_API_KEY in your environment to enable AI features.
-              </p>
-            )}
-          </div>
-        </HelpSpot>
-
-        {/* LLM Enable/Disable */}
-        <HelpSpot spotId="admin-ai-enable" page={PAGE_ID} order={2} title="Enable AI" description="Toggle AI-powered song recommendations for DJs.">
-          <div className="form-group" style={{ marginTop: '1.5rem' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
               <input
                 type="checkbox"
@@ -516,42 +496,20 @@ export default function AdminAISettingsPage() {
                 style={{ width: '1.25rem', height: '1.25rem' }}
               />
               <div>
-                <div style={{ fontWeight: 500 }}>Enable AI Recommendations</div>
+                <div style={{ fontWeight: 500 }}>
+                  Allow DJs without their own connector to use the organization connector
+                  (house-billed)
+                </div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-                  When enabled, DJs can use AI Assist to get intelligent song suggestions.
+                  When off, only DJs who connected their own provider can use AI features.
                 </div>
               </div>
             </label>
           </div>
         </HelpSpot>
 
-        {/* Model Selection */}
-        <HelpSpot spotId="admin-ai-model" page={PAGE_ID} order={3} title="Model Selection" description="Choose which Claude model powers recommendations.">
-          <div className="form-group" style={{ marginTop: '1.5rem' }}>
-            <label htmlFor="ai-model">Model</label>
-            <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
-              Select which Claude model to use for recommendations.
-            </div>
-            <select
-              id="ai-model"
-              className="input"
-              style={{ maxWidth: '400px' }}
-              value={settings.llm_model}
-              onChange={(e) => setSettings({ ...settings, llm_model: e.target.value })}
-            >
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-              {/* Include current model if not in list */}
-              {!models.some((m) => m.id === settings.llm_model) && (
-                <option value={settings.llm_model}>{settings.llm_model}</option>
-              )}
-            </select>
-          </div>
-        </HelpSpot>
-
         {/* Rate Limit */}
-        <HelpSpot spotId="admin-ai-rate" page={PAGE_ID} order={4} title="Rate Limit" description="Cap AI requests per DJ per minute to control costs.">
+        <HelpSpot spotId="admin-ai-rate" page={PAGE_ID} order={2} title="Rate Limit" description="Cap AI requests per DJ per minute to control costs.">
           <div className="form-group" style={{ marginTop: '1.5rem' }}>
             <label htmlFor="ai-rate-limit">Rate Limit (requests per minute per DJ)</label>
             <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
@@ -585,6 +543,9 @@ export default function AdminAISettingsPage() {
         </button>
       </div>
 
+      {/* ====== Organization (house) connector ====== */}
+      <OrgConnectorSection connectors={orgConnectors} onChanged={reloadOrgConnectors} />
+
       {/* ====== LLM Gateway connector policy ====== */}
       {policy && (
         <div className="card" style={{ marginTop: '2rem' }}>
@@ -612,7 +573,7 @@ export default function AdminAISettingsPage() {
           <div className="form-group" style={{ marginTop: '1.5rem' }}>
             <label htmlFor="default-connector">Org default connector</label>
             <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
-              Used when a system call has no DJ actor (background jobs).
+              Connector-less DJs and background jobs use this connector when fallback is allowed.
             </div>
             <select
               id="default-connector"
@@ -629,11 +590,11 @@ export default function AdminAISettingsPage() {
               style={{ maxWidth: '480px' }}
             >
               <option value="">— None —</option>
-              {connectors
+              {orgConnectors
                 .filter((c) => c.status === 'active')
                 .map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.dj_username} — {c.display_name} ({TYPE_LABELS[c.connector_type] ?? c.connector_type})
+                    Organization — {c.display_name} ({TYPE_LABELS[c.connector_type] ?? c.connector_type})
                   </option>
                 ))}
             </select>
@@ -670,8 +631,9 @@ export default function AdminAISettingsPage() {
           </div>
 
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: '1rem' }}>
-            WrzDJ stores provider credentials encrypted at rest. Calls consume the DJ&apos;s
-            quota or billing directly. Credentials are never shared between DJs.
+            WrzDJ stores provider credentials encrypted at rest. DJ-owned connectors bill the
+            DJ directly and are never shared between DJs; the organization connector bills
+            the organization.
           </p>
         </div>
       )}
@@ -767,7 +729,7 @@ export default function AdminAISettingsPage() {
                             marginTop: '0.25rem',
                             height: '6px',
                             borderRadius: '9999px',
-                            background: 'var(--border-color)',
+                            background: 'var(--border)',
                             overflow: 'hidden',
                           }}
                         >
@@ -794,6 +756,36 @@ export default function AdminAISettingsPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* DJ access: effective credential source per DJ (own / org fallback / none) */}
+        <h3 style={{ marginTop: '1.5rem', marginBottom: '0.25rem' }}>DJ access</h3>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: 0 }}>
+          Where each DJ&apos;s AI calls are billed — their own connector, the organization
+          fallback, or nowhere (AI unavailable).
+        </p>
+        {djStatus.length === 0 ? (
+          <p style={{ color: 'var(--text-secondary)' }}>No DJs found.</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {djStatus.map((row) => {
+              const label = SOURCE_LABELS[row.effective_source] ?? {
+                text: row.effective_source,
+                color: 'var(--text-secondary)',
+              };
+              return (
+                <div
+                  key={row.user_id}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}
+                >
+                  <span style={{ minWidth: '160px' }}>{row.username}</span>
+                  <span style={{ color: label.color, fontSize: '0.875rem', fontWeight: 600 }}>
+                    {label.text}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

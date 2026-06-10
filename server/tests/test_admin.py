@@ -313,8 +313,10 @@ class TestAdminLLMSettings:
         assert response.status_code == 200
         data = response.json()
         assert "llm_enabled" in data
-        assert "llm_model" in data
         assert "llm_rate_limit_per_minute" in data
+        # llm_model was removed with the legacy Anthropic env-var surface —
+        # model choice lives on the connector (model_hint) now.
+        assert "llm_model" not in data
 
     def test_update_llm_enabled(self, client: TestClient, admin_headers: dict):
         response = client.patch(
@@ -324,15 +326,6 @@ class TestAdminLLMSettings:
         )
         assert response.status_code == 200
         assert response.json()["llm_enabled"] is False
-
-    def test_update_llm_model(self, client: TestClient, admin_headers: dict):
-        response = client.patch(
-            "/api/admin/settings",
-            headers=admin_headers,
-            json={"llm_model": "claude-sonnet-4-5-20250929"},
-        )
-        assert response.status_code == 200
-        assert response.json()["llm_model"] == "claude-sonnet-4-5-20250929"
 
     def test_update_llm_rate_limit(self, client: TestClient, admin_headers: dict):
         response = client.patch(

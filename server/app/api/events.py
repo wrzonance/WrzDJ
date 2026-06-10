@@ -1004,7 +1004,7 @@ async def get_llm_recommendations(
         services_used=base.services_used,
         total_candidates_searched=base.total_candidates_searched,
         llm_queries=llm_queries,
-        llm_model=result.llm_model or get_settings().anthropic_model,
+        llm_model=result.llm_model or "",
     )
 
 

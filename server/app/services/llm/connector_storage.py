@@ -707,6 +707,13 @@ def get_user_label(db: Session, user_id: int | None) -> str:
     return user.username if user else f"user#{user_id}"
 
 
+def owner_label(user_id: int | None, usernames: dict[int, str]) -> str:
+    """Batch-friendly sibling of get_user_label (no DB hit)."""
+    if user_id is None:
+        return "Organization"
+    return usernames.get(user_id) or f"user#{user_id}"
+
+
 def get_usage_stats(db: Session, *, days: int = 30) -> list[dict]:
     """Aggregate per-connector telemetry for the admin Usage card.
 
@@ -844,6 +851,7 @@ __all__ = [
     "list_connectors_for_user",
     "list_org_connectors",
     "log_call",
+    "owner_label",
     "purge_call_log_older_than",
     "revoke_connector",
     "rotate_credentials",

@@ -128,14 +128,8 @@ class Settings(BaseSettings):
     # ListenBrainz API (artist discovery for recommendations)
     listenbrainz_user_token: str = ""
 
-    # Anthropic API (LLM-powered recommendations).
-    # NOTE: credentials live in the LLM Gateway connector system (the source of
-    # truth since the MVP). These two fields remain only for admin observability
-    # of the legacy key (admin AI-settings/model-listing endpoints) and as the
-    # default model-name label on recommendation responses. The legacy env-var
-    # *fallback* in the recommendation engine was removed in #343, along with the
-    # now-unused ANTHROPIC_MAX_TOKENS / ANTHROPIC_TIMEOUT_SECONDS settings.
-    anthropic_api_key: str = ""
+    # Retained ONLY for migration 047_admin_ai_oauth (model_hint on the seeded
+    # connector). No runtime consumer — do not reference in app code.
     anthropic_model: str = "claude-haiku-4-5-20251001"
 
     # Cache durations (1 hour for Spotify since popularity changes)

@@ -294,6 +294,7 @@ class AdminConnectorCapPatch(BaseModel):
 
 class UsageRow(BaseModel):
     connector_id: int
+    # "Organization" for org-scoped connectors; otherwise the owning DJ's username.
     dj_username: str
     display_name: str
     connector_type: ConnectorType

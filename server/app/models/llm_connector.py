@@ -179,6 +179,12 @@ class LlmConnector(Base):
             "monthly_token_cap IS NULL OR monthly_token_cap >= 0",
             name="ck_llm_connectors_monthly_token_cap_nonnegative",
         ),
+        # Scope is a closed two-value set; an unknown scope (e.g. 'house') would
+        # silently fall outside every scope-filtered resolution path.
+        CheckConstraint(
+            "scope IN ('user', 'org')",
+            name="ck_llm_connectors_scope_valid",
+        ),
         # Org rows must have no owner; user rows must have one.
         CheckConstraint(
             "(scope = 'org') = (user_id IS NULL)",

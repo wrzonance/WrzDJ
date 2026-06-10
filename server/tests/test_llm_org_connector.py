@@ -47,6 +47,26 @@ def test_create_user_connector_defaults_to_user_scope(db, test_user):
     assert row.user_id == test_user.id
 
 
+def test_db_rejects_unknown_scope(db, test_user):
+    # ck_llm_connectors_scope_valid: scope is a closed set — an unknown value
+    # would silently escape every scope-filtered resolution path.
+    from sqlalchemy.exc import IntegrityError
+
+    db.add(
+        LlmConnector(
+            user_id=test_user.id,
+            scope="house",
+            connector_type="anthropic_apikey",
+            display_name="Bad Scope",
+            status="active",
+            credentials="{}",
+        )
+    )
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
+
+
 def test_list_org_connectors_excludes_user_rows(db, test_user):
     create_connector(db, user_id=test_user.id, payload=_payload("Mine"))
     org = create_connector(db, user_id=None, payload=_payload("House"), scope=SCOPE_ORG)

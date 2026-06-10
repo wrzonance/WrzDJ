@@ -5,6 +5,7 @@ Revises: 055
 Create Date: 2026-06-09
 
 - llm_connectors.scope ('user'|'org'), user_id nullable, CHECK org<->NULL user
+  + CHECK scope limited to ('user','org')
 - llm_audit_event.actor_user_id nullable (system-context calls)
 - system_settings.llm_model dropped (display-only legacy)
 - Backfill: if llm_default_connector_id points at the migration-047-seeded
@@ -60,6 +61,11 @@ def upgrade() -> None:
             conn.execute(sa.text("UPDATE system_settings SET llm_default_connector_id = NULL"))
 
     op.create_check_constraint(
+        "ck_llm_connectors_scope_valid",
+        "llm_connectors",
+        "scope IN ('user', 'org')",
+    )
+    op.create_check_constraint(
         "ck_llm_connectors_org_scope_no_user",
         "llm_connectors",
         "(scope = 'org') = (user_id IS NULL)",
@@ -68,6 +74,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_constraint("ck_llm_connectors_org_scope_no_user", "llm_connectors", type_="check")
+    op.drop_constraint("ck_llm_connectors_scope_valid", "llm_connectors", type_="check")
     # Org rows cannot survive a NOT NULL user_id. Preserve the credential by
     # reattaching them to the first admin (mirrors the upgrade backfill); only
     # when no admin exists do we clear the default pointer and delete them.

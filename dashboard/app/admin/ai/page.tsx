@@ -136,7 +136,7 @@ function capBarColor(percent: number): string {
 function PlainHeader({ label }: { label: string }) {
   return (
     <th
-      style={{ textAlign: 'left', padding: '0.5rem', borderBottom: '1px solid var(--border-color)' }}
+      style={{ textAlign: 'left', padding: '0.5rem', borderBottom: '1px solid var(--border)' }}
     >
       {label}
     </th>
@@ -173,7 +173,7 @@ function SortableHeader({
       style={{
         textAlign: 'left',
         padding: '0.5rem',
-        borderBottom: '1px solid var(--border-color)',
+        borderBottom: '1px solid var(--border)',
         cursor: 'pointer',
         userSelect: 'none',
       }}
@@ -307,11 +307,19 @@ export default function AdminAISettingsPage() {
   }, []);
 
   // Reload the org connector list + per-DJ effective sources after any org
-  // connector mutation — both derive from the same scope-aware resolver.
+  // connector mutation — both derive from the same scope-aware resolver. Also
+  // refresh the policy: deleting the default org connector clears
+  // llm_default_connector_id server-side, and handlePolicyPatch re-sends the
+  // full payload, so a stale id would make every later policy edit 400.
   const reloadOrgConnectors = useCallback(async () => {
-    const [o, d] = await Promise.allSettled([api.listOrgConnectors(), api.getDjLlmStatus()]);
+    const [o, d, p] = await Promise.allSettled([
+      api.listOrgConnectors(),
+      api.getDjLlmStatus(),
+      api.getAdminLlmPolicy(),
+    ]);
     if (o.status === 'fulfilled') setOrgConnectors(o.value);
     if (d.status === 'fulfilled') setDjStatus(d.value.rows);
+    if (p.status === 'fulfilled') setPolicy(p.value);
   }, []);
 
   // Load audit events whenever filters or the page change.
@@ -721,7 +729,7 @@ export default function AdminAISettingsPage() {
                             marginTop: '0.25rem',
                             height: '6px',
                             borderRadius: '9999px',
-                            background: 'var(--border-color)',
+                            background: 'var(--border)',
                             overflow: 'hidden',
                           }}
                         >

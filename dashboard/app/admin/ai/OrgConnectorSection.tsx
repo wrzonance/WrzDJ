@@ -18,9 +18,9 @@ export const TYPE_LABELS: Record<string, string> = {
 type OrgConnectorType = LlmConnectorCreate['connector_type'];
 
 // API-key-only subset for the org house-connector form. Compatible / Bedrock /
-// Azure connectors need extra fields (base URL, region, deployment name) that
-// only the DJ-side provider form collects — admins needing those can connect
-// them as a DJ; the org form keeps to simple api-key types.
+// Azure connectors need extra fields (base URL, region, deployment name) this
+// form doesn't collect yet — extend it with those fields when an org-scoped
+// compatible/Bedrock/Azure connector is needed.
 const ORG_FORM_TYPES: Array<{ value: OrgConnectorType; label: string }> = [
   { value: 'openai_apikey', label: TYPE_LABELS.openai_apikey },
   { value: 'anthropic_apikey', label: TYPE_LABELS.anthropic_apikey },
@@ -49,7 +49,7 @@ const STATUS_BADGES: Record<string, { background: string; color: string; label: 
 
 function StatusBadge({ status }: { status: string }) {
   const style = STATUS_BADGES[status] ?? {
-    background: 'var(--color-warning-subtle, #2a2418)',
+    background: 'var(--color-warning-subtle)',
     color: 'var(--text-secondary)',
     label: status,
   };
@@ -85,6 +85,13 @@ export function OrgConnectorSection({ connectors, onChanged }: OrgConnectorSecti
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
+  // Success messages auto-clear after 3s (same convention as the page's
+  // "Settings saved" flash).
+  const flashMessage = (text: string) => {
+    setMessage(text);
+    setTimeout(() => setMessage(''), 3000);
+  };
+
   const handleCreate = async () => {
     setBusy(true);
     setError('');
@@ -99,7 +106,7 @@ export function OrgConnectorSection({ connectors, onChanged }: OrgConnectorSecti
       setDisplayName('');
       setApiKey('');
       setModelHint('');
-      setMessage('Organization connector created');
+      flashMessage('Organization connector created');
       await onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create connector');
@@ -115,7 +122,7 @@ export function OrgConnectorSection({ connectors, onChanged }: OrgConnectorSecti
     try {
       const result = await api.testOrgConnector(id);
       if (result.ok) {
-        setMessage(result.message ?? 'Connection OK');
+        flashMessage(result.message ?? 'Connection OK');
       } else {
         setError(result.message ?? result.error_code ?? 'Test failed');
       }
@@ -172,7 +179,7 @@ export function OrgConnectorSection({ connectors, onChanged }: OrgConnectorSecti
                 gap: '0.75rem',
                 flexWrap: 'wrap',
                 padding: '0.75rem',
-                border: '1px solid var(--border-color)',
+                border: '1px solid var(--border)',
                 borderRadius: '8px',
               }}
             >
@@ -184,10 +191,20 @@ export function OrgConnectorSection({ connectors, onChanged }: OrgConnectorSecti
                 </div>
               </div>
               <StatusBadge status={c.status} />
-              <button className="btn" onClick={() => handleTest(c.id)} disabled={busy}>
+              <button
+                className="btn"
+                aria-label={`Test ${c.display_name}`}
+                onClick={() => handleTest(c.id)}
+                disabled={busy}
+              >
                 Test
               </button>
-              <button className="btn btn-danger" onClick={() => handleDelete(c.id)} disabled={busy}>
+              <button
+                className="btn btn-danger"
+                aria-label={`Delete ${c.display_name}`}
+                onClick={() => handleDelete(c.id)}
+                disabled={busy}
+              >
                 Delete
               </button>
             </div>
@@ -231,7 +248,7 @@ export function OrgConnectorSection({ connectors, onChanged }: OrgConnectorSecti
             id="org-api-key"
             type="password"
             className="input"
-            autoComplete="off"
+            autoComplete="new-password"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
           />

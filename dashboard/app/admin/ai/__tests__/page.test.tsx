@@ -289,6 +289,39 @@ describe('AdminAISettingsPage', () => {
     await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith(50));
   });
 
+  it('renders the org API key input as a password field', async () => {
+    mockApis();
+
+    render(<AdminAISettingsPage />);
+
+    await waitFor(() => expect(screen.getByLabelText('API key')).toBeInTheDocument());
+    expect(screen.getByLabelText('API key')).toHaveAttribute('type', 'password');
+  });
+
+  it('shows an error and retains the typed key when org connector creation fails', async () => {
+    mockApis();
+    vi.spyOn(api, 'createOrgConnector').mockRejectedValue(new Error('Invalid API key'));
+
+    render(<AdminAISettingsPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText('Organization connector')).toBeInTheDocument(),
+    );
+
+    fireEvent.change(screen.getByLabelText('Display name'), {
+      target: { value: 'House key' },
+    });
+    fireEvent.change(screen.getByLabelText('API key'), {
+      target: { value: 'sk-bad' },
+    });
+    fireEvent.click(screen.getByText('Add connector'));
+
+    await waitFor(() => expect(screen.getByText('Invalid API key')).toBeInTheDocument());
+    // Inputs keep their values so the admin can correct and retry.
+    expect((screen.getByLabelText('API key') as HTMLInputElement).value).toBe('sk-bad');
+    expect((screen.getByLabelText('Display name') as HTMLInputElement).value).toBe('House key');
+  });
+
   it('renders per-DJ effective-source badges from dj-status', async () => {
     mockApis({
       djStatus: {

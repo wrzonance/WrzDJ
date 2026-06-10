@@ -124,7 +124,7 @@ class LlmConnector(Base):
     )
     connector_type: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
     scope: Mapped[str] = mapped_column(
-        String(10), nullable=False, default=SCOPE_USER, server_default=text("'user'")
+        String(10), nullable=False, default=SCOPE_USER, server_default=SCOPE_USER
     )
     display_name: Mapped[str] = mapped_column(String(80), nullable=False)
     status: Mapped[str] = mapped_column(

@@ -75,9 +75,13 @@ async def run_health_check(
     db: Session,
     connector: LlmConnector,
     *,
-    actor_user_id: int,
+    actor_user_id: int | None,
 ) -> HealthCheckOutcome:
     """Run ``adapter.health_check()`` against ``connector`` and record the outcome.
+
+    ``actor_user_id`` may be ``None``: the background monitor passes
+    ``connector.user_id``, which is NULL for org-scoped rows — those audit
+    rows are recorded as system events (no attributable user).
 
     Writes (caller commits):
     - ``connector.last_health_check_at`` (always)

@@ -188,9 +188,10 @@ async def _check_one(db: Session, connector: LlmConnector) -> HealthCheckOutcome
     """Run a health check on ``connector``, commit, and notify if it just broke.
 
     The audit row is written with ``actor_user_id = connector.user_id``
-    because the periodic check is *on behalf of* the DJ (vs the manual test
-    button, where the actor is whoever clicked it). This keeps the audit
-    trail attributable.
+    because the periodic check is *on behalf of* the owning DJ (vs the manual
+    test button, where the actor is whoever clicked it). For org-scoped rows
+    ``connector.user_id`` is NULL, so their audit rows carry a NULL actor and
+    surface as "system" events in the admin audit views.
     """
     outcome = await run_health_check(db, connector, actor_user_id=connector.user_id)
     db.commit()

@@ -556,12 +556,18 @@ class TestOrgScopedResolution:
 
     @pytest.mark.asyncio
     async def test_org_row_never_resolves_in_per_dj_chain(self, db, dj_user, gateway_request):
-        """The per-DJ chain (pin → pinned default → MRU) returns scope='user'
-        rows only: with the fallback blocked by llm_enabled=False, an active
-        org row must not leak in via MRU."""
+        """A stale per-feature pin pointing at an ORG row must not resolve in
+        the per-DJ chain: the pin-validity branch requires scope='user', so the
+        pinned org connector is skipped, and with the org fallback blocked by
+        llm_enabled=False the dispatch raises NoLlmConfigured."""
+        from app.services.llm.connector_storage import set_feature_preference
+
         org = _make_connector(db, None, scope=SCOPE_ORG, display_name="only-org")
         _wire_system_default(db, org)
         _set_llm_enabled(db, False)
+        # Stale pin: the DJ's "test" feature points straight at the org row.
+        set_feature_preference(db, user_id=dj_user.id, feature="test", connector_id=org.id)
+        db.commit()
 
         chat_mock = AsyncMock(return_value=_ok_response())
         with _patch_chat(chat_mock):

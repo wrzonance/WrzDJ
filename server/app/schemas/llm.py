@@ -57,7 +57,9 @@ class ConnectorOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    user_id: int
+    # NULL for org-scoped rows (scope='org') — there is no owning DJ.
+    user_id: int | None
+    scope: Literal["user", "org"] = "user"
     connector_type: ConnectorType
     display_name: str
     status: ConnectorStatus
@@ -317,7 +319,9 @@ class AuditEventRow(BaseModel):
     id: int
     created_at: datetime
     event_type: str
-    actor_user_id: int
+    # NULL for system-context events (gateway system calls, org-row health
+    # checks) — rendered as "system" in actor_username.
+    actor_user_id: int | None
     actor_username: str
     target_connector_id: int | None = None
     target_connector_display_name: str | None = None

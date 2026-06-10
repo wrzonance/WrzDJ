@@ -166,6 +166,13 @@ def patch_policy(
                 status_code=400,
                 detail="default connector must be active",
             )
+        if target.scope != "org":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "default connector must be org-scoped (create one under Organization connector)"
+                ),
+            )
         update_kwargs["llm_default_connector_id"] = target.id
 
     settings = update_system_settings(db, **update_kwargs)
@@ -192,7 +199,7 @@ def list_connectors_admin(
     db: Session = Depends(get_db),
 ) -> list[AdminConnectorOut]:
     rows = list_all_connectors(db)
-    user_ids = {r.user_id for r in rows}
+    user_ids = {r.user_id for r in rows if r.user_id is not None}
     usernames: dict[int, str] = {}
     if user_ids:
         users = db.query(User).filter(User.id.in_(user_ids)).all()
@@ -204,7 +211,11 @@ def list_connectors_admin(
     return [
         _connector_to_admin_out(
             r,
-            usernames.get(r.user_id) or f"user#{r.user_id}",
+            (
+                "Organization"
+                if r.user_id is None
+                else (usernames.get(r.user_id) or f"user#{r.user_id}")
+            ),
             usage_by_connector.get(r.id, 0),
         )
         for r in rows
@@ -295,7 +306,7 @@ def get_usage(
         connector_ids = [r["connector_id"] for r in rows]
         connectors = db.query(LlmConnector).filter(LlmConnector.id.in_(connector_ids)).all()
         connector_map = {c.id: c for c in connectors}
-        user_ids = {c.user_id for c in connectors}
+        user_ids = {c.user_id for c in connectors if c.user_id is not None}
         users = db.query(User).filter(User.id.in_(user_ids)).all() if user_ids else []
         usernames = {u.id: u.username for u in users}
 
@@ -309,7 +320,11 @@ def get_usage(
             rows_out.append(
                 UsageRow(
                     connector_id=cid,
-                    dj_username=usernames.get(c.user_id, f"user#{c.user_id}"),
+                    dj_username=(
+                        "Organization"
+                        if c.user_id is None
+                        else usernames.get(c.user_id, f"user#{c.user_id}")
+                    ),
                     display_name=c.display_name,
                     connector_type=c.connector_type,  # type: ignore[arg-type]
                     total_calls=total,
@@ -367,7 +382,8 @@ def list_audit_events(
                 created_at=event.created_at,
                 event_type=event.event_type,
                 actor_user_id=event.actor_user_id,
-                actor_username=actor_username or f"user#{event.actor_user_id}",
+                actor_username=actor_username
+                or ("system" if event.actor_user_id is None else f"user#{event.actor_user_id}"),
                 target_connector_id=event.target_connector_id,
                 target_connector_display_name=connector_display_name,
                 notes=None,
@@ -426,7 +442,9 @@ def export_audit_events_csv(
         buffer.truncate(0)
 
         for event, actor_username, connector_display_name in result_rows:
-            actor = actor_username or f"user#{event.actor_user_id}"
+            actor = actor_username or (
+                "system" if event.actor_user_id is None else f"user#{event.actor_user_id}"
+            )
             writer.writerow(
                 [
                     event.created_at.isoformat() if event.created_at else "",

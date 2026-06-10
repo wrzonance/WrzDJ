@@ -766,10 +766,13 @@ class TestAdminLlm:
         assert "testuser" in users
 
     def test_force_revoke_clears_default(self, client: TestClient, admin_headers, db, test_user):
+        # The system default must be org-scoped (user_id=NULL) — the policy
+        # endpoint rejects user-scoped rows.
         row = LlmConnector(
-            user_id=test_user.id,
+            user_id=None,
+            scope="org",
             connector_type="openai_apikey",
-            display_name="Mine",
+            display_name="House",
             status="active",
             credentials=json.dumps({"api_key": "sk-x"}),
         )

@@ -359,12 +359,28 @@ def test_dj_status_reports_effective_source(client, admin_headers, db, test_user
     by_name = {r["username"]: r["effective_source"] for r in resp.json()["rows"]}
     assert by_name[test_user.username] == "org_fallback"
 
-    _mk_user_connector(db, test_user.id, name="Own S")
+    own = _mk_user_connector(db, test_user.id, name="Own S")
     by_name = {
         r["username"]: r["effective_source"]
         for r in client.get("/api/admin/llm/dj-status", headers=admin_headers).json()["rows"]
     }
     assert by_name[test_user.username] == "own"
+
+    # A non-active connector must not count as "own" — back to the org fallback.
+    own.status = "disabled"
+    db.commit()
+    by_name = {
+        r["username"]: r["effective_source"]
+        for r in client.get("/api/admin/llm/dj-status", headers=admin_headers).json()["rows"]
+    }
+    assert by_name[test_user.username] == "org_fallback"
+
+
+def test_dj_status_excludes_deactivated_users(client, admin_headers, db, test_user):
+    test_user.is_active = False
+    db.commit()
+    rows = client.get("/api/admin/llm/dj-status", headers=admin_headers).json()["rows"]
+    assert test_user.username not in {r["username"] for r in rows}
 
 
 def test_dj_status_none_when_fallback_disabled(client, admin_headers, db, test_user):

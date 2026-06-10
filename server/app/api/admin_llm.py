@@ -23,7 +23,7 @@ from app.core.csv_safe import sanitize_csv_value
 from app.core.rate_limit import limiter
 from app.core.time import utcnow
 from app.models.llm_connector import SCOPE_USER, STATUS_ACTIVE, LlmAuditEvent, LlmConnector
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.llm import (
     AdminAuditOut,
     AdminConnectorCapPatch,
@@ -246,7 +246,13 @@ def dj_llm_status(
     """
     fallback_on = _resolve_org_default(db) is not None
     users = (
-        db.query(User).filter(User.role.in_(["dj", "admin"])).order_by(User.username.asc()).all()
+        db.query(User)
+        .filter(
+            User.role.in_([UserRole.DJ.value, UserRole.ADMIN.value]),
+            User.is_active == True,  # noqa: E712
+        )
+        .order_by(User.username.asc())
+        .all()
     )
     own_ids = {
         uid

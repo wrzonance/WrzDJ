@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
 import type { SetSummary } from '@/lib/api-types';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import ShareDialog from './ShareDialog';
 
 export default function SetbuilderPage() {
@@ -146,6 +147,7 @@ export default function SetbuilderPage() {
           <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
             New Set
           </button>
+          <ThemeToggle />
         </div>
       </div>
 

@@ -14,6 +14,7 @@ from app.services.llm.connector_storage import (
     list_connectors_for_user,
     list_org_connectors,
 )
+from app.services.system_settings import get_system_settings
 
 
 def _payload(name: str = "Org Key") -> CreateConnectorPayload:
@@ -341,3 +342,56 @@ def test_ai_settings_no_longer_exposes_api_key_or_model(client, admin_headers):
 
 def test_ai_models_endpoint_removed(client, admin_headers):
     assert client.get("/api/admin/ai/models", headers=admin_headers).status_code == 404
+
+
+# ---------- per-DJ effective-source admin endpoint + DJ-visible fallback flag ----------
+
+
+def test_dj_status_reports_effective_source(client, admin_headers, db, test_user):
+    org = _mk_org_connector(db, name="House S")
+    settings = get_system_settings(db)
+    settings.llm_enabled = True
+    settings.llm_default_connector_id = org.id
+    db.commit()
+
+    resp = client.get("/api/admin/llm/dj-status", headers=admin_headers)
+    assert resp.status_code == 200
+    by_name = {r["username"]: r["effective_source"] for r in resp.json()["rows"]}
+    assert by_name[test_user.username] == "org_fallback"
+
+    _mk_user_connector(db, test_user.id, name="Own S")
+    by_name = {
+        r["username"]: r["effective_source"]
+        for r in client.get("/api/admin/llm/dj-status", headers=admin_headers).json()["rows"]
+    }
+    assert by_name[test_user.username] == "own"
+
+
+def test_dj_status_none_when_fallback_disabled(client, admin_headers, db, test_user):
+    org = _mk_org_connector(db, name="House S2")
+    settings = get_system_settings(db)
+    settings.llm_enabled = False
+    settings.llm_default_connector_id = org.id
+    db.commit()
+    rows = client.get("/api/admin/llm/dj-status", headers=admin_headers).json()["rows"]
+    by_name = {r["username"]: r["effective_source"] for r in rows}
+    assert by_name[test_user.username] == "none"
+
+
+def test_dj_status_requires_admin(client, auth_headers):
+    assert client.get("/api/admin/llm/dj-status", headers=auth_headers).status_code == 403
+
+
+def test_dj_policy_exposes_org_fallback_available(client, auth_headers, db):
+    resp = client.get("/api/llm/policy", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["org_fallback_available"] is False
+
+    org = _mk_org_connector(db, name="House P")
+    settings = get_system_settings(db)
+    settings.llm_enabled = True
+    settings.llm_default_connector_id = org.id
+    db.commit()
+    assert (
+        client.get("/api/llm/policy", headers=auth_headers).json()["org_fallback_available"] is True
+    )

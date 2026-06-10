@@ -63,7 +63,7 @@ from app.services.llm.connector_storage import (
     update_metadata,
 )
 from app.services.llm.exceptions import LlmError, NoLlmConfigured
-from app.services.llm.gateway import Gateway
+from app.services.llm.gateway import Gateway, _resolve_org_default
 from app.services.llm.openrouter_models import get_openrouter_models
 from app.services.system_settings import get_system_settings
 
@@ -195,6 +195,7 @@ def get_dj_policy(
             apikey_enabled=settings.llm_apikey_connectors_enabled,
             compatible_enabled=settings.llm_compatible_connector_enabled,
         ),  # type: ignore[arg-type]
+        org_fallback_available=_resolve_org_default(db) is not None,
     )
 
 

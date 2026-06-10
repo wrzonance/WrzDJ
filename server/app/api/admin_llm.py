@@ -22,7 +22,7 @@ from app.api.deps import get_current_admin, get_db
 from app.core.csv_safe import sanitize_csv_value
 from app.core.rate_limit import limiter
 from app.core.time import utcnow
-from app.models.llm_connector import LlmAuditEvent, LlmConnector
+from app.models.llm_connector import SCOPE_USER, STATUS_ACTIVE, LlmAuditEvent, LlmConnector
 from app.models.user import User
 from app.schemas.llm import (
     AdminAuditOut,
@@ -36,6 +36,8 @@ from app.schemas.llm import (
     ConnectorCredentialsRotate,
     ConnectorOut,
     ConnectorTestResult,
+    DjLlmStatusOut,
+    DjLlmStatusRow,
     UsageRow,
 )
 from app.services.llm.connector_storage import (
@@ -60,6 +62,7 @@ from app.services.llm.connector_storage import (
     rotate_credentials,
     set_monthly_cap,
 )
+from app.services.llm.gateway import _resolve_org_default
 from app.services.system_settings import get_system_settings, update_system_settings
 
 logger = logging.getLogger(__name__)
@@ -227,6 +230,42 @@ def patch_policy(
         llm_default_connector_id=settings.llm_default_connector_id,
         llm_call_log_retention_days=settings.llm_call_log_retention_days,
     )
+
+
+@router.get("/dj-status", response_model=DjLlmStatusOut)
+@limiter.limit("60/minute")
+def dj_llm_status(
+    request: FastAPIRequest,
+    _admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+) -> DjLlmStatusOut:
+    """Effective LLM credential source per DJ.
+
+    Backend-computed from the same rules the gateway resolver applies, so the
+    admin UI never duplicates resolution logic.
+    """
+    fallback_on = _resolve_org_default(db) is not None
+    users = (
+        db.query(User).filter(User.role.in_(["dj", "admin"])).order_by(User.username.asc()).all()
+    )
+    own_ids = {
+        uid
+        for (uid,) in db.query(LlmConnector.user_id)
+        .filter(LlmConnector.scope == SCOPE_USER, LlmConnector.status == STATUS_ACTIVE)
+        .distinct()
+        .all()
+    }
+    rows = [
+        DjLlmStatusRow(
+            user_id=u.id,
+            username=u.username,
+            effective_source=(
+                "own" if u.id in own_ids else ("org_fallback" if fallback_on else "none")
+            ),
+        )
+        for u in users
+    ]
+    return DjLlmStatusOut(rows=rows)
 
 
 @router.get("/connectors", response_model=list[AdminConnectorOut])

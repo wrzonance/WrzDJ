@@ -256,6 +256,21 @@ class DjPolicyOut(BaseModel):
     llm_apikey_connectors_enabled: bool
     llm_compatible_connector_enabled: bool
     allowed_connector_types: list[ConnectorType]
+    # True when an active org-scoped default exists AND llm_enabled is on —
+    # i.e. a connector-less DJ will fall back to the house connector.
+    org_fallback_available: bool = False
+
+
+class DjLlmStatusRow(BaseModel):
+    user_id: int
+    username: str
+    # "own" = DJ has an active connector; "org_fallback" = will use the org
+    # connector (house-billed); "none" = AI unavailable for this DJ.
+    effective_source: Literal["own", "org_fallback", "none"]
+
+
+class DjLlmStatusOut(BaseModel):
+    rows: list[DjLlmStatusRow]
 
 
 class AdminPolicyPatch(BaseModel):

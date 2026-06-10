@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.models.llm_connector import LlmConnector
+from app.models.llm_connector import SCOPE_ORG, LlmConnector
 from app.models.system_settings import SystemSettings
 from app.models.user import User
 from app.services.auth import get_password_hash
@@ -55,20 +55,23 @@ def admin_user_actor(db) -> User:
 
 def _make_connector(
     db,
-    user: User,
+    user: User | None,
     *,
     connector_type: str = "openai_apikey",
     display_name: str = "Test connector",
     status: str = "active",
     model_hint: str = "gpt-5-mini",
+    scope: str = "user",
 ) -> LlmConnector:
+    """Insert a connector. Org-scoped rows (scope='org') take ``user=None``."""
     row = LlmConnector(
-        user_id=user.id,
+        user_id=user.id if user is not None else None,
         connector_type=connector_type,
         display_name=display_name,
         status=status,
         credentials=json.dumps({"api_key": "sk-fake-key"}),
         model_hint=model_hint,
+        scope=scope,
     )
     db.add(row)
     db.commit()
@@ -169,26 +172,12 @@ async def test_disabled_connector_skipped_in_resolution(db, dj_user, gateway_req
 
 
 @pytest.mark.asyncio
-async def test_falls_back_to_system_default(db, admin_user_actor, gateway_request):
-    # admin has no connector of their own — falls back to system default.
-    other_admin = User(
-        username="otheradmin",
-        password_hash=get_password_hash("password123"),
-        role="admin",
+async def test_falls_back_to_system_default(db, gateway_request):
+    # No actor (system context) — falls back to the org-scoped system default.
+    default_connector = _make_connector(
+        db, None, scope=SCOPE_ORG, display_name="default-org-connector"
     )
-    db.add(other_admin)
-    db.commit()
-    db.refresh(other_admin)
-    default_connector = _make_connector(db, other_admin, display_name="default-org-connector")
-
-    # Wire the system default
-    ss = db.query(SystemSettings).first()
-    if ss is None:
-        ss = SystemSettings(id=1, llm_default_connector_id=default_connector.id)
-        db.add(ss)
-    else:
-        ss.llm_default_connector_id = default_connector.id
-    db.commit()
+    _wire_system_default(db, default_connector)
 
     fake_response = ChatResponse(
         text="ok",
@@ -213,17 +202,13 @@ def _wire_system_default(db, connector: LlmConnector) -> None:
     db.commit()
 
 
-def _make_org_default(db, username: str) -> LlmConnector:
-    """Create an admin-owned org connector and wire it as the system default."""
-    owner = User(
-        username=username,
-        password_hash=get_password_hash("password123"),
-        role="admin",
-    )
-    db.add(owner)
-    db.commit()
-    db.refresh(owner)
-    connector = _make_connector(db, owner, display_name="org-default")
+def _make_org_default(db) -> LlmConnector:
+    """Create an org-scoped connector (user_id=NULL) wired as the system default.
+
+    Only ACTIVE scope='org' rows serve as the org fallback now — a user-scoped
+    row wired as the default never resolves (see TestOrgScopedResolution).
+    """
+    connector = _make_connector(db, None, scope=SCOPE_ORG, display_name="org-default")
     _wire_system_default(db, connector)
     return connector
 
@@ -235,7 +220,7 @@ async def test_fallback_org_default_on_rate_limit(db, dj_user):
 
     _make_connector(db, dj_user, display_name="dj-primary")
 
-    org_connector = _make_org_default(db, "orgowner")
+    org_connector = _make_org_default(db)
 
     fallback_response = ChatResponse(
         text="from-fallback",
@@ -274,7 +259,7 @@ async def test_fallback_none_surfaces_original_error(db, dj_user):
 
     _make_connector(db, dj_user, display_name="dj-primary")
 
-    _make_org_default(db, "orgowner2")
+    _make_org_default(db)
 
     chat_mock = AsyncMock(side_effect=RateLimited("slow", retry_after_seconds=5))
     with _patch_chat(chat_mock):
@@ -333,7 +318,7 @@ async def test_retry_then_org_default_retries_same_then_falls_back(db, dj_user):
     """retry_then_org_default: same connector retried once, then org default."""
     _make_connector(db, dj_user, display_name="dj-primary")
 
-    _make_org_default(db, "orgowner3")
+    _make_org_default(db)
 
     ok = ChatResponse(text="recovered", tool_calls=[], stop_reason="end_turn", usage=None)
     # attempt 1 (primary) 429, attempt 2 (primary retry) 429, attempt 3 (org default) ok
@@ -375,7 +360,7 @@ async def test_fallback_not_triggered_for_auth_invalid_when_policy_org_default(d
 
     dj_connector = _make_connector(db, dj_user, display_name="dj-primary")
 
-    org_connector = _make_org_default(db, "orgowner4")
+    org_connector = _make_org_default(db)
 
     ok = ChatResponse(text="recovered", tool_calls=[], stop_reason="end_turn", usage=None)
     chat_mock = AsyncMock(side_effect=[AuthInvalid("expired"), ok])
@@ -405,7 +390,7 @@ async def test_fallback_not_eligible_for_tool_translation_error(db, dj_user):
 
     _make_connector(db, dj_user, display_name="dj-primary")
 
-    _make_org_default(db, "orgowner5")
+    _make_org_default(db)
 
     chat_mock = AsyncMock(side_effect=ToolTranslationError("bad schema"))
     with _patch_chat(chat_mock):
@@ -424,7 +409,7 @@ async def test_fallback_failure_surfaces_fallback_error(db, dj_user):
     """If the fallback connector also fails, the fallback's error surfaces."""
     _make_connector(db, dj_user, display_name="dj-primary")
 
-    _make_org_default(db, "orgowner6")
+    _make_org_default(db)
 
     chat_mock = AsyncMock(
         side_effect=[RateLimited("primary-slow"), ProviderUnavailable("fallback-down")]
@@ -473,3 +458,138 @@ async def test_mru_resolution_picks_recent(db, dj_user, gateway_request):
     assert newer.last_used_at is not None
     # older.last_used_at was never set so should still be None
     assert older.last_used_at is None
+
+
+# ---------- org-scoped resolution + llm_enabled policy ----------
+
+
+def _set_llm_enabled(db, enabled: bool) -> None:
+    ss = db.query(SystemSettings).first()
+    if ss is None:
+        ss = SystemSettings(id=1)
+        db.add(ss)
+    ss.llm_enabled = enabled
+    db.commit()
+
+
+def _ok_response(text: str = "ok") -> ChatResponse:
+    return ChatResponse(text=text, tool_calls=[], stop_reason="end_turn", usage=None)
+
+
+class TestOrgScopedResolution:
+    """Scope-filtered resolution and the ``llm_enabled`` org-fallback policy.
+
+    ``llm_enabled`` now means exactly "org fallback allowed": a DJ's own
+    (user-scoped) connector always dispatches regardless of the toggle, while
+    connector-less DJs and system-context calls reach the org default only when
+    it is an ACTIVE scope='org' row AND the toggle is on.
+    """
+
+    # HEADLINE REGRESSION: a DJ's own connector is never blocked by llm_enabled.
+    @pytest.mark.asyncio
+    async def test_byo_dj_dispatch_works_with_llm_enabled_false(self, db, dj_user, gateway_request):
+        connector = _make_connector(db, dj_user)
+        _set_llm_enabled(db, False)
+
+        with _patch_chat(AsyncMock(return_value=_ok_response())):
+            resp = await Gateway.dispatch(db, dj_user, gateway_request, purpose="test")
+
+        assert resp.text == "ok"
+        db.refresh(connector)
+        assert connector.last_used_at is not None
+
+    @pytest.mark.asyncio
+    async def test_connectorless_dj_blocked_when_llm_enabled_false(
+        self, db, dj_user, gateway_request
+    ):
+        """llm_enabled=False blocks the org fallback for connector-less DJs."""
+        org = _make_connector(db, None, scope=SCOPE_ORG, display_name="org-row")
+        _wire_system_default(db, org)
+        _set_llm_enabled(db, False)
+
+        chat_mock = AsyncMock(return_value=_ok_response())
+        with _patch_chat(chat_mock):
+            with pytest.raises(NoLlmConfigured):
+                await Gateway.dispatch(db, dj_user, gateway_request, purpose="test")
+
+        chat_mock.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_connectorless_dj_uses_org_fallback_when_enabled(
+        self, db, dj_user, gateway_request
+    ):
+        org = _make_connector(db, None, scope=SCOPE_ORG, display_name="org-row")
+        _wire_system_default(db, org)
+        _set_llm_enabled(db, True)
+
+        with _patch_chat(AsyncMock(return_value=_ok_response("from-org"))):
+            resp = await Gateway.dispatch(db, dj_user, gateway_request, purpose="test")
+
+        assert resp.text == "from-org"
+        db.refresh(org)
+        assert org.last_used_at is not None
+
+    @pytest.mark.asyncio
+    async def test_user_scoped_default_never_resolves_as_org_fallback(
+        self, db, dj_user, gateway_request
+    ):
+        """A user-scoped personal key wired as the system default must never
+        serve the org fallback — even with llm_enabled=True."""
+        from app.models.llm_connector import LlmAuditEvent
+
+        personal = _make_connector(db, dj_user, display_name="personal-key")  # scope='user'
+        _wire_system_default(db, personal)
+        _set_llm_enabled(db, True)
+
+        chat_mock = AsyncMock(return_value=_ok_response("leaked"))
+        with _patch_chat(chat_mock):
+            with pytest.raises(NoLlmConfigured):
+                await Gateway.dispatch(db, None, gateway_request, purpose="test")
+
+        chat_mock.assert_not_awaited()
+        # Resolution failed before any call — no audit row may reference the
+        # personal connector (the old code would have misattributed its owner).
+        assert (
+            db.query(LlmAuditEvent).filter(LlmAuditEvent.target_connector_id == personal.id).count()
+            == 0
+        )
+
+    @pytest.mark.asyncio
+    async def test_org_row_never_resolves_in_per_dj_chain(self, db, dj_user, gateway_request):
+        """The per-DJ chain (pin → pinned default → MRU) returns scope='user'
+        rows only: with the fallback blocked by llm_enabled=False, an active
+        org row must not leak in via MRU."""
+        org = _make_connector(db, None, scope=SCOPE_ORG, display_name="only-org")
+        _wire_system_default(db, org)
+        _set_llm_enabled(db, False)
+
+        chat_mock = AsyncMock(return_value=_ok_response())
+        with _patch_chat(chat_mock):
+            with pytest.raises(NoLlmConfigured):
+                await Gateway.dispatch(db, dj_user, gateway_request, purpose="test")
+
+        chat_mock.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_system_context_audit_actor_is_null_on_auth_failure(self, db, gateway_request):
+        """System-context calls (actor=None) record a NULL audit actor — never
+        a user id misattributed from the connector's owner."""
+        from app.models.llm_connector import LlmAuditEvent
+
+        org = _make_connector(db, None, scope=SCOPE_ORG, display_name="org-row")
+        _wire_system_default(db, org)
+        _set_llm_enabled(db, True)
+
+        with _patch_chat(AsyncMock(side_effect=AuthInvalid("expired"))):
+            with pytest.raises(AuthInvalid):
+                await Gateway.dispatch(db, None, gateway_request, purpose="test")
+
+        audit = (
+            db.query(LlmAuditEvent)
+            .filter(LlmAuditEvent.target_connector_id == org.id)
+            .order_by(LlmAuditEvent.id.desc())
+            .first()
+        )
+        assert audit is not None
+        assert audit.event_type == "auth_invalid_observed"
+        assert audit.actor_user_id is None

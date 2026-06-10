@@ -3,15 +3,23 @@
 See spec §4.3.
 
 Resolution order:
-1. If ``actor`` is not ``None``:
+1. If ``actor`` is not ``None`` — the per-DJ chain, which only ever returns
+   ``scope='user'`` rows:
    a. The DJ's per-feature pin for ``purpose`` if set and the pinned connector
       is active (``LlmFeaturePreference`` — issue #337). Skipped gracefully when
       the pinned connector was deleted or is no longer active.
    b. Else: the DJ's explicit default active connector if one is pinned
       (``LlmConnector.is_default = True``) — issue #336.
    c. Else: most-recently-used active connector for the DJ.
-2. Else: ``SystemSettings.llm_default_connector_id`` if set and active.
+2. Else (no actor, or no per-DJ match): the org fallback —
+   ``SystemSettings.llm_default_connector_id`` when it points at an ACTIVE
+   ``scope='org'`` row AND ``SystemSettings.llm_enabled`` is True.
+   ``llm_enabled`` gates ONLY this fallback; a DJ's own connector is never
+   blocked by it.
 3. Else: raise :class:`NoLlmConfigured`.
+
+System-context calls (``actor=None``) record a NULL actor on audit rows rather
+than misattributing usage to the connector's owner.
 
 Auto-fallback (issue #338):
 When ``ChatRequest.fallback_policy`` is not ``"none"`` and the resolved
@@ -34,6 +42,8 @@ from sqlalchemy.orm import Session
 from app.core.time import utcnow
 from app.models.llm_connector import (
     AUDIT_AUTH_INVALID_OBSERVED,
+    SCOPE_ORG,
+    SCOPE_USER,
     STATUS_ACTIVE,
     STATUS_AUTH_INVALID,
     LlmConnector,
@@ -118,7 +128,9 @@ class Gateway:
         purpose: str,
     ) -> ChatResponse:
         primary = _resolve_connector(db, actor, purpose=purpose)
-        actor_id = actor.id if actor else _system_actor_id(db, primary)
+        # NULL actor = system-context call; audit rows record no user rather
+        # than misattributing usage to the connector's owner.
+        actor_id = actor.id if actor else None
 
         # Pre-flight: refuse if the resolved connector's monthly cap is reached
         # (issue #339). Raised before any provider call — no tokens spent, and
@@ -201,7 +213,9 @@ class Gateway:
         another connector would corrupt the output. Streaming always fails fast.
         """
         primary = _resolve_connector(db, actor, purpose=purpose)
-        actor_id = actor.id if actor else _system_actor_id(db, primary)
+        # NULL actor = system-context call; audit rows record no user rather
+        # than misattributing usage to the connector's owner.
+        actor_id = actor.id if actor else None
         inner = _attempt_stream(db, primary, request, purpose=purpose, actor_id=actor_id)
         try:
             async for chunk in inner:
@@ -220,7 +234,7 @@ async def _attempt(
     request: ChatRequest,
     *,
     purpose: str,
-    actor_id: int,
+    actor_id: int | None,
 ) -> ChatResponse:
     """Run a single adapter call against ``connector``, logging the outcome.
 
@@ -334,7 +348,7 @@ async def _attempt_stream(
     request: ChatRequest,
     *,
     purpose: str,
-    actor_id: int,
+    actor_id: int | None,
 ) -> AsyncIterator[ChatResponseChunk]:
     """Run a single adapter stream, logging exactly one outcome row.
 
@@ -434,6 +448,7 @@ def _resolve_connector(db: Session, actor: User | None, *, purpose: str) -> LlmC
                 pinned_feature is not None
                 and pinned_feature.user_id == actor.id
                 and pinned_feature.status == STATUS_ACTIVE
+                and pinned_feature.scope == SCOPE_USER
             ):
                 return pinned_feature
 
@@ -445,6 +460,7 @@ def _resolve_connector(db: Session, actor: User | None, *, purpose: str) -> LlmC
             db.query(LlmConnector)
             .filter(
                 LlmConnector.user_id == actor.id,
+                LlmConnector.scope == SCOPE_USER,
                 LlmConnector.status == STATUS_ACTIVE,
                 LlmConnector.is_default == True,  # noqa: E712 (SQLAlchemy comparison)
             )
@@ -457,6 +473,7 @@ def _resolve_connector(db: Session, actor: User | None, *, purpose: str) -> LlmC
             db.query(LlmConnector)
             .filter(
                 LlmConnector.user_id == actor.id,
+                LlmConnector.scope == SCOPE_USER,
                 LlmConnector.status == STATUS_ACTIVE,
             )
             .order_by(nulls_last(desc(LlmConnector.last_used_at)), desc(LlmConnector.id))
@@ -473,20 +490,16 @@ def _resolve_connector(db: Session, actor: User | None, *, purpose: str) -> LlmC
 
 
 def _resolve_org_default(db: Session) -> LlmConnector | None:
-    """Return the active org-default connector, or ``None`` if unset/inactive."""
-    settings = db.query(SystemSettings).first()
-    if settings and settings.llm_default_connector_id:
-        default = db.get(LlmConnector, settings.llm_default_connector_id)
-        if default is not None and default.status == STATUS_ACTIVE:
-            return default
-    return None
+    """Active org-scoped default, gated by the org-fallback policy toggle.
 
-
-def _system_actor_id(db: Session, connector: LlmConnector) -> int:
-    """Best-effort actor id for system-context audit rows.
-
-    When the gateway is called with ``actor=None`` (system context), audit
-    events should still record an actor; fall back to the connector's owner so
-    the trail is traceable.
+    ``llm_enabled`` governs ONLY this path: DJs with their own connector are
+    resolved earlier and never reach here. Returns ``None`` when the toggle is
+    off, no default is set, or the default is not an active org-scoped row.
     """
-    return connector.user_id
+    settings = db.query(SystemSettings).first()
+    if not settings or not settings.llm_enabled or not settings.llm_default_connector_id:
+        return None
+    default = db.get(LlmConnector, settings.llm_default_connector_id)
+    if default is not None and default.scope == SCOPE_ORG and default.status == STATUS_ACTIVE:
+        return default
+    return None

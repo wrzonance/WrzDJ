@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
 import type { SetDetail } from '@/lib/api-types';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import BuilderWorkspace from '../components/BuilderWorkspace';
 import PoolPanel from '../components/PoolPanel';
 import SetActionsMenu from '../SetActionsMenu';
@@ -71,16 +72,17 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
           ← Sets
         </Link>
         <span className={styles.topbarTitle}>{set?.name ?? 'Loading…'}</span>
-        {set ? (
-          <SetActionsMenu
-            set={set}
-            onShareChanged={(token) =>
-              setSet((prev) => (prev ? { ...prev, share_token: token } : prev))
-            }
-          />
-        ) : (
-          <span style={{ width: 60 }} />
-        )}
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+          {set && (
+            <SetActionsMenu
+              set={set}
+              onShareChanged={(token) =>
+                setSet((prev) => (prev ? { ...prev, share_token: token } : prev))
+              }
+            />
+          )}
+          <ThemeToggle />
+        </span>
       </div>
 
       <div className={styles.workspace}>

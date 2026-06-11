@@ -75,6 +75,10 @@ import type {
   VibeWindow,
   VibeWindowsResponse,
   VoteResponse,
+  ExportTarget,
+  ExportFileFormat,
+  ExportPreflight,
+  ExportTidalResult,
 } from './api-types';
 
 export type {
@@ -159,6 +163,11 @@ export type {
   TidalSyncResult,
   TidalStatus,
   VoteResponse,
+  ExportTarget,
+  ExportFileFormat,
+  ExportPreflight,
+  ExportTidalResult,
+  UnresolvedTrack,
 } from './api-types';
 
 // ========== Admin LLM audit trail filters (issue #341) ==========
@@ -817,6 +826,42 @@ class ApiClient {
     return this.publicFetch(
       `${getApiUrl()}/api/public/setbuilder/shared/${encodeURIComponent(token)}`
     );
+  }
+
+  // --- Setlist export (#396) ---
+
+  async exportPreflight(setId: number, target: ExportTarget): Promise<ExportPreflight> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/export/preflight`, {
+      method: 'POST',
+      body: JSON.stringify({ target }),
+    });
+  }
+
+  async exportSetToTidal(setId: number, skipUnresolved: boolean): Promise<ExportTidalResult> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/export/tidal`, {
+      method: 'POST',
+      body: JSON.stringify({ skip_unresolved: skipUnresolved }),
+    });
+  }
+
+  /**
+   * Download a file export. Returns the blob plus the server-suggested
+   * filename (falls back to `fallbackName` when Content-Disposition isn't
+   * CORS-exposed).
+   */
+  async exportSetFile(
+    setId: number,
+    format: ExportFileFormat,
+    skipUnresolved: boolean,
+    fallbackName: string
+  ): Promise<{ blob: Blob; filename: string }> {
+    const res = await this.rawFetch(`/api/setbuilder/sets/${setId}/export/file`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format, skip_unresolved: skipUnresolved }),
+    });
+    const match = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '');
+    return { blob: await res.blob(), filename: match?.[1] ?? fallbackName };
   }
 
   async bulkDeleteEvents(codes: string[]): Promise<{ status: string; count: number }> {

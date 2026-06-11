@@ -594,7 +594,6 @@ def remove_pool_source(
 
 
 # ---------------------------------------------------------------------------
-<<<<<<< HEAD
 # Track vibes (issue #391) — read-only three-tier state + LLM enrichment
 
 

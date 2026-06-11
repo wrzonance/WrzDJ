@@ -3641,6 +3641,166 @@
         "title": "EventUpdate",
         "type": "object"
       },
+      "ExportFileIn": {
+        "description": "Body for the file (Rekordbox XML / M3U / txt) export.",
+        "properties": {
+          "format": {
+            "enum": [
+              "rekordbox",
+              "m3u",
+              "txt"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "skip_unresolved": {
+            "default": false,
+            "title": "Skip Unresolved",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "format"
+        ],
+        "title": "ExportFileIn",
+        "type": "object"
+      },
+      "ExportPreflightIn": {
+        "description": "Body for the pre-export resolution check.",
+        "properties": {
+          "target": {
+            "enum": [
+              "tidal",
+              "rekordbox",
+              "m3u",
+              "txt"
+            ],
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target"
+        ],
+        "title": "ExportPreflightIn",
+        "type": "object"
+      },
+      "ExportPreflightOut": {
+        "description": "Resolution summary the DJ confirms before exporting.",
+        "properties": {
+          "resolved_count": {
+            "title": "Resolved Count",
+            "type": "integer"
+          },
+          "source": {
+            "enum": [
+              "timeline",
+              "pool"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "target": {
+            "enum": [
+              "tidal",
+              "rekordbox",
+              "m3u",
+              "txt"
+            ],
+            "title": "Target",
+            "type": "string"
+          },
+          "tidal_connected": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tidal Connected"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "unresolved": {
+            "items": {
+              "$ref": "#/components/schemas/UnresolvedTrackOut"
+            },
+            "title": "Unresolved",
+            "type": "array"
+          }
+        },
+        "required": [
+          "resolved_count",
+          "source",
+          "target",
+          "tidal_connected",
+          "total",
+          "unresolved"
+        ],
+        "title": "ExportPreflightOut",
+        "type": "object"
+      },
+      "ExportTidalIn": {
+        "description": "Body for the Tidal export. skip_unresolved is the DJ's explicit choice.",
+        "properties": {
+          "skip_unresolved": {
+            "default": false,
+            "title": "Skip Unresolved",
+            "type": "boolean"
+          }
+        },
+        "title": "ExportTidalIn",
+        "type": "object"
+      },
+      "ExportTidalOut": {
+        "description": "Successful Tidal export result.",
+        "properties": {
+          "added": {
+            "title": "Added",
+            "type": "integer"
+          },
+          "exported_at": {
+            "format": "date-time",
+            "title": "Exported At",
+            "type": "string"
+          },
+          "playlist_id": {
+            "title": "Playlist Id",
+            "type": "string"
+          },
+          "playlist_url": {
+            "title": "Playlist Url",
+            "type": "string"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "locked",
+              "exported"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "added",
+          "exported_at",
+          "playlist_id",
+          "playlist_url",
+          "skipped",
+          "status"
+        ],
+        "title": "ExportTidalOut",
+        "type": "object"
+      },
       "FeaturePreferenceOut": {
         "description": "A single per-feature connector pin (issue #337).",
         "properties": {
@@ -8164,6 +8324,51 @@
           "vibe_key"
         ],
         "title": "TrackVibeStateOut",
+        "type": "object"
+      },
+      "UnresolvedTrackOut": {
+        "description": "One track that can't be exported to the chosen target.",
+        "properties": {
+          "artist": {
+            "title": "Artist",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "reason": {
+            "enum": [
+              "no_tidal_match",
+              "missing_metadata"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "track_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track Id"
+          }
+        },
+        "required": [
+          "artist",
+          "position",
+          "reason",
+          "title",
+          "track_id"
+        ],
+        "title": "UnresolvedTrackOut",
         "type": "object"
       },
       "UpdateCollectionSettings": {
@@ -15910,6 +16115,178 @@
           }
         ],
         "summary": "Duplicate Set",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/export/file": {
+      "post": {
+        "description": "Download the setlist as Rekordbox XML, M3U8, or plaintext.",
+        "operationId": "export_set_file_api_setbuilder_sets__set_id__export_file_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportFileIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Export Set File",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/export/preflight": {
+      "post": {
+        "description": "Pre-export resolution check (tidal targets do live Tidal matching).",
+        "operationId": "export_preflight_api_setbuilder_sets__set_id__export_preflight_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportPreflightIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportPreflightOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Export Preflight",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/export/tidal": {
+      "post": {
+        "description": "Export the setlist to a fresh Tidal playlist (DJ's existing OAuth).",
+        "operationId": "export_set_tidal_api_setbuilder_sets__set_id__export_tidal_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportTidalIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportTidalOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Export Set Tidal",
         "tags": [
           "setbuilder"
         ]

@@ -264,3 +264,34 @@ export interface PaginatedResponse<T> {
   page: number;
   limit: number;
 }
+
+// --- Setlist export (#396) ---
+
+export type ExportTarget = 'tidal' | 'rekordbox' | 'm3u' | 'txt';
+export type ExportFileFormat = 'rekordbox' | 'm3u' | 'txt';
+
+export interface UnresolvedTrack {
+  position: number;
+  title: string;
+  artist: string;
+  track_id: string | null;
+  reason: 'no_tidal_match' | 'missing_metadata';
+}
+
+export interface ExportPreflight {
+  target: ExportTarget;
+  source: 'timeline' | 'pool';
+  total: number;
+  resolved_count: number;
+  unresolved: UnresolvedTrack[];
+  tidal_connected: boolean | null;
+}
+
+export interface ExportTidalResult {
+  playlist_id: string;
+  playlist_url: string;
+  added: number;
+  skipped: number;
+  exported_at: string;
+  status: 'draft' | 'locked' | 'exported';
+}

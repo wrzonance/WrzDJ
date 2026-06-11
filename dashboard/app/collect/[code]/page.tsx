@@ -225,7 +225,10 @@ export default function CollectPage() {
               // 409 (phase mismatch) or any other error → fall through to the
               // timer scheduling below so polling continues.
               if (err instanceof ApiError && err.status === 403) {
-                void reverify();
+                // reverify() can now reject on terminal verification failure
+                // (#419); the overlay already reflects humanState='failed', so
+                // swallow the rejection in this fire-and-forget polling path.
+                reverify().catch(() => {});
               }
             }
           }

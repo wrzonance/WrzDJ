@@ -45,6 +45,7 @@ def my_handler(
 - `lib/turnstile.ts` — script loader + site-key cache.
 - `lib/useHumanVerification.ts` — React hook that runs Turnstile in `interaction-only` mode on mount and POSTs to `/api/public/guest/verify-human`.
 - `lib/api.ts:withHumanRetry` — fetch wrapper that catches 403 + `detail.code === 'human_verification_required'`, calls `reverify()`, retries once.
+- `lib/useHumanVerification.ts:reverify` — resolves only once verification completes and the `wrzdj_human` cookie is issued (rejects with `HumanVerificationFailedError` on terminal failure); never resets a challenge that is already in flight. `withHumanRetry` relies on this contract, and surfaces a typed `HumanVerificationRequiredError` when the retried request is still rejected (#419).
 
 Page integration pattern:
 

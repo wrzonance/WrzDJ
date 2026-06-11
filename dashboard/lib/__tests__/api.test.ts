@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { api, ApiError } from '../api';
+import { api, ApiError, withHumanRetry, HumanVerificationRequiredError } from '../api';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -2650,6 +2650,46 @@ describe('ApiClient', () => {
       expect(url).toContain('/api/auth/me/preferences');
       expect(init.method).toBe('PATCH');
       expect(JSON.parse(init.body)).toEqual({ frictionless_join_default: true });
+    });
+  });
+
+  describe('withHumanRetry', () => {
+    const verificationRequired403 = () =>
+      new Response(JSON.stringify({ detail: { code: 'human_verification_required' } }), {
+        status: 403,
+      });
+
+    it('calls reverify and retries once on 403 human_verification_required', async () => {
+      const responses = [
+        verificationRequired403(),
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      ];
+      const doFetch = vi.fn(async () => responses.shift()!);
+      const reverify = vi.fn().mockResolvedValue(undefined);
+
+      const result = await withHumanRetry<{ ok: boolean }>(doFetch, reverify);
+
+      expect(reverify).toHaveBeenCalledTimes(1);
+      expect(doFetch).toHaveBeenCalledTimes(2);
+      expect(result).toEqual({ ok: true });
+    });
+
+    it('throws HumanVerificationRequiredError when still 403 after the retry', async () => {
+      const doFetch = vi.fn(async () => verificationRequired403());
+      const reverify = vi.fn().mockResolvedValue(undefined);
+
+      await expect(withHumanRetry(doFetch, reverify)).rejects.toBeInstanceOf(
+        HumanVerificationRequiredError,
+      );
+      expect(doFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('propagates a reverify rejection without retrying the fetch', async () => {
+      const doFetch = vi.fn(async () => verificationRequired403());
+      const reverify = vi.fn().mockRejectedValue(new Error('human_verification_failed'));
+
+      await expect(withHumanRetry(doFetch, reverify)).rejects.toThrow('human_verification_failed');
+      expect(doFetch).toHaveBeenCalledTimes(1);
     });
   });
 });

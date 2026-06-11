@@ -2,10 +2,11 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams } from 'next/navigation';
-import { api, ApiError, PublicEvent, GuestNowPlaying, GuestRequestInfo, PUBLIC_PAGE_MAX, SearchResult } from '@/lib/api';
+import { api, ApiError, HumanVerificationRequiredError, PublicEvent, GuestNowPlaying, GuestRequestInfo, PUBLIC_PAGE_MAX, SearchResult } from '@/lib/api';
 import { useEventStream } from '@/lib/use-event-stream';
 import { useGuestIdentity } from '@/lib/use-guest-identity';
-import { useHumanVerification } from '@/lib/useHumanVerification';
+import { useHumanVerification, HumanVerificationFailedError } from '@/lib/useHumanVerification';
+import HumanVerificationOverlay from '@/components/HumanVerificationOverlay';
 import { NicknameGate, GateResult } from '@/components/NicknameGate';
 import EmailRecoveryButton from '@/components/EmailRecoveryButton';
 import EmailRecoveryModal from '@/components/EmailRecoveryModal';
@@ -59,7 +60,7 @@ export default function JoinEventPage() {
   const code = params.code as string;
 
   const { reconcileHint, refresh: refreshIdentity, isLoading: identityLoading } = useGuestIdentity();
-  const { state: humanState, reverify, widgetContainerRef } = useHumanVerification();
+  const { state: humanState, reverify, retry, widgetContainerRef } = useHumanVerification();
   const [recoveryOpen, setRecoveryOpen] = useState(false);
 
   const [event, setEvent] = useState<PublicEvent | null>(null);
@@ -121,6 +122,12 @@ export default function JoinEventPage() {
      not frictionless — otherwise a frictionless event would briefly show the
      gate. */
   const [gateDecided, setGateDecided] = useState(false);
+  /* Verification-blocked gate: ensure-name failed because the bot check is
+     pending/failed (HumanVerificationRequiredError / HumanVerificationFailedError).
+     This is NOT "frictionless unavailable" — we hold the guest on the
+     verification overlay instead of degrading to NicknameGate (issue #419). */
+  const [gateVerificationFailed, setGateVerificationFailed] = useState(false);
+  const [gateAttempt, setGateAttempt] = useState(0);
   const handleGateComplete = (result: GateResult) => {
     setNickname(result.nickname);
     setGateComplete(true);
@@ -144,13 +151,23 @@ export default function JoinEventPage() {
         setNickname(res.nickname);
         setAutoNamed(res.auto_generated);
         setGateComplete(true);
-      } catch {
-        // On any failure, fall back to the normal NicknameGate flow.
-        if (active) setGateDecided(true);
+      } catch (err) {
+        if (!active) return;
+        if (
+          err instanceof HumanVerificationRequiredError ||
+          err instanceof HumanVerificationFailedError
+        ) {
+          // Bot check pending/failed — keep the verification overlay up
+          // rather than silently degrading to the nickname/email gate.
+          setGateVerificationFailed(true);
+          return;
+        }
+        // frictionless_disabled / network errors -> normal NicknameGate flow.
+        setGateDecided(true);
       }
     })();
     return () => { active = false; };
-  }, [code, gateComplete, identityLoading, reverify]);
+  }, [code, gateComplete, identityLoading, reverify, gateAttempt]);
 
   /* Rename affordance for auto-named (frictionless) guests. */
   const handleRename = useCallback(async (newName: string) => {
@@ -158,6 +175,14 @@ export default function JoinEventPage() {
     setNickname(res.nickname);
     setAutoNamed(false);
   }, [code, reverify]);
+
+  /* Re-run both the Turnstile widget and the frictionless decision after a
+     verification failure (wired to the overlay's "Try again" button). */
+  const retryGateVerification = useCallback(() => {
+    setGateVerificationFailed(false);
+    retry();
+    setGateAttempt((a) => a + 1);
+  }, [retry]);
 
   /* Pre-event collect phase */
   const [collectPhase, setCollectPhase] = useState<
@@ -433,13 +458,21 @@ export default function JoinEventPage() {
   if (!gateComplete) {
     // Wait for the frictionless decision before rendering the nickname gate,
     // so frictionless events never flash the gate on their way to auto-name.
+    // The overlay keeps Turnstile's challenge reachable (and failures
+    // visible/retryable) while the decision is pending (issue #419).
     if (!gateDecided) {
       return (
-        <div className="guest-tower" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 13.3, color: 'rgba(255,255,255,0.4)', letterSpacing: 2 }}>
-            LOADING…
+        <HumanVerificationOverlay
+          state={gateVerificationFailed ? 'failed' : humanState}
+          widgetContainerRef={widgetContainerRef}
+          onRetry={retryGateVerification}
+        >
+          <div className="guest-tower" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 13.3, color: 'rgba(255,255,255,0.4)', letterSpacing: 2 }}>
+              LOADING…
+            </div>
           </div>
-        </div>
+        </HumanVerificationOverlay>
       );
     }
     return <NicknameGate code={code} onComplete={handleGateComplete} reverify={reverify} />;

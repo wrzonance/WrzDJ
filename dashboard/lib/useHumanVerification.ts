@@ -12,12 +12,30 @@ export type HumanVerificationState =
   | 'challenge'
   | 'failed';
 
+/**
+ * Terminal client-side verification failure: the Turnstile widget errored or
+ * the server rejected the token. `reverify()` rejects with this so callers
+ * (via withHumanRetry) can distinguish "bot check failed" from feature-level
+ * errors instead of silently degrading. See issue #419.
+ */
+export class HumanVerificationFailedError extends Error {
+  constructor() {
+    super('human_verification_failed');
+    this.name = 'HumanVerificationFailedError';
+  }
+}
+
 export interface UseHumanVerification {
   state: HumanVerificationState;
   ensureVerified: () => Promise<void>;
   reverify: () => Promise<void>;
   retry: () => void;
   widgetContainerRef: React.RefObject<HTMLDivElement | null>;
+}
+
+interface VerificationWaiter {
+  resolve: () => void;
+  reject: (err: Error) => void;
 }
 
 /**
@@ -29,22 +47,48 @@ export interface UseHumanVerification {
  * widget container (provided by HumanVerificationOverlay). Cloudflare
  * escalation from invisible to visible challenge flips state to 'challenge'
  * via the before-interactive-callback so the overlay can reveal the widget.
+ *
+ * Contract (relied on by withHumanRetry in lib/api.ts): `reverify()` resolves
+ * only once verification has completed and the wrzdj_human cookie has been
+ * issued; it rejects with HumanVerificationFailedError on terminal failure.
+ * It never resets a challenge that is already in flight.
  */
 export function useHumanVerification(): UseHumanVerification {
   const [state, setState] = useState<HumanVerificationState>('idle');
   const widgetContainerRef = useRef<HTMLDivElement | null>(null);
   const fallbackContainerRef = useRef<HTMLDivElement | null>(null);
   const widgetIdRef = useRef<string | null>(null);
-  const verifiedResolversRef = useRef<Array<() => void>>([]);
+  const waitersRef = useRef<VerificationWaiter[]>([]);
   const mountedRef = useRef(true);
   const retryCountRef = useRef(0);
   const stateRef = useRef(state);
   stateRef.current = state;
+  /* Synchronous re-entry guard for reverify(): stateRef lags one render cycle
+     behind setState, so two reverify() calls in the same microtask turn could
+     both see a stale non-loading state and double-reset the widget. */
+  const reverifyInFlightRef = useRef(false);
 
   const flushVerified = useCallback(() => {
-    verifiedResolversRef.current.forEach((resolve) => resolve());
-    verifiedResolversRef.current = [];
+    reverifyInFlightRef.current = false;
+    const waiters = waitersRef.current;
+    waitersRef.current = [];
+    waiters.forEach(({ resolve }) => resolve());
   }, []);
+
+  const flushFailed = useCallback(() => {
+    reverifyInFlightRef.current = false;
+    const waiters = waitersRef.current;
+    waitersRef.current = [];
+    waiters.forEach(({ reject }) => reject(new HumanVerificationFailedError()));
+  }, []);
+
+  const waitForVerified = useCallback(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        waitersRef.current = [...waitersRef.current, { resolve, reject }];
+      }),
+    [],
+  );
 
   const submitToken = useCallback(
     async (token: string) => {
@@ -56,12 +100,14 @@ export function useHumanVerification(): UseHumanVerification {
           flushVerified();
         } else {
           setState('failed');
+          flushFailed();
         }
       } catch {
         if (mountedRef.current) setState('failed');
+        flushFailed();
       }
     },
-    [flushVerified],
+    [flushVerified, flushFailed],
   );
 
   const renderWidget = useCallback(async () => {
@@ -123,6 +169,7 @@ export function useHumanVerification(): UseHumanVerification {
       },
       'error-callback': () => {
         if (mountedRef.current) setState('failed');
+        flushFailed();
       },
       'expired-callback': () => {
         if (!mountedRef.current) return;
@@ -139,7 +186,7 @@ export function useHumanVerification(): UseHumanVerification {
         if (mountedRef.current) setState('challenge');
       },
     } as Parameters<typeof window.turnstile.render>[1]);
-  }, [submitToken, flushVerified]);
+  }, [submitToken, flushVerified, flushFailed]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -156,9 +203,14 @@ export function useHumanVerification(): UseHumanVerification {
         // /verify-status failure (network / 5xx) falls through to Turnstile
       }
       try {
-        await renderWidget();
+        // A reverify() triggered while the probe was in flight may already
+        // have rendered the widget — don't reset its in-progress challenge.
+        if (!widgetIdRef.current) {
+          await renderWidget();
+        }
       } catch {
         if (mountedRef.current) setState('failed');
+        flushFailed();
       }
     })();
     return () => {
@@ -172,24 +224,37 @@ export function useHumanVerification(): UseHumanVerification {
         fallbackContainerRef.current = null;
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [flushFailed, flushVerified, renderWidget]);
 
   const ensureVerified = useCallback((): Promise<void> => {
     if (stateRef.current === 'verified') return Promise.resolve();
-    return new Promise((resolve) => {
-      verifiedResolversRef.current.push(resolve);
-    });
-  }, []);
+    return waitForVerified();
+  }, [waitForVerified]);
 
-  const reverify = useCallback(async () => {
-    if (!mountedRef.current) return;
+  const reverify = useCallback((): Promise<void> => {
+    if (!mountedRef.current) return Promise.resolve();
+    const current = stateRef.current;
+    // A challenge is already in flight — resetting would restart it (and
+    // delay every gated call on the page). Wait for it to settle instead.
+    if (reverifyInFlightRef.current || current === 'loading' || current === 'challenge') {
+      return waitForVerified();
+    }
+    // 'verified' (server rejected a stale/missing cookie), 'idle', or
+    // 'failed': re-run the challenge. Register the waiter BEFORE kicking the
+    // widget so a synchronous flush can't be missed.
+    reverifyInFlightRef.current = true;
+    const settled = waitForVerified();
+    setState('loading');
     if (widgetIdRef.current && window.turnstile) {
       window.turnstile.reset(widgetIdRef.current);
+    } else {
+      void renderWidget().catch(() => {
+        if (mountedRef.current) setState('failed');
+        flushFailed();
+      });
     }
-    setState('loading');
-    await renderWidget();
-  }, [renderWidget]);
+    return settled;
+  }, [renderWidget, waitForVerified, flushFailed]);
 
   const retry = useCallback(() => {
     if (widgetIdRef.current && window.turnstile) {

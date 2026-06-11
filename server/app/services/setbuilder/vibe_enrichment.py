@@ -197,10 +197,72 @@ def _parse_items(response: ChatResponse, batch: list[SetPoolTrack]) -> dict[int,
                 "dance_floor": (
                     item.get("dance_floor") if isinstance(item.get("dance_floor"), bool) else None
                 ),
-                "transitional_role": role if role in TRANSITIONAL_ROLES else None,
+                # isinstance guard first: an unhashable role (list/dict) would
+                # raise TypeError on frozenset membership.
+                "transitional_role": (
+                    role if isinstance(role, str) and role in TRANSITIONAL_ROLES else None
+                ),
                 "confidence": _clamp(item.get("confidence"), 0.0, 1.0, as_int=False),
             }
     return parsed
+
+
+def _vibe_row(key: str, fields: dict, response: ChatResponse) -> TrackVibe:
+    return TrackVibe(
+        track_id=key,
+        **fields,
+        llm_provider=response.provider or "unknown",
+        llm_model=response.model or "unknown",
+        prompt_version=PROMPT_VERSION,
+        schema_version=SCHEMA_VERSION,
+    )
+
+
+def _persist_batch(
+    db: Session,
+    response: ChatResponse,
+    batch: list[SetPoolTrack],
+    parsed: dict[int, dict],
+) -> tuple[int, int]:
+    """Persist one batch's parsed rows; returns ``(enriched, cached)`` deltas.
+
+    Race safety: a concurrent enrichment may have inserted some of these keys
+    since the initial cache check — re-check just before inserting. If the
+    commit still hits an IntegrityError (a winner landed between re-check and
+    commit), roll back, re-query which keys now exist (those count as cached),
+    and re-insert only the still-missing rows so the paid results are kept. A
+    second IntegrityError is a pathological double-race: roll back and count
+    the remainder as cached — bounded, no retry loop.
+    """
+    existing_now = _cached_keys(db, (vibe_key(batch[i]) for i in parsed))
+    cached = 0
+    to_insert: dict[str, dict] = {}
+    for index, fields in parsed.items():
+        key = vibe_key(batch[index])
+        if key in existing_now:
+            cached += 1
+        else:
+            to_insert[key] = fields
+
+    for key, fields in to_insert.items():
+        db.add(_vibe_row(key, fields, response))
+    try:
+        db.commit()
+        return len(to_insert), cached
+    except IntegrityError:
+        db.rollback()
+
+    existing_after = _cached_keys(db, to_insert)
+    cached += len(existing_after)
+    retry = {k: f for k, f in to_insert.items() if k not in existing_after}
+    for key, fields in retry.items():
+        db.add(_vibe_row(key, fields, response))
+    try:
+        db.commit()
+        return len(retry), cached
+    except IntegrityError:
+        db.rollback()
+        return 0, cached + len(retry)
 
 
 async def enrich_pool_vibes(db: Session, actor: User, set_obj: Set) -> VibeEnrichmentStats:
@@ -242,33 +304,15 @@ async def enrich_pool_vibes(db: Session, actor: User, set_obj: Set) -> VibeEnric
 
         parsed = _parse_items(response, batch)
         failed += len(batch) - len(parsed)
-
-        # Race safety: a concurrent enrichment may have inserted some of these
-        # keys since the initial cache check — re-check just before inserting.
-        existing_now = _cached_keys(db, (vibe_key(batch[i]) for i in parsed))
-        rows_added = 0
-        for index, fields in parsed.items():
-            key = vibe_key(batch[index])
-            if key in existing_now:
-                cached += 1
-                continue
-            db.add(
-                TrackVibe(
-                    track_id=key,
-                    **fields,
-                    llm_provider=response.provider or "unknown",
-                    llm_model=response.model or "unknown",
-                    prompt_version=PROMPT_VERSION,
-                    schema_version=SCHEMA_VERSION,
-                )
+        if response.stop_reason == "max_tokens":
+            logger.warning(
+                "vibe enrichment batch truncated at max_tokens: %d/%d items parsed",
+                len(parsed),
+                len(batch),
             )
-            rows_added += 1
-        try:
-            db.commit()
-            enriched += rows_added
-        except IntegrityError:
-            # Concurrent enrichment won the race between re-check and commit.
-            db.rollback()
-            cached += rows_added
+
+        batch_enriched, batch_cached = _persist_batch(db, response, batch, parsed)
+        enriched += batch_enriched
+        cached += batch_cached
 
     return VibeEnrichmentStats(enriched=enriched, cached=cached, failed=failed, llm_calls=llm_calls)

@@ -64,6 +64,7 @@ class TestVibeConsensusSettings:
 # ---------------------------------------------------------------------------
 
 DISPATCH_TARGET = "app.services.setbuilder.vibe_enrichment.Gateway.dispatch"
+CACHED_KEYS_TARGET = "app.services.setbuilder.vibe_enrichment._cached_keys"
 
 
 def _seed_pool(db, owner_id: int, n: int) -> Set:
@@ -134,6 +135,13 @@ class TestVibeEnrichment:
         assert stats.failed == 0
         assert mock.await_count == 5
         assert db.query(TrackVibe).count() == 100
+        # Pin the dispatch contract: forced tool, system prompt, token cap, purpose.
+        args, kwargs = mock.await_args
+        request: ChatRequest = args[2]
+        assert request.force_tool == "submit_track_vibes"
+        assert request.system
+        assert request.max_tokens == 4096
+        assert kwargs["purpose"] == "vibe_enrichment"
 
     @pytest.mark.asyncio
     async def test_second_run_fully_cached_even_for_other_dj(self, db, test_user):
@@ -182,7 +190,7 @@ class TestVibeEnrichment:
 
     @pytest.mark.asyncio
     async def test_malformed_items_handled(self, db, test_user):
-        s = _seed_pool(db, test_user.id, 3)
+        s = _seed_pool(db, test_user.id, 4)
         items = [
             {
                 "index": 0,
@@ -204,6 +212,12 @@ class TestVibeEnrichment:
                 "transitional_role": "peak",
                 "confidence": 0.8,
             },
+            {
+                "index": 2,
+                "energy": 5,
+                "confidence": 0.5,
+                "transitional_role": ["peak"],  # unhashable (list) -> None, must not raise
+            },
             {"index": 7, "energy": 5, "confidence": 0.5},  # out-of-range -> ignored
         ]
         response = ChatResponse(
@@ -215,8 +229,8 @@ class TestVibeEnrichment:
         )
         with patch(DISPATCH_TARGET, new=AsyncMock(return_value=response)):
             stats = await enrich_pool_vibes(db, test_user, s)
-        assert stats.enriched == 2
-        assert stats.failed == 1  # track 2 had no parsed entry
+        assert stats.enriched == 3
+        assert stats.failed == 1  # track 3 had no parsed entry
         row0 = db.query(TrackVibe).filter(TrackVibe.track_id == "tidal:0").one()
         assert row0.energy == 10
         assert row0.confidence == 1.0
@@ -226,7 +240,10 @@ class TestVibeEnrichment:
         assert row0.mood == "dark"
         row1 = db.query(TrackVibe).filter(TrackVibe.track_id == "tidal:1").one()
         assert row1.energy == 7
-        assert db.query(TrackVibe).filter(TrackVibe.track_id == "tidal:2").count() == 0
+        row2 = db.query(TrackVibe).filter(TrackVibe.track_id == "tidal:2").one()
+        assert row2.transitional_role is None  # list role stored as None
+        assert row2.energy == 5
+        assert db.query(TrackVibe).filter(TrackVibe.track_id == "tidal:3").count() == 0
 
     @pytest.mark.asyncio
     async def test_llm_error_marks_remaining_failed(self, db, test_user):
@@ -238,6 +255,55 @@ class TestVibeEnrichment:
         assert stats.failed == 20
         assert stats.llm_calls == 2
         assert db.query(TrackVibe).count() == 20
+
+    @pytest.mark.asyncio
+    async def test_commit_race_keeps_paid_rows_and_counts_conflict_cached(self, db, test_user):
+        """IntegrityError on commit must not discard the batch's non-conflicting rows.
+
+        Forces the race: a conflicting TrackVibe row exists for tidal:1 (same
+        identity the service writes), but ``_cached_keys`` is patched to miss it
+        on both the initial cache check and the pre-insert re-check — so the
+        commit collides. The post-IntegrityError re-query (third call) delegates
+        to the real helper, finds the winner, and only the still-missing rows
+        are re-inserted.
+        """
+        from app.services.setbuilder.vibe_enrichment import _cached_keys as real_cached_keys
+
+        s = _seed_pool(db, test_user.id, 3)
+        db.add(
+            TrackVibe(
+                track_id="tidal:1",
+                energy=3,
+                llm_provider="anthropic_apikey",
+                llm_model="claude-haiku-4-5",
+                prompt_version=PROMPT_VERSION,
+                schema_version=SCHEMA_VERSION,
+            )
+        )
+        db.commit()
+
+        calls: list[int] = []
+
+        def fake_cached_keys(db_arg, keys):
+            calls.append(1)
+            if len(calls) <= 2:  # initial cache check + pre-insert re-check miss the winner
+                return set()
+            return real_cached_keys(db_arg, keys)  # post-IntegrityError re-query is real
+
+        with (
+            patch(DISPATCH_TARGET, new=AsyncMock(side_effect=_dispatch_side_effect)),
+            patch(CACHED_KEYS_TARGET, side_effect=fake_cached_keys),
+        ):
+            stats = await enrich_pool_vibes(db, test_user, s)
+
+        assert stats.enriched == 2  # tidal:0 + tidal:2 survive the lost race
+        assert stats.cached == 1  # the conflicting tidal:1 counts as cached
+        assert stats.failed == 0
+        assert len(calls) == 3
+        for key in ("tidal:0", "tidal:2"):
+            assert db.query(TrackVibe).filter(TrackVibe.track_id == key).count() == 1
+        row1 = db.query(TrackVibe).filter(TrackVibe.track_id == "tidal:1").one()
+        assert row1.energy == 3  # pre-existing winner untouched
 
     @pytest.mark.asyncio
     async def test_no_llm_configured_propagates(self, db, test_user):

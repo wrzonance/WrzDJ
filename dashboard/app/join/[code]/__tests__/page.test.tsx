@@ -791,6 +791,19 @@ describe('JoinEventPage — frictionless join', () => {
     expect(screen.queryByTestId('nickname-gate')).not.toBeInTheDocument();
   });
 
+  it('also holds the overlay when reverify rejects with HumanVerificationFailedError', async () => {
+    const { HumanVerificationFailedError } = await import('@/lib/useHumanVerification');
+    mockApi.getJoinConfig.mockResolvedValue({ frictionless_join: true });
+    mockApi.ensureGuestName.mockRejectedValue(new HumanVerificationFailedError());
+
+    render(<JoinEventPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/Verification didn.t go through/i)).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('nickname-gate')).not.toBeInTheDocument();
+  });
+
   it('still falls back to NicknameGate on non-verification errors (e.g. frictionless_disabled)', async () => {
     mockApi.getJoinConfig.mockResolvedValue({ frictionless_join: true });
     mockApi.ensureGuestName.mockRejectedValue(new MockApiError('frictionless_disabled', 403));

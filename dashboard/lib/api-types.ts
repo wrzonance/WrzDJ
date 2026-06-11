@@ -217,6 +217,11 @@ export type PoolUrlPreview = Schemas['PoolUrlPreview'];
 export type PoolImportManualIn = Schemas['PoolImportManualIn'];
 export type BuilderPlaylists = Schemas['BuilderPlaylistsOut'];
 
+// TrackVibe three-tier state (issue #391)
+export type PoolVibesState = Schemas['PoolVibesState'];
+export type TrackVibeState = Schemas['TrackVibeStateOut'];
+export type VibeEnrichmentResult = Schemas['VibeEnrichmentResult'];
+
 // WrzDJSet sharing + duplication (issue #398)
 export interface ShareTokenOut {
   share_token: string;

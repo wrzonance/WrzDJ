@@ -44,6 +44,8 @@ const defaultSettings = {
   llm_enabled: true,
   llm_model: 'claude-haiku-4-5-20251001',
   llm_rate_limit_per_minute: 6,
+  vibe_consensus_min_sample: 3,
+  vibe_consensus_max_stddev: 1.5,
 };
 
 describe('AdminSettingsPage', () => {

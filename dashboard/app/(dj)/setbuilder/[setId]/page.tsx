@@ -79,6 +79,7 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
               onShareChanged={(token) =>
                 setSet((prev) => (prev ? { ...prev, share_token: token } : prev))
               }
+              onSetUpdated={(patch) => setSet((prev) => (prev ? { ...prev, ...patch } : prev))}
             />
           )}
           <ThemeToggle />

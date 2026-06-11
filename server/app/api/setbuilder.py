@@ -5,7 +5,7 @@ Mounted at /api/setbuilder. Every endpoint requires an active DJ
 missing-or-unowned sets return 404 to avoid leaking existence.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_active_user, get_db
@@ -22,6 +22,11 @@ from app.schemas.setbuilder import (
     CurveTemplateCreate,
     CurveTemplateOut,
     CurveTemplatesResponse,
+    ExportFileIn,
+    ExportPreflightIn,
+    ExportPreflightOut,
+    ExportTidalIn,
+    ExportTidalOut,
     LlmVibeOut,
     OwnVibeOut,
     PoolImportEventIn,
@@ -46,13 +51,23 @@ from app.schemas.setbuilder import (
     SlotTargetUpdate,
     TemplateWindowOut,
     TrackVibeStateOut,
+    UnresolvedTrackOut,
     VibeEnrichmentResult,
     VibeWindowModel,
     VibeWindowsPut,
     VibeWindowsResponse,
 )
 from app.services.llm.exceptions import NoLlmConfigured
-from app.services.setbuilder import curve, pool, set_service, vibe_enrichment, vibe_resolver
+from app.services.setbuilder import (
+    curve,
+    export_common,
+    export_files,
+    export_tidal,
+    pool,
+    set_service,
+    vibe_enrichment,
+    vibe_resolver,
+)
 from app.services.setbuilder.playlist_url import InvalidPlaylistUrl, parse_public_playlist_url
 
 router = APIRouter()
@@ -577,6 +592,7 @@ def remove_pool_source(
 
 
 # ---------------------------------------------------------------------------
+<<<<<<< HEAD
 # Track vibes (issue #391) — read-only three-tier state + LLM enrichment
 
 
@@ -666,4 +682,161 @@ async def enrich_pool_vibes(
         failed=stats.failed,
         llm_calls=stats.llm_calls,
         vibes=_pool_vibes_state(db, current_user, set_obj),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Export (issue #396) — preflight resolution check + Tidal / file exports.
+# The unresolved-track interrupt is enforced server-side: exports return 409
+# unless the DJ explicitly opted to skip (never silently dropped).
+
+
+def _unresolved_out(
+    tracks: list[export_common.ExportTrack], reason: str
+) -> list[UnresolvedTrackOut]:
+    return [
+        UnresolvedTrackOut(
+            position=t.position,
+            title=t.title,
+            artist=t.artist,
+            track_id=t.track_id,
+            reason=reason,
+        )
+        for t in tracks
+    ]
+
+
+def _unresolved_409(unresolved: list[UnresolvedTrackOut]) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "unresolved_tracks",
+            "unresolved": [u.model_dump() for u in unresolved],
+        },
+    )
+
+
+@router.post("/sets/{set_id}/export/preflight", response_model=ExportPreflightOut)
+@limiter.limit("5/minute")
+def export_preflight(
+    set_id: int,
+    payload: ExportPreflightIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> ExportPreflightOut:
+    """Pre-export resolution check (tidal targets do live Tidal matching)."""
+    set_obj = _get_owned_or_404(db, set_id, current_user)
+    source, tracks = export_common.collect_export_tracks(set_obj)
+
+    if payload.target == "tidal":
+        if not current_user.tidal_access_token:
+            return ExportPreflightOut(
+                target=payload.target,
+                source=source,
+                total=len(tracks),
+                resolved_count=0,
+                unresolved=[],
+                tidal_connected=False,
+            )
+        resolved, unresolved = export_tidal.resolve_for_tidal(db, current_user, tracks)
+        return ExportPreflightOut(
+            target=payload.target,
+            source=source,
+            total=len(tracks),
+            resolved_count=len(resolved),
+            unresolved=_unresolved_out(unresolved, "no_tidal_match"),
+            tidal_connected=True,
+        )
+
+    unresolved = export_files.file_unresolved(tracks)
+    return ExportPreflightOut(
+        target=payload.target,
+        source=source,
+        total=len(tracks),
+        resolved_count=len(tracks) - len(unresolved),
+        unresolved=_unresolved_out(unresolved, "missing_metadata"),
+    )
+
+
+@router.post("/sets/{set_id}/export/tidal", response_model=ExportTidalOut)
+@limiter.limit("5/minute")
+def export_set_tidal(
+    set_id: int,
+    payload: ExportTidalIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> ExportTidalOut:
+    """Export the setlist to a fresh Tidal playlist (DJ's existing OAuth)."""
+    set_obj = _get_owned_or_404(db, set_id, current_user)
+    if not current_user.tidal_access_token:
+        raise HTTPException(status_code=400, detail="Tidal account not connected")
+    _, tracks = export_common.collect_export_tracks(set_obj)
+    if not tracks:
+        raise HTTPException(status_code=400, detail="Set has no tracks to export")
+
+    resolved, unresolved = export_tidal.resolve_for_tidal(db, current_user, tracks)
+    if unresolved and not payload.skip_unresolved:
+        raise _unresolved_409(_unresolved_out(unresolved, "no_tidal_match"))
+    if not resolved:
+        raise HTTPException(status_code=400, detail="No resolvable tracks to export")
+
+    try:
+        outcome = export_tidal.export_to_tidal(db, current_user, set_obj, resolved)
+    except export_tidal.TidalNotConnected:
+        raise HTTPException(status_code=400, detail="Tidal account not connected") from None
+    except export_tidal.TidalExportError:
+        raise HTTPException(status_code=502, detail="Tidal export failed") from None
+
+    return ExportTidalOut(
+        playlist_id=outcome.playlist_id,
+        playlist_url=outcome.playlist_url,
+        added=outcome.added,
+        skipped=len(unresolved),
+        exported_at=set_obj.exported_at,
+        status=set_obj.status,
+    )
+
+
+_FILE_MEDIA = {
+    "rekordbox": ("application/xml", "xml"),
+    "m3u": ("audio/x-mpegurl", "m3u8"),
+    "txt": ("text/plain", "txt"),
+}
+
+
+@router.post("/sets/{set_id}/export/file")
+@limiter.limit("10/minute")
+def export_set_file(
+    set_id: int,
+    payload: ExportFileIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Response:
+    """Download the setlist as Rekordbox XML, M3U8, or plaintext."""
+    set_obj = _get_owned_or_404(db, set_id, current_user)
+    _, tracks = export_common.collect_export_tracks(set_obj)
+    if not tracks:
+        raise HTTPException(status_code=400, detail="Set has no tracks to export")
+
+    unresolved = export_files.file_unresolved(tracks)
+    if unresolved and not payload.skip_unresolved:
+        raise _unresolved_409(_unresolved_out(unresolved, "missing_metadata"))
+    exportable = [t for t in tracks if t.has_metadata]
+
+    if payload.format == "rekordbox":
+        content = export_files.render_rekordbox_xml(set_obj.name, exportable)
+    elif payload.format == "m3u":
+        content = export_files.render_m3u(set_obj.name, exportable)
+    else:
+        content = export_files.render_txt(set_obj.name, exportable)
+
+    media_type, ext = _FILE_MEDIA[payload.format]
+    filename = export_files.safe_filename(set_obj.name, ext)
+    return Response(
+        content=content,
+        media_type=f"{media_type}; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

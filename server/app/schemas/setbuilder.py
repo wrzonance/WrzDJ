@@ -451,3 +451,63 @@ class VibeEnrichmentResult(BaseModel):
     failed: int
     llm_calls: int
     vibes: PoolVibesState
+
+
+# ---------------------------------------------------------------------------
+# Export (issue #396)
+
+
+ExportTarget = Literal["tidal", "rekordbox", "m3u", "txt"]
+ExportFileFormat = Literal["rekordbox", "m3u", "txt"]
+
+
+class ExportPreflightIn(BaseModel):
+    """Body for the pre-export resolution check."""
+
+    target: ExportTarget
+
+
+class UnresolvedTrackOut(BaseModel):
+    """One track that can't be exported to the chosen target."""
+
+    position: int
+    title: str
+    artist: str
+    track_id: str | None
+    reason: Literal["no_tidal_match", "missing_metadata"]
+
+
+class ExportPreflightOut(BaseModel):
+    """Resolution summary the DJ confirms before exporting."""
+
+    target: ExportTarget
+    source: Literal["timeline", "pool"]
+    total: int
+    resolved_count: int
+    unresolved: list[UnresolvedTrackOut]
+    # Only set for target="tidal"; None for file targets.
+    tidal_connected: bool | None = None
+
+
+class ExportTidalIn(BaseModel):
+    """Body for the Tidal export. skip_unresolved is the DJ's explicit choice."""
+
+    skip_unresolved: bool = False
+
+
+class ExportTidalOut(BaseModel):
+    """Successful Tidal export result."""
+
+    playlist_id: str
+    playlist_url: str
+    added: int
+    skipped: int
+    exported_at: datetime
+    status: Literal["draft", "locked", "exported"]
+
+
+class ExportFileIn(BaseModel):
+    """Body for the file (Rekordbox XML / M3U / txt) export."""
+
+    format: ExportFileFormat
+    skip_unresolved: bool = False

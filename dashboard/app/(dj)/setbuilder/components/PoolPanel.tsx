@@ -7,11 +7,16 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api } from '@/lib/api';
-import type { PoolImportResult, PoolSource, PoolState } from '@/lib/api-types';
+import { api, ApiError } from '@/lib/api';
+import type { PoolImportResult, PoolSource, PoolState, TrackVibeState } from '@/lib/api-types';
 import styles from '../setbuilder.module.css';
 import ImportModal, { type ImportKind } from './ImportModal';
 import { BpmBadge, CamelotBadge, EnergyMini, SourceIcon, sourceColor } from './PoolBadges';
+import VibeTiers from './VibeTiers';
+
+function buildVibeMap(tracks: TrackVibeState[]): Map<number, TrackVibeState> {
+  return new Map(tracks.map((v) => [v.pool_track_id, v]));
+}
 
 const TYPE_TABS: { id: string; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -50,8 +55,15 @@ export default function PoolPanel({ setId }: { setId: number }) {
   const [importKind, setImportKind] = useState<ImportKind | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [vibes, setVibes] = useState<Map<number, TrackVibeState>>(new Map());
+  const [showVibes, setShowVibes] = useState(false);
+  const [vibesLoaded, setVibesLoaded] = useState(false);
+  const [vibesBusy, setVibesBusy] = useState(false);
 
   useEffect(() => {
+    setVibes(new Map());
+    setShowVibes(false);
+    setVibesLoaded(false);
     api
       .getPool(setId)
       .then(setPool)
@@ -148,6 +160,37 @@ export default function PoolPanel({ setId }: { setId: number }) {
     [setId, activeSourceId]
   );
 
+  const toggleVibes = useCallback(() => {
+    if (!showVibes && !vibesLoaded && !vibesBusy) {
+      // vibesBusy also disables Analyze while this first fetch is in flight,
+      // so an Analyze response can't be overwritten by a stale initial GET.
+      // vibesLoaded is only set on success so a failed fetch can be retried.
+      setVibesBusy(true);
+      api
+        .getPoolVibes(setId)
+        .then((result) => {
+          setVibes(buildVibeMap(result.tracks));
+          setVibesLoaded(true);
+        })
+        .catch(() => setToast('Failed to load vibes'))
+        .finally(() => setVibesBusy(false));
+    }
+    setShowVibes((s) => !s);
+  }, [showVibes, vibesLoaded, vibesBusy, setId]);
+
+  const analyzeVibes = useCallback(async () => {
+    setVibesBusy(true);
+    try {
+      const result = await api.enrichPoolVibes(setId);
+      setVibes(buildVibeMap(result.vibes.tracks));
+      setToast(`${result.enriched} analyzed · ${result.cached} cached · ${result.failed} failed`);
+    } catch (err) {
+      setToast(err instanceof ApiError && err.status === 400 ? err.message : 'Vibe analysis failed');
+    } finally {
+      setVibesBusy(false);
+    }
+  }, [setId]);
+
   const toggleSelect = (id: number) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -165,6 +208,24 @@ export default function PoolPanel({ setId }: { setId: number }) {
           Pool <span className={styles.poolCount}>{pool.tracks.length}</span>
         </span>
         <span style={{ flex: 1 }} />
+        {showVibes && (
+          <button
+            className="btn btn-sm"
+            onClick={analyzeVibes}
+            disabled={vibesBusy}
+            title="Analyze uncached pool tracks with AI"
+          >
+            {vibesBusy ? 'Analyzing…' : 'Analyze'}
+          </button>
+        )}
+        <button
+          className="btn btn-sm"
+          onClick={toggleVibes}
+          aria-pressed={showVibes}
+          title="Show three-tier vibe state per track"
+        >
+          Vibes
+        </button>
         <span style={{ position: 'relative' }} onMouseDown={(e) => e.stopPropagation()}>
           <button
             className="btn btn-sm"
@@ -306,6 +367,7 @@ export default function PoolPanel({ setId }: { setId: number }) {
         {filtered.map((t) => {
           const source = sourceById.get(t.source_id);
           const isSelected = selected.has(t.id);
+          const vibe = showVibes ? vibes.get(t.id) : undefined;
           return (
             <div
               key={t.id}
@@ -345,6 +407,7 @@ export default function PoolPanel({ setId }: { setId: number }) {
                     </span>
                   )}
                 </div>
+                {vibe && <VibeTiers state={vibe} />}
               </div>
               <div
                 className={styles.poolTrackStripe}

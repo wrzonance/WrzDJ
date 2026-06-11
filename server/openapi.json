@@ -2226,6 +2226,44 @@
         "title": "CollectVoteRequest",
         "type": "object"
       },
+      "CommunityVibeOut": {
+        "description": "Community consensus tier (gated by SystemSettings thresholds).",
+        "properties": {
+          "energy": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy"
+          },
+          "mood": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mood"
+          },
+          "sample_size": {
+            "title": "Sample Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "energy",
+          "mood",
+          "sample_size"
+        ],
+        "title": "CommunityVibeOut",
+        "type": "object"
+      },
       "ConnectorCreate": {
         "description": "Provider-agnostic create payload.\n\nField requirements vary by ``connector_type``:\n\n- ``openai_apikey`` / ``anthropic_apikey`` / ``openrouter_apikey`` /\n  ``xai_apikey`` / ``gemini_apikey``: ``api_key`` required; ``base_url``\n  and ``bearer`` are ignored.\n- ``openai_compatible``: ``base_url`` required; ``bearer`` optional;\n  ``api_key`` is ignored.\n- ``bedrock``: ``aws_access_key_id``, ``aws_secret_access_key``,\n  ``aws_region`` and ``aws_model_id`` required; other fields ignored.\n- ``azure_openai``: ``api_key``, ``azure_resource_name``,\n  ``azure_deployment_name`` and ``azure_api_version`` all required.\n\nThe combination is enforced by :meth:`_require_credentials_for_type`.\nSee ``build_create_payload`` in ``services/llm/connector_storage.py``\nfor the full validation flow (including key shape checks).",
         "properties": {
@@ -4513,6 +4551,114 @@
         "title": "LiveJoinCodeResponse",
         "type": "object"
       },
+      "LlmVibeOut": {
+        "description": "Globally-cached LLM guess tier.",
+        "properties": {
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "dance_floor": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dance Floor"
+          },
+          "energy": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy"
+          },
+          "era": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Era"
+          },
+          "llm_model": {
+            "title": "Llm Model",
+            "type": "string"
+          },
+          "llm_provider": {
+            "title": "Llm Provider",
+            "type": "string"
+          },
+          "low_confidence": {
+            "title": "Low Confidence",
+            "type": "boolean"
+          },
+          "mood": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mood"
+          },
+          "sing_along": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sing Along"
+          },
+          "transitional_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transitional Role"
+          }
+        },
+        "required": [
+          "confidence",
+          "dance_floor",
+          "energy",
+          "era",
+          "llm_model",
+          "llm_provider",
+          "low_confidence",
+          "mood",
+          "sing_along",
+          "transitional_role"
+        ],
+        "title": "LlmVibeOut",
+        "type": "object"
+      },
       "MePreferencesUpdate": {
         "properties": {
           "frictionless_join_default": {
@@ -4748,6 +4894,39 @@
           "title"
         ],
         "title": "NowPlayingResponse",
+        "type": "object"
+      },
+      "OwnVibeOut": {
+        "description": "The DJ's own override tier.",
+        "properties": {
+          "energy": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy"
+          },
+          "mood": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mood"
+          }
+        },
+        "required": [
+          "energy",
+          "mood"
+        ],
+        "title": "OwnVibeOut",
         "type": "object"
       },
       "PaginatedResponse": {
@@ -5620,6 +5799,23 @@
         "title": "PoolUrlPreview",
         "type": "object"
       },
+      "PoolVibesState": {
+        "description": "Vibe state for every track in a set's pool.",
+        "properties": {
+          "tracks": {
+            "items": {
+              "$ref": "#/components/schemas/TrackVibeStateOut"
+            },
+            "title": "Tracks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tracks"
+        ],
+        "title": "PoolVibesState",
+        "type": "object"
+      },
       "PublicEventInfo": {
         "properties": {
           "code": {
@@ -6394,6 +6590,73 @@
           "status"
         ],
         "title": "RequestUpdate",
+        "type": "object"
+      },
+      "ResolvedVibeOut": {
+        "description": "Per-field precedence result: own -> community -> llm.",
+        "properties": {
+          "energy": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy"
+          },
+          "energy_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "own",
+                  "community",
+                  "llm"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy Source"
+          },
+          "mood": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mood"
+          },
+          "mood_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "own",
+                  "community",
+                  "llm"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mood Source"
+          }
+        },
+        "required": [
+          "energy",
+          "energy_source",
+          "mood",
+          "mood_source"
+        ],
+        "title": "ResolvedVibeOut",
         "type": "object"
       },
       "SearchResult": {
@@ -7201,6 +7464,14 @@
           "tidal_enabled": {
             "title": "Tidal Enabled",
             "type": "boolean"
+          },
+          "vibe_consensus_max_stddev": {
+            "title": "Vibe Consensus Max Stddev",
+            "type": "number"
+          },
+          "vibe_consensus_min_sample": {
+            "title": "Vibe Consensus Min Sample",
+            "type": "integer"
           }
         },
         "required": [
@@ -7212,7 +7483,9 @@
           "registration_enabled",
           "search_rate_limit_per_minute",
           "spotify_enabled",
-          "tidal_enabled"
+          "tidal_enabled",
+          "vibe_consensus_max_stddev",
+          "vibe_consensus_min_sample"
         ],
         "title": "SystemSettingsOut",
         "type": "object"
@@ -7321,6 +7594,32 @@
               }
             ],
             "title": "Tidal Enabled"
+          },
+          "vibe_consensus_max_stddev": {
+            "anyOf": [
+              {
+                "maximum": 5.0,
+                "minimum": 0.1,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vibe Consensus Max Stddev"
+          },
+          "vibe_consensus_min_sample": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vibe Consensus Min Sample"
           }
         },
         "title": "SystemSettingsUpdate",
@@ -7811,6 +8110,62 @@
         "title": "Token",
         "type": "object"
       },
+      "TrackVibeStateOut": {
+        "description": "All three tiers + resolution for one pool track.",
+        "properties": {
+          "community": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CommunityVibeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "llm": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LlmVibeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "own": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OwnVibeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pool_track_id": {
+            "title": "Pool Track Id",
+            "type": "integer"
+          },
+          "resolved": {
+            "$ref": "#/components/schemas/ResolvedVibeOut"
+          },
+          "vibe_key": {
+            "title": "Vibe Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "community",
+          "llm",
+          "own",
+          "pool_track_id",
+          "resolved",
+          "vibe_key"
+        ],
+        "title": "TrackVibeStateOut",
+        "type": "object"
+      },
       "UpdateCollectionSettings": {
         "properties": {
           "collection_opens_at": {
@@ -8196,6 +8551,39 @@
           "verified"
         ],
         "title": "VerifyStatusResponse",
+        "type": "object"
+      },
+      "VibeEnrichmentResult": {
+        "description": "Result of an enrichment run, plus the refreshed vibe state.",
+        "properties": {
+          "cached": {
+            "title": "Cached",
+            "type": "integer"
+          },
+          "enriched": {
+            "title": "Enriched",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "llm_calls": {
+            "title": "Llm Calls",
+            "type": "integer"
+          },
+          "vibes": {
+            "$ref": "#/components/schemas/PoolVibesState"
+          }
+        },
+        "required": [
+          "cached",
+          "enriched",
+          "failed",
+          "llm_calls",
+          "vibes"
+        ],
+        "title": "VibeEnrichmentResult",
         "type": "object"
       },
       "VibeWindowModel": {
@@ -16033,6 +16421,105 @@
           }
         ],
         "summary": "Preview Pool Url",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/pool/vibes": {
+      "get": {
+        "description": "Three-tier vibe state (own / community / LLM) for the set's pool.",
+        "operationId": "get_pool_vibes_api_setbuilder_sets__set_id__pool_vibes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PoolVibesState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Pool Vibes",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/pool/vibes/enrich": {
+      "post": {
+        "description": "Batch-enrich uncached pool tracks via the LLM gateway (20 tracks/call).",
+        "operationId": "enrich_pool_vibes_api_setbuilder_sets__set_id__pool_vibes_enrich_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VibeEnrichmentResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "No LLM connector configured for this DJ or the org."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Enrich Pool Vibes",
         "tags": [
           "setbuilder"
         ]

@@ -17,10 +17,13 @@ from app.schemas.setbuilder import (
     ApplyTemplateResponse,
     BuilderPlaylistsOut,
     BuiltinTemplateOut,
+    CommunityVibeOut,
     CurvePointModel,
     CurveTemplateCreate,
     CurveTemplateOut,
     CurveTemplatesResponse,
+    LlmVibeOut,
+    OwnVibeOut,
     PoolImportEventIn,
     PoolImportManualIn,
     PoolImportPlaylistIn,
@@ -32,6 +35,8 @@ from app.schemas.setbuilder import (
     PoolState,
     PoolTrackOut,
     PoolUrlPreview,
+    PoolVibesState,
+    ResolvedVibeOut,
     SetCreate,
     SetDetail,
     SetRename,
@@ -40,11 +45,14 @@ from app.schemas.setbuilder import (
     SlotTargetOut,
     SlotTargetUpdate,
     TemplateWindowOut,
+    TrackVibeStateOut,
+    VibeEnrichmentResult,
     VibeWindowModel,
     VibeWindowsPut,
     VibeWindowsResponse,
 )
-from app.services.setbuilder import curve, pool, set_service
+from app.services.llm.exceptions import NoLlmConfigured
+from app.services.setbuilder import curve, pool, set_service, vibe_enrichment, vibe_resolver
 from app.services.setbuilder.playlist_url import InvalidPlaylistUrl, parse_public_playlist_url
 
 router = APIRouter()
@@ -566,3 +574,96 @@ def remove_pool_source(
         raise HTTPException(status_code=404, detail="Source not found")
     removed = pool.remove_source(db, set_obj, source)
     return PoolMutationResult(removed=removed, pool=_pool_state(db, set_obj.id))
+
+
+# ---------------------------------------------------------------------------
+# Track vibes (issue #391) — read-only three-tier state + LLM enrichment
+
+
+def _pool_vibes_state(db: Session, actor: User, set_obj: Set) -> PoolVibesState:
+    states = vibe_resolver.build_pool_vibe_states(db, actor, set_obj)
+    out = []
+    for s in states:
+        llm_out = None
+        if s.llm is not None:
+            llm_out = LlmVibeOut(
+                energy=s.llm.energy,
+                mood=s.llm.mood,
+                era=s.llm.era,
+                sing_along=s.llm.sing_along,
+                dance_floor=s.llm.dance_floor,
+                transitional_role=s.llm.transitional_role,
+                confidence=s.llm.confidence,
+                low_confidence=vibe_resolver.is_low_confidence(s.llm),
+                llm_provider=s.llm.llm_provider,
+                llm_model=s.llm.llm_model,
+            )
+        out.append(
+            TrackVibeStateOut(
+                pool_track_id=s.pool_track_id,
+                vibe_key=s.vibe_key,
+                own=OwnVibeOut(energy=s.own.energy, mood=s.own.mood) if s.own else None,
+                community=(
+                    CommunityVibeOut(
+                        energy=s.community.energy,
+                        mood=s.community.mood,
+                        sample_size=s.community.sample_size,
+                    )
+                    if s.community
+                    else None
+                ),
+                llm=llm_out,
+                resolved=ResolvedVibeOut(
+                    energy=s.resolved.energy,
+                    energy_source=s.resolved.energy_source,
+                    mood=s.resolved.mood,
+                    mood_source=s.resolved.mood_source,
+                ),
+            )
+        )
+    return PoolVibesState(tracks=out)
+
+
+@router.get("/sets/{set_id}/pool/vibes", response_model=PoolVibesState)
+@limiter.limit("60/minute")
+def get_pool_vibes(
+    set_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> PoolVibesState:
+    """Three-tier vibe state (own / community / LLM) for the set's pool."""
+    set_obj = _get_owned_or_404(db, set_id, current_user)
+    return _pool_vibes_state(db, current_user, set_obj)
+
+
+@router.post(
+    "/sets/{set_id}/pool/vibes/enrich",
+    response_model=VibeEnrichmentResult,
+    responses={
+        400: {"description": "No LLM connector configured for this DJ or the org."},
+    },
+)
+@limiter.limit("5/minute")
+async def enrich_pool_vibes(
+    set_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> VibeEnrichmentResult:
+    """Batch-enrich uncached pool tracks via the LLM gateway (20 tracks/call)."""
+    set_obj = _get_owned_or_404(db, set_id, current_user)
+    try:
+        stats = await vibe_enrichment.enrich_pool_vibes(db, current_user, set_obj)
+    except NoLlmConfigured:
+        raise HTTPException(
+            status_code=400,
+            detail="No AI connector configured — connect one in Settings → AI.",
+        ) from None
+    return VibeEnrichmentResult(
+        enriched=stats.enriched,
+        cached=stats.cached,
+        failed=stats.failed,
+        llm_calls=stats.llm_calls,
+        vibes=_pool_vibes_state(db, current_user, set_obj),
+    )

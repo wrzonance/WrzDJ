@@ -2866,6 +2866,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setbuilder/sets/{set_id}/pool/vibes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Pool Vibes
+         * @description Three-tier vibe state (own / community / LLM) for the set's pool.
+         */
+        get: operations["get_pool_vibes_api_setbuilder_sets__set_id__pool_vibes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/pool/vibes/enrich": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enrich Pool Vibes
+         * @description Batch-enrich uncached pool tracks via the LLM gateway (20 tracks/call).
+         */
+        post: operations["enrich_pool_vibes_api_setbuilder_sets__set_id__pool_vibes_enrich_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setbuilder/sets/{set_id}/share": {
         parameters: {
             query?: never;
@@ -3939,6 +3979,18 @@ export interface components {
             request_id: number;
         };
         /**
+         * CommunityVibeOut
+         * @description Community consensus tier (gated by SystemSettings thresholds).
+         */
+        CommunityVibeOut: {
+            /** Energy */
+            energy: number | null;
+            /** Mood */
+            mood: string | null;
+            /** Sample Size */
+            sample_size: number;
+        };
+        /**
          * ConnectorCreate
          * @description Provider-agnostic create payload.
          *
@@ -4741,6 +4793,32 @@ export interface components {
             /** Join Code */
             join_code: string;
         };
+        /**
+         * LlmVibeOut
+         * @description Globally-cached LLM guess tier.
+         */
+        LlmVibeOut: {
+            /** Confidence */
+            confidence: number | null;
+            /** Dance Floor */
+            dance_floor: boolean | null;
+            /** Energy */
+            energy: number | null;
+            /** Era */
+            era: string | null;
+            /** Llm Model */
+            llm_model: string;
+            /** Llm Provider */
+            llm_provider: string;
+            /** Low Confidence */
+            low_confidence: boolean;
+            /** Mood */
+            mood: string | null;
+            /** Sing Along */
+            sing_along: boolean | null;
+            /** Transitional Role */
+            transitional_role: string | null;
+        };
         /** MePreferencesUpdate */
         MePreferencesUpdate: {
             /** Frictionless Join Default */
@@ -4821,6 +4899,16 @@ export interface components {
             started_at: string;
             /** Title */
             title: string;
+        };
+        /**
+         * OwnVibeOut
+         * @description The DJ's own override tier.
+         */
+        OwnVibeOut: {
+            /** Energy */
+            energy: number | null;
+            /** Mood */
+            mood: string | null;
         };
         /** PaginatedResponse */
         PaginatedResponse: {
@@ -5098,6 +5186,14 @@ export interface components {
             /** Track Count */
             track_count: number | null;
         };
+        /**
+         * PoolVibesState
+         * @description Vibe state for every track in a set's pool.
+         */
+        PoolVibesState: {
+            /** Tracks */
+            tracks: components["schemas"]["TrackVibeStateOut"][];
+        };
         /** PublicEventInfo */
         PublicEventInfo: {
             /** Code */
@@ -5343,6 +5439,20 @@ export interface components {
         /** RequestUpdate */
         RequestUpdate: {
             status: components["schemas"]["RequestStatus"];
+        };
+        /**
+         * ResolvedVibeOut
+         * @description Per-field precedence result: own -> community -> llm.
+         */
+        ResolvedVibeOut: {
+            /** Energy */
+            energy: number | null;
+            /** Energy Source */
+            energy_source: ("own" | "community" | "llm") | null;
+            /** Mood */
+            mood: string | null;
+            /** Mood Source */
+            mood_source: ("own" | "community" | "llm") | null;
         };
         /** SearchResult */
         SearchResult: {
@@ -5626,6 +5736,10 @@ export interface components {
             spotify_enabled: boolean;
             /** Tidal Enabled */
             tidal_enabled: boolean;
+            /** Vibe Consensus Max Stddev */
+            vibe_consensus_max_stddev: number;
+            /** Vibe Consensus Min Sample */
+            vibe_consensus_min_sample: number;
         };
         /** SystemSettingsUpdate */
         SystemSettingsUpdate: {
@@ -5647,6 +5761,10 @@ export interface components {
             spotify_enabled?: boolean | null;
             /** Tidal Enabled */
             tidal_enabled?: boolean | null;
+            /** Vibe Consensus Max Stddev */
+            vibe_consensus_max_stddev?: number | null;
+            /** Vibe Consensus Min Sample */
+            vibe_consensus_min_sample?: number | null;
         };
         /** SystemStats */
         SystemStats: {
@@ -5813,6 +5931,20 @@ export interface components {
              */
             token_type: string;
         };
+        /**
+         * TrackVibeStateOut
+         * @description All three tiers + resolution for one pool track.
+         */
+        TrackVibeStateOut: {
+            community: components["schemas"]["CommunityVibeOut"] | null;
+            llm: components["schemas"]["LlmVibeOut"] | null;
+            own: components["schemas"]["OwnVibeOut"] | null;
+            /** Pool Track Id */
+            pool_track_id: number;
+            resolved: components["schemas"]["ResolvedVibeOut"];
+            /** Vibe Key */
+            vibe_key: string;
+        };
         /** UpdateCollectionSettings */
         UpdateCollectionSettings: {
             /** Collection Opens At */
@@ -5953,6 +6085,21 @@ export interface components {
             expires_in: number;
             /** Verified */
             verified: boolean;
+        };
+        /**
+         * VibeEnrichmentResult
+         * @description Result of an enrichment run, plus the refreshed vibe state.
+         */
+        VibeEnrichmentResult: {
+            /** Cached */
+            cached: number;
+            /** Enriched */
+            enriched: number;
+            /** Failed */
+            failed: number;
+            /** Llm Calls */
+            llm_calls: number;
+            vibes: components["schemas"]["PoolVibesState"];
         };
         /**
          * VibeWindowModel
@@ -11024,6 +11171,75 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PoolUrlPreview"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_pool_vibes_api_setbuilder_sets__set_id__pool_vibes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolVibesState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enrich_pool_vibes_api_setbuilder_sets__set_id__pool_vibes_enrich_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VibeEnrichmentResult"];
+                };
+            };
+            /** @description No LLM connector configured for this DJ or the org. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

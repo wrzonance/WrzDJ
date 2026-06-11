@@ -54,6 +54,7 @@ import type {
   PoolMutationResult,
   PoolState,
   PoolUrlPreview,
+  PoolVibesState,
   PublicEvent,
   RecommendationResponse,
   SearchResult,
@@ -70,6 +71,7 @@ import type {
   TidalSearchResult,
   TidalSyncResult,
   TidalStatus,
+  VibeEnrichmentResult,
   VibeWindow,
   VibeWindowsResponse,
   VoteResponse,
@@ -733,6 +735,13 @@ class ApiClient {
   // WrzDJSet pool (issue #388)
   async getPool(setId: number): Promise<PoolState> {
     return this.fetch(`/api/setbuilder/sets/${setId}/pool`);
+  }
+  // TrackVibe three-tier state (issue #391)
+  async getPoolVibes(setId: number): Promise<PoolVibesState> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/pool/vibes`);
+  }
+  async enrichPoolVibes(setId: number): Promise<VibeEnrichmentResult> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/pool/vibes/enrich`, { method: 'POST' });
   }
   async getBuilderPlaylists(): Promise<BuilderPlaylists> {
     return this.fetch('/api/setbuilder/playlists');

@@ -88,6 +88,10 @@ class ChatResponse(BaseModel):
     usage: TokenUsage | None = None
     # The provider model id that actually produced the response (for telemetry).
     model: str | None = None
+    # The connector_type that served the call (e.g. "anthropic_apikey").
+    # Populated by the gateway from the resolved connector — adapters leave it None.
+    # Not surfaced on streamed responses (ChatResponseChunk).
+    provider: str | None = None
 
 
 class ToolCallDelta(BaseModel):

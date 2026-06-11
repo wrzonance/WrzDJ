@@ -24,3 +24,21 @@ class TestVibeConsensusSettings:
         body = resp.json()
         assert body["vibe_consensus_min_sample"] == 4
         assert body["vibe_consensus_max_stddev"] == 1.0
+
+    def test_min_sample_bounds_rejected(self, client, admin_headers):
+        for bad in (0, 101):
+            resp = client.patch(
+                "/api/admin/settings",
+                json={"vibe_consensus_min_sample": bad},
+                headers=admin_headers,
+            )
+            assert resp.status_code == 422
+
+    def test_max_stddev_bounds_rejected(self, client, admin_headers):
+        for bad in (0.0, 5.1):
+            resp = client.patch(
+                "/api/admin/settings",
+                json={"vibe_consensus_max_stddev": bad},
+                headers=admin_headers,
+            )
+            assert resp.status_code == 422

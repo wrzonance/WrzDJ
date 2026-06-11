@@ -603,3 +603,41 @@
   letter-spacing: 0.05em;
   line-height: 1.6;
 }
+
+/* Three-tier vibe chips (issue #391) */
+
+.vibeTiers {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.vibeChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border, #3a3a3a);
+  color: var(--text-secondary);
+}
+
+.vibeChipLabel {
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+.vibeEmpty {
+  opacity: 0.45;
+}
+
+.vibeLow {
+  border-color: #f59e0b;
+  border-style: dashed;
+  color: #f59e0b;
+}
+
+.vibeWinner {
+  border-color: var(--color-primary, #8b5cf6);
+}

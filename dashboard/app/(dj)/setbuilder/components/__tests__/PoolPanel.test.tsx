@@ -17,9 +17,14 @@ const mockApi = vi.hoisted(() => ({
   removePoolSource: vi.fn(),
   getEvents: vi.fn(),
   search: vi.fn(),
+  getPoolVibes: vi.fn(),
+  enrichPoolVibes: vi.fn(),
 }));
 
-vi.mock('@/lib/api', () => ({ api: mockApi }));
+vi.mock('@/lib/api', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/lib/api')>();
+  return { api: mockApi, ApiError: original.ApiError };
+});
 
 const SOURCES = [
   {

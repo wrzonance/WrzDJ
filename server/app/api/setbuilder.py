@@ -5,6 +5,8 @@ Mounted at /api/setbuilder. Every endpoint requires an active DJ
 missing-or-unowned sets return 404 to avoid leaking existence.
 """
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
@@ -692,7 +694,8 @@ async def enrich_pool_vibes(
 
 
 def _unresolved_out(
-    tracks: list[export_common.ExportTrack], reason: str
+    tracks: list[export_common.ExportTrack],
+    reason: Literal["no_tidal_match", "missing_metadata"],
 ) -> list[UnresolvedTrackOut]:
     return [
         UnresolvedTrackOut(
@@ -799,10 +802,10 @@ def export_set_tidal(
     )
 
 
-_FILE_MEDIA = {
-    "rekordbox": ("application/xml", "xml"),
-    "m3u": ("audio/x-mpegurl", "m3u8"),
-    "txt": ("text/plain", "txt"),
+_FILE_RENDERERS = {
+    "rekordbox": (export_files.render_rekordbox_xml, "application/xml", "xml"),
+    "m3u": (export_files.render_m3u, "audio/x-mpegurl", "m3u8"),
+    "txt": (export_files.render_txt, "text/plain", "txt"),
 }
 
 
@@ -826,14 +829,8 @@ def export_set_file(
         raise _unresolved_409(_unresolved_out(unresolved, "missing_metadata"))
     exportable = [t for t in tracks if t.has_metadata]
 
-    if payload.format == "rekordbox":
-        content = export_files.render_rekordbox_xml(set_obj.name, exportable)
-    elif payload.format == "m3u":
-        content = export_files.render_m3u(set_obj.name, exportable)
-    else:
-        content = export_files.render_txt(set_obj.name, exportable)
-
-    media_type, ext = _FILE_MEDIA[payload.format]
+    render, media_type, ext = _FILE_RENDERERS[payload.format]
+    content = render(set_obj.name, exportable)
     filename = export_files.safe_filename(set_obj.name, ext)
     return Response(
         content=content,

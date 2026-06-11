@@ -214,7 +214,8 @@ class TestTidalExport:
         assert resp.status_code == 400
 
     def test_tidal_export_error_502(self, client, auth_headers, db, set_id, test_user, monkeypatch):
-        """TidalExportError during playlist creation surfaces as 502."""
+        """A generic exception from tidalapi during playlist creation is wrapped by
+        export_to_tidal into TidalExportError and surfaces as 502 at the endpoint."""
         _seed_pool(db, set_id)
         _connect_tidal(db, test_user)
         monkeypatch.setattr("app.services.tidal.search_tidal_by_isrc", lambda *a: None)
@@ -222,18 +223,20 @@ class TestTidalExport:
             "app.services.tidal.search_tidal_tracks", lambda db_, u, q, limit=10: []
         )
 
-        def _bad_session(db_, u):
-            from app.services.setbuilder.export_tidal import TidalExportError
-
-            raise TidalExportError("forced")
-
-        monkeypatch.setattr("app.services.tidal.get_tidal_session", _bad_session)
+        broken_session = SimpleNamespace(
+            user=SimpleNamespace(
+                create_playlist=lambda name, desc: (_ for _ in ()).throw(Exception("boom"))
+            )
+        )
+        monkeypatch.setattr("app.services.tidal.get_tidal_session", lambda db_, u: broken_session)
         resp = client.post(
             f"/api/setbuilder/sets/{set_id}/export/tidal",
             json={"skip_unresolved": True},
             headers=auth_headers,
         )
         assert resp.status_code == 502
+        db.expire_all()
+        assert db.get(Set, set_id).status == "draft"
 
 
 class TestFileExport:

@@ -318,13 +318,6 @@ export interface LlmStreamChunk {
   done?: boolean;
 }
 
-/**
- * Wrap a guest-public fetch in 403-human-verification-required retry logic.
- * Caller passes a `reverify` async function that re-runs the Turnstile
- * bootstrap and resolves once `wrzdj_human` cookie is set. On a 403 with
- * `detail.code === 'human_verification_required'`, the wrapper calls
- * `reverify()` and retries the fetch once.
- */
 export class EmailVerificationRequiredError extends Error {
   constructor() {
     super('email_verification_required');
@@ -332,6 +325,14 @@ export class EmailVerificationRequiredError extends Error {
   }
 }
 
+/**
+ * Wrap a guest-public fetch in 403-human-verification-required retry logic.
+ * Caller passes a `reverify` async function that re-runs the Turnstile
+ * bootstrap and resolves once `wrzdj_human` cookie is set. On a 403 with
+ * `detail.code === 'human_verification_required'`, the wrapper calls
+ * `reverify()` and retries the fetch once. Throws HumanVerificationRequiredError
+ * if the retried request is still rejected for missing human verification.
+ */
 export async function withHumanRetry<T>(
   doFetch: () => Promise<Response>,
   reverify: () => Promise<void>,
@@ -348,6 +349,12 @@ export async function withHumanRetry<T>(
   }
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: 'Request failed' }));
+    if (error?.detail?.code === 'human_verification_required') {
+      // Still unverified after the one retry — surface a typed error so pages
+      // can distinguish "bot check pending/failed" from feature-level 403s
+      // (e.g. frictionless_disabled). See issue #419.
+      throw new HumanVerificationRequiredError();
+    }
     throw new ApiError(error.detail || 'Request failed', res.status);
   }
   return res.json();

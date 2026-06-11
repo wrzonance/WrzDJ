@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
 // Use vi.hoisted so mock objects are available before vi.mock factory runs
-const { mockApi, MockApiError, MockHumanVerificationRequiredError } = vi.hoisted(() => {
+const { mockApi, MockApiError, MockHumanVerificationRequiredError, nicknameGateRenderSpy } =
+  vi.hoisted(() => {
   class MockApiError extends Error {
     status: number;
     constructor(message: string, status = 0) {
@@ -34,7 +35,11 @@ const { mockApi, MockApiError, MockHumanVerificationRequiredError } = vi.hoisted
     ensureGuestName: vi.fn(),
   };
 
-  return { mockApi, MockApiError, MockHumanVerificationRequiredError };
+  // Tracks every NicknameGate mock render so tests can assert it never even
+  // transiently mounted (final-DOM absence alone misses a mount/unmount flash).
+  const nicknameGateRenderSpy = vi.fn();
+
+  return { mockApi, MockApiError, MockHumanVerificationRequiredError, nicknameGateRenderSpy };
 });
 
 vi.mock('next/navigation', () => ({
@@ -65,6 +70,7 @@ vi.mock('@/lib/use-event-stream', () => ({
 
 vi.mock('@/components/NicknameGate', () => ({
   NicknameGate: ({ onComplete }: { onComplete: (r: unknown) => void }) => {
+    nicknameGateRenderSpy();
     onComplete({ nickname: 'TestUser', emailVerified: false, submissionCount: 0, submissionCap: 5 });
     return <div data-testid="nickname-gate" />;
   },
@@ -776,6 +782,8 @@ describe('JoinEventPage — frictionless join', () => {
 
     await waitFor(() => expect(screen.getByText(/VerifiedOtter/)).toBeInTheDocument());
     expect(reverifyAwaited).toBe(true);
+    // Not just absent from the final DOM — the gate must never have mounted at all.
+    expect(nicknameGateRenderSpy).not.toHaveBeenCalled();
     expect(screen.queryByTestId('nickname-gate')).not.toBeInTheDocument();
   });
 
@@ -788,6 +796,7 @@ describe('JoinEventPage — frictionless join', () => {
     await waitFor(() =>
       expect(screen.getByText(/Verification didn.t go through/i)).toBeInTheDocument(),
     );
+    expect(nicknameGateRenderSpy).not.toHaveBeenCalled();
     expect(screen.queryByTestId('nickname-gate')).not.toBeInTheDocument();
   });
 
@@ -801,6 +810,7 @@ describe('JoinEventPage — frictionless join', () => {
     await waitFor(() =>
       expect(screen.getByText(/Verification didn.t go through/i)).toBeInTheDocument(),
     );
+    expect(nicknameGateRenderSpy).not.toHaveBeenCalled();
     expect(screen.queryByTestId('nickname-gate')).not.toBeInTheDocument();
   });
 

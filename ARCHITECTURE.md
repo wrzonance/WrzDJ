@@ -150,6 +150,59 @@ REJECTED → NEW (re-open)
   fuzzy; (3) Tidal fuzzy. `_apply_enrichment_result()` only fills missing fields. `_find_best_match()`
   scores title 60% + artist 40% with original-version bonus / remix penalty / BPM tiebreaker.
 
+## WrzDJSet (Set Builder)
+
+The set builder lets a DJ pre-plan a performance as an ordered timeline of slots backed by a
+candidate-track *pool*, with a derived energy curve, multi-source vibe tagging, sharing, and export
+to real DJ tooling. Backend: `server/app/api/setbuilder.py` + `setbuilder_share.py` (mounted at
+`/api/setbuilder`, public read at `/api/public/setbuilder`) over `server/app/services/setbuilder/`.
+Frontend: `dashboard/app/(dj)/setbuilder/`.
+
+**Data model** (`server/app/models/`):
+
+- `set.py` — `Set` (owner-scoped; `status`, `sharing_mode`, CSPRNG `share_token`, BPM floor/ceiling,
+  `key_strictness`, optional `event_id` / `tidal_playlist_id`), `SetSlot` (ordered `position`,
+  namespaced `track_id`, `locked`, `target_energy`, transition score/warnings), `SetCurvePoint`
+  (energy 0–10 at `position_sec`, slow-window markers), `SetCollaborator` (editor/viewer).
+- `set_pool.py` — `SetPoolSource` (per-import provenance) + `SetPoolTrack` (candidate tracks,
+  deduped on ISRC then normalized artist+title).
+- `track_vibe.py` — `TrackVibe` (GLOBAL LLM-enrichment cache keyed by track + prompt/schema version)
+  + `TrackVibeOverride` (per-DJ vote feeding community consensus).
+- Migrations: `046_add_setbuilder_tables`, then (apply order, which is **not** numeric —
+  verify with `alembic history`) `054_add_set_share_token` → `053_add_setbuilder_pool_tables` →
+  `055_add_curve_templates`, and later `057_add_vibe_consensus_settings`.
+
+**Services** (`server/app/services/setbuilder/`):
+
+- `set_service.py` — owner-scoped CRUD; a missing-or-unowned set returns **404 (not 403)** to avoid
+  leaking existence (matches `deps.get_owned_event_by_id`).
+- `pool.py` — the candidate-track surface; tracks flow in from event requests, Tidal, Beatport,
+  public playlist URL, and manual search, each tagged with its `SetPoolSource` for per-source removal.
+- `playlist_url.py` — **parses but never fetches** user-supplied playlist URLs (SSRF defense):
+  https-only, exact-host allowlist, strict ID charset; importers then call official APIs by ID.
+- `curve.py` — energy-curve templates (built-in + per-DJ) interpolated piecewise-linear onto each
+  slot's `target_energy` at its timeline midpoint; the curve is *derived*, not stored per-slot twice.
+- `vibe_enrichment.py` / `vibe_resolver.py` / `community_vibe.py` — three-tier vibe precedence
+  (own → community → LLM cache), resolved per-field at read time (nothing materialized). The LLM tier
+  routes through the gateway (`purpose="set_builder"`), batched forced-`tool_use`, cached globally so
+  a second DJ pays nothing; the community tier is gated by `vibe_consensus_min_sample` /
+  `vibe_consensus_max_stddev` (System Settings) so noise never masquerades as consensus.
+- `export_common.py` / `export_files.py` / `export_tidal.py` — export the ordered timeline (falling
+  back to pool order until timeline auto-fill lands): Tidal playlist (OAuth + fuzzy match), Rekordbox
+  XML (`DJ_PLAYLISTS 1.0.0`, synthetic `file://` Location the DJ relinks), M3U8, and plaintext. A
+  two-phase preflight reports **unresolved** tracks (409) so the DJ can skip them.
+- `share_service.py` — share-token + duplicate logic; the token is the *sole* capability for the
+  public read-only view and never grants a mutating route.
+
+**Endpoints** (all `/api/setbuilder` unless noted; rate-limited per route):
+
+- Sets/slots: CRUD `sets`, `sets/{id}/slots`, slot target-energy, vibe-windows, curve templates + apply.
+- Pool: `sets/{id}/pool` plus `pool/import/{event,tidal,beatport,url,manual}`, `pool/url-preview`,
+  per-source/-track removal, `pool/vibes` (read, `60/min`) + `pool/vibes` enrich (`5/min`).
+- Export: `export/preflight`, `export/tidal`, `export/file` (Rekordbox XML / M3U8 / plaintext download).
+- Sharing: `sets/{id}/share` (create/rotate/revoke), `sets/{id}/duplicate`, and public token-gated
+  `GET /api/public/setbuilder/...` (`30/min`).
+
 ## Bridge Plugin System
 
 See `docs/PLUGIN-ARCHITECTURE.md` for full details.

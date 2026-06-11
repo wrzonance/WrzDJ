@@ -56,6 +56,21 @@ covers the baseline (secrets, prompt-injection, dependency CVE/license policy).
   an ephemeral key with a startup warning.
 - See `docs/HUMAN-VERIFICATION.md` for full details.
 
+## WrzDJSet Sharing & Pool Import
+
+- **Set sharing is capability-based, not role-based.** A `Set` is published via a CSPRNG
+  `share_token` (`secrets.token_urlsafe`, unique-indexed). The public route
+  `GET /api/public/setbuilder/...` is **read-only** and the token grants access to *nothing else* —
+  every mutating set/slot/pool/export route still requires the authenticated owner. Rotating or
+  revoking the token (`POST`/`DELETE /api/setbuilder/sets/{id}/share`) invalidates the old link.
+- **Pool import never fetches user-supplied URLs (SSRF defense).** `services/setbuilder/playlist_url.py`
+  only *parses* a submitted playlist URL — https scheme enforced, exact-match host allowlist, no
+  userinfo/port tricks, playlist IDs constrained to strict charsets — and importers then call the
+  official provider API (spotipy / tidalapi) with the extracted ID. Never replace this with a direct
+  fetch of the user's URL.
+- Set CRUD returns **404 (not 403)** for a missing-or-unowned set, so existence isn't leaked across
+  owners (consistent with event scoping).
+
 ## User Data Protection
 
 - Encrypt PII and sensitive user data at rest wherever feasible. Default to encrypted;

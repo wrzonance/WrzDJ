@@ -6,10 +6,12 @@ import pytest
 
 from app.models.set import Set
 from app.models.set_pool import SetPoolSource, SetPoolTrack
-from app.models.track_vibe import TrackVibe
+from app.models.track_vibe import TrackVibe, TrackVibeOverride
 from app.models.user import User
+from app.services.auth import get_password_hash
 from app.services.llm.base import ChatRequest, ChatResponse, ToolCall
 from app.services.llm.exceptions import NoLlmConfigured, ProviderUnavailable
+from app.services.setbuilder.community_vibe import community_consensus
 from app.services.setbuilder.vibe_enrichment import (
     PROMPT_VERSION,
     SCHEMA_VERSION,
@@ -349,3 +351,102 @@ class TestVibeEnrichment:
         row = db.query(TrackVibe).one()
         assert row.llm_provider == "unknown"
         assert row.llm_model == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Community vibe consensus (services/setbuilder/community_vibe.py)
+# ---------------------------------------------------------------------------
+
+
+def _make_users(db, n: int, prefix: str = "voter") -> list[User]:
+    pw = get_password_hash("password123")  # hash once — bcrypt is slow
+    users = [User(username=f"{prefix}{i}", password_hash=pw, role="dj") for i in range(n)]
+    db.add_all(users)
+    db.commit()
+    for u in users:
+        db.refresh(u)
+    return users
+
+
+def _vote(
+    db,
+    track_id: str,
+    user_id: int,
+    *,
+    energy: int | None = None,
+    mood: str | None = None,
+) -> TrackVibeOverride:
+    row = TrackVibeOverride(
+        track_id=track_id,
+        user_id=user_id,
+        energy_override=energy,
+        mood_override=mood,
+        source="explicit_edit",
+    )
+    db.add(row)
+    db.commit()
+    return row
+
+
+class TestCommunityConsensus:
+    def test_consensus_requires_min_sample(self, db):
+        users = _make_users(db, 3)
+        _vote(db, "tidal:1", users[0].id, energy=7)
+        _vote(db, "tidal:1", users[1].id, energy=7)
+        result = community_consensus(db, ["tidal:1"], min_sample=3, max_stddev=1.5)
+        assert "tidal:1" not in result
+
+        _vote(db, "tidal:1", users[2].id, energy=8)
+        result = community_consensus(db, ["tidal:1"], min_sample=3, max_stddev=1.5)
+        assert result["tidal:1"].energy == 7  # fmean 7.33 rounds to 7
+        assert result["tidal:1"].sample_size == 3
+
+    def test_consensus_rejected_on_high_stddev(self, db):
+        users = _make_users(db, 3)
+        for user, energy in zip(users, (1, 5, 10), strict=True):
+            _vote(db, "tidal:1", user.id, energy=energy)
+        # pstdev([1, 5, 10]) ~= 3.68 >= 1.5 — too scattered; no moods either.
+        result = community_consensus(db, ["tidal:1"], min_sample=3, max_stddev=1.5)
+        assert "tidal:1" not in result
+
+    def test_latest_vote_per_user_wins(self, db):
+        users = _make_users(db, 3)
+        _vote(db, "tidal:1", users[0].id, energy=2)
+        _vote(db, "tidal:1", users[0].id, energy=8)  # supersedes the 2
+        _vote(db, "tidal:1", users[1].id, energy=8)
+        _vote(db, "tidal:1", users[2].id, energy=8)
+        result = community_consensus(db, ["tidal:1"], min_sample=3, max_stddev=1.5)
+        assert result["tidal:1"].energy == 8
+        assert result["tidal:1"].sample_size == 3
+
+    def test_mood_majority(self, db):
+        users = _make_users(db, 3)
+        for user, mood in zip(users, ("dark", "dark", "euphoric"), strict=True):
+            _vote(db, "tidal:1", user.id, mood=mood)
+        result = community_consensus(db, ["tidal:1"], min_sample=3, max_stddev=1.5)
+        assert result["tidal:1"].mood == "dark"  # 2/3 is a strict majority
+
+        for user, mood in zip(users, ("dark", "euphoric", "upbeat"), strict=True):
+            _vote(db, "tidal:2", user.id, mood=mood)
+        result = community_consensus(db, ["tidal:2"], min_sample=3, max_stddev=1.5)
+        assert "tidal:2" not in result  # three-way split: no strict majority
+
+    def test_thresholds_are_tunable(self, db):
+        users = _make_users(db, 2)
+        _vote(db, "tidal:1", users[0].id, energy=7, mood="dark")
+        _vote(db, "tidal:1", users[1].id, energy=7, mood="dark")
+        result = community_consensus(db, ["tidal:1"], min_sample=2, max_stddev=1.5)
+        assert result["tidal:1"].energy == 7
+        assert result["tidal:1"].mood == "dark"
+        assert result["tidal:1"].sample_size == 2
+
+    def test_energy_and_mood_independent(self, db):
+        users = _make_users(db, 3)
+        _vote(db, "tidal:1", users[0].id, energy=7, mood="dark")
+        _vote(db, "tidal:1", users[1].id, energy=7, mood="dark")
+        _vote(db, "tidal:1", users[2].id, mood="dark")  # no energy opinion
+        result = community_consensus(db, ["tidal:1"], min_sample=3, max_stddev=1.5)
+        vibe = result["tidal:1"]
+        assert vibe.mood == "dark"
+        assert vibe.energy is None  # only 2 energy votes < min_sample
+        assert vibe.sample_size == 3

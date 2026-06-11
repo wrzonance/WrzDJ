@@ -76,6 +76,8 @@ def collect_export_tracks(set_obj: Set) -> tuple[ExportSource, list[ExportTrack]
     """
     slots = sorted((s for s in set_obj.slots if s.track_id), key=lambda s: s.position)
     if slots:
+        # Duplicates last-win; the per-set (set_id, dedupe_sig) unique constraint makes real
+        # duplicates implausible — last-win is a safe fallback, not an expected code path.
         pool_by_tid = {pt.track_id: pt for pt in set_obj.pool_tracks if pt.track_id}
         tracks: list[ExportTrack] = []
         for idx, slot in enumerate(slots):

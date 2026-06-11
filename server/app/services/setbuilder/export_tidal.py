@@ -100,6 +100,9 @@ def export_to_tidal(
     resolved: list[tuple[ExportTrack, str]],
 ) -> TidalExportOutcome:
     """Create a fresh Tidal playlist, batch-add tracks, mark the set exported."""
+    if not resolved:
+        raise TidalExportError("No resolved tracks to export")
+
     session = tidal_service.get_tidal_session(db, user)
     if session is None:
         raise TidalNotConnected
@@ -113,6 +116,7 @@ def export_to_tidal(
 
     track_ids = [tid for _, tid in resolved]
     if not tidal_service.add_tracks_to_playlist(db, user, playlist_id, track_ids):
+        logger.error("Tidal track add failed; orphan playlist %s left in account", playlist_id)
         raise TidalExportError("Couldn't add tracks to the Tidal playlist")
 
     set_obj.tidal_playlist_id = playlist_id

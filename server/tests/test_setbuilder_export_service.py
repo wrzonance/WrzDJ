@@ -331,3 +331,85 @@ class TestExportToTidal:
         db.refresh(s)
         assert s.status == "draft"
         assert s.tidal_playlist_id is None
+
+    def test_empty_resolved_raises_before_any_api_call(self, db, test_user, monkeypatch):
+        """Fix 3: empty-resolved guard must fire before get_tidal_session."""
+        s = _mk_set(db, test_user)
+
+        def boom(*a, **kw):
+            raise AssertionError("get_tidal_session called despite empty resolved list")
+
+        monkeypatch.setattr("app.services.tidal.get_tidal_session", boom)
+        with pytest.raises(export_tidal.TidalExportError):
+            export_tidal.export_to_tidal(db, test_user, s, [])
+        db.refresh(s)
+        assert s.status == "draft"
+
+    def test_playlist_creation_failure_raises_and_set_stays_draft(self, db, test_user, monkeypatch):
+        """Fix 5: playlist creation failure → TidalExportError, set stays draft."""
+        s = _mk_set(db, test_user)
+
+        def bad_session():
+            def create_playlist(name, description):
+                raise RuntimeError("boom")
+
+            return SimpleNamespace(user=SimpleNamespace(create_playlist=create_playlist))
+
+        monkeypatch.setattr("app.services.tidal.get_tidal_session", lambda db_, u: bad_session())
+        with pytest.raises(export_tidal.TidalExportError):
+            export_tidal.export_to_tidal(
+                db, test_user, s, [(ExportTrack(position=0, title="T", artist="A"), "1")]
+            )
+        db.refresh(s)
+        assert s.status == "draft"
+        assert s.tidal_playlist_id is None
+
+
+class TestRendererSanitization:
+    """Fix 1: control-character sanitization in all renderers."""
+
+    def test_newline_in_title_cannot_inject_m3u_lines(self):
+        evil = ExportTrack(position=0, title="Song\n/etc/passwd", artist="A\r\n#EXTINF:9,fake")
+        m3u = render_m3u("x", [evil])
+        lines = m3u.splitlines()
+        assert len(lines) == 4  # header, playlist, one EXTINF, one path line
+        assert not any(line == "/etc/passwd" for line in lines)
+
+    def test_control_chars_dont_break_rekordbox_xml(self):
+        evil = ExportTrack(position=0, title="Bad\x0bTitle", artist="A\nB")
+        xml = render_rekordbox_xml("Name\x00", [evil])
+        root = ET.fromstring(xml)  # must parse without error
+        assert root.find("COLLECTION/TRACK").attrib["Name"] == "Bad Title"
+
+    def test_set_name_sanitized_in_m3u(self):
+        m3u = render_m3u("Set\nName", [])
+        lines = m3u.splitlines()
+        assert lines[1] == "#PLAYLIST:Set Name"
+
+    def test_set_name_sanitized_in_txt(self):
+        txt = render_txt("Set\nName", [])
+        assert txt.splitlines()[0] == "Set Name"
+
+    def test_set_name_sanitized_in_rekordbox_xml(self):
+        xml = render_rekordbox_xml("Set\nName", [])
+        root = ET.fromstring(xml)
+        node = root.find("PLAYLISTS/NODE/NODE")
+        assert node.attrib["Name"] == "Set Name"
+
+    def test_artist_and_string_attrs_sanitized_in_xml(self):
+        track = ExportTrack(
+            position=0,
+            title="Title\x01",
+            artist="Art\x02",
+            album="Alb\x03",
+            genre="Gen\x04",
+            key="Am\x05",
+        )
+        xml = render_rekordbox_xml("S", [track])
+        root = ET.fromstring(xml)
+        t = root.find("COLLECTION/TRACK")
+        assert t.attrib["Name"] == "Title "
+        assert t.attrib["Artist"] == "Art "
+        assert t.attrib["Album"] == "Alb "
+        assert t.attrib["Genre"] == "Gen "
+        assert t.attrib["Tonality"] == "Am "

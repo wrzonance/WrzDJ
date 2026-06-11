@@ -9,12 +9,21 @@ pool-backed tracks always have both (NOT NULL columns).
 """
 
 import re
-import xml.etree.ElementTree as ET  # nosec B405 — XML generation/serialization only; never parses untrusted input
+
+# Generation/serialization only — this module never parses untrusted XML.
+import xml.etree.ElementTree as ET  # nosec B405
 from urllib.parse import quote
 
 from app.services.setbuilder.export_common import ExportTrack
 
 _FILENAME_KEEP = re.compile(r"[^A-Za-z0-9 _\-]")
+# C0 control chars (including CR, LF, NUL, VT) — guest-sourced titles are untrusted.
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _clean(value: str) -> str:
+    """Strip control chars (incl. newlines) — guest-sourced titles are untrusted."""
+    return _CONTROL_CHARS.sub(" ", value)
 
 
 def file_unresolved(tracks: list[ExportTrack]) -> list[ExportTrack]:
@@ -29,7 +38,7 @@ def safe_filename(name: str, ext: str) -> str:
 
 
 def _display(track: ExportTrack) -> str:
-    return f"{track.artist} - {track.title}"
+    return f"{_clean(track.artist)} - {_clean(track.title)}"
 
 
 def _placeholder_location(track: ExportTrack) -> str:
@@ -45,28 +54,28 @@ def render_rekordbox_xml(set_name: str, tracks: list[ExportTrack]) -> str:
     for idx, track in enumerate(tracks, start=1):
         attrs: dict[str, str] = {
             "TrackID": str(idx),
-            "Name": track.title,
-            "Artist": track.artist,
+            "Name": _clean(track.title),
+            "Artist": _clean(track.artist),
             "Kind": "MP3 File",
             "Location": _placeholder_location(track),
         }
         if track.album:
-            attrs["Album"] = track.album
+            attrs["Album"] = _clean(track.album)
         if track.genre:
-            attrs["Genre"] = track.genre
+            attrs["Genre"] = _clean(track.genre)
         if track.duration_sec:
             attrs["TotalTime"] = str(track.duration_sec)
         if track.bpm:
             attrs["AverageBpm"] = f"{track.bpm:.2f}"
         tonality = track.key or track.camelot
         if tonality:
-            attrs["Tonality"] = tonality
+            attrs["Tonality"] = _clean(tonality)
         ET.SubElement(collection, "TRACK", attrs)
 
     playlists = ET.SubElement(root, "PLAYLISTS")
     root_node = ET.SubElement(playlists, "NODE", Type="0", Name="ROOT", Count="1")
     node = ET.SubElement(
-        root_node, "NODE", Name=set_name, Type="1", KeyType="0", Entries=str(len(tracks))
+        root_node, "NODE", Name=_clean(set_name), Type="1", KeyType="0", Entries=str(len(tracks))
     )
     for idx in range(1, len(tracks) + 1):
         ET.SubElement(node, "TRACK", Key=str(idx))
@@ -82,7 +91,7 @@ def _path_line(track: ExportTrack) -> str:
 
 def render_m3u(set_name: str, tracks: list[ExportTrack]) -> str:
     """Extended M3U (UTF-8 / .m3u8) with #EXTINF metadata lines."""
-    lines = ["#EXTM3U", f"#PLAYLIST:{set_name}"]
+    lines = ["#EXTM3U", f"#PLAYLIST:{_clean(set_name)}"]
     for track in tracks:
         duration = track.duration_sec if track.duration_sec else -1
         lines.append(f"#EXTINF:{duration},{_display(track)}")
@@ -92,6 +101,6 @@ def render_m3u(set_name: str, tracks: list[ExportTrack]) -> str:
 
 def render_txt(set_name: str, tracks: list[ExportTrack]) -> str:
     """Numbered plaintext setlist."""
-    lines = [set_name, ""]
+    lines = [_clean(set_name), ""]
     lines.extend(f"{idx}. {_display(t)}" for idx, t in enumerate(tracks, start=1))
     return "\n".join(lines) + "\n"

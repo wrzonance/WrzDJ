@@ -2,7 +2,7 @@
 ## Why
 ## What
 ## Testing
-- [ ] Backend: pytest passes (coverage ≥80%) + ruff clean
+- [ ] Backend: pytest passes (enforced coverage gate ≥85%) + ruff clean
 - [ ] Frontend: npm test + lint/tsc clean
 - [ ] Manual verification: <steps>
 - [ ] CI green

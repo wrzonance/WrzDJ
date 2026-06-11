@@ -151,6 +151,8 @@ SYSTEM_SETTINGS_KEYS = {
     "human_verification_enforced",
     "llm_enabled",
     "llm_rate_limit_per_minute",
+    "vibe_consensus_min_sample",
+    "vibe_consensus_max_stddev",
 }
 
 PUBLIC_SETTINGS_KEYS = {"registration_enabled", "turnstile_site_key"}

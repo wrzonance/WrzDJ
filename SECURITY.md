@@ -11,10 +11,13 @@ covers the baseline (secrets, prompt-injection, dependency CVE/license policy).
 
 ## Sensitive Data at Rest
 
-- **Never store tokens, secrets, API keys, passwords, or credentials in plaintext.**
-  Use the `EncryptedText` TypeDecorator (`server/app/models/base.py`, Fernet
-  AES-128-CBC + HMAC) for any new sensitive column. If a new secret type doesn't fit
-  `EncryptedText`, propose an alternative encryption scheme — plaintext is never acceptable.
+- **Never store tokens, secrets, API keys, or credentials in plaintext.** Use the
+  `EncryptedText` TypeDecorator (`server/app/models/base.py`, Fernet AES-128-CBC + HMAC) for
+  any reversible secret column. If a new secret type doesn't fit `EncryptedText`, propose an
+  alternative encryption scheme — plaintext is never acceptable.
+- **Passwords are not secrets to be decrypted** — they are salted and one-way hashed with bcrypt
+  (`services/auth.py`, `bcrypt.hashpw`/`checkpw`), never `EncryptedText`. Never make a password
+  column reversible.
 - When adding a new OAuth integration or API key storage, verify encryption is applied
   before marking the task complete. Audit existing models when touching them; if you
   find plaintext secrets, flag them immediately.
@@ -77,9 +80,11 @@ covers the baseline (secrets, prompt-injection, dependency CVE/license policy).
   plaintext storage of sensitive fields requires explicit justification.
 - Minimize data collection — don't store data you don't need.
 - **Guest identity is `guest_id` only** (cookie + ThumbmarkJS reconciliation in
-  `services/guest_identity.py`). The codebase has **no IP-derived columns or logs**. The
-  slowapi rate limiter (`get_client_ip` in `core/rate_limit.py`) is the lone IP consumer and
-  uses it ephemerally per request — never stored, never logged.
+  `services/guest_identity.py`). The codebase has **no IP-derived columns or logs** — IPs are
+  never persisted as identity. A few flows consume the client IP ephemerally per request and
+  then discard it: the slowapi rate limiter (`get_client_ip` in `core/rate_limit.py`) and
+  Turnstile verification (`api/guest.py` passes it to `verify_turnstile_token`). Never stored,
+  never logged.
 - To restore IP-based identity, see `docs/RECOVERY-IP-IDENTITY.md`.
 
 ## Dependency CVE Vigilance

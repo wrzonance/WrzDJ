@@ -78,7 +78,7 @@ Pages under `dashboard/app/admin/` with a sidebar layout; non-admins redirected 
 
 ## Request Status Flow
 
-```
+```text
 NEW → ACCEPTED → PLAYING → PLAYED
 NEW → REJECTED
 REJECTED → NEW (re-open)

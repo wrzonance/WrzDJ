@@ -61,6 +61,9 @@ export default function PoolPanel({ setId }: { setId: number }) {
   const [vibesBusy, setVibesBusy] = useState(false);
 
   useEffect(() => {
+    setVibes(new Map());
+    setShowVibes(false);
+    setVibesLoaded(false);
     api
       .getPool(setId)
       .then(setPool)
@@ -160,10 +163,14 @@ export default function PoolPanel({ setId }: { setId: number }) {
   const toggleVibes = useCallback(() => {
     if (!showVibes && !vibesLoaded) {
       setVibesLoaded(true);
+      // vibesBusy also disables Analyze while this first fetch is in flight,
+      // so an Analyze response can't be overwritten by a stale initial GET.
+      setVibesBusy(true);
       api
         .getPoolVibes(setId)
         .then((result) => setVibes(buildVibeMap(result.tracks)))
-        .catch(() => setToast('Failed to load vibes'));
+        .catch(() => setToast('Failed to load vibes'))
+        .finally(() => setVibesBusy(false));
     }
     setShowVibes((s) => !s);
   }, [showVibes, vibesLoaded, setId]);

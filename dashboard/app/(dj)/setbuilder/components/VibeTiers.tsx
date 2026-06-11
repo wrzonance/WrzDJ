@@ -71,17 +71,19 @@ function chipAria(tier: TierView): string {
 }
 
 export default function VibeTiers({ state }: { state: TrackVibeState }) {
-  const winner: TierSource | null = state.resolved.energy_source ?? state.resolved.mood_source;
-
   return (
     <div className={styles.vibeTiers}>
       {buildTiers(state).map((tier) => {
         const empty = tier.energy == null && tier.mood == null;
+        // Per-field winner: a tier wins if it supplies the resolved energy OR mood.
+        const winner =
+          state.resolved.energy_source === tier.source ||
+          state.resolved.mood_source === tier.source;
         const classes = [
           styles.vibeChip,
           empty ? styles.vibeEmpty : '',
           tier.warn ? styles.vibeLow : '',
-          !empty && winner === tier.source ? styles.vibeWinner : '',
+          !empty && winner ? styles.vibeWinner : '',
         ]
           .filter(Boolean)
           .join(' ');

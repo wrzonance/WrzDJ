@@ -5,7 +5,13 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import type { PoolState } from '@/lib/api-types';
+import { ApiError } from '@/lib/api';
+import type {
+  PoolState,
+  PoolVibesState,
+  TrackVibeState,
+  VibeEnrichmentResult,
+} from '@/lib/api-types';
 import PoolPanel from '../PoolPanel';
 
 const mockApi = vi.hoisted(() => ({
@@ -83,6 +89,44 @@ const TRACKS = [
 ];
 
 const POOL: PoolState = { sources: SOURCES, tracks: TRACKS };
+
+// --- Vibe fixtures (issue #391) ---
+
+const VIBE_STATE: TrackVibeState = {
+  pool_track_id: 11,
+  vibe_key: 'event artist|event song',
+  own: { energy: 9, mood: null },
+  community: null,
+  llm: null,
+  resolved: { energy: 9, energy_source: 'own', mood: null, mood_source: null },
+};
+
+const POOL_VIBES: PoolVibesState = { tracks: [VIBE_STATE] };
+
+const ENRICHED_VIBE_STATE: TrackVibeState = {
+  ...VIBE_STATE,
+  llm: {
+    energy: 5,
+    mood: 'happy',
+    confidence: 0.92,
+    low_confidence: false,
+    llm_provider: 'anthropic_apikey',
+    llm_model: 'claude-haiku-4-5',
+    dance_floor: null,
+    era: null,
+    sing_along: null,
+    transitional_role: null,
+  },
+  resolved: { energy: 9, energy_source: 'own', mood: 'happy', mood_source: 'llm' },
+};
+
+const ENRICH_RESULT: VibeEnrichmentResult = {
+  enriched: 2,
+  cached: 0,
+  failed: 0,
+  llm_calls: 2,
+  vibes: { tracks: [ENRICHED_VIBE_STATE] },
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -182,5 +226,67 @@ describe('PoolPanel', () => {
     expect(screen.getByText(/Remove all from “Prom Night”/)).toBeTruthy();
     fireEvent.click(screen.getByText('Remove this track'));
     await waitFor(() => expect(mockApi.removePoolTracks).toHaveBeenCalledWith(1, [11]));
+  });
+
+  it('Vibes toggle fetches once, renders chips on rows, hides on toggle-off', async () => {
+    mockApi.getPoolVibes.mockResolvedValue(POOL_VIBES);
+    render(<PoolPanel setId={1} />);
+    await screen.findByText('Event Song');
+
+    fireEvent.click(screen.getByText('Vibes'));
+    // chips render on the track row once the fetch resolves
+    expect(await screen.findByLabelText('Your vibe: energy 9')).toBeTruthy();
+    expect(screen.getByLabelText('Community vibe: not set')).toBeTruthy();
+    expect(screen.getByLabelText('AI vibe: not set')).toBeTruthy();
+    expect(mockApi.getPoolVibes).toHaveBeenCalledTimes(1);
+    expect(mockApi.getPoolVibes).toHaveBeenCalledWith(1);
+
+    // toggle off hides the chips
+    fireEvent.click(screen.getByText('Vibes'));
+    expect(screen.queryByLabelText('Your vibe: energy 9')).toBeNull();
+
+    // toggle back on does NOT refetch
+    fireEvent.click(screen.getByText('Vibes'));
+    expect(await screen.findByLabelText('Your vibe: energy 9')).toBeTruthy();
+    expect(mockApi.getPoolVibes).toHaveBeenCalledTimes(1);
+  });
+
+  it('Analyze is gated behind Vibes, enriches, updates chips, and toasts counts', async () => {
+    mockApi.getPoolVibes.mockResolvedValue(POOL_VIBES);
+    mockApi.enrichPoolVibes.mockResolvedValue(ENRICH_RESULT);
+    render(<PoolPanel setId={1} />);
+    await screen.findByText('Event Song');
+
+    // Analyze hidden until vibes are shown
+    expect(screen.queryByText('Analyze')).toBeNull();
+
+    fireEvent.click(screen.getByText('Vibes'));
+    // button reads "Analyzing…" while the initial vibe fetch is busy,
+    // then settles to "Analyze" once it resolves
+    fireEvent.click(await screen.findByText('Analyze'));
+    await waitFor(() => expect(mockApi.enrichPoolVibes).toHaveBeenCalledWith(1));
+    expect(await screen.findByText(/2 analyzed · 0 cached · 0 failed/)).toBeTruthy();
+    // chips updated from the enrichment result — AI tier now populated
+    expect(screen.getByLabelText('AI vibe: energy 5, mood happy')).toBeTruthy();
+  });
+
+  it('analyze failure surfaces ApiError 400 message, generic text otherwise', async () => {
+    mockApi.getPoolVibes.mockResolvedValue(POOL_VIBES);
+    mockApi.enrichPoolVibes.mockRejectedValueOnce(
+      new ApiError('No AI connector configured — connect one in Settings → AI.', 400)
+    );
+    render(<PoolPanel setId={1} />);
+    await screen.findByText('Event Song');
+
+    fireEvent.click(screen.getByText('Vibes'));
+    fireEvent.click(await screen.findByText('Analyze'));
+    expect(
+      await screen.findByText('No AI connector configured — connect one in Settings → AI.')
+    ).toBeTruthy();
+
+    // non-ApiError rejection falls back to the generic toast
+    mockApi.enrichPoolVibes.mockRejectedValueOnce(new Error('boom'));
+    fireEvent.click(await screen.findByText('Analyze'));
+    expect(await screen.findByText('Vibe analysis failed')).toBeTruthy();
   });
 });

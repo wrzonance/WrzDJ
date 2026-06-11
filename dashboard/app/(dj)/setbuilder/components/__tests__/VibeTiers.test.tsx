@@ -95,14 +95,15 @@ describe('VibeTiers', () => {
     expect(okChip.className).not.toContain(styles.vibeLow);
   });
 
-  it('exposes community sample size and highlights the winning tier', () => {
+  it('exposes community sample size and highlights every per-field winner', () => {
     render(<VibeTiers state={makeState()} />);
     const crowd = screen.getByLabelText('Community vibe: energy 7, mood dark');
     expect(crowd.getAttribute('title')).toBe('Community consensus from 3 DJs');
-    // resolved.energy_source === 'own' → the You chip wins
+    // energy_source === 'own' → the You chip wins energy;
+    // mood_source === 'community' → the Crowd chip wins mood — BOTH highlight.
     const own = screen.getByLabelText('Your vibe: energy 9');
     expect(own.className).toContain(styles.vibeWinner);
-    expect(crowd.className).not.toContain(styles.vibeWinner);
+    expect(crowd.className).toContain(styles.vibeWinner);
     const ai = screen.getByLabelText('AI vibe: energy 5, mood happy');
     expect(ai.className).not.toContain(styles.vibeWinner);
   });

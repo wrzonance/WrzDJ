@@ -425,7 +425,7 @@ class ApiClient {
         this.onUnauthorized();
       }
       const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-      throw new ApiError(error.detail || 'Request failed', response.status);
+      throw new ApiError(typeof error.detail === 'string' ? error.detail : 'Request failed', response.status);
     }
 
     if (response.status === 204) {
@@ -453,7 +453,7 @@ class ApiClient {
         this.onUnauthorized();
       }
       const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-      throw new ApiError(error.detail || 'Request failed', response.status);
+      throw new ApiError(typeof error.detail === 'string' ? error.detail : 'Request failed', response.status);
     }
 
     return response;
@@ -467,7 +467,7 @@ class ApiClient {
     const response = await fetch(url);
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-      throw new ApiError(error.detail || 'Request failed', response.status);
+      throw new ApiError(typeof error.detail === 'string' ? error.detail : 'Request failed', response.status);
     }
     return response.json();
   }
@@ -1765,7 +1765,7 @@ class ApiClient {
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-      throw new ApiError(error.detail || 'Request failed', response.status);
+      throw new ApiError(typeof error.detail === 'string' ? error.detail : 'Request failed', response.status);
     }
     return response.json();
   }

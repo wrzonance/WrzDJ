@@ -97,6 +97,7 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
   const [tidalResult, setTidalResult] = useState<ExportTidalResult | null>(null);
   const [fileDownloaded, setFileDownloaded] = useState<string | null>(null); // filename
   const [error, setError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
 
   // ---- pick a platform ----
   const handlePick = async (platform: (typeof PLATFORMS)[number]) => {
@@ -108,15 +109,12 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
     setFileDownloaded(null);
     setStage('checking');
 
-    // Map m3u row to 'm3u' target; others match their id
-    const target: ExportTarget =
-      platform.id === 'tidal'
-        ? 'tidal'
-        : platform.id === 'rekordbox'
-          ? 'rekordbox'
-          : platform.id === 'm3u'
-            ? 'm3u'
-            : 'txt';
+    const targetMap: Record<'tidal' | 'rekordbox' | 'm3u', ExportTarget> = {
+      tidal: 'tidal',
+      rekordbox: 'rekordbox',
+      m3u: 'm3u',
+    };
+    const target = targetMap[platform.id as 'tidal' | 'rekordbox' | 'm3u'];
 
     try {
       const result = await api.exportPreflight(set.id, target);
@@ -155,6 +153,7 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
   // ---- File export (rekordbox / m3u / txt) ----
   const handleFileExport = async (format: ExportFileFormat) => {
     setError(null);
+    setDownloading(true);
     const extMap: Record<ExportFileFormat, string> = {
       rekordbox: 'xml',
       m3u: 'm3u8',
@@ -167,6 +166,8 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
       setFileDownloaded(filename);
     } catch (e) {
       setError(errMessage(e));
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -179,6 +180,7 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
     setSkipUnresolved(false);
     setFileDownloaded(null);
     setTidalResult(null);
+    setDownloading(false);
   };
 
   // ---- derived state ----
@@ -269,6 +271,7 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
               onTidalExport={handleTidalExport}
               onFileExport={handleFileExport}
               exporting={stage === 'exporting'}
+              downloading={downloading}
             />
           )}
 
@@ -317,6 +320,7 @@ interface ConfirmStageProps {
   onTidalExport: () => void;
   onFileExport: (format: ExportFileFormat) => void;
   exporting: boolean;
+  downloading: boolean;
 }
 
 function ConfirmStage({
@@ -330,6 +334,7 @@ function ConfirmStage({
   onTidalExport,
   onFileExport,
   exporting,
+  downloading,
 }: ConfirmStageProps) {
   return (
     <div>
@@ -393,10 +398,10 @@ function ConfirmStage({
         <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
           <button
             className="btn btn-primary btn-sm"
-            disabled={exporting}
+            disabled={exporting || downloading}
             onClick={() => onFileExport('rekordbox')}
           >
-            Download .xml
+            {downloading ? 'Preparing…' : 'Download .xml'}
           </button>
           {fileDownloaded && (
             <span style={{ fontSize: '0.75rem', color: 'var(--color-success, #22c55e)', alignSelf: 'center' }}>
@@ -410,7 +415,7 @@ function ConfirmStage({
         <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           <button
             className="btn btn-primary btn-sm"
-            disabled={exporting}
+            disabled={exporting || downloading}
             onClick={() => onFileExport('m3u')}
           >
             Download .m3u8
@@ -418,7 +423,7 @@ function ConfirmStage({
           <button
             className="btn btn-sm"
             style={{ background: 'var(--surface-raised)' }}
-            disabled={exporting}
+            disabled={exporting || downloading}
             onClick={() => onFileExport('txt')}
           >
             Download .txt
@@ -526,7 +531,7 @@ function TidalDonePanel({ result }: { result: ExportTidalResult }) {
         className="btn btn-primary btn-sm"
         style={{ display: 'inline-block', textDecoration: 'none' }}
       >
-        Open on {result.playlist_url}
+        Open in Tidal
       </a>
     </div>
   );

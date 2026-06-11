@@ -20,13 +20,14 @@ const mockApi = vi.hoisted(() => ({
 vi.mock('@/lib/api', () => ({ api: mockApi }));
 
 // ---- DOM helpers for download ----
-// We stub URL.createObjectURL / revokeObjectURL + document.body.appendChild
-// so triggerDownload doesn't crash in jsdom.
+// We stub URL.createObjectURL / revokeObjectURL + HTMLAnchorElement.prototype.click
+// so triggerDownload doesn't crash in jsdom with navigation warnings.
 
 const createObjectURLSpy = vi.fn(() => 'blob:mock-url');
 const revokeObjectURLSpy = vi.fn();
 Object.defineProperty(URL, 'createObjectURL', { value: createObjectURLSpy, writable: true });
 Object.defineProperty(URL, 'revokeObjectURL', { value: revokeObjectURLSpy, writable: true });
+HTMLAnchorElement.prototype.click = vi.fn();
 
 // ---- Fixtures ----
 
@@ -132,6 +133,18 @@ describe('ExportModal — platform picker', () => {
     // Exactly 4 "Coming soon" badges
     const comingSoonBadges = screen.getAllByText('Coming soon');
     expect(comingSoonBadges).toHaveLength(4);
+  });
+
+  it('unavailable rows are disabled and clicking them does not call exportPreflight', () => {
+    render(<ExportModal {...baseProps} />);
+
+    // Find the Spotify button (unavailable row)
+    const spotifyBtn = screen.getByRole('button', { name: /spotify/i });
+    expect((spotifyBtn as HTMLButtonElement).disabled).toBe(true);
+
+    // Clicking a disabled button must not trigger the preflight call
+    fireEvent.click(spotifyBtn);
+    expect(mockApi.exportPreflight).not.toHaveBeenCalled();
   });
 });
 
@@ -252,8 +265,11 @@ describe('ExportModal — file download after skip', () => {
       expect(mockApi.exportSetFile).toHaveBeenCalledWith(42, 'rekordbox', true, expect.any(String));
     });
 
-    // createObjectURL was called (download triggered)
+    // createObjectURL was called (download triggered) and revokeObjectURL cleans up
     expect(createObjectURLSpy).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(revokeObjectURLSpy).toHaveBeenCalledWith('blob:mock-url');
+    });
   });
 });
 
@@ -308,7 +324,7 @@ describe('ExportModal — Tidal export', () => {
 
     // Success panel: playlist link appears
     await waitFor(() => {
-      const link = screen.getByRole('link', { name: /tidal\.com/i }) as HTMLAnchorElement;
+      const link = screen.getByRole('link', { name: /open in tidal/i }) as HTMLAnchorElement;
       expect(link.href).toContain('tidal.com/playlist/pl-1');
     });
 

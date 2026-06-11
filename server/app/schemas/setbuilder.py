@@ -381,3 +381,73 @@ class SharedSetView(BaseModel):
     key_strictness: float
     slots: list[SharedSlotView]
     curve_points: list[SharedCurvePointView]
+
+
+# ---------------------------------------------------------------------------
+# Track vibes (issue #391) — read-only three-tier display + enrichment trigger
+
+
+class OwnVibeOut(BaseModel):
+    """The DJ's own override tier."""
+
+    energy: int | None
+    mood: str | None
+
+
+class CommunityVibeOut(BaseModel):
+    """Community consensus tier (gated by SystemSettings thresholds)."""
+
+    energy: int | None
+    mood: str | None
+    sample_size: int
+
+
+class LlmVibeOut(BaseModel):
+    """Globally-cached LLM guess tier."""
+
+    energy: int | None
+    mood: str | None
+    era: str | None
+    sing_along: bool | None
+    dance_floor: bool | None
+    transitional_role: str | None
+    confidence: float | None
+    low_confidence: bool
+    llm_provider: str
+    llm_model: str
+
+
+class ResolvedVibeOut(BaseModel):
+    """Per-field precedence result: own -> community -> llm."""
+
+    energy: int | None
+    energy_source: Literal["own", "community", "llm"] | None
+    mood: str | None
+    mood_source: Literal["own", "community", "llm"] | None
+
+
+class TrackVibeStateOut(BaseModel):
+    """All three tiers + resolution for one pool track."""
+
+    pool_track_id: int
+    vibe_key: str
+    own: OwnVibeOut | None
+    community: CommunityVibeOut | None
+    llm: LlmVibeOut | None
+    resolved: ResolvedVibeOut
+
+
+class PoolVibesState(BaseModel):
+    """Vibe state for every track in a set's pool."""
+
+    tracks: list[TrackVibeStateOut]
+
+
+class VibeEnrichmentResult(BaseModel):
+    """Result of an enrichment run, plus the refreshed vibe state."""
+
+    enriched: int
+    cached: int
+    failed: int
+    llm_calls: int
+    vibes: PoolVibesState

@@ -26,25 +26,35 @@ vi.mock('../turnstile', () => ({
   loadTurnstileScript: vi.fn().mockResolvedValue(undefined),
 }));
 
+type RenderOpts = { callback?: (t: string) => void; 'error-callback'?: () => void };
+
+let lastRenderOpts: RenderOpts | null = null;
+
 describe('useHumanVerification', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    lastRenderOpts = null;
     // Mock window.turnstile
     type FakeTurnstile = {
       render: (
         el: HTMLElement,
-        opts: { callback?: (t: string) => void }
+        opts: RenderOpts
       ) => string;
       reset: (id?: string) => void;
       remove: (id: string) => void;
     };
     (window as unknown as { turnstile: FakeTurnstile }).turnstile = {
       render: vi.fn((_el, opts) => {
+        lastRenderOpts = opts;
         // Asynchronously fire the callback with a fake token
         setTimeout(() => opts.callback?.('fake-token'), 0);
         return 'widget-id-1';
       }),
-      reset: vi.fn(),
+      // Real Turnstile re-runs the (invisible) challenge after reset and
+      // invokes the original callback with a fresh token.
+      reset: vi.fn(() => {
+        setTimeout(() => lastRenderOpts?.callback?.('fresh-token'), 0);
+      }),
       remove: vi.fn(),
     };
   });
@@ -96,5 +106,96 @@ describe('useHumanVerification', () => {
     // verifyHuman should NOT have been called (no token to send)
     const { api } = await import('../api');
     expect(api.verifyHuman).not.toHaveBeenCalled();
+  });
+
+  it('reverify resolves only after the re-run challenge completes', async () => {
+    const { useHumanVerification } = await import('../useHumanVerification');
+    const { result } = renderHook(() => useHumanVerification());
+    await waitFor(() => expect(result.current.state).toBe('verified'));
+
+    // Make reset inert so we control when the new token arrives.
+    const turnstile = (window as unknown as { turnstile: { reset: ReturnType<typeof vi.fn> } })
+      .turnstile;
+    turnstile.reset.mockImplementation(() => {});
+
+    let resolved = false;
+    let promise!: Promise<void>;
+    act(() => {
+      promise = result.current.reverify().then(() => {
+        resolved = true;
+      });
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    // Widget was reset but no new token yet -> contract says we must NOT
+    // have resolved (the wrzdj_human cookie is not set yet).
+    expect(resolved).toBe(false);
+    expect(result.current.state).toBe('loading');
+
+    // Complete the challenge.
+    await act(async () => {
+      lastRenderOpts?.callback?.('fresh-token');
+      await promise;
+    });
+    expect(resolved).toBe(true);
+    expect(result.current.state).toBe('verified');
+  });
+
+  it('reverify during an in-flight challenge waits instead of resetting it', async () => {
+    const turnstile = (window as unknown as {
+      turnstile: { render: ReturnType<typeof vi.fn>; reset: ReturnType<typeof vi.fn> };
+    }).turnstile;
+    // Challenge that never auto-completes.
+    turnstile.render.mockImplementation((_el: HTMLElement, opts: RenderOpts) => {
+      lastRenderOpts = opts;
+      return 'widget-id-1';
+    });
+
+    const { useHumanVerification } = await import('../useHumanVerification');
+    const { result } = renderHook(() => useHumanVerification());
+    await waitFor(() => expect(result.current.state).toBe('loading'));
+
+    let resolved = false;
+    act(() => {
+      void result.current.reverify().then(() => {
+        resolved = true;
+      });
+    });
+    // Mid-challenge reverify must not reset (it would restart the challenge).
+    expect(turnstile.reset).not.toHaveBeenCalled();
+
+    // The fallback-container path defers the actual widget render by up to
+    // three animation frames — wait until the challenge is genuinely in
+    // flight before completing it (otherwise the callback fire is a no-op).
+    await waitFor(() => expect(lastRenderOpts).not.toBeNull());
+
+    await act(async () => {
+      lastRenderOpts?.callback?.('fake-token');
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    await waitFor(() => expect(result.current.state).toBe('verified'));
+    await waitFor(() => expect(resolved).toBe(true));
+  });
+
+  it('reverify rejects with HumanVerificationFailedError when verification fails', async () => {
+    const { useHumanVerification, HumanVerificationFailedError } = await import(
+      '../useHumanVerification'
+    );
+    const { api } = await import('../api');
+    const { result } = renderHook(() => useHumanVerification());
+    await waitFor(() => expect(result.current.state).toBe('verified'));
+
+    // The re-run challenge produces a token the server rejects.
+    (api.verifyHuman as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ verified: false });
+
+    let rejection: unknown = null;
+    await act(async () => {
+      await result.current.reverify().catch((err: unknown) => {
+        rejection = err;
+      });
+    });
+    expect(rejection).toBeInstanceOf(HumanVerificationFailedError);
+    expect(result.current.state).toBe('failed');
   });
 });

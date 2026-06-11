@@ -272,6 +272,8 @@ def admin_update_settings(
         human_verification_enforced=update_data.human_verification_enforced,
         llm_enabled=update_data.llm_enabled,
         llm_rate_limit_per_minute=update_data.llm_rate_limit_per_minute,
+        vibe_consensus_min_sample=update_data.vibe_consensus_min_sample,
+        vibe_consensus_max_stddev=update_data.vibe_consensus_max_stddev,
     )
     return SystemSettingsOut.model_validate(settings)
 

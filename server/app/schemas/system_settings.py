@@ -13,6 +13,8 @@ class SystemSettingsOut(BaseSchema):
     human_verification_enforced: bool
     llm_enabled: bool
     llm_rate_limit_per_minute: int
+    vibe_consensus_min_sample: int
+    vibe_consensus_max_stddev: float
 
 
 class SystemSettingsUpdate(BaseModel):
@@ -25,3 +27,5 @@ class SystemSettingsUpdate(BaseModel):
     human_verification_enforced: bool | None = None
     llm_enabled: bool | None = None
     llm_rate_limit_per_minute: int | None = Field(None, ge=1, le=30)
+    vibe_consensus_min_sample: int | None = Field(None, ge=1, le=100)
+    vibe_consensus_max_stddev: float | None = Field(None, ge=0.1, le=5.0)

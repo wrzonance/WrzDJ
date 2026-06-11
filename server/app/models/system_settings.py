@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, ForeignKey, Integer, text
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -46,4 +46,14 @@ class SystemSettings(Base):
     # FK kept nullable; SET NULL on connector delete to avoid orphan references.
     llm_default_connector_id: Mapped[int | None] = mapped_column(
         ForeignKey("llm_connectors.id", ondelete="SET NULL"), nullable=True
+    )
+
+    # Community vibe consensus gates (issue #391). Consensus over
+    # TrackVibeOverride requires sample_size >= min_sample AND energy stddev
+    # < max_stddev. Bounds enforced at the API layer.
+    vibe_consensus_min_sample: Mapped[int] = mapped_column(
+        Integer, default=3, server_default=text("3")
+    )
+    vibe_consensus_max_stddev: Mapped[float] = mapped_column(
+        Float, default=1.5, server_default=text("1.5")
     )

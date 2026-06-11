@@ -10,7 +10,7 @@ from app.models.set_pool import SetPoolSource, SetPoolTrack
 from app.models.track_vibe import TrackVibe, TrackVibeOverride
 from app.models.user import User
 from app.services.llm.base import ChatResponse, ToolCall
-from app.services.llm.exceptions import NoLlmConfigured
+from app.services.llm.exceptions import NoLlmConfigured, ProviderUnavailable
 from app.services.setbuilder.vibe_enrichment import PROMPT_VERSION, SCHEMA_VERSION
 
 DISPATCH_TARGET = "app.services.setbuilder.vibe_enrichment.Gateway.dispatch"
@@ -212,6 +212,26 @@ class TestEnrichPoolVibes:
             )
         assert resp.status_code == 400
         assert resp.json()["detail"] == NO_LLM_DETAIL
+
+    def test_enrich_provider_failure_returns_counts(self, client, db, auth_headers, set_id):
+        _seed_pool_tracks(db, set_id, 2)
+        with patch(
+            DISPATCH_TARGET,
+            new=AsyncMock(side_effect=ProviderUnavailable("timeout")),
+        ):
+            resp = client.post(
+                f"/api/setbuilder/sets/{set_id}/pool/vibes/enrich", headers=auth_headers
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["enriched"] == 0
+        assert body["failed"] == 2
+        assert body["llm_calls"] == 1
+        assert body["cached"] == 0
+        tracks = body["vibes"]["tracks"]
+        assert len(tracks) == 2
+        for t in tracks:
+            assert t["llm"] is None
 
     def test_second_run_fully_cached(self, client, db, auth_headers, set_id):
         _seed_pool_tracks(db, set_id, 2)

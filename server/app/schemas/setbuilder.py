@@ -511,3 +511,16 @@ class ExportFileIn(BaseModel):
 
     format: ExportFileFormat
     skip_unresolved: bool = False
+
+
+class UnresolvedTracksDetail(BaseModel):
+    """Detail payload of the 409 unresolved-tracks interrupt."""
+
+    code: Literal["unresolved_tracks"]
+    unresolved: list[UnresolvedTrackOut]
+
+
+class UnresolvedTracksError(BaseModel):
+    """409 response body — export blocked until retried with skip_unresolved=true."""
+
+    detail: UnresolvedTracksDetail

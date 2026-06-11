@@ -8371,6 +8371,42 @@
         "title": "UnresolvedTrackOut",
         "type": "object"
       },
+      "UnresolvedTracksDetail": {
+        "description": "Detail payload of the 409 unresolved-tracks interrupt.",
+        "properties": {
+          "code": {
+            "const": "unresolved_tracks",
+            "title": "Code",
+            "type": "string"
+          },
+          "unresolved": {
+            "items": {
+              "$ref": "#/components/schemas/UnresolvedTrackOut"
+            },
+            "title": "Unresolved",
+            "type": "array"
+          }
+        },
+        "required": [
+          "code",
+          "unresolved"
+        ],
+        "title": "UnresolvedTracksDetail",
+        "type": "object"
+      },
+      "UnresolvedTracksError": {
+        "description": "409 response body \u2014 export blocked until retried with skip_unresolved=true.",
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/UnresolvedTracksDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "UnresolvedTracksError",
+        "type": "object"
+      },
       "UpdateCollectionSettings": {
         "properties": {
           "collection_opens_at": {
@@ -16148,11 +16184,39 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
+              "application/xml": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "audio/x-mpegurl": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
               }
             },
-            "description": "Successful Response"
+            "description": "Setlist file download (Content-Disposition: attachment)."
+          },
+          "400": {
+            "description": "Set has no tracks to export."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnresolvedTracksError"
+                }
+              }
+            },
+            "description": "Unresolved tracks \u2014 retry with skip_unresolved=true to proceed."
           },
           "422": {
             "content": {
@@ -16270,6 +16334,19 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "description": "Tidal account not connected, or no exportable tracks."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnresolvedTracksError"
+                }
+              }
+            },
+            "description": "Unresolved tracks \u2014 retry with skip_unresolved=true to proceed."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -16279,6 +16356,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "502": {
+            "description": "Upstream Tidal export failed."
           }
         },
         "security": [

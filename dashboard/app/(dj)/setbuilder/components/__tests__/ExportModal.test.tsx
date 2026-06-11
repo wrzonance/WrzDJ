@@ -66,6 +66,9 @@ function makePreflightClean(target: ExportPreflight['target'] = 'rekordbox'): Ex
 function makePreflightWithUnresolved(
   target: ExportPreflight['target'] = 'rekordbox'
 ): ExportPreflight {
+  // Backend sets reason per target: tidal preflight → no_tidal_match,
+  // file targets (rekordbox/m3u/txt) → missing_metadata.
+  const reason = target === 'tidal' ? ('no_tidal_match' as const) : ('missing_metadata' as const);
   return {
     target,
     source: 'timeline',
@@ -77,14 +80,14 @@ function makePreflightWithUnresolved(
         title: 'Ghost Track',
         artist: 'Unknown',
         track_id: 'bp-99',
-        reason: 'no_tidal_match',
+        reason,
       },
       {
         position: 7,
         title: '',
         artist: '',
         track_id: 'bp-404',
-        reason: 'missing_metadata',
+        reason,
       },
     ],
     tidal_connected: null,
@@ -198,9 +201,8 @@ describe('ExportModal — resolution interrupt', () => {
     // When title is empty, falls back to track_id
     expect(screen.getByText(/bp-404/)).toBeTruthy();
 
-    // Reason strings rendered
-    expect(screen.getByText(/no_tidal_match/)).toBeTruthy();
-    expect(screen.getByText(/missing_metadata/)).toBeTruthy();
+    // Reason strings rendered (file targets always report missing_metadata)
+    expect(screen.getAllByText(/missing_metadata/)).toHaveLength(2);
 
     // No download/export button until skipped
     expect(screen.queryByRole('button', { name: /download.*xml/i })).toBeNull();

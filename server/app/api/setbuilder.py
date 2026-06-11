@@ -54,6 +54,7 @@ from app.schemas.setbuilder import (
     TemplateWindowOut,
     TrackVibeStateOut,
     UnresolvedTrackOut,
+    UnresolvedTracksError,
     VibeEnrichmentResult,
     VibeWindowModel,
     VibeWindowsPut,
@@ -718,6 +719,12 @@ def _unresolved_409(unresolved: list[UnresolvedTrackOut]) -> HTTPException:
     )
 
 
+_UNRESOLVED_409_RESPONSE = {
+    "model": UnresolvedTracksError,
+    "description": "Unresolved tracks — retry with skip_unresolved=true to proceed.",
+}
+
+
 @router.post("/sets/{set_id}/export/preflight", response_model=ExportPreflightOut)
 @limiter.limit("5/minute")
 def export_preflight(
@@ -761,7 +768,15 @@ def export_preflight(
     )
 
 
-@router.post("/sets/{set_id}/export/tidal", response_model=ExportTidalOut)
+@router.post(
+    "/sets/{set_id}/export/tidal",
+    response_model=ExportTidalOut,
+    responses={
+        400: {"description": "Tidal account not connected, or no exportable tracks."},
+        409: _UNRESOLVED_409_RESPONSE,
+        502: {"description": "Upstream Tidal export failed."},
+    },
+)
 @limiter.limit("5/minute")
 def export_set_tidal(
     set_id: int,
@@ -808,7 +823,25 @@ _FILE_RENDERERS = {
 }
 
 
-@router.post("/sets/{set_id}/export/file")
+_FILE_DOWNLOAD_SCHEMA = {"schema": {"type": "string", "format": "binary"}}
+
+
+@router.post(
+    "/sets/{set_id}/export/file",
+    response_class=Response,
+    responses={
+        200: {
+            "description": "Setlist file download (Content-Disposition: attachment).",
+            "content": {
+                "application/xml": _FILE_DOWNLOAD_SCHEMA,
+                "audio/x-mpegurl": _FILE_DOWNLOAD_SCHEMA,
+                "text/plain": _FILE_DOWNLOAD_SCHEMA,
+            },
+        },
+        400: {"description": "Set has no tracks to export."},
+        409: _UNRESOLVED_409_RESPONSE,
+    },
+)
 @limiter.limit("10/minute")
 def export_set_file(
     set_id: int,

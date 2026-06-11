@@ -6110,6 +6110,26 @@ export interface components {
             /** Track Id */
             track_id: string | null;
         };
+        /**
+         * UnresolvedTracksDetail
+         * @description Detail payload of the 409 unresolved-tracks interrupt.
+         */
+        UnresolvedTracksDetail: {
+            /**
+             * Code
+             * @constant
+             */
+            code: "unresolved_tracks";
+            /** Unresolved */
+            unresolved: components["schemas"]["UnresolvedTrackOut"][];
+        };
+        /**
+         * UnresolvedTracksError
+         * @description 409 response body — export blocked until retried with skip_unresolved=true.
+         */
+        UnresolvedTracksError: {
+            detail: components["schemas"]["UnresolvedTracksDetail"];
+        };
         /** UpdateCollectionSettings */
         UpdateCollectionSettings: {
             /** Collection Opens At */
@@ -11055,13 +11075,31 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
+            /** @description Setlist file download (Content-Disposition: attachment). */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/xml": string;
+                    "audio/x-mpegurl": string;
+                    "text/plain": string;
+                };
+            };
+            /** @description Set has no tracks to export. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unresolved tracks — retry with skip_unresolved=true to proceed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnresolvedTracksError"];
                 };
             };
             /** @description Validation Error */
@@ -11134,6 +11172,22 @@ export interface operations {
                     "application/json": components["schemas"]["ExportTidalOut"];
                 };
             };
+            /** @description Tidal account not connected, or no exportable tracks. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unresolved tracks — retry with skip_unresolved=true to proceed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnresolvedTracksError"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -11142,6 +11196,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+            /** @description Upstream Tidal export failed. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

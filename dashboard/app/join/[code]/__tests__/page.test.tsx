@@ -2,12 +2,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
 // Use vi.hoisted so mock objects are available before vi.mock factory runs
-const { mockApi, MockApiError } = vi.hoisted(() => {
+const { mockApi, MockApiError, MockHumanVerificationRequiredError } = vi.hoisted(() => {
   class MockApiError extends Error {
     status: number;
     constructor(message: string, status = 0) {
       super(message);
       this.status = status;
+    }
+  }
+
+  class MockHumanVerificationRequiredError extends MockApiError {
+    constructor() {
+      super('Human verification required', 403);
+      this.name = 'HumanVerificationRequiredError';
     }
   }
 
@@ -27,7 +34,7 @@ const { mockApi, MockApiError } = vi.hoisted(() => {
     ensureGuestName: vi.fn(),
   };
 
-  return { mockApi, MockApiError };
+  return { mockApi, MockApiError, MockHumanVerificationRequiredError };
 });
 
 vi.mock('next/navigation', () => ({
@@ -59,7 +66,7 @@ vi.mock('@/lib/use-event-stream', () => ({
 vi.mock('@/components/NicknameGate', () => ({
   NicknameGate: ({ onComplete }: { onComplete: (r: unknown) => void }) => {
     onComplete({ nickname: 'TestUser', emailVerified: false, submissionCount: 0, submissionCap: 5 });
-    return null;
+    return <div data-testid="nickname-gate" />;
   },
   GateResult: {},
 }));
@@ -73,17 +80,28 @@ vi.mock('@/components/IdentityBar', () => ({
 vi.mock('@/lib/api', () => ({
   api: mockApi,
   ApiError: MockApiError,
+  HumanVerificationRequiredError: MockHumanVerificationRequiredError,
   PUBLIC_PAGE_MAX: 500,
 }));
 
-vi.mock('@/lib/useHumanVerification', () => ({
-  useHumanVerification: () => ({
-    state: 'verified',
-    reverify: vi.fn().mockResolvedValue(undefined),
-    ensureVerified: vi.fn().mockResolvedValue(undefined),
-    widgetContainerRef: { current: null },
-  }),
-}));
+vi.mock('@/lib/useHumanVerification', () => {
+  class MockHumanVerificationFailedError extends Error {
+    constructor() {
+      super('human_verification_failed');
+      this.name = 'HumanVerificationFailedError';
+    }
+  }
+  return {
+    useHumanVerification: () => ({
+      state: 'verified',
+      reverify: vi.fn().mockResolvedValue(undefined),
+      ensureVerified: vi.fn().mockResolvedValue(undefined),
+      retry: vi.fn(),
+      widgetContainerRef: { current: null },
+    }),
+    HumanVerificationFailedError: MockHumanVerificationFailedError,
+  };
+});
 
 // Import after mocks
 import JoinEventPage from '../page';
@@ -729,6 +747,58 @@ describe('JoinEventPage — frictionless join', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setupDefaultMocks();
+  });
+
+  it('auto-names after a 403-then-verified retry without flashing NicknameGate', async () => {
+    mockApi.getJoinConfig.mockResolvedValue({ frictionless_join: true });
+    mockApi.getPublicEvent.mockResolvedValue({
+      name: 'Party',
+      collection_code: 'TEST01',
+      requests_open: true,
+      frictionless_join: true,
+      phase: 'live',
+      submission_cap_per_guest: 5,
+      banner_url: null,
+      banner_colors: null,
+    });
+    let reverifyAwaited = false;
+    mockApi.ensureGuestName.mockImplementation(
+      async (_code: string, reverify?: () => Promise<void>) => {
+        // Simulate withHumanRetry under enforcement: first attempt 403s, the
+        // wrapper awaits reverify (resolves once the cookie is set), retries.
+        await reverify?.();
+        reverifyAwaited = true;
+        return { nickname: 'VerifiedOtter', auto_generated: true };
+      },
+    );
+
+    render(<JoinEventPage />);
+
+    await waitFor(() => expect(screen.getByText(/VerifiedOtter/)).toBeInTheDocument());
+    expect(reverifyAwaited).toBe(true);
+    expect(screen.queryByTestId('nickname-gate')).not.toBeInTheDocument();
+  });
+
+  it('shows the verification overlay, not NicknameGate, when verification cannot complete', async () => {
+    mockApi.getJoinConfig.mockResolvedValue({ frictionless_join: true });
+    mockApi.ensureGuestName.mockRejectedValue(new MockHumanVerificationRequiredError());
+
+    render(<JoinEventPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/Verification didn.t go through/i)).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('nickname-gate')).not.toBeInTheDocument();
+  });
+
+  it('still falls back to NicknameGate on non-verification errors (e.g. frictionless_disabled)', async () => {
+    mockApi.getJoinConfig.mockResolvedValue({ frictionless_join: true });
+    mockApi.ensureGuestName.mockRejectedValue(new MockApiError('frictionless_disabled', 403));
+
+    render(<JoinEventPage />);
+
+    // The NicknameGate mock auto-completes with TestUser — proof the gate path ran.
+    await waitFor(() => expect(screen.getByTestId('identity-bar')).toHaveTextContent('TestUser'));
   });
 
   it('skips NicknameGate and auto-names when frictionless_join is on', async () => {

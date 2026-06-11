@@ -458,6 +458,32 @@ class TestCommunityConsensus:
         assert vibe.energy is None  # only 2 energy votes < min_sample
         assert vibe.sample_size == 3
 
+    def test_stddev_exactly_at_threshold_rejected(self, db):
+        # pstdev([6, 9]) == 1.5; condition is >= so exactly at threshold is rejected.
+        users = _make_users(db, 2)
+        _vote(db, "tidal:1", users[0].id, energy=6)
+        _vote(db, "tidal:1", users[1].id, energy=9)
+        result = community_consensus(db, ["tidal:1"], min_sample=2, max_stddev=1.5)
+        assert "tidal:1" not in result  # boundary value is not strict enough
+
+    def test_min_sample_one_single_vote(self, db):
+        # pstdev of a single-element list is 0.0; any positive max_stddev accepts it.
+        users = _make_users(db, 1)
+        _vote(db, "tidal:1", users[0].id, energy=7)
+        result = community_consensus(db, ["tidal:1"], min_sample=1, max_stddev=1.5)
+        assert result["tidal:1"].energy == 7
+
+    def test_all_null_retraction_row_supersedes(self, db):
+        # user0 votes energy=7, then retracts by writing a row with both fields None.
+        # With min_sample=3, only the 2 surviving votes from user1/user2 remain → no consensus.
+        users = _make_users(db, 3)
+        _vote(db, "tidal:1", users[0].id, energy=7)
+        _vote(db, "tidal:1", users[0].id)  # retraction: both fields None → supersedes the 7
+        _vote(db, "tidal:1", users[1].id, energy=7)
+        _vote(db, "tidal:1", users[2].id, energy=7)
+        result = community_consensus(db, ["tidal:1"], min_sample=3, max_stddev=1.5)
+        assert "tidal:1" not in result  # only 2 effective energy votes, retraction excluded third
+
 
 # ---------------------------------------------------------------------------
 # Three-tier precedence resolver (services/setbuilder/vibe_resolver.py)

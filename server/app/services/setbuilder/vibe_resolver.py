@@ -80,9 +80,10 @@ class TrackVibeState:
 
 def _own_overrides(db: Session, user_id: int, keys: list[str]) -> dict[str, OwnVibe]:
     """Latest override per track for one user; rows with both fields null count as no override."""
+    unique_keys = list(dict.fromkeys(keys))
     rows = (
         db.query(TrackVibeOverride)
-        .filter(TrackVibeOverride.user_id == user_id, TrackVibeOverride.track_id.in_(keys))
+        .filter(TrackVibeOverride.user_id == user_id, TrackVibeOverride.track_id.in_(unique_keys))
         .order_by(TrackVibeOverride.id)
         .all()
     )
@@ -98,10 +99,11 @@ def _own_overrides(db: Session, user_id: int, keys: list[str]) -> dict[str, OwnV
 
 def _llm_vibes(db: Session, keys: list[str]) -> dict[str, TrackVibe]:
     """Newest (highest id) current-version TrackVibe row per key — stale versions ignored."""
+    unique_keys = list(dict.fromkeys(keys))
     rows = (
         db.query(TrackVibe)
         .filter(
-            TrackVibe.track_id.in_(keys),
+            TrackVibe.track_id.in_(unique_keys),
             TrackVibe.prompt_version == PROMPT_VERSION,
             TrackVibe.schema_version == SCHEMA_VERSION,
         )

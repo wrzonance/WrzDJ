@@ -12,6 +12,15 @@ masquerades as consensus:
 - ``exclude_user_id`` drops one user's votes — the read-time resolver passes
   the viewing DJ so their own vote (precedence tier 1) never double-counts
   into the community tier they fall back to.
+
+Write-side contract (v1.1 note):
+  Override rows are FULL SNAPSHOTS — the latest row per (track, user) entirely
+  supersedes all earlier rows for that pair.  The future write endpoint MUST
+  carry forward any field the user did not explicitly change when inserting a
+  new row; otherwise a partial edit silently retracts the fields left out.
+  Example: if a user previously set energy=7, mood="dark" and the write UI
+  only sends a new energy=8, the new row must still include mood="dark" or the
+  mood vote is permanently lost for that user.
 """
 
 from collections import Counter, defaultdict
@@ -26,6 +35,12 @@ from app.models.track_vibe import TrackVibeOverride
 
 @dataclass(frozen=True)
 class CommunityVibe:
+    """Aggregated community vibe for a single track.
+
+    ``sample_size`` is the number of votes backing the strongest field — the
+    maximum of the energy-vote count and the mood-vote count.
+    """
+
     energy: int | None
     mood: str | None
     sample_size: int
@@ -53,7 +68,7 @@ def community_consensus(
     exclude_user_id: int | None = None,
 ) -> dict[str, CommunityVibe]:
     """Per-track community consensus; only tracks with >= 1 consensual field appear."""
-    keys = list(track_keys)
+    keys = list(dict.fromkeys(track_keys))
     if not keys:
         return {}
 

@@ -63,14 +63,20 @@ export function useHumanVerification(): UseHumanVerification {
   const retryCountRef = useRef(0);
   const stateRef = useRef(state);
   stateRef.current = state;
+  /* Synchronous re-entry guard for reverify(): stateRef lags one render cycle
+     behind setState, so two reverify() calls in the same microtask turn could
+     both see a stale non-loading state and double-reset the widget. */
+  const reverifyInFlightRef = useRef(false);
 
   const flushVerified = useCallback(() => {
+    reverifyInFlightRef.current = false;
     const waiters = waitersRef.current;
     waitersRef.current = [];
     waiters.forEach(({ resolve }) => resolve());
   }, []);
 
   const flushFailed = useCallback(() => {
+    reverifyInFlightRef.current = false;
     const waiters = waitersRef.current;
     waitersRef.current = [];
     waiters.forEach(({ reject }) => reject(new HumanVerificationFailedError()));
@@ -230,12 +236,13 @@ export function useHumanVerification(): UseHumanVerification {
     const current = stateRef.current;
     // A challenge is already in flight — resetting would restart it (and
     // delay every gated call on the page). Wait for it to settle instead.
-    if (current === 'loading' || current === 'challenge') {
+    if (reverifyInFlightRef.current || current === 'loading' || current === 'challenge') {
       return waitForVerified();
     }
     // 'verified' (server rejected a stale/missing cookie), 'idle', or
     // 'failed': re-run the challenge. Register the waiter BEFORE kicking the
     // widget so a synchronous flush can't be missed.
+    reverifyInFlightRef.current = true;
     const settled = waitForVerified();
     setState('loading');
     if (widgetIdRef.current && window.turnstile) {

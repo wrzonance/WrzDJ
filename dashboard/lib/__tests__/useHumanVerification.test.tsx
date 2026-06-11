@@ -154,7 +154,7 @@ describe('useHumanVerification', () => {
 
     const { useHumanVerification } = await import('../useHumanVerification');
     const { result } = renderHook(() => useHumanVerification());
-    await waitFor(() => expect(turnstile.render).toHaveBeenCalled());
+    await waitFor(() => expect(result.current.state).toBe('loading'));
 
     let resolved = false;
     act(() => {

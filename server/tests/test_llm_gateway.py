@@ -599,3 +599,20 @@ class TestOrgScopedResolution:
         assert audit is not None
         assert audit.event_type == "auth_invalid_observed"
         assert audit.actor_user_id is None
+
+
+@pytest.mark.asyncio
+async def test_dispatch_populates_provider_from_connector(db, dj_user, gateway_request):
+    """#391 — vibe enrichment needs provider provenance on the response."""
+    _make_connector(db, dj_user)
+    fake_response = ChatResponse(
+        text="ok",
+        tool_calls=[],
+        stop_reason="end_turn",
+        usage=TokenUsage(prompt=1, completion=1),
+        model="gpt-5-mini",
+    )
+    with _patch_chat(AsyncMock(return_value=fake_response)):
+        resp = await Gateway.dispatch(db, dj_user, gateway_request, purpose="test")
+    assert resp.provider == "openai_apikey"
+    assert resp.model == "gpt-5-mini"

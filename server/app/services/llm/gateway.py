@@ -339,7 +339,8 @@ async def _attempt(
         tokens_out=tokens_out,
     )
     db.commit()
-    return response
+    # Surface which connector served the call (issue #391 — vibe provenance).
+    return response.model_copy(update={"provider": connector.connector_type})
 
 
 async def _attempt_stream(

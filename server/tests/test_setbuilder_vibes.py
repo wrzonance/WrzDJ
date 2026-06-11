@@ -11,11 +11,18 @@ from app.models.user import User
 from app.services.auth import get_password_hash
 from app.services.llm.base import ChatRequest, ChatResponse, ToolCall
 from app.services.llm.exceptions import NoLlmConfigured, ProviderUnavailable
-from app.services.setbuilder.community_vibe import community_consensus
+from app.services.setbuilder.community_vibe import CommunityVibe, community_consensus
 from app.services.setbuilder.vibe_enrichment import (
     PROMPT_VERSION,
     SCHEMA_VERSION,
     enrich_pool_vibes,
+)
+from app.services.setbuilder.vibe_resolver import (
+    OwnVibe,
+    ResolvedVibe,
+    build_pool_vibe_states,
+    is_low_confidence,
+    resolve_vibe,
 )
 from app.services.system_settings import get_system_settings, update_system_settings
 
@@ -450,3 +457,114 @@ class TestCommunityConsensus:
         assert vibe.mood == "dark"
         assert vibe.energy is None  # only 2 energy votes < min_sample
         assert vibe.sample_size == 3
+
+
+# ---------------------------------------------------------------------------
+# Three-tier precedence resolver (services/setbuilder/vibe_resolver.py)
+# ---------------------------------------------------------------------------
+
+
+def _llm_vibe(
+    track_id: str = "tidal:0",
+    *,
+    energy: int | None = None,
+    mood: str | None = None,
+    confidence: float | None = None,
+    provider: str = "anthropic_apikey",
+    prompt_version: str = PROMPT_VERSION,
+) -> TrackVibe:
+    return TrackVibe(
+        track_id=track_id,
+        energy=energy,
+        mood=mood,
+        confidence=confidence,
+        llm_provider=provider,
+        llm_model="claude-haiku-4-5",
+        prompt_version=prompt_version,
+        schema_version=SCHEMA_VERSION,
+    )
+
+
+class TestVibeResolver:
+    def test_own_override_wins(self):
+        own = OwnVibe(energy=9, mood="gritty")
+        community = CommunityVibe(energy=5, mood="dark", sample_size=4)
+        llm = _llm_vibe(energy=3, mood="happy", confidence=0.9)
+        resolved = resolve_vibe(own, community, llm)
+        assert (resolved.energy, resolved.energy_source) == (9, "own")
+        assert (resolved.mood, resolved.mood_source) == ("gritty", "own")
+
+    def test_community_beats_llm(self):
+        community = CommunityVibe(energy=5, mood="dark", sample_size=4)
+        llm = _llm_vibe(energy=3, mood="happy", confidence=0.9)
+        resolved = resolve_vibe(None, community, llm)
+        assert (resolved.energy, resolved.energy_source) == (5, "community")
+        assert (resolved.mood, resolved.mood_source) == ("dark", "community")
+
+    def test_llm_fallback(self):
+        llm = _llm_vibe(energy=3, mood="happy", confidence=0.9)
+        resolved = resolve_vibe(None, None, llm)
+        assert (resolved.energy, resolved.energy_source) == (3, "llm")
+        assert (resolved.mood, resolved.mood_source) == ("happy", "llm")
+
+    def test_no_tiers_resolves_none(self):
+        assert resolve_vibe(None, None, None) == ResolvedVibe(None, None, None, None)
+
+    def test_per_field_cascade(self):
+        own = OwnVibe(energy=9, mood=None)
+        community = CommunityVibe(energy=None, mood="dark", sample_size=3)
+        llm = _llm_vibe(energy=4, mood="happy", confidence=0.9)
+        resolved = resolve_vibe(own, community, llm)
+        assert (resolved.energy, resolved.energy_source) == (9, "own")
+        assert (resolved.mood, resolved.mood_source) == ("dark", "community")
+
+    def test_low_confidence_flag(self):
+        assert is_low_confidence(_llm_vibe(confidence=0.3)) is True
+        assert is_low_confidence(_llm_vibe(confidence=0.5)) is False
+        assert is_low_confidence(_llm_vibe(confidence=0.9)) is False
+        assert is_low_confidence(_llm_vibe(confidence=None)) is True
+
+    def test_build_pool_vibe_states_end_to_end(self, db, test_user):
+        s = _seed_pool(db, test_user.id, 1)  # one pool track, key "tidal:0"
+        db.add(_llm_vibe(energy=5, mood="happy", confidence=0.8))
+        voters = _make_users(db, 3)
+        for voter, energy in zip(voters, (7, 7, 8), strict=True):
+            _vote(db, "tidal:0", voter.id, energy=energy, mood="dark")
+        _vote(db, "tidal:0", test_user.id, energy=9)  # own override, no mood
+        db.commit()
+
+        states = build_pool_vibe_states(db, test_user, s)
+        assert len(states) == 1
+        state = states[0]
+        assert state.vibe_key == "tidal:0"
+        assert state.own == OwnVibe(energy=9, mood=None)
+        # Own vote excluded from community: fmean(7,7,8) = 7.33 -> 7, sample 3.
+        assert state.community == CommunityVibe(energy=7, mood="dark", sample_size=3)
+        assert state.llm is not None
+        assert state.llm.energy == 5
+        assert state.resolved == ResolvedVibe(
+            energy=9, energy_source="own", mood="dark", mood_source="community"
+        )
+
+    def test_llm_tier_ignores_stale_prompt_version(self, db, test_user):
+        s = _seed_pool(db, test_user.id, 1)
+        db.add(_llm_vibe(energy=5, mood="happy", confidence=0.8, prompt_version="v0"))
+        db.commit()
+
+        states = build_pool_vibe_states(db, test_user, s)
+        assert len(states) == 1
+        assert states[0].llm is None
+        assert states[0].resolved == ResolvedVibe(None, None, None, None)
+
+    def test_llm_tier_newest_row_wins(self, db, test_user):
+        s = _seed_pool(db, test_user.id, 1)
+        db.add(_llm_vibe(energy=3, mood="dark", confidence=0.7, provider="openai_apikey"))
+        db.commit()
+        db.add(_llm_vibe(energy=6, mood="happy", confidence=0.8, provider="anthropic_apikey"))
+        db.commit()
+
+        states = build_pool_vibe_states(db, test_user, s)
+        assert len(states) == 1
+        assert states[0].llm is not None
+        assert states[0].llm.energy == 6  # higher-id row wins
+        assert (states[0].resolved.energy, states[0].resolved.energy_source) == (6, "llm")

@@ -264,3 +264,11 @@ export interface PaginatedResponse<T> {
   page: number;
   limit: number;
 }
+
+// --- Setlist export (#396) — auto-re-exports aliased to historical names ---
+
+export type ExportTarget = Schemas['ExportPreflightIn']['target'];
+export type ExportFileFormat = Schemas['ExportFileIn']['format'];
+export type UnresolvedTrack = Schemas['UnresolvedTrackOut'];
+export type ExportPreflight = Schemas['ExportPreflightOut'];
+export type ExportTidalResult = Schemas['ExportTidalOut'];

@@ -2686,6 +2686,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setbuilder/sets/{set_id}/export/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Set File
+         * @description Download the setlist as Rekordbox XML, M3U8, or plaintext.
+         */
+        post: operations["export_set_file_api_setbuilder_sets__set_id__export_file_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/export/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Preflight
+         * @description Pre-export resolution check (tidal targets do live Tidal matching).
+         */
+        post: operations["export_preflight_api_setbuilder_sets__set_id__export_preflight_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/export/tidal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Set Tidal
+         * @description Export the setlist to a fresh Tidal playlist (DJ's existing OAuth).
+         */
+        post: operations["export_set_tidal_api_setbuilder_sets__set_id__export_tidal_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setbuilder/sets/{set_id}/pool": {
         parameters: {
             query?: never;
@@ -4457,6 +4517,92 @@ export interface components {
             name?: string | null;
         };
         /**
+         * ExportFileIn
+         * @description Body for the file (Rekordbox XML / M3U / txt) export.
+         */
+        ExportFileIn: {
+            /**
+             * Format
+             * @enum {string}
+             */
+            format: "rekordbox" | "m3u" | "txt";
+            /**
+             * Skip Unresolved
+             * @default false
+             */
+            skip_unresolved: boolean;
+        };
+        /**
+         * ExportPreflightIn
+         * @description Body for the pre-export resolution check.
+         */
+        ExportPreflightIn: {
+            /**
+             * Target
+             * @enum {string}
+             */
+            target: "tidal" | "rekordbox" | "m3u" | "txt";
+        };
+        /**
+         * ExportPreflightOut
+         * @description Resolution summary the DJ confirms before exporting.
+         */
+        ExportPreflightOut: {
+            /** Resolved Count */
+            resolved_count: number;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "timeline" | "pool";
+            /**
+             * Target
+             * @enum {string}
+             */
+            target: "tidal" | "rekordbox" | "m3u" | "txt";
+            /** Tidal Connected */
+            tidal_connected: boolean | null;
+            /** Total */
+            total: number;
+            /** Unresolved */
+            unresolved: components["schemas"]["UnresolvedTrackOut"][];
+        };
+        /**
+         * ExportTidalIn
+         * @description Body for the Tidal export. skip_unresolved is the DJ's explicit choice.
+         */
+        ExportTidalIn: {
+            /**
+             * Skip Unresolved
+             * @default false
+             */
+            skip_unresolved: boolean;
+        };
+        /**
+         * ExportTidalOut
+         * @description Successful Tidal export result.
+         */
+        ExportTidalOut: {
+            /** Added */
+            added: number;
+            /**
+             * Exported At
+             * Format: date-time
+             */
+            exported_at: string;
+            /** Playlist Id */
+            playlist_id: string;
+            /** Playlist Url */
+            playlist_url: string;
+            /** Skipped */
+            skipped: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "locked" | "exported";
+        };
+        /**
          * FeaturePreferenceOut
          * @description A single per-feature connector pin (issue #337).
          */
@@ -5944,6 +6090,45 @@ export interface components {
             resolved: components["schemas"]["ResolvedVibeOut"];
             /** Vibe Key */
             vibe_key: string;
+        };
+        /**
+         * UnresolvedTrackOut
+         * @description One track that can't be exported to the chosen target.
+         */
+        UnresolvedTrackOut: {
+            /** Artist */
+            artist: string;
+            /** Position */
+            position: number;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "no_tidal_match" | "missing_metadata";
+            /** Title */
+            title: string;
+            /** Track Id */
+            track_id: string | null;
+        };
+        /**
+         * UnresolvedTracksDetail
+         * @description Detail payload of the 409 unresolved-tracks interrupt.
+         */
+        UnresolvedTracksDetail: {
+            /**
+             * Code
+             * @constant
+             */
+            code: "unresolved_tracks";
+            /** Unresolved */
+            unresolved: components["schemas"]["UnresolvedTrackOut"][];
+        };
+        /**
+         * UnresolvedTracksError
+         * @description 409 response body — export blocked until retried with skip_unresolved=true.
+         */
+        UnresolvedTracksError: {
+            detail: components["schemas"]["UnresolvedTracksDetail"];
         };
         /** UpdateCollectionSettings */
         UpdateCollectionSettings: {
@@ -10872,6 +11057,152 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    export_set_file_api_setbuilder_sets__set_id__export_file_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportFileIn"];
+            };
+        };
+        responses: {
+            /** @description Setlist file download (Content-Disposition: attachment). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/xml": string;
+                    "audio/x-mpegurl": string;
+                    "text/plain": string;
+                };
+            };
+            /** @description Set has no tracks to export. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unresolved tracks — retry with skip_unresolved=true to proceed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnresolvedTracksError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_preflight_api_setbuilder_sets__set_id__export_preflight_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportPreflightIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportPreflightOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_set_tidal_api_setbuilder_sets__set_id__export_tidal_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportTidalIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportTidalOut"];
+                };
+            };
+            /** @description Tidal account not connected, or no exportable tracks. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unresolved tracks — retry with skip_unresolved=true to proceed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnresolvedTracksError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Upstream Tidal export failed. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

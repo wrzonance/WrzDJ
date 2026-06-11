@@ -176,6 +176,7 @@ else:
         allow_credentials=True,
         allow_methods=CORS_ALLOW_METHODS,
         allow_headers=["Authorization", "Content-Type", "X-Kiosk-Session"],
+        expose_headers=["Content-Disposition"],
     )
 
 # Include API router

@@ -637,7 +637,13 @@ def get_pool_vibes(
     return _pool_vibes_state(db, current_user, set_obj)
 
 
-@router.post("/sets/{set_id}/pool/vibes/enrich", response_model=VibeEnrichmentResult)
+@router.post(
+    "/sets/{set_id}/pool/vibes/enrich",
+    response_model=VibeEnrichmentResult,
+    responses={
+        400: {"description": "No LLM connector configured for this DJ or the org."},
+    },
+)
 @limiter.limit("5/minute")
 async def enrich_pool_vibes(
     set_id: int,

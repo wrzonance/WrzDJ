@@ -11234,6 +11234,13 @@ export interface operations {
                     "application/json": components["schemas"]["VibeEnrichmentResult"];
                 };
             };
+            /** @description No LLM connector configured for this DJ or the org. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Validation Error */
             422: {
                 headers: {

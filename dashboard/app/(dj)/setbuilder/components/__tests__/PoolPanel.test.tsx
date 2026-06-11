@@ -251,6 +251,24 @@ describe('PoolPanel', () => {
     expect(mockApi.getPoolVibes).toHaveBeenCalledTimes(1);
   });
 
+  it('failed initial vibes fetch can be retried on next toggle-on', async () => {
+    mockApi.getPoolVibes.mockRejectedValueOnce(new Error('boom'));
+    mockApi.getPoolVibes.mockResolvedValueOnce(POOL_VIBES);
+    render(<PoolPanel setId={1} />);
+    await screen.findByText('Event Song');
+
+    // first toggle-on: fetch fails, toast shown, no chips
+    fireEvent.click(screen.getByText('Vibes'));
+    expect(await screen.findByText('Failed to load vibes')).toBeTruthy();
+    expect(screen.queryByLabelText('Your vibe: energy 9')).toBeNull();
+
+    // toggle off, then on again: fetch retries and succeeds
+    fireEvent.click(screen.getByText('Vibes'));
+    fireEvent.click(screen.getByText('Vibes'));
+    expect(await screen.findByLabelText('Your vibe: energy 9')).toBeTruthy();
+    expect(mockApi.getPoolVibes).toHaveBeenCalledTimes(2);
+  });
+
   it('Analyze is gated behind Vibes, enriches, updates chips, and toasts counts', async () => {
     mockApi.getPoolVibes.mockResolvedValue(POOL_VIBES);
     mockApi.enrichPoolVibes.mockResolvedValue(ENRICH_RESULT);

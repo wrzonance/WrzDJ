@@ -161,19 +161,22 @@ export default function PoolPanel({ setId }: { setId: number }) {
   );
 
   const toggleVibes = useCallback(() => {
-    if (!showVibes && !vibesLoaded) {
-      setVibesLoaded(true);
+    if (!showVibes && !vibesLoaded && !vibesBusy) {
       // vibesBusy also disables Analyze while this first fetch is in flight,
       // so an Analyze response can't be overwritten by a stale initial GET.
+      // vibesLoaded is only set on success so a failed fetch can be retried.
       setVibesBusy(true);
       api
         .getPoolVibes(setId)
-        .then((result) => setVibes(buildVibeMap(result.tracks)))
+        .then((result) => {
+          setVibes(buildVibeMap(result.tracks));
+          setVibesLoaded(true);
+        })
         .catch(() => setToast('Failed to load vibes'))
         .finally(() => setVibesBusy(false));
     }
     setShowVibes((s) => !s);
-  }, [showVibes, vibesLoaded, setId]);
+  }, [showVibes, vibesLoaded, vibesBusy, setId]);
 
   const analyzeVibes = useCallback(async () => {
     setVibesBusy(true);

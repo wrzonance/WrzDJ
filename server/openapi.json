@@ -16500,6 +16500,9 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "description": "No LLM connector configured for this DJ or the org."
+          },
           "422": {
             "content": {
               "application/json": {

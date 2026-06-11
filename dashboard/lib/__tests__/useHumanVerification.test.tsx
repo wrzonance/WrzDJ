@@ -165,6 +165,11 @@ describe('useHumanVerification', () => {
     // Mid-challenge reverify must not reset (it would restart the challenge).
     expect(turnstile.reset).not.toHaveBeenCalled();
 
+    // The fallback-container path defers the actual widget render by up to
+    // three animation frames — wait until the challenge is genuinely in
+    // flight before completing it (otherwise the callback fire is a no-op).
+    await waitFor(() => expect(lastRenderOpts).not.toBeNull());
+
     await act(async () => {
       lastRenderOpts?.callback?.('fake-token');
       await new Promise((r) => setTimeout(r, 0));

@@ -12,6 +12,7 @@ import secrets
 from sqlalchemy.orm import Session
 
 from app.models.set import Set, SetCurvePoint, SetSlot
+from app.models.set_pairing import SetPairing
 
 _MAX_NAME = 120
 _COPY_SUFFIX = " (copy)"
@@ -44,10 +45,13 @@ def get_set_by_share_token(db: Session, token: str) -> Set | None:
 
 
 def duplicate_set(db: Session, src: Set) -> Set:
-    """Copy a set (slots, curve, targets, vibe windows); reset lifecycle state.
+    """Copy a set (slots, curve, targets, vibe windows, pairings); reset lifecycle state.
 
     The copy is always private ("draft", no share token, no export state)
     regardless of the source's status, per issue #398.
+
+    Pairings are copied because they are set-scoped DJ curation over the
+    copied timeline, not global learned recommendations.
     """
     name = src.name + _COPY_SUFFIX
     if len(name) > _MAX_NAME:
@@ -87,6 +91,18 @@ def duplicate_set(db: Session, src: Set) -> Set:
                 label=point.label,
                 is_slow_window_start=point.is_slow_window_start,
                 is_slow_window_end=point.is_slow_window_end,
+            )
+        )
+    for pairing in src.pairings:
+        db.add(
+            SetPairing(
+                set_id=dup.id,
+                from_track_id=pairing.from_track_id,
+                into_track_id=pairing.into_track_id,
+                cue_in_sec=pairing.cue_in_sec,
+                note=pairing.note,
+                tags_json=pairing.tags_json,
+                use_count=pairing.use_count,
             )
         )
     db.commit()

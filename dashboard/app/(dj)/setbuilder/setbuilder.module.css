@@ -35,6 +35,41 @@
   color: var(--text);
 }
 
+.topbarPairingsBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  height: 32px;
+  padding: 0 0.65rem;
+  border: 1px solid rgba(183, 139, 255, 0.5);
+  border-radius: 8px;
+  background: rgba(139, 92, 246, 0.15);
+  color: #d8c6ff;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.topbarPairingsBtn:hover {
+  background: rgba(139, 92, 246, 0.24);
+  border-color: rgba(183, 139, 255, 0.75);
+}
+
+.topbarPairingsBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: #b78bff;
+  color: #12091f;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.625rem;
+  font-weight: 800;
+}
+
 .panel {
   background: var(--bg);
   display: flex;
@@ -845,6 +880,578 @@
   color: #f87171 !important;
 }
 
+/* ------------------------------------------------------------------ */
+/* Pairings overlay (issue #392)                                      */
+
+.pairingsWrap {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+}
+
+.pairingsBackdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(0, 0, 0, 0.68);
+  cursor: default;
+}
+
+.pairingsShell {
+  position: relative;
+  width: min(1180px, 100%);
+  height: min(760px, calc(100vh - 2.5rem));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(183, 139, 255, 0.22);
+  border-radius: 8px;
+  background: var(--card);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.58);
+}
+
+.pairingsHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.pairingsIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(183, 139, 255, 0.48);
+  border-radius: 8px;
+  background: rgba(183, 139, 255, 0.14);
+  color: #c4a4ff;
+}
+
+.pairingsHeaderText {
+  flex: 1;
+  min-width: 0;
+}
+
+.pairingsHeaderText h2 {
+  margin: 0;
+  font-family: var(--font-display), sans-serif;
+  font-size: 1rem;
+}
+
+.pairingsHeaderText p {
+  margin: 0.12rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.pairingsStats {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+}
+
+.pairingsStats span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  padding: 0.25rem 0.45rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--surface-raised);
+}
+
+.pairingsStats strong {
+  color: var(--text);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8125rem;
+}
+
+.pairingsBody {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+}
+
+.pairingsListCol {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.pairingsToolbar {
+  display: flex;
+  gap: 0.45rem;
+  padding: 0.7rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.pairingsToolbar input {
+  flex: 1;
+  min-width: 0;
+}
+
+.pairingsList {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.55rem;
+}
+
+.pairingCard {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-bottom: 0.4rem;
+  padding: 0.6rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.pairingCard:hover,
+.pairingCardActive {
+  border-color: rgba(183, 139, 255, 0.52);
+  background: rgba(183, 139, 255, 0.1);
+}
+
+.pairingCardTags,
+.pairingPreview {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.pairingMetricChip,
+.pairingUses {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.625rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.pairingUses {
+  margin-left: auto;
+  color: #c4a4ff;
+}
+
+.pairingsEmpty {
+  padding: 1rem;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  text-align: center;
+}
+
+.pairingsDetailCol {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.85rem;
+}
+
+.pairingDetail,
+.pairingAdd {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.pairingAdd h3 {
+  margin: 0;
+  font-family: var(--font-display), sans-serif;
+  font-size: 0.95rem;
+}
+
+.pairingAdd p {
+  margin: -0.45rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.pairingHero,
+.pairingAddFlow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: stretch;
+}
+
+.pairingHeroTrack,
+.pairingPickerSelected {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+  padding: 0.7rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.pairingHeroTrack {
+  flex-direction: column;
+  text-align: center;
+}
+
+.pairingHeroTrack strong,
+.pairingPickerSelected strong,
+.pairingMiniTitle {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pairingHeroTrack span,
+.pairingPickerSelected small,
+.pairingMiniArtist {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pairingRole {
+  color: var(--text-tertiary);
+  font-size: 0.5625rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pairingHeroArrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  color: #c4a4ff;
+  font-family: var(--font-mono, monospace);
+  font-weight: 800;
+}
+
+.pairingCue {
+  padding: 0.12rem 0.35rem;
+  border: 1px solid rgba(183, 139, 255, 0.38);
+  border-radius: 4px;
+  background: rgba(183, 139, 255, 0.12);
+  font-size: 0.625rem;
+  white-space: nowrap;
+}
+
+.pairingStatsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.pairingStatCard {
+  min-width: 0;
+  padding: 0.65rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.pairingStatCard span,
+.pairingStatCard small {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 0.625rem;
+}
+
+.pairingStatCard strong {
+  display: block;
+  margin: 0.2rem 0;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.pairingSection {
+  padding: 0.7rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.pairingSectionHead,
+.pairingFooter,
+.pairingSetUse {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.pairingSectionHead {
+  margin-bottom: 0.5rem;
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.pairingTextarea {
+  width: 100%;
+  resize: vertical;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.55rem 0.65rem;
+  color: var(--text);
+  font-size: 0.8125rem;
+}
+
+.pairingTextarea:focus {
+  outline: none;
+  border-color: rgba(183, 139, 255, 0.72);
+}
+
+.pairingInlineActions {
+  display: flex;
+  gap: 0.45rem;
+  justify-content: flex-end;
+  margin-top: 0.5rem;
+}
+
+.pairingNote {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.pairingTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.pairingTags span {
+  padding: 0.15rem 0.45rem;
+  border: 1px solid rgba(183, 139, 255, 0.35);
+  border-radius: 999px;
+  background: rgba(183, 139, 255, 0.1);
+  color: #d8c6ff;
+  font-size: 0.6875rem;
+}
+
+.pairingSetUse {
+  padding: 0.55rem 0.65rem;
+  border: 1px dashed rgba(183, 139, 255, 0.38);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.pairingPicker {
+  position: relative;
+  min-width: 0;
+}
+
+.pairingPicker .pairingRole {
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+.pairingPickerSelected {
+  min-height: 68px;
+}
+
+.pairingPickerSelected > span {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pairingPickerEmpty {
+  width: 100%;
+  min-height: 68px;
+  border: 1px dashed rgba(183, 139, 255, 0.4);
+  border-radius: 8px;
+  background: rgba(183, 139, 255, 0.08);
+  color: #d8c6ff;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.pairingPickerPopover {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 0.35rem);
+  z-index: 130;
+  padding: 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+}
+
+.pairingPickerPopover input {
+  width: 100%;
+}
+
+.pairingPickerResults {
+  max-height: 250px;
+  overflow-y: auto;
+  margin-top: 0.45rem;
+}
+
+.pairingPickerResult {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.45rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.pairingPickerResult:hover {
+  background: var(--surface-raised);
+}
+
+.pairingPickerResult span {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pairingPickerResult strong,
+.pairingPickerResult small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pairingPickerResult small,
+.pairingPickerNone {
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+}
+
+.pairingPickerNone {
+  padding: 0.7rem;
+  text-align: center;
+}
+
+.pairingWarn {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid rgba(245, 158, 11, 0.42);
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.1);
+  color: #fbbf24;
+  font-size: 0.75rem;
+}
+
+.pairingField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.pairingAddGrid {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 0.6rem;
+}
+
+.pairingArt {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.pairingHeroTrack .pairingArt {
+  width: 60px;
+  height: 60px;
+  font-size: 0.95rem;
+}
+
+.pairingMini {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: center;
+  min-width: 0;
+}
+
+.pairingMiniTrack {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.pairingMiniInfo {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pairingMiniTitle,
+.pairingMiniArtist {
+  display: block;
+}
+
+.pairingMiniTitle {
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.pairingMiniArtist {
+  font-size: 0.6563rem;
+}
+
+.pairingArrow {
+  color: #c4a4ff;
+  font-family: var(--font-mono, monospace);
+  font-weight: 800;
+}
+
 .poolToast {
   position: absolute;
   left: 50%;
@@ -1095,4 +1702,61 @@
 
 .vibeWinner {
   border-color: var(--color-primary, #8b5cf6);
+}
+
+@media (max-width: 980px) {
+  .pairingsShell {
+    height: calc(100vh - 1.5rem);
+  }
+
+  .pairingsBody {
+    grid-template-columns: 1fr;
+  }
+
+  .pairingsListCol {
+    max-height: 42vh;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .pairingStatsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .topbarPairingsBtn {
+    padding: 0 0.5rem;
+    font-size: 0;
+  }
+
+  .topbarPairingsBadge {
+    font-size: 0.625rem;
+  }
+
+  .pairingsWrap {
+    padding: 0.5rem;
+  }
+
+  .pairingsHeader {
+    align-items: flex-start;
+  }
+
+  .pairingsStats {
+    display: none;
+  }
+
+  .pairingHero,
+  .pairingAddFlow {
+    grid-template-columns: 1fr;
+  }
+
+  .pairingHeroArrow {
+    min-height: 24px;
+  }
+
+  .pairingStatsGrid,
+  .pairingAddGrid {
+    grid-template-columns: 1fr;
+  }
 }

@@ -467,6 +467,33 @@ export default function CurveEditor({
             );
           })}
 
+        {/* DJ pairing seam markers */}
+        {blocks.slice(0, -1).map((b, i) => {
+          if (!slots[i].nextIsDjPairing) return null;
+          const next = blocks[i + 1];
+          const seamX = (b.x1 + next.x0) / 2;
+          const markerY = Math.max(18, Math.min(h - 28, (yOf(b.target) + yOf(next.target)) / 2 - 18));
+          return (
+            <g
+              key={`pairing-pin-${i}`}
+              transform={`translate(${seamX}, ${markerY})`}
+              pointerEvents="none"
+              data-testid={`pairing-pin-${i}`}
+            >
+              <line y1={10} y2={Math.max(14, h - markerY - 4)} stroke={NEON_PURPLE} strokeOpacity="0.38" strokeDasharray="2 3" />
+              <circle r="10" fill="rgba(183,139,255,0.18)" stroke={NEON_PURPLE} strokeWidth="1.4" />
+              <path
+                d="M-3.5 2.5-.8-.2M-5.5 5.5h-.7a3.3 3.3 0 0 1 0-6.6h2.3M.9 4.2h2.3a3.3 3.3 0 1 0 0-6.6h-.7"
+                fill="none"
+                stroke={NEON_PURPLE}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.3"
+              />
+            </g>
+          );
+        })}
+
         {/* Derived target curve line */}
         {linePath && (
           <path
@@ -527,8 +554,7 @@ export default function CurveEditor({
           );
         })}
 
-        {/* Pairing seam markers land with #392; transport playhead with #393 */}
-        <g data-color-ref={NEON_PURPLE} display="none" />
+        {/* Transport playhead lands with #393. */}
       </svg>
     </div>
   );

@@ -22,6 +22,9 @@ function mkSlot(
     position: idx,
     locked: false,
     targetEnergy: target,
+    transitionScore: null,
+    nextPairingId: null,
+    nextIsDjPairing: false,
     track: {
       id: `t${idx}`,
       title: `Track ${idx}`,
@@ -60,6 +63,14 @@ describe('CurveEditor', () => {
     expect(screen.getByTestId('slot-block-0')).toBeInTheDocument();
     expect(screen.getByTestId('slot-block-2')).toBeInTheDocument();
     expect(screen.getByTestId('curve-line')).toBeInTheDocument();
+  });
+
+  it('renders a purple seam pin for saved DJ pairings', () => {
+    const paired = mkSlot(0);
+    paired.nextPairingId = 42;
+    paired.nextIsDjPairing = true;
+    renderEditor({ slots: [paired, mkSlot(1)] });
+    expect(screen.getByTestId('pairing-pin-0')).toBeInTheDocument();
   });
 
   it('renders amber hatch when target > energy and dashed line when target < energy', () => {

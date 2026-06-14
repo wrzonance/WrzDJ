@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import BuilderWorkspace from '../components/BuilderWorkspace';
-import type { SetSlotOut } from '@/lib/api-types';
+import type { PoolTrack, SetSlotOut } from '@/lib/api-types';
 
 beforeAll(() => {
   globalThis.ResizeObserver = class {
@@ -27,6 +27,8 @@ beforeAll(() => {
 const mockGetSetSlots = vi.fn();
 const mockGetCurveTemplates = vi.fn();
 const mockGetVibeWindows = vi.fn();
+const mockGetPool = vi.fn();
+const mockSavePairing = vi.fn();
 const mockUpdateSlotTarget = vi.fn();
 const mockApplyCurveTemplate = vi.fn();
 const mockPutVibeWindows = vi.fn();
@@ -34,6 +36,8 @@ const mockPutVibeWindows = vi.fn();
 vi.mock('@/lib/api', () => ({
   api: {
     getSetSlots: (setId: number) => mockGetSetSlots(setId),
+    getPool: (setId: number) => mockGetPool(setId),
+    savePairing: (setId: number, payload: object) => mockSavePairing(setId, payload),
     getCurveTemplates: () => mockGetCurveTemplates(),
     getVibeWindows: (setId: number) => mockGetVibeWindows(setId),
     updateSlotTarget: (setId: number, slotId: number, t: number | null) =>
@@ -65,6 +69,8 @@ const SLOTS: SetSlotOut[] = [
     camelot: null,
     energy: null,
     duration_sec: null,
+    next_pairing_id: null,
+    next_is_dj_pairing: false,
   },
   {
     id: 2,
@@ -83,6 +89,8 @@ const SLOTS: SetSlotOut[] = [
     camelot: null,
     energy: null,
     duration_sec: null,
+    next_pairing_id: null,
+    next_is_dj_pairing: false,
   },
   {
     id: 3,
@@ -101,6 +109,62 @@ const SLOTS: SetSlotOut[] = [
     camelot: null,
     energy: null,
     duration_sec: null,
+    next_pairing_id: null,
+    next_is_dj_pairing: false,
+  },
+];
+
+const POOL_TRACKS: PoolTrack[] = [
+  {
+    id: 11,
+    source_id: 1,
+    track_id: 'a',
+    title: 'Track A',
+    artist: 'Artist A',
+    album: null,
+    bpm: 120,
+    camelot: '8A',
+    key: '8A',
+    energy: 5,
+    duration_sec: 201,
+    genre: null,
+    isrc: null,
+    artwork_url: null,
+    created_at: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: 12,
+    source_id: 1,
+    track_id: 'b',
+    title: 'Track B',
+    artist: 'Artist B',
+    album: null,
+    bpm: 124,
+    camelot: '9A',
+    key: '9A',
+    energy: 7,
+    duration_sec: 211,
+    genre: null,
+    isrc: null,
+    artwork_url: null,
+    created_at: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: 13,
+    source_id: 1,
+    track_id: 'c',
+    title: 'Track C',
+    artist: 'Artist C',
+    album: null,
+    bpm: 128,
+    camelot: '10A',
+    key: '10A',
+    energy: 6,
+    duration_sec: 221,
+    genre: null,
+    isrc: null,
+    artwork_url: null,
+    created_at: '2026-01-01T00:00:00Z',
   },
 ];
 
@@ -121,10 +185,12 @@ describe('BuilderWorkspace', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetSetSlots.mockResolvedValue(SLOTS);
+    mockGetPool.mockResolvedValue({ sources: [], tracks: POOL_TRACKS });
     mockGetCurveTemplates.mockResolvedValue(TEMPLATES);
     mockGetVibeWindows.mockResolvedValue({ windows: [] });
     mockUpdateSlotTarget.mockResolvedValue({ slot_id: 1, target_energy: 9 });
     mockPutVibeWindows.mockResolvedValue({ windows: [] });
+    mockSavePairing.mockResolvedValue({ id: 44 });
   });
 
   it('fetches slots and renders curve blocks + timeline rows', async () => {
@@ -218,6 +284,37 @@ describe('BuilderWorkspace', () => {
     // Timeline target chips reflect the applied targets
     await waitFor(() => {
       expect(screen.getByTestId('timeline-row-0')).toHaveTextContent('7.2');
+    });
+  });
+
+  it('shows DJ pairing markers in timeline and curve', async () => {
+    mockGetSetSlots.mockResolvedValue([
+      { ...SLOTS[0], next_pairing_id: 77, next_is_dj_pairing: true, transition_score: 94 },
+      SLOTS[1],
+      SLOTS[2],
+    ]);
+    render(<BuilderWorkspace setId={5} />);
+
+    await waitFor(() => expect(screen.getByTestId('pairing-pin-0')).toBeInTheDocument());
+    expect(screen.getByTestId('timeline-transition-0')).toHaveTextContent('DJ pairing');
+    expect(screen.getByTestId('timeline-transition-0')).toHaveTextContent('94');
+  });
+
+  it('timeline context menu saves the transition to the next slot as a pairing', async () => {
+    render(<BuilderWorkspace setId={5} />);
+    await waitFor(() => expect(screen.getByTestId('timeline-row-0')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByLabelText('Save Track A into Track B as pairing'));
+    fireEvent.click(screen.getByText('Save -> Track B as pairing'));
+
+    await waitFor(() => expect(mockSavePairing).toHaveBeenCalledTimes(1));
+    expect(mockSavePairing).toHaveBeenCalledWith(5, {
+      from_track_id: 'a',
+      into_track_id: 'b',
+      cue_in_sec: null,
+      note: null,
+      tags: [],
+      increment_use_count: true,
     });
   });
 

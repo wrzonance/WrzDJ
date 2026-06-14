@@ -35,6 +35,9 @@ function mkSlot(idx: number, over: Partial<TrackView> = {}, target: number | nul
     position: idx,
     locked: false,
     targetEnergy: target,
+    transitionScore: null,
+    nextPairingId: null,
+    nextIsDjPairing: false,
     track: mkTrack({ id: `t${idx}`, ...over }),
   };
 }
@@ -201,8 +204,8 @@ describe('slotViewFromApi', () => {
       track_id: null,
       locked: false,
       target_energy: null,
-      notes: null,
       transition_score: null,
+      notes: null,
       transition_warnings: null,
       pool_track_id: null,
       title: null,
@@ -212,10 +215,15 @@ describe('slotViewFromApi', () => {
       camelot: null,
       energy: null,
       duration_sec: null,
+      next_pairing_id: null,
+      next_is_dj_pairing: false,
     });
     expect(v.track.durationSec).toBe(210);
     expect(v.track.energy).toBe(5);
     expect(v.targetEnergy).toBeNull();
+    expect(v.transitionScore).toBeNull();
+    expect(v.nextPairingId).toBeNull();
+    expect(v.nextIsDjPairing).toBe(false);
   });
 });
 

@@ -48,5 +48,4 @@ def test_global_exception_handler_returns_500():
     assert response.status_code == 500
     body = response.json()
     assert body["detail"] == "Internal server error"
-    # Dev mode includes debug info
-    assert "boom" in body["debug"]
+    assert "debug" not in body

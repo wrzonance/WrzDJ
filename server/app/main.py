@@ -107,10 +107,7 @@ async def _tidal_collection_poll_loop() -> None:
 async def global_exception_handler(request: FastAPIRequest, exc: Exception) -> JSONResponse:
     """Catch unhandled exceptions and return a generic 500 response."""
     logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
-    content = {"detail": "Internal server error"}
-    if not settings.is_production:
-        content["debug"] = str(exc)
-    return JSONResponse(status_code=500, content=content)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 @asynccontextmanager

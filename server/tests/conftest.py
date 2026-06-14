@@ -9,6 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+import app.db.session as _db_session_module
 from app.api import sse as _sse_module
 from app.api.deps import get_db
 from app.core.time import utcnow
@@ -28,29 +29,55 @@ engine = create_engine(
     connect_args={"check_same_thread": False},
     poolclass=StaticPool,
 )
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# The SSE endpoint (``app.api.sse``) opens its own short-lived
-# ``with SessionLocal() as db:`` block for the existence check, bypassing the
-# FastAPI ``get_db`` dependency that other endpoints use. The
-# ``app.dependency_overrides[get_db]`` swap below never reaches it, so the SSE
-# handler would hit the real ``DATABASE_URL`` (Postgres in CI) instead of the
-# in-memory SQLite test DB and fail with "relation does not exist". Swap only
-# the SSE module's ``SessionLocal`` reference — scoped so we don't disturb
-# other modules that also import the production ``SessionLocal``.
-_sse_module.SessionLocal = TestingSessionLocal
+
+@pytest.fixture(scope="session", autouse=True)
+def _database_schema() -> Generator[None, None, None]:
+    """Create the in-memory SQLite schema once per pytest process."""
+    Base.metadata.create_all(bind=engine)
+    try:
+        yield
+    finally:
+        Base.metadata.drop_all(bind=engine)
 
 
 @pytest.fixture(scope="function")
-def db() -> Generator[Session, None, None]:
-    """Create a fresh database for each test."""
-    Base.metadata.create_all(bind=engine)
-    session = TestingSessionLocal()
+def db(monkeypatch: pytest.MonkeyPatch, _database_schema: None) -> Generator[Session, None, None]:
+    """Run each test inside an externally managed transaction.
+
+    Application code may call Session.commit(); SQLAlchemy keeps those commits
+    inside a SAVEPOINT while this fixture rolls back the outer transaction.
+    """
+    connection = engine.connect()
+    # SQLite's legacy transaction control does not always emit BEGIN before the
+    # first SAVEPOINT, so start the driver transaction explicitly.
+    connection.exec_driver_sql("BEGIN")
+    transaction = connection.get_transaction()
+    assert transaction is not None
+    TestSessionLocal = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=connection,
+        join_transaction_mode="create_savepoint",
+    )
+    AppSessionLocal = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=connection,
+        # Detached app sessions can overlap with the fixture session; avoid
+        # competing SAVEPOINT ownership while keeping their writes rollback-bound.
+        join_transaction_mode="rollback_only",
+    )
+    monkeypatch.setattr(_db_session_module, "SessionLocal", AppSessionLocal)
+    monkeypatch.setattr(_sse_module, "SessionLocal", AppSessionLocal, raising=False)
+
+    session = TestSessionLocal()
     try:
         yield session
     finally:
         session.close()
-        Base.metadata.drop_all(bind=engine)
+        transaction.rollback()
+        connection.close()
 
 
 @pytest.fixture(scope="function")

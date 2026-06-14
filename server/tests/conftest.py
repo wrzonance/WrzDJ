@@ -21,6 +21,8 @@ from app.models.request import Request, RequestStatus
 from app.models.user import User
 from app.services.auth import create_access_token
 
+DIRECT_SESSIONLOCAL_MODULES = (_sse_module,)
+
 # Use SQLite in-memory for tests (fast, isolated)
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
 
@@ -82,7 +84,8 @@ def db(monkeypatch: pytest.MonkeyPatch, _database_schema: None) -> Generator[Ses
         join_transaction_mode="rollback_only",
     )
     monkeypatch.setattr(_db_session_module, "SessionLocal", AppSessionLocal)
-    monkeypatch.setattr(_sse_module, "SessionLocal", AppSessionLocal, raising=False)
+    for module in DIRECT_SESSIONLOCAL_MODULES:
+        monkeypatch.setattr(module, "SessionLocal", AppSessionLocal, raising=False)
 
     session = TestSessionLocal()
     try:

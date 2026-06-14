@@ -112,7 +112,7 @@ class TestCleanupReadsSettings:
     """The daily cleanup job must read the retention window from settings each
     run, not from a hardcoded constant."""
 
-    def test_cleanup_honors_admin_changed_window(self, db: Session, test_user, monkeypatch):
+    def test_cleanup_honors_admin_changed_window(self, db: Session, test_user):
         connector = _make_connector(db, test_user.id)
         # A row aged 20 days survives the default 30-day window but should be
         # purged once the admin shortens retention to 7 days.
@@ -121,29 +121,18 @@ class TestCleanupReadsSettings:
         # Admin shortens retention.
         update_system_settings(db, llm_call_log_retention_days=7)
 
-        # The cleanup job opens its own session via `from app.db.session import
-        # SessionLocal`; point that factory at the test session so the in-memory
-        # SQLite state is shared.
         import app.main as main_module
-
-        monkeypatch.setattr("app.db.session.SessionLocal", lambda: db, raising=False)
-
-        # Prevent the job's db.close() from tearing down the shared test session.
-        monkeypatch.setattr(db, "close", lambda: None)
 
         main_module._run_llm_call_log_cleanup()
 
         assert db.query(LlmCallLog).count() == 0
 
-    def test_cleanup_keeps_rows_within_window(self, db: Session, test_user, monkeypatch):
+    def test_cleanup_keeps_rows_within_window(self, db: Session, test_user):
         connector = _make_connector(db, test_user.id)
         _seed_call_log(db, connector.id, age_days=20)
 
         # Default window (30) keeps the 20-day-old row.
         import app.main as main_module
-
-        monkeypatch.setattr("app.db.session.SessionLocal", lambda: db, raising=False)
-        monkeypatch.setattr(db, "close", lambda: None)
 
         main_module._run_llm_call_log_cleanup()
 

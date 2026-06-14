@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.main import create_app, no_background_lifespan
 from app.models.user import User
 from app.services.auth import decode_token
-from tests.conftest import _auth_headers_for_user
+from tests.conftest import DIRECT_SESSIONLOCAL_MODULES, _auth_headers_for_user
 
 
 def test_db_fixture_uses_external_transaction(db: Session):
@@ -77,3 +77,9 @@ def test_auth_headers_for_user_builds_valid_token(test_user: User):
     assert token_data is not None
     assert token_data.username == "testuser"
     assert token_data.token_version == test_user.token_version
+
+
+def test_direct_sessionlocal_module_aliases_are_registered():
+    module_names = {module.__name__ for module in DIRECT_SESSIONLOCAL_MODULES}
+
+    assert "app.api.sse" in module_names

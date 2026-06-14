@@ -45,6 +45,7 @@ dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=4.1.0",
+    "pytest-xdist>=3.6.0",
     "bandit>=1.7.0",
     "pip-audit>=2.6.0",
     "freezegun>=1.2.0",

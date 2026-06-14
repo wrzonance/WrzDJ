@@ -35,16 +35,17 @@ def test_search_requires_query(client: TestClient, auth_headers: dict):
 
 def test_global_exception_handler_returns_500():
     """Test that unhandled exceptions return 500 with generic message."""
-    from app.main import app
+    from app.main import create_app, no_background_lifespan
+
+    test_app = create_app(lifespan_context=no_background_lifespan)
 
     with patch(
         "app.api.auth.get_system_settings",
         side_effect=RuntimeError("boom"),
     ):
-        with TestClient(app, raise_server_exceptions=False) as c:
+        with TestClient(test_app, raise_server_exceptions=False) as c:
             response = c.get("/api/auth/settings")
     assert response.status_code == 500
     body = response.json()
     assert body["detail"] == "Internal server error"
-    # Dev mode includes debug info
-    assert "boom" in body["debug"]
+    assert "debug" not in body

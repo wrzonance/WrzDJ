@@ -139,7 +139,10 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
 
       {confirmBuild && (
         <div className={styles.confirmWrap}>
-          <div className={styles.confirmBackdrop} onClick={() => setConfirmBuild(false)} />
+          <div
+            className={styles.confirmBackdrop}
+            onClick={building ? undefined : () => setConfirmBuild(false)}
+          />
           <div className={styles.confirmDialog} role="dialog" aria-modal="true">
             <div className={styles.confirmHeader}>
               <div className={styles.confirmIcon}>!</div>
@@ -169,7 +172,11 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
         </div>
       )}
 
-      {toast && <div className={styles.builderToast}>{toast}</div>}
+      {toast && (
+        <div className={styles.builderToast} role="status" aria-live="polite">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

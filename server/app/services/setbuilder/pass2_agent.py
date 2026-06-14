@@ -176,7 +176,7 @@ async def chat_with_agent(
     return AgentChatResult(
         message=response.text,
         tool_calls=applied,
-        slots=_ordered_slots(db, set_obj.id),
+        slots=slots,
         affected_transition_scores=transition_scores,
     )
 

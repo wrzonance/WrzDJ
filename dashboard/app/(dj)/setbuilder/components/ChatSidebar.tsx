@@ -134,6 +134,7 @@ export default function ChatSidebar({
     () =>
       entries
         .filter((entry) => entry.content.trim())
+        .slice(-30)
         .map((entry) => ({ role: entry.role, content: entry.content })),
     [entries],
   );

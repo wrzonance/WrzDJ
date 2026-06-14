@@ -111,9 +111,8 @@ def recompute_transition_scores(
     """Recompute transition scores for all or affected slots, honoring current order."""
     if slots is None:
         slots = _ordered_slots(db, set_obj.id)
-    tracks_by_id = {
-        _track_meta(t).slot_track_id: _track_meta(t) for t in _pool_tracks(db, set_obj.id)
-    }
+    pool_metas = [_track_meta(t) for t in _pool_tracks(db, set_obj.id)]
+    tracks_by_id = {meta.slot_track_id: meta for meta in pool_metas}
     scores: list[TransitionScore] = []
     for idx, slot in enumerate(slots):
         if affected_positions is not None and slot.position not in affected_positions:

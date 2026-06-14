@@ -1546,11 +1546,15 @@
         "description": "Run deterministic set generation. confirmed=true is an explicit user gate.",
         "properties": {
           "confirmed": {
-            "default": false,
+            "const": true,
+            "description": "Must be true to confirm unlocked slots may be reordered.",
             "title": "Confirmed",
             "type": "boolean"
           }
         },
+        "required": [
+          "confirmed"
+        ],
         "title": "BuildSetRequest",
         "type": "object"
       },
@@ -16553,6 +16557,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "description": "Build requires explicit confirmation"
           },
           "422": {
             "content": {

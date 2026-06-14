@@ -329,7 +329,11 @@ def update_slot_target(
     return SlotTargetOut(slot_id=slot.id, target_energy=slot.target_energy)
 
 
-@router.post("/sets/{set_id}/build", response_model=BuildSetResponse)
+@router.post(
+    "/sets/{set_id}/build",
+    response_model=BuildSetResponse,
+    responses={400: {"description": "Build requires explicit confirmation"}},
+)
 @limiter.limit("10/minute")
 def build_set(
     set_id: int,

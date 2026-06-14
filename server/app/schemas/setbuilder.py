@@ -349,7 +349,11 @@ class VibeWindowsResponse(BaseModel):
 class BuildSetRequest(BaseModel):
     """Run deterministic set generation. confirmed=true is an explicit user gate."""
 
-    confirmed: bool = False
+    confirmed: bool = Field(
+        ...,
+        json_schema_extra={"const": True},
+        description="Must be true to confirm unlocked slots may be reordered.",
+    )
 
 
 class TransitionScoreOut(BaseModel):

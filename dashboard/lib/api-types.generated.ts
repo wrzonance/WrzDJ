@@ -3906,9 +3906,10 @@ export interface components {
         BuildSetRequest: {
             /**
              * Confirmed
-             * @default false
+             * @description Must be true to confirm unlocked slots may be reordered.
+             * @constant
              */
-            confirmed: boolean;
+            confirmed: true;
         };
         /**
          * BuildSetResponse
@@ -11264,6 +11265,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["BuildSetResponse"];
                 };
+            };
+            /** @description Build requires explicit confirmation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

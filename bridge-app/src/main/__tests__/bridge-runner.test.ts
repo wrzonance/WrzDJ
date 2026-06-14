@@ -538,4 +538,32 @@ describe('BridgeRunner', () => {
     expect(logs.some((l) => l.message.includes('Starting bridge') && l.level === 'info')).toBe(true);
     expect(logs.some((l) => l.message.includes('ABC123'))).toBe(true);
   });
+
+  it('logs setbuilder transport command payloads from the command poller', () => {
+    const logs: Array<{ message: string; level: string }> = [];
+    runner.on('log', (msg: { message: string; level: string }) => logs.push(msg));
+    const handleCommand = (
+      runner as unknown as {
+        handleCommand: (type: string, command?: { payload?: Record<string, unknown> }) => void;
+      }
+    ).handleCommand.bind(runner);
+
+    handleCommand('setbuilder_transport', {
+      payload: { action: 'play', title: 'Track A', position_sec: 12.25 },
+    });
+    handleCommand('setbuilder_transport');
+
+    expect(
+      logs.some(
+        (l) =>
+          l.level === 'info' &&
+          l.message === 'Setbuilder transport command received: play "Track A" @ 12.3s',
+      ),
+    ).toBe(true);
+    expect(
+      logs.some(
+        (l) => l.level === 'info' && l.message === 'Setbuilder transport command received: unknown @ 0.0s',
+      ),
+    ).toBe(true);
+  });
 });

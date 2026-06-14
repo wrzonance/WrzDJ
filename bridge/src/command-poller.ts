@@ -18,6 +18,7 @@ const FETCH_TIMEOUT_MS = 10_000;
 export interface BridgeCommand {
   readonly command_id: string;
   readonly command_type: string;
+  readonly payload?: Record<string, unknown>;
 }
 
 /**
@@ -25,6 +26,7 @@ export interface BridgeCommand {
  *
  * Events emitted:
  *   'command' — fired for each command received, with the command type string
+ *               and the full command payload as the second argument
  */
 export class CommandPoller extends EventEmitter {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -99,7 +101,7 @@ export class CommandPoller extends EventEmitter {
         const body = (await response.json()) as { commands: BridgeCommand[] };
         for (const cmd of body.commands) {
           this.log.info(`Received command: ${cmd.command_type}`);
-          this.emit("command", cmd.command_type);
+          this.emit("command", cmd.command_type, cmd);
         }
       } finally {
         clearTimeout(timeoutId);

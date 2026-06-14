@@ -310,7 +310,11 @@ def get_bridge_commands(
     commands = poll_commands(code.upper())
     return BridgeCommandsPollResponse(
         commands=[
-            BridgeCommandResponse(command_id=cmd["id"], command_type=cmd["type"])
+            BridgeCommandResponse(
+                command_id=cmd["id"],
+                command_type=cmd["type"],
+                payload=cmd.get("payload", {}),
+            )
             for cmd in commands
         ]
     )

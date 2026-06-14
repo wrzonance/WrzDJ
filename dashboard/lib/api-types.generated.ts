@@ -3138,6 +3138,46 @@ export interface paths {
         patch: operations["update_slot_target_api_setbuilder_sets__set_id__slots__slot_id__target_patch"];
         trace?: never;
     };
+    "/api/setbuilder/sets/{set_id}/transport/command": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Queue Transport Command
+         * @description Queue a setbuilder playback command for the set's attached event Bridge.
+         */
+        post: operations["queue_transport_command_api_setbuilder_sets__set_id__transport_command_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/transport/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Transport Status
+         * @description Return Bridge connection/source status for the set's attached event.
+         */
+        get: operations["get_transport_status_api_setbuilder_sets__set_id__transport_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setbuilder/sets/{set_id}/vibe-windows": {
         parameters: {
             query?: never;
@@ -3888,6 +3928,13 @@ export interface components {
              * @description The command type that was queued
              */
             command_type: string;
+            /**
+             * Payload
+             * @description Queued command payload
+             */
+            payload: {
+                [key: string]: unknown;
+            };
         };
         /**
          * BridgeCommandsPollResponse
@@ -6428,6 +6475,79 @@ export interface components {
             slot_id: number;
             /** Warnings */
             warnings: string[];
+        };
+        /**
+         * TransportCommandIn
+         * @description One setbuilder transport command queued to the Bridge client.
+         */
+        TransportCommandIn: {
+            /**
+             * Action
+             * @description Transport action for the Bridge playback client
+             * @enum {string}
+             */
+            action: "load" | "play" | "pause" | "seek";
+            /**
+             * Artist
+             * @default
+             */
+            artist: string;
+            /** Duration Sec */
+            duration_sec: number;
+            /**
+             * Position Sec
+             * @default 0
+             */
+            position_sec: number;
+            /** Slot Index */
+            slot_index: number;
+            /**
+             * Source
+             * @default tidal
+             * @constant
+             */
+            source: "tidal";
+            /** Title */
+            title: string;
+            /** Track Id */
+            track_id?: string | null;
+        };
+        /**
+         * TransportCommandOut
+         * @description Bridge command queued for a setbuilder transport action.
+         */
+        TransportCommandOut: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "load" | "play" | "pause" | "seek";
+            /**
+             * Active Source
+             * @constant
+             */
+            active_source: "tidal";
+            /** Command Id */
+            command_id: string;
+            /**
+             * Command Type
+             * @constant
+             */
+            command_type: "setbuilder_transport";
+        };
+        /**
+         * TransportStatusOut
+         * @description Set-scoped Bridge playback status for the transport bar.
+         */
+        TransportStatusOut: {
+            /** Active Source */
+            active_source: string | null;
+            /** Connected */
+            connected: boolean;
+            /** Device Name */
+            device_name: string | null;
+            /** Last Seen */
+            last_seen: string | null;
         };
         /**
          * UnresolvedTrackOut
@@ -12300,6 +12420,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SlotTargetOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    queue_transport_command_api_setbuilder_sets__set_id__transport_command_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransportCommandIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransportCommandOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_transport_status_api_setbuilder_sets__set_id__transport_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransportStatusOut"];
                 };
             };
             /** @description Validation Error */

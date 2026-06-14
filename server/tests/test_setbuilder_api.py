@@ -6,6 +6,8 @@ rename/delete happy paths.
 """
 
 from app.services.auth import get_password_hash
+from app.services.bridge_integration import clear_all as clear_command_queue
+from app.services.bridge_integration import poll_commands
 
 
 def _make_second_dj(db):
@@ -120,3 +122,91 @@ def test_delete_other_dj_set_returns_404(client, auth_headers, db):
     ).json()
     resp = client.delete(f"/api/setbuilder/sets/{theirs['id']}", headers=auth_headers)
     assert resp.status_code == 404
+
+
+def test_transport_command_queues_bridge_payload(client, auth_headers, test_event):
+    clear_command_queue()
+    created = client.post(
+        "/api/setbuilder/sets",
+        json={"name": "Playable", "event_id": test_event.id},
+        headers=auth_headers,
+    ).json()
+    payload = {
+        "action": "play",
+        "source": "tidal",
+        "slot_index": 0,
+        "track_id": "tidal:123",
+        "title": "Track One",
+        "artist": "Artist One",
+        "position_sec": 0,
+        "duration_sec": 210,
+    }
+
+    resp = client.post(
+        f"/api/setbuilder/sets/{created['id']}/transport/command",
+        json=payload,
+        headers=auth_headers,
+    )
+
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["command_type"] == "setbuilder_transport"
+    assert resp.json()["action"] == "play"
+    queued = poll_commands("TEST01")
+    assert len(queued) == 1
+    assert queued[0]["type"] == "setbuilder_transport"
+    assert queued[0]["payload"]["track_id"] == "tidal:123"
+    assert queued[0]["payload"]["slot_index"] == 0
+
+
+def test_transport_command_requires_attached_event(client, auth_headers):
+    created = client.post(
+        "/api/setbuilder/sets", json={"name": "No Event"}, headers=auth_headers
+    ).json()
+
+    resp = client.post(
+        f"/api/setbuilder/sets/{created['id']}/transport/command",
+        json={
+            "action": "play",
+            "source": "tidal",
+            "slot_index": 0,
+            "track_id": "tidal:123",
+            "title": "Track One",
+            "artist": "Artist One",
+            "position_sec": 0,
+            "duration_sec": 210,
+        },
+        headers=auth_headers,
+    )
+
+    assert resp.status_code == 400
+
+
+def test_transport_status_reads_attached_event_bridge_state(client, auth_headers, db, test_event):
+    from app.models.now_playing import NowPlaying
+
+    created = client.post(
+        "/api/setbuilder/sets",
+        json={"name": "Playable", "event_id": test_event.id},
+        headers=auth_headers,
+    ).json()
+    db.add(
+        NowPlaying(
+            event_id=test_event.id,
+            title="",
+            artist="",
+            source="setbuilder:tidal",
+            bridge_connected=True,
+            bridge_device_name="Bridge App",
+        )
+    )
+    db.commit()
+
+    resp = client.get(
+        f"/api/setbuilder/sets/{created['id']}/transport/status",
+        headers=auth_headers,
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["connected"] is True
+    assert resp.json()["active_source"] == "setbuilder:tidal"
+    assert resp.json()["device_name"] == "Bridge App"

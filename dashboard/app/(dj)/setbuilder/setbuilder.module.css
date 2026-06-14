@@ -1,9 +1,10 @@
 .workspace {
   display: grid;
   grid-template-columns: 320px 1fr 360px;
-  grid-template-rows: minmax(200px, 40%) 1fr;
+  grid-template-rows: minmax(200px, 40%) auto 1fr;
   grid-template-areas:
     'pool curve chat'
+    'pool transport chat'
     'pool timeline chat';
   gap: 1px;
   height: calc(100vh - 56px);
@@ -85,6 +86,9 @@
 }
 .panelTimeline {
   grid-area: timeline;
+}
+.panelTransport {
+  grid-area: transport;
 }
 .panelChat {
   grid-area: chat;

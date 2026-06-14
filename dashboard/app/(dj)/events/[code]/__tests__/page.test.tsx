@@ -231,7 +231,11 @@ function setupDefaultMocks() {
     circuit_breaker_state: null, buffer_size: null, plugin_id: null,
     deck_count: null, uptime_seconds: null,
   });
-  vi.mocked(api.sendBridgeCommand).mockResolvedValue({ command_id: 'test', command_type: 'ping' });
+  vi.mocked(api.sendBridgeCommand).mockResolvedValue({
+    command_id: 'test',
+    command_type: 'ping',
+    payload: {},
+  });
 }
 
 describe('EventQueuePage', () => {

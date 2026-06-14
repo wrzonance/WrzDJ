@@ -13,6 +13,7 @@ import { PluginBridge } from '@bridge/plugin-bridge.js';
 import { getPlugin } from '@bridge/plugin-registry.js';
 import { CircuitBreaker } from '@bridge/circuit-breaker.js';
 import { CommandPoller } from '@bridge/command-poller.js';
+import type { BridgeCommand } from '@bridge/command-poller.js';
 import { Logger, type LogLevel } from '@bridge/logger.js';
 import { TrackHistoryBuffer } from '@bridge/track-history-buffer.js';
 import type { DeckLiveEvent, DeckState } from '@bridge/deck-state.js';
@@ -593,8 +594,8 @@ export class BridgeRunner extends EventEmitter {
   private startCommandPoller(): void {
     if (!this.config) return;
     this.commandPoller = new CommandPoller(this.circuitBreaker, this.logger);
-    this.commandPoller.on('command', (type: string) => {
-      this.handleCommand(type);
+    this.commandPoller.on('command', (type: string, command?: BridgeCommand) => {
+      this.handleCommand(type, command);
     });
     this.commandPoller.start(this.config.apiUrl, this.config.apiKey, this.config.eventCode);
   }
@@ -606,7 +607,7 @@ export class BridgeRunner extends EventEmitter {
     }
   }
 
-  private handleCommand(type: string): void {
+  private handleCommand(type: string, command?: BridgeCommand): void {
     switch (type) {
       case 'ping':
         this.log('Ping received from dashboard');
@@ -621,9 +622,22 @@ export class BridgeRunner extends EventEmitter {
       case 'restart':
         this.restartBridge();
         break;
+      case 'setbuilder_transport':
+        this.handleSetbuilderTransport(command?.payload ?? {});
+        break;
       default:
         this.log(`Unknown command: ${type}`, 'warn');
     }
+  }
+
+  private handleSetbuilderTransport(payload: Record<string, unknown>): void {
+    const action = typeof payload.action === 'string' ? payload.action : 'unknown';
+    const title = typeof payload.title === 'string' ? payload.title : '';
+    const position = typeof payload.position_sec === 'number' ? payload.position_sec : 0;
+
+    this.log(
+      `Setbuilder transport command received: ${action}${title ? ` "${title}"` : ''} @ ${position.toFixed(1)}s`
+    );
   }
 
   // --- Status emission ---

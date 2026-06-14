@@ -6,6 +6,7 @@ import logging
 import threading
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -33,12 +34,13 @@ _commands: dict[str, list[dict]] = {}
 _lock = threading.Lock()
 
 
-def queue_command(event_code: str, command_type: str) -> str:
+def queue_command(event_code: str, command_type: str, payload: dict[str, Any] | None = None) -> str:
     """Queue a command for the bridge to pick up. Returns the UUID command_id."""
     command_id = str(uuid.uuid4())
     entry = {
         "id": command_id,
         "type": command_type,
+        "payload": payload or {},
         "created_at": utcnow(),
     }
     with _lock:

@@ -26,6 +26,7 @@ import {
   updateLastTrack,
 } from "./bridge.js";
 import { CommandPoller } from "./command-poller.js";
+import type { BridgeCommand } from "./command-poller.js";
 import type { DeckLiveEvent } from "./deck-state.js";
 import { Logger } from "./logger.js";
 import { getPlugin } from "./plugin-registry.js";
@@ -129,7 +130,7 @@ async function main(): Promise<void> {
   const cmdLog = log.child("CommandPoller");
   commandPoller = new CommandPoller(getCircuitBreaker(), cmdLog);
 
-  commandPoller.on("command", async (commandType: string) => {
+  commandPoller.on("command", async (commandType: string, command?: BridgeCommand) => {
     if (!pluginBridge) return;
 
     cmdLog.info(`Executing command: ${commandType}`);
@@ -143,6 +144,9 @@ async function main(): Promise<void> {
           break;
         case "restart":
           await pluginBridge.restart();
+          break;
+        case "setbuilder_transport":
+          handleSetbuilderTransport(command?.payload ?? {});
           break;
         default:
           cmdLog.warn(`Unknown command type: ${commandType}`);
@@ -178,6 +182,16 @@ async function main(): Promise<void> {
   // Immediate handshake — tell the backend we're online and listening
   log.info("Bridge online — sending initial status to backend");
   await postBridgeStatus(true, undefined, buildEnrichedStatus());
+}
+
+function handleSetbuilderTransport(payload: Record<string, unknown>): void {
+  const action = typeof payload.action === "string" ? payload.action : "unknown";
+  const title = typeof payload.title === "string" ? payload.title : "";
+  const position = typeof payload.position_sec === "number" ? payload.position_sec : 0;
+
+  log.info(
+    `Setbuilder transport command received: ${action}${title ? ` "${title}"` : ""} @ ${position.toFixed(1)}s`
+  );
 }
 
 // Run the bridge

@@ -120,6 +120,23 @@ describe("CommandPoller", () => {
       expect(received).toEqual(["reset_decks", "reconnect"]);
     });
 
+    it("emits the full command as the second argument", async () => {
+      const command = {
+        command_id: "1",
+        command_type: "setbuilder_transport",
+        payload: { action: "play", track_id: "tidal:1" },
+      };
+      mockFetch.mockResolvedValue(createMockResponse(200, { commands: [command] }));
+
+      const received: unknown[] = [];
+      poller.on("command", (_type: string, cmd: unknown) => received.push(cmd));
+
+      poller.start("http://localhost:8000", "key", "EVT1");
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(received).toEqual([command]);
+    });
+
     it("sends correct URL and headers", async () => {
       mockFetch.mockResolvedValue(createMockResponse(200, { commands: [] }));
 

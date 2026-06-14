@@ -134,8 +134,8 @@ class TestPostBridgeCommand:
     def test_all_valid_command_types(
         self, client: TestClient, auth_headers: dict, test_event: Event
     ):
-        """All three valid command types are accepted."""
-        for cmd in ("reset_decks", "reconnect", "restart"):
+        """All valid generic command types are accepted."""
+        for cmd in ("ping", "reset_decks", "reconnect", "restart"):
             response = client.post(
                 "/api/bridge/commands/TEST01",
                 json={"command_type": cmd},
@@ -143,6 +143,20 @@ class TestPostBridgeCommand:
             )
             assert response.status_code == 200
             assert response.json()["command_type"] == cmd
+
+    def test_generic_endpoint_rejects_setbuilder_transport(
+        self, client: TestClient, auth_headers: dict, test_event: Event
+    ):
+        """Setbuilder playback commands must go through the set-scoped transport endpoint."""
+        response = client.post(
+            "/api/bridge/commands/TEST01",
+            json={
+                "command_type": "setbuilder_transport",
+                "payload": {"action": "play"},
+            },
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
 
 
 class TestGetBridgeCommands:
@@ -182,6 +196,32 @@ class TestGetBridgeCommands:
         assert len(data["commands"]) == 2
         types = {cmd["command_type"] for cmd in data["commands"]}
         assert types == {"reset_decks", "reconnect"}
+        assert all(cmd["payload"] == {} for cmd in data["commands"])
+
+    @patch("app.core.bridge_auth.get_settings")
+    def test_poll_returns_payload(
+        self,
+        mock_settings,
+        client: TestClient,
+        auth_headers: dict,
+        bridge_headers: dict,
+        test_event: Event,
+    ):
+        """Polling preserves structured command payloads."""
+        mock_settings.return_value.bridge_api_key = "test-bridge-key"
+        from app.services.bridge_integration import queue_command
+
+        queue_command(
+            "TEST01",
+            "setbuilder_transport",
+            {"action": "seek", "position_sec": 12.5},
+        )
+
+        response = client.get("/api/bridge/commands/TEST01", headers=bridge_headers)
+        assert response.status_code == 200
+        command = response.json()["commands"][0]
+        assert command["command_type"] == "setbuilder_transport"
+        assert command["payload"] == {"action": "seek", "position_sec": 12.5}
 
     @patch("app.core.bridge_auth.get_settings")
     def test_poll_clears_queue(

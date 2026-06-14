@@ -104,21 +104,31 @@ async def _tidal_collection_poll_loop() -> None:
             logger.exception("Tidal collection poll loop error")
 
 
+async def global_exception_handler(request: FastAPIRequest, exc: Exception) -> JSONResponse:
+    """Catch unhandled exceptions and return a generic 500 response."""
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    content = {"detail": "Internal server error"}
+    if not settings.is_production:
+        content["debug"] = str(exc)
+    return JSONResponse(status_code=500, content=content)
+
+
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI, *, run_background_tasks: bool = True):
     for name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
         lg = logging.getLogger(name)
         lg.handlers.clear()
         lg.propagate = True
-    # Import lazily so test runs that mock out the loop module don't trigger
-    # adapter imports at startup-time.
-    from app.services.llm.health_monitor import health_monitor_loop
 
-    tasks = [
-        asyncio.create_task(_tidal_collection_poll_loop()),
-        asyncio.create_task(_llm_call_log_cleanup_loop()),
-        asyncio.create_task(health_monitor_loop()),
-    ]
+    tasks: list[asyncio.Task] = []
+    if run_background_tasks:
+        from app.services.llm.health_monitor import health_monitor_loop
+
+        tasks = [
+            asyncio.create_task(_tidal_collection_poll_loop()),
+            asyncio.create_task(_llm_call_log_cleanup_loop()),
+            asyncio.create_task(health_monitor_loop()),
+        ]
     try:
         yield
     finally:
@@ -129,65 +139,58 @@ async def lifespan(app: FastAPI):
                 await task
 
 
-app = FastAPI(
-    title="WrzDJ API",
-    description="Song request system for DJs",
-    version="0.1.0",
-    lifespan=lifespan,
-    # Disable API docs in production
-    docs_url=None if settings.is_production else "/docs",
-    redoc_url=None if settings.is_production else "/redoc",
-    openapi_url=None if settings.is_production else "/openapi.json",
-)
-
-# Rate limiting
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+@asynccontextmanager
+async def no_background_lifespan(app: FastAPI):
+    async with lifespan(app, run_background_tasks=False):
+        yield
 
 
-@app.exception_handler(Exception)
-async def global_exception_handler(request: FastAPIRequest, exc: Exception) -> JSONResponse:
-    """Catch unhandled exceptions and return a generic 500 response."""
-    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
-    content = {"detail": "Internal server error"}
-    if not settings.is_production:
-        content["debug"] = str(exc)
-    return JSONResponse(status_code=500, content=content)
-
-
-# Security headers (added first, runs last in middleware chain)
-app.add_middleware(SecurityHeadersMiddleware)
-
-# CORS
-if settings.cors_origins.strip() == "*":
-    # Allow all origins for local development (no credentials needed for Bearer token auth)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-else:
-    origins = [origin.strip() for origin in settings.cors_origins.split(",")]
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=True,
-        allow_methods=CORS_ALLOW_METHODS,
-        allow_headers=["Authorization", "Content-Type", "X-Kiosk-Session"],
-        expose_headers=["Content-Disposition"],
+def create_app(*, lifespan_context=lifespan) -> FastAPI:
+    application = FastAPI(
+        title="WrzDJ API",
+        description="Song request system for DJs",
+        version="0.1.0",
+        lifespan=lifespan_context,
+        docs_url=None if settings.is_production else "/docs",
+        redoc_url=None if settings.is_production else "/redoc",
+        openapi_url=None if settings.is_production else "/openapi.json",
     )
 
-# Include API router
-app.include_router(api_router, prefix="/api")
+    application.state.limiter = limiter
+    application.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+    application.add_exception_handler(Exception, global_exception_handler)
+    application.add_middleware(SecurityHeadersMiddleware)
 
-# Serve uploaded files (banners, etc.)
-uploads_dir = Path(settings.resolved_uploads_dir)
-uploads_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
+    if settings.cors_origins.strip() == "*":
+        application.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=False,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+    else:
+        origins = [origin.strip() for origin in settings.cors_origins.split(",")]
+        application.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=True,
+            allow_methods=CORS_ALLOW_METHODS,
+            allow_headers=["Authorization", "Content-Type", "X-Kiosk-Session"],
+            expose_headers=["Content-Disposition"],
+        )
+
+    application.include_router(api_router, prefix="/api")
+
+    uploads_dir = Path(settings.resolved_uploads_dir)
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    application.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
+
+    @application.get("/health")
+    def health_check():
+        return {"status": "ok"}
+
+    return application
 
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
+app = create_app()

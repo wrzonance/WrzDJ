@@ -13,7 +13,7 @@ import app.db.session as _db_session_module
 from app.api import sse as _sse_module
 from app.api.deps import get_db
 from app.core.time import utcnow
-from app.main import app
+from app.main import create_app, no_background_lifespan
 from app.models.base import Base
 from app.models.event import Event
 from app.models.guest import Guest
@@ -80,8 +80,14 @@ def db(monkeypatch: pytest.MonkeyPatch, _database_schema: None) -> Generator[Ses
         connection.close()
 
 
+@pytest.fixture(scope="session")
+def test_app():
+    """FastAPI app instance for tests; lifespan runs without production loops."""
+    return create_app(lifespan_context=no_background_lifespan)
+
+
 @pytest.fixture(scope="function")
-def client(db: Session) -> Generator[TestClient, None, None]:
+def client(db: Session, test_app) -> Generator[TestClient, None, None]:
     """Create a test client with database override."""
 
     def override_get_db():
@@ -90,10 +96,10 @@ def client(db: Session) -> Generator[TestClient, None, None]:
         finally:
             pass  # Don't close the session here, let the db fixture handle it
 
-    app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as c:
+    test_app.dependency_overrides[get_db] = override_get_db
+    with TestClient(test_app) as c:
         yield c
-    app.dependency_overrides.clear()
+    test_app.dependency_overrides.clear()
 
 
 @pytest.fixture

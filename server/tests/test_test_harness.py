@@ -1,7 +1,11 @@
 """Regression tests for backend pytest harness behavior."""
 
+from unittest.mock import patch
+
+from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.main import create_app, no_background_lifespan
 from app.models.user import User
 
 
@@ -23,3 +27,40 @@ def test_committed_rows_are_visible_within_current_test(db: Session):
 
 def test_committed_rows_are_rolled_back_between_tests(db: Session):
     assert db.query(User).filter(User.username == "transaction_probe").count() == 0
+
+
+def test_no_background_test_client_skips_lifespan_tasks():
+    with (
+        patch("app.main._tidal_collection_poll_loop") as tidal_loop,
+        patch("app.main._llm_call_log_cleanup_loop") as cleanup_loop,
+        patch("app.services.llm.health_monitor.health_monitor_loop") as health_loop,
+    ):
+        test_app = create_app(lifespan_context=no_background_lifespan)
+        with TestClient(test_app) as client:
+            assert client.get("/health").status_code == 200
+
+    tidal_loop.assert_not_called()
+    cleanup_loop.assert_not_called()
+    health_loop.assert_not_called()
+
+
+def test_real_lifespan_starts_and_cancels_background_tasks():
+    async def neverending():
+        import asyncio
+
+        await asyncio.Event().wait()
+
+    with (
+        patch("app.main._tidal_collection_poll_loop", side_effect=neverending) as tidal_loop,
+        patch("app.main._llm_call_log_cleanup_loop", side_effect=neverending) as cleanup_loop,
+        patch(
+            "app.services.llm.health_monitor.health_monitor_loop", side_effect=neverending
+        ) as health_loop,
+    ):
+        real_app = create_app()
+        with TestClient(real_app) as client:
+            assert client.get("/health").status_code == 200
+
+    tidal_loop.assert_called_once()
+    cleanup_loop.assert_called_once()
+    health_loop.assert_called_once()

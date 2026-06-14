@@ -14,9 +14,7 @@ import PoolPanel from '../components/PoolPanel';
 import SetActionsMenu from '../SetActionsMenu';
 import styles from '../setbuilder.module.css';
 
-interface OpenPairingsEvent extends Event {
-  detail?: { pairingId?: number | null };
-}
+type OpenPairingsEvent = CustomEvent<{ pairingId?: number | null }>;
 
 export default function BuilderPage({ params }: { params: Promise<{ setId: string }> }) {
   const { setId } = use(params);

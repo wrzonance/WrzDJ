@@ -150,6 +150,11 @@ def delete_pairing(db: Session, pairing: SetPairing) -> None:
     db.commit()
 
 
+def pairing_view(db: Session, set_obj: Set, pairing: SetPairing) -> PairingView:
+    """Build display data for one pairing without loading every set pairing."""
+    return _attach_pool_tracks(db, set_obj.id, [pairing], "")[0]
+
+
 def list_pairings(db: Session, set_obj: Set, query: str | None = None) -> list[PairingView]:
     """List pairings with optional pool-track display data."""
     term = (query or "").strip()

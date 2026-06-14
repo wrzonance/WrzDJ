@@ -390,8 +390,7 @@ def create_set_pairing(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not created:
         response.status_code = status.HTTP_200_OK
-    view = pairings.list_pairings(db, set_obj)
-    return _pairing_out(next(v for v in view if v.pairing.id == pairing.id))
+    return _pairing_out(pairings.pairing_view(db, set_obj, pairing))
 
 
 @router.patch("/sets/{set_id}/pairings/{pairing_id}", response_model=PairingOut)
@@ -422,8 +421,7 @@ def update_set_pairing(
         note=payload.note if "note" in fields else pairing.note,
         tags=tags,
     )
-    view = pairings.list_pairings(db, set_obj)
-    return _pairing_out(next(v for v in view if v.pairing.id == updated.id))
+    return _pairing_out(pairings.pairing_view(db, set_obj, updated))
 
 
 @router.delete("/sets/{set_id}/pairings/{pairing_id}", status_code=status.HTTP_204_NO_CONTENT)

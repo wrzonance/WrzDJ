@@ -82,7 +82,9 @@ def test_create_list_update_pairing_owner_scoped(client, auth_headers, db):
 def test_pairings_join_pool_track_display_and_search(client, auth_headers, db):
     set_obj = _mk_set(client, auth_headers)
     from_track = _mk_pool_track(db, set_obj["id"], "tidal:1", "Strobe", "deadmau5")
-    _mk_pool_track(db, set_obj["id"], "tidal:2", "Ghosts", "Deadmau5", bpm=124, camelot="9A")
+    into_track = _mk_pool_track(
+        db, set_obj["id"], "tidal:2", "Ghosts", "Deadmau5", bpm=124, camelot="9A"
+    )
 
     resp = client.post(
         f"/api/setbuilder/sets/{set_obj['id']}/pairings",
@@ -90,6 +92,21 @@ def test_pairings_join_pool_track_display_and_search(client, auth_headers, db):
         headers=auth_headers,
     )
     assert resp.status_code == 201, resp.json()
+    created = resp.json()
+    assert created["from_track"]["id"] == from_track.id
+    assert created["from_track"]["title"] == "Strobe"
+    assert created["into_track"]["id"] == into_track.id
+    assert created["into_track"]["camelot"] == "9A"
+
+    resp = client.patch(
+        f"/api/setbuilder/sets/{set_obj['id']}/pairings/{created['id']}",
+        json={"note": "Updated with metadata"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200, resp.json()
+    updated = resp.json()
+    assert updated["from_track"]["title"] == "Strobe"
+    assert updated["into_track"]["camelot"] == "9A"
 
     resp = client.get(
         f"/api/setbuilder/sets/{set_obj['id']}/pairings?query=strobe",

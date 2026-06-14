@@ -93,6 +93,10 @@ def _validate_pairing_tags(tags: list[str]) -> list[str]:
     if len(tags) > 12:
         raise ValueError("too many tags")
     for tag in tags:
+        if len(tag) > 50:
+            raise ValueError("tags must be 50 characters or fewer")
+        if not tag.strip():
+            raise ValueError("tags cannot be empty or whitespace-only")
         if len(tag.strip()) > 32:
             raise ValueError("tags must be 32 characters or fewer")
     return tags

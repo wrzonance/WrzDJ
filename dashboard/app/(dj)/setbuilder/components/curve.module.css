@@ -629,6 +629,27 @@
   white-space: nowrap;
 }
 
+.timelinePairingAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border: 1px solid rgba(183, 139, 255, 0.45);
+  border-radius: 5px;
+  background: rgba(183, 139, 255, 0.1);
+  color: #c4a4ff;
+  cursor: pointer;
+}
+
+.timelinePairingAction:hover,
+.timelinePairingAction:focus-visible {
+  background: rgba(183, 139, 255, 0.18);
+  color: #e4d7ff;
+  outline: none;
+}
+
 .timelineContextMenu {
   position: fixed;
   z-index: 80;

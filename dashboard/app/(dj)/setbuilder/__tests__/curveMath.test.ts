@@ -221,6 +221,9 @@ describe('slotViewFromApi', () => {
     expect(v.track.durationSec).toBe(210);
     expect(v.track.energy).toBe(5);
     expect(v.targetEnergy).toBeNull();
+    expect(v.transitionScore).toBeNull();
+    expect(v.nextPairingId).toBeNull();
+    expect(v.nextIsDjPairing).toBe(false);
   });
 });
 

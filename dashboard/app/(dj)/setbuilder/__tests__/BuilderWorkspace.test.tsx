@@ -304,7 +304,7 @@ describe('BuilderWorkspace', () => {
     render(<BuilderWorkspace setId={5} />);
     await waitFor(() => expect(screen.getByTestId('timeline-row-0')).toBeInTheDocument());
 
-    fireEvent.contextMenu(screen.getByTestId('timeline-row-0'), { clientX: 120, clientY: 140 });
+    fireEvent.click(screen.getByLabelText('Save Track A into Track B as pairing'));
     fireEvent.click(screen.getByText('Save -> Track B as pairing'));
 
     await waitFor(() => expect(mockSavePairing).toHaveBeenCalledTimes(1));

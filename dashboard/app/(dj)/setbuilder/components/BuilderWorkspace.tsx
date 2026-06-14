@@ -96,7 +96,6 @@ export default function BuilderWorkspace({
     window.dispatchEvent(
       new CustomEvent('wrzdj:open-pairings', { detail: { pairingId: saved.id } }),
     );
-    await loadSlots();
   };
 
   return (

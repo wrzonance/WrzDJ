@@ -1,8 +1,11 @@
 """API + service tests for WrzDJSet DJ-curated pairings (#392)."""
 
-from app.models.set import SetSlot
+from sqlalchemy.exc import IntegrityError
+
+from app.models.set import Set, SetSlot
+from app.models.set_pairing import SetPairing
 from app.models.set_pool import SetPoolSource, SetPoolTrack
-from app.services.setbuilder import pairing_scoring
+from app.services.setbuilder import pairing_scoring, pairings
 
 
 def _mk_set(client, auth_headers, name="Pair Set"):
@@ -119,6 +122,57 @@ def test_pairing_create_is_idempotent_and_can_increment_uses(client, auth_header
     assert second.json()["use_count"] == 2
 
 
+def test_pairing_insert_race_returns_existing_pairing(client, auth_headers, db, monkeypatch):
+    """Regression for 9e57f7e: concurrent upsert unique races stay idempotent."""
+    set_obj = _mk_set(client, auth_headers)
+    set_model = db.get(Set, set_obj["id"])
+    assert set_model is not None
+
+    real_commit = db.commit
+    real_rollback = db.rollback
+    raised = False
+
+    def flaky_commit():
+        nonlocal raised
+        if not raised:
+            raised = True
+            raise IntegrityError("insert set_pairings", {}, Exception("duplicate"))
+        real_commit()
+
+    def seed_concurrent_row():
+        real_rollback()
+        db.add(
+            SetPairing(
+                set_id=set_obj["id"],
+                from_track_id="tidal:race-a",
+                into_track_id="tidal:race-b",
+                note="other writer",
+                tags_json="[]",
+            )
+        )
+        real_commit()
+
+    monkeypatch.setattr(db, "commit", flaky_commit)
+    monkeypatch.setattr(db, "rollback", seed_concurrent_row)
+
+    pairing, created = pairings.upsert_pairing(
+        db,
+        set_model,
+        from_track_id="tidal:race-a",
+        into_track_id="tidal:race-b",
+        cue_in_sec=16,
+        note="winner",
+        tags=["Peak"],
+        increment_use_count=True,
+    )
+
+    assert created is False
+    assert pairing.note == "winner"
+    assert pairing.cue_in_sec == 16
+    assert pairing.use_count == 1
+    assert pairings.tags_for_pairing(pairing) == ["peak"]
+
+
 def test_pairing_validation_and_owner_isolation(client, auth_headers, db):
     set_obj = _mk_set(client, auth_headers)
     resp = client.post(
@@ -127,6 +181,19 @@ def test_pairing_validation_and_owner_isolation(client, auth_headers, db):
         headers=auth_headers,
     )
     assert resp.status_code == 400
+
+    resp = client.post(
+        f"/api/setbuilder/sets/{set_obj['id']}/pairings",
+        json={"from_track_id": "tidal:a", "into_track_id": "tidal:b", "tags": [" x" * 30]},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422
+
+    resp = client.get(
+        f"/api/setbuilder/sets/{set_obj['id']}/pairings?query={'x' * 201}",
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422
 
     from app.models.user import User
     from app.services.auth import get_password_hash
@@ -164,6 +231,29 @@ def test_pairing_routes_require_active_dj(client, auth_headers, pending_headers)
         client.post(
             f"/api/setbuilder/sets/{set_obj['id']}/pairings",
             json=payload,
+            headers=pending_headers,
+        ).status_code
+        == 403
+    )
+    assert (
+        client.patch(
+            f"/api/setbuilder/sets/{set_obj['id']}/pairings/1",
+            json={"note": "x"},
+        ).status_code
+        == 401
+    )
+    assert client.delete(f"/api/setbuilder/sets/{set_obj['id']}/pairings/1").status_code == 401
+    assert (
+        client.patch(
+            f"/api/setbuilder/sets/{set_obj['id']}/pairings/1",
+            json={"note": "x"},
+            headers=pending_headers,
+        ).status_code
+        == 403
+    )
+    assert (
+        client.delete(
+            f"/api/setbuilder/sets/{set_obj['id']}/pairings/1",
             headers=pending_headers,
         ).status_code
         == 403

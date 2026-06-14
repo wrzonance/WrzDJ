@@ -75,6 +75,9 @@ export default function TimelinePanel({
         const prev = i > 0 ? slots[i - 1] : null;
         const seamScore = prev?.transitionScore ?? s.transitionScore;
         const isPairedSeam = Boolean(prev?.nextIsDjPairing);
+        const pairingActionLabel = s.nextIsDjPairing
+          ? `Open saved pairing after ${s.track.title}`
+          : `Save ${s.track.title} into ${slots[i + 1]?.track.title ?? 'next track'} as pairing`;
         return (
           <div key={s.id} className={styles.timelineSlotGroup}>
             {i > 0 && (isPairedSeam || seamScore != null) && (
@@ -134,6 +137,30 @@ export default function TimelinePanel({
               <span className={styles.timelineTarget} title="Target energy">
                 ◎ {effectiveTarget(s).toFixed(1)}
               </span>
+              {i < slots.length - 1 && (
+                <button
+                  type="button"
+                  className={styles.timelinePairingAction}
+                  aria-label={pairingActionLabel}
+                  title={pairingActionLabel}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    setMenu({ x: rect.left, y: rect.bottom + 4, idx: i });
+                  }}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M10.5 13.5 13.5 10.5M8.5 17.5H7.8a4.8 4.8 0 0 1 0-9.6h3.4M12.8 16.1h3.4a4.8 4.8 0 1 0 0-9.6h-.7"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="1.9"
+                    />
+                  </svg>
+                </button>
+              )}
             </div>
           </div>
         );

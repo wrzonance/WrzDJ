@@ -239,7 +239,14 @@ function PairingDetail({
               <button
                 type="button"
                 className="btn btn-primary btn-sm"
-                onClick={() => onUpdate({ note }).then(() => setEditingNote(false))}
+                onClick={async () => {
+                  try {
+                    await onUpdate({ note });
+                    setEditingNote(false);
+                  } catch {
+                    // The parent owns user-visible mutation errors.
+                  }
+                }}
               >
                 Save
               </button>
@@ -275,7 +282,13 @@ function PairingDetail({
       </div>
 
       <div className={styles.pairingFooter}>
-        <button type="button" className={`btn btn-sm ${styles.dangerBtn}`} onClick={onDelete}>
+        <button
+          type="button"
+          className={`btn btn-sm ${styles.dangerBtn}`}
+          onClick={() => {
+            void onDelete().catch(() => {});
+          }}
+        >
           Delete pairing
         </button>
       </div>
@@ -446,15 +459,19 @@ function PairingAddForm({
           type="button"
           className="btn btn-primary"
           disabled={!canSave}
-          onClick={() => {
+          onClick={async () => {
             if (!from?.track_id || !into?.track_id) return;
-            onSave({
-              from_track_id: from.track_id,
-              into_track_id: into.track_id,
-              cue_in_sec: cue.trim() ? Math.max(0, Number.parseInt(cue, 10) || 0) : null,
-              note: note.trim() || null,
-              tags,
-            });
+            try {
+              await onSave({
+                from_track_id: from.track_id,
+                into_track_id: into.track_id,
+                cue_in_sec: cue.trim() ? Math.max(0, Number.parseInt(cue, 10) || 0) : null,
+                note: note.trim() || null,
+                tags,
+              });
+            } catch {
+              // The parent owns user-visible mutation errors.
+            }
           }}
         >
           Save pairing
@@ -589,11 +606,20 @@ export default function PairingsOverlay({
                 pairings={pairings}
                 onCancel={() => setMode('view')}
                 onSave={async (payload) => {
-                  const saved = await api.savePairing(setId, { ...payload, increment_use_count: false });
-                  await reload();
-                  setSelectedId(saved.id);
-                  setMode('view');
-                  notifyChanged(state.count + 1);
+                  try {
+                    setError(null);
+                    const saved = await api.savePairing(setId, {
+                      ...payload,
+                      increment_use_count: false,
+                    });
+                    await reload();
+                    setSelectedId(saved.id);
+                    setMode('view');
+                    notifyChanged(state.count + 1);
+                  } catch (err) {
+                    setError('Failed to save pairing.');
+                    throw err;
+                  }
                 }}
               />
             ) : selected ? (
@@ -601,15 +627,27 @@ export default function PairingsOverlay({
                 pairing={selected}
                 slots={slots}
                 onUpdate={async (patch) => {
-                  await api.updatePairing(setId, selected.id, patch);
-                  await reload();
-                  notifyChanged(state.count);
+                  try {
+                    setError(null);
+                    await api.updatePairing(setId, selected.id, patch);
+                    await reload();
+                    notifyChanged(state.count);
+                  } catch (err) {
+                    setError('Failed to update pairing.');
+                    throw err;
+                  }
                 }}
                 onDelete={async () => {
-                  await api.deletePairing(setId, selected.id);
-                  await reload();
-                  setSelectedId(null);
-                  notifyChanged(Math.max(0, state.count - 1));
+                  try {
+                    setError(null);
+                    await api.deletePairing(setId, selected.id);
+                    await reload();
+                    setSelectedId(null);
+                    notifyChanged(Math.max(0, state.count - 1));
+                  } catch (err) {
+                    setError('Failed to delete pairing.');
+                    throw err;
+                  }
                 }}
                 onJump={(idx) => {
                   onJumpSlot(idx);

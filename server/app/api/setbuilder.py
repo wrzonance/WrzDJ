@@ -7,7 +7,7 @@ missing-or-unowned sets return 404 to avoid leaking existence.
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_active_user, get_db
@@ -349,7 +349,7 @@ def list_set_slots(
 def list_set_pairings(
     set_id: int,
     request: Request,
-    query: str | None = None,
+    query: str | None = Query(default=None, max_length=200),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> PairingsState:
@@ -362,6 +362,7 @@ def list_set_pairings(
     "/sets/{set_id}/pairings",
     response_model=PairingOut,
     status_code=status.HTTP_201_CREATED,
+    responses={status.HTTP_200_OK: {"model": PairingOut}},
 )
 @limiter.limit("30/minute")
 def create_set_pairing(

@@ -3,6 +3,7 @@
 import json
 from dataclasses import dataclass
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.set import Set
@@ -108,7 +109,21 @@ def upsert_pairing(
         use_count=1 if increment_use_count else 0,
     )
     db.add(pairing)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = find_pairing(db, set_obj.id, from_track_id, into_track_id)
+        if existing is None:
+            raise
+        existing.cue_in_sec = cue_in_sec
+        existing.note = note
+        existing.tags_json = _tags_json(tags)
+        if increment_use_count:
+            existing.use_count += 1
+        db.commit()
+        db.refresh(existing)
+        return existing, False
     db.refresh(pairing)
     return pairing, True
 

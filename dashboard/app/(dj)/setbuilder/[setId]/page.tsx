@@ -139,6 +139,7 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
           <button
             type="button"
             className={styles.topbarPairingsBtn}
+            aria-label={`Open pairings (${pairingCount})`}
             onClick={() => {
               setInitialPairingId(null);
               setPairingsOpen(true);

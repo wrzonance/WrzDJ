@@ -505,6 +505,44 @@ class AgentChatOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Transport (issue #393) — setbuilder playback commands via Bridge
+# ---------------------------------------------------------------------------
+
+
+class TransportCommandIn(BaseModel):
+    """One setbuilder transport command queued to the Bridge client."""
+
+    action: Literal["load", "play", "pause", "seek"] = Field(
+        ..., description="Transport action for the Bridge playback client"
+    )
+    source: Literal["tidal"] = "tidal"
+    slot_index: int = Field(..., ge=0)
+    track_id: str | None = Field(None, max_length=255)
+    title: str = Field(..., min_length=1, max_length=255)
+    artist: str = Field("", max_length=255)
+    position_sec: float = Field(0, ge=0)
+    duration_sec: float = Field(..., gt=0, le=36000)
+
+
+class TransportCommandOut(BaseModel):
+    """Bridge command queued for a setbuilder transport action."""
+
+    command_id: str
+    command_type: Literal["setbuilder_transport"]
+    action: Literal["load", "play", "pause", "seek"]
+    active_source: Literal["tidal"]
+
+
+class TransportStatusOut(BaseModel):
+    """Set-scoped Bridge playback status for the transport bar."""
+
+    connected: bool
+    active_source: str | None = None
+    device_name: str | None = None
+    last_seen: datetime | None = None
+
+
+# ---------------------------------------------------------------------------
 # Share links (issue #398)
 
 

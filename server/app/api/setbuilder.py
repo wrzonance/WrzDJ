@@ -66,6 +66,9 @@ from app.schemas.setbuilder import (
     TemplateWindowOut,
     TrackVibeStateOut,
     TransitionScoreOut,
+    TransportCommandIn,
+    TransportCommandOut,
+    TransportStatusOut,
     UnresolvedTrackOut,
     UnresolvedTracksError,
     VibeEnrichmentResult,
@@ -73,7 +76,9 @@ from app.schemas.setbuilder import (
     VibeWindowsPut,
     VibeWindowsResponse,
 )
+from app.services.bridge_integration import queue_command
 from app.services.llm.exceptions import NoLlmConfigured
+from app.services.now_playing import get_now_playing
 from app.services.setbuilder import (
     curve,
     export_common,
@@ -628,6 +633,75 @@ def put_vibe_windows(
     set_obj = _get_owned_or_404(db, set_id, current_user)
     stored = curve.replace_vibe_windows(db, set_obj, [w.model_dump() for w in payload.windows])
     return VibeWindowsResponse(windows=[VibeWindowModel(**w) for w in stored])
+
+
+# ---------------------------------------------------------------------------
+# Transport (issue #393) — queue playback commands for the attached event's Bridge.
+# ---------------------------------------------------------------------------
+
+
+@router.post("/sets/{set_id}/transport/command", response_model=TransportCommandOut)
+@limiter.limit("30/minute")
+def queue_transport_command(
+    set_id: int,
+    payload: TransportCommandIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> TransportCommandOut:
+    """Queue a setbuilder playback command for the set's attached event Bridge."""
+    set_obj = _get_owned_or_404(db, set_id, current_user)
+    if set_obj.event_id is None:
+        raise HTTPException(status_code=400, detail="Set must be attached to an event for playback")
+
+    from app.models.event import Event
+
+    event = db.get(Event, set_obj.event_id)
+    if event is None or event.created_by_user_id != current_user.id:
+        raise HTTPException(status_code=400, detail="Set event is unavailable for playback")
+
+    command_id = queue_command(
+        event.code.upper(),
+        "setbuilder_transport",
+        payload.model_dump(),
+    )
+    return TransportCommandOut(
+        command_id=command_id,
+        command_type="setbuilder_transport",
+        action=payload.action,
+        active_source=payload.source,
+    )
+
+
+@router.get("/sets/{set_id}/transport/status", response_model=TransportStatusOut)
+@limiter.limit("60/minute")
+def get_transport_status(
+    set_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> TransportStatusOut:
+    """Return Bridge connection/source status for the set's attached event."""
+    set_obj = _get_owned_or_404(db, set_id, current_user)
+    if set_obj.event_id is None:
+        return TransportStatusOut(connected=False)
+
+    from app.models.event import Event
+
+    event = db.get(Event, set_obj.event_id)
+    if event is None or event.created_by_user_id != current_user.id:
+        return TransportStatusOut(connected=False)
+
+    now_playing = get_now_playing(db, set_obj.event_id)
+    if now_playing is None:
+        return TransportStatusOut(connected=False)
+
+    return TransportStatusOut(
+        connected=now_playing.bridge_connected,
+        active_source=now_playing.source,
+        device_name=now_playing.bridge_device_name,
+        last_seen=now_playing.bridge_last_seen,
+    )
 
 
 # ---------------------------------------------------------------------------

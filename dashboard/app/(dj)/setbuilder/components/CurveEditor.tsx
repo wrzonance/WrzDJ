@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import {
   BPM_TIER_COLORS,
   KEY_TIER_COLORS,
@@ -43,6 +44,11 @@ export interface CurveEditorProps {
   hoveredIdx: number | null;
   onHover: (idx: number | null) => void;
   onBlockClick?: (idx: number) => void;
+  onBlockDoubleClick?: (idx: number) => void;
+  playheadSec?: number;
+  isPlaying?: boolean;
+  scrubEnabled?: boolean;
+  onScrub?: (positionSec: number) => void;
   onTargetDragEnd?: (idx: number, energy: number, anchor: { x: number; y: number }) => void;
   onWindowChange?: (id: string, patch: Partial<VibeWindowView>) => void;
   onWindowCommit?: (id: string) => void;
@@ -56,6 +62,11 @@ export default function CurveEditor({
   hoveredIdx,
   onHover,
   onBlockClick,
+  onBlockDoubleClick,
+  playheadSec = 0,
+  isPlaying = false,
+  scrubEnabled = false,
+  onScrub,
   onTargetDragEnd,
   onWindowChange,
   onWindowCommit,
@@ -172,6 +183,24 @@ export default function CurveEditor({
   const linePath = blocks
     .map((b, i) => `${i === 0 ? 'M' : 'L'} ${b.xMid.toFixed(2)} ${yOf(b.target).toFixed(2)}`)
     .join(' ');
+  const playheadX = totalSec > 0 ? Math.max(0, Math.min(1, playheadSec / totalSec)) * w : 0;
+  const scrubFromClientX = (clientX: number) => {
+    if (!svgRef.current || !scrubEnabled || !onScrub || totalSec <= 0) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const t = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
+    onScrub(t * totalSec);
+  };
+  const handleSvgClickCapture = (ev: ReactMouseEvent<SVGSVGElement>) => {
+    if (!scrubEnabled || !onScrub || totalSec <= 0) return;
+    const target = ev.target;
+    if (
+      target instanceof Element &&
+      target.closest('[data-handle="1"], [data-scrub-ignore="1"]')
+    ) {
+      return;
+    }
+    scrubFromClientX(ev.clientX);
+  };
 
   if (slots.length === 0) {
     return (
@@ -200,6 +229,7 @@ export default function CurveEditor({
         className={styles.svg}
         viewBox={`0 0 ${w} ${h}`}
         preserveAspectRatio="none"
+        onClickCapture={handleSvgClickCapture}
       >
         <defs>
           <pattern
@@ -228,6 +258,15 @@ export default function CurveEditor({
         </defs>
 
         <rect width={w} height={h} fill="url(#curveGrid)" />
+        {scrubEnabled && (
+          <rect
+            width={w}
+            height={h}
+            fill="transparent"
+            data-testid="curve-scrub-hit"
+            style={{ cursor: 'crosshair' }}
+          />
+        )}
 
         {/* Peak floor reference */}
         <line
@@ -271,6 +310,7 @@ export default function CurveEditor({
                 strokeWidth="0.5"
                 style={{ cursor: 'move' }}
                 data-testid={`vibe-window-header-${win.id}`}
+                data-scrub-ignore="1"
                 onContextMenu={(ev) => {
                   ev.preventDefault();
                   if (onWindowDelete) onWindowDelete(win.id);
@@ -296,6 +336,7 @@ export default function CurveEditor({
                 height={h}
                 fill="transparent"
                 style={{ cursor: 'ew-resize' }}
+                data-scrub-ignore="1"
                 onPointerDown={startWindowDrag(win.id, 'left', win.t0, win.t1)}
               />
               <rect
@@ -305,6 +346,7 @@ export default function CurveEditor({
                 height={h}
                 fill="transparent"
                 style={{ cursor: 'ew-resize' }}
+                data-scrub-ignore="1"
                 onPointerDown={startWindowDrag(win.id, 'right', win.t0, win.t1)}
               />
             </g>
@@ -329,6 +371,10 @@ export default function CurveEditor({
               onClick={(ev) => {
                 if ((ev.target as SVGElement).dataset?.handle) return;
                 if (onBlockClick) onBlockClick(b.idx);
+              }}
+              onDoubleClick={(ev) => {
+                ev.preventDefault();
+                if (onBlockDoubleClick) onBlockDoubleClick(b.idx);
               }}
               style={{ cursor: 'pointer' }}
             >
@@ -493,6 +539,34 @@ export default function CurveEditor({
             </g>
           );
         })}
+
+        {/* Derived target curve line */}
+        {totalSec > 0 && (
+          <g pointerEvents="none" data-testid="curve-playhead">
+            <rect x={0} y={0} width={playheadX} height={h} fill="rgba(0,0,0,0.22)" />
+            <line
+              x1={playheadX}
+              y1={0}
+              x2={playheadX}
+              y2={h}
+              stroke={isPlaying ? '#00f5d4' : 'rgba(255,255,255,0.7)'}
+              strokeWidth={1.5}
+            />
+            <g transform={`translate(${Math.min(Math.max(playheadX, 24), w - 24)}, 14)`}>
+              <rect x={-22} y={-10} width={44} height={18} rx={3} fill="var(--bg)" stroke="#00f5d4" strokeOpacity="0.6" />
+              <text
+                x="0"
+                y="3"
+                fontSize="9"
+                fill="#00f5d4"
+                fontWeight="700"
+                textAnchor="middle"
+              >
+                {fmtTime(playheadSec)}
+              </text>
+            </g>
+          </g>
+        )}
 
         {/* Derived target curve line */}
         {linePath && (

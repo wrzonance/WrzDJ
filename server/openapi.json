@@ -1323,11 +1323,18 @@
             "description": "The command type that was queued",
             "title": "Command Type",
             "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "description": "Queued command payload",
+            "title": "Payload",
+            "type": "object"
           }
         },
         "required": [
           "command_id",
-          "command_type"
+          "command_type",
+          "payload"
         ],
         "title": "BridgeCommandResponse",
         "type": "object"
@@ -8981,6 +8988,165 @@
           "warnings"
         ],
         "title": "TransitionScoreOut",
+        "type": "object"
+      },
+      "TransportCommandIn": {
+        "description": "One setbuilder transport command queued to the Bridge client.",
+        "properties": {
+          "action": {
+            "description": "Transport action for the Bridge playback client",
+            "enum": [
+              "load",
+              "play",
+              "pause",
+              "seek"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "artist": {
+            "default": "",
+            "maxLength": 255,
+            "title": "Artist",
+            "type": "string"
+          },
+          "duration_sec": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 36000.0,
+            "title": "Duration Sec",
+            "type": "number"
+          },
+          "position_sec": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Position Sec",
+            "type": "number"
+          },
+          "slot_index": {
+            "minimum": 0.0,
+            "title": "Slot Index",
+            "type": "integer"
+          },
+          "source": {
+            "const": "tidal",
+            "default": "tidal",
+            "title": "Source",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "track_id": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track Id"
+          }
+        },
+        "required": [
+          "action",
+          "slot_index",
+          "title",
+          "duration_sec"
+        ],
+        "title": "TransportCommandIn",
+        "type": "object"
+      },
+      "TransportCommandOut": {
+        "description": "Bridge command queued for a setbuilder transport action.",
+        "properties": {
+          "action": {
+            "enum": [
+              "load",
+              "play",
+              "pause",
+              "seek"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "active_source": {
+            "const": "tidal",
+            "title": "Active Source",
+            "type": "string"
+          },
+          "command_id": {
+            "title": "Command Id",
+            "type": "string"
+          },
+          "command_type": {
+            "const": "setbuilder_transport",
+            "title": "Command Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "active_source",
+          "command_id",
+          "command_type"
+        ],
+        "title": "TransportCommandOut",
+        "type": "object"
+      },
+      "TransportStatusOut": {
+        "description": "Set-scoped Bridge playback status for the transport bar.",
+        "properties": {
+          "active_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Source"
+          },
+          "connected": {
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "device_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Name"
+          },
+          "last_seen": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen"
+          }
+        },
+        "required": [
+          "active_source",
+          "connected",
+          "device_name",
+          "last_seen"
+        ],
+        "title": "TransportStatusOut",
         "type": "object"
       },
       "UnresolvedTrackOut": {
@@ -18259,6 +18425,112 @@
           }
         ],
         "summary": "Update Slot Target",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/transport/command": {
+      "post": {
+        "description": "Queue a setbuilder playback command for the set's attached event Bridge.",
+        "operationId": "queue_transport_command_api_setbuilder_sets__set_id__transport_command_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransportCommandIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransportCommandOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Queue Transport Command",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/transport/status": {
+      "get": {
+        "description": "Return Bridge connection/source status for the set's attached event.",
+        "operationId": "get_transport_status_api_setbuilder_sets__set_id__transport_status_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransportStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Transport Status",
         "tags": [
           "setbuilder"
         ]

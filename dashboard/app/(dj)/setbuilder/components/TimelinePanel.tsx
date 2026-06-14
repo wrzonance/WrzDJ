@@ -9,6 +9,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { fmtTime } from './curveMath';
+import { localPositionSec } from './transportMath';
 import type { SlotView } from './types';
 import { effectiveTarget } from './types';
 import styles from './curve.module.css';
@@ -22,7 +23,11 @@ export interface ScrollRequest {
 export interface TimelinePanelProps {
   slots: SlotView[];
   hoveredIdx: number | null;
+  currentIdx: number;
+  positionSec: number;
+  playing: boolean;
   onHover: (idx: number | null) => void;
+  onRowDoubleClick?: (idx: number) => void;
   scrollRequest: ScrollRequest | null;
   onPairingAction?: (idx: number) => void | Promise<void>;
 }
@@ -30,7 +35,11 @@ export interface TimelinePanelProps {
 export default function TimelinePanel({
   slots,
   hoveredIdx,
+  currentIdx,
+  positionSec,
+  playing,
   onHover,
+  onRowDoubleClick,
   scrollRequest,
   onPairingAction,
 }: TimelinePanelProps) {
@@ -75,6 +84,17 @@ export default function TimelinePanel({
         const prev = i > 0 ? slots[i - 1] : null;
         const seamScore = prev?.transitionScore ?? s.transitionScore;
         const isPairedSeam = Boolean(prev?.nextIsDjPairing);
+        const isCurrent = currentIdx === i;
+        const progress =
+          isCurrent && s.track.durationSec > 0
+            ? Math.min(
+                100,
+                Math.max(
+                  0,
+                  (localPositionSec(slots, i, positionSec) / s.track.durationSec) * 100,
+                ),
+              )
+            : 0;
         const pairingActionLabel = s.nextIsDjPairing
           ? `Open saved pairing after ${s.track.title}`
           : `Save ${s.track.title} into ${slots[i + 1]?.track.title ?? 'next track'} as pairing`;
@@ -111,9 +131,12 @@ export default function TimelinePanel({
               ref={(el) => {
                 rowRefs.current[i] = el;
               }}
-              className={`${styles.timelineRow} ${hoveredIdx === i ? styles.timelineRowHover : ''}`}
+              className={`${styles.timelineRow} ${hoveredIdx === i ? styles.timelineRowHover : ''} ${
+                isCurrent ? styles.timelineRowNow : ''
+              }`}
               onMouseEnter={() => onHover(i)}
               onMouseLeave={() => onHover(null)}
+              onDoubleClick={() => onRowDoubleClick?.(i)}
               onContextMenu={(event) => {
                 if (i >= slots.length - 1) return;
                 event.preventDefault();
@@ -121,7 +144,35 @@ export default function TimelinePanel({
               }}
               data-testid={`timeline-row-${i}`}
             >
-              <span className={styles.timelinePos}>{String(i + 1).padStart(2, '0')}</span>
+              {isCurrent ? (
+                <span
+                  className={styles.timelineRowProgress}
+                  style={{ width: `${progress}%` }}
+                  aria-hidden="true"
+                />
+              ) : null}
+              <span className={styles.timelinePos}>
+                {isCurrent ? (
+                  playing ? (
+                    <span
+                      className={`${styles.rowVu} ${styles.rowVuActive}`}
+                      data-testid={`timeline-vu-${i}`}
+                    >
+                      <span />
+                      <span />
+                      <span />
+                      <span />
+                    </span>
+                  ) : (
+                    <span className={styles.timelinePauseIcon} data-testid={`timeline-pause-${i}`}>
+                      <span />
+                      <span />
+                    </span>
+                  )
+                ) : (
+                  String(i + 1).padStart(2, '0')
+                )}
+              </span>
               <span className={styles.timelineTitle}>
                 {s.track.title}
                 {s.track.artist ? (

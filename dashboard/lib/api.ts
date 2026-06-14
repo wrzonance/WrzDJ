@@ -79,6 +79,9 @@ import type {
   TidalSearchResult,
   TidalSyncResult,
   TidalStatus,
+  TransportCommandIn,
+  TransportCommandOut,
+  TransportStatusOut,
   VibeEnrichmentResult,
   VibeWindow,
   VibeWindowsResponse,
@@ -178,6 +181,9 @@ export type {
   TidalSearchResult,
   TidalSyncResult,
   TidalStatus,
+  TransportCommandIn,
+  TransportCommandOut,
+  TransportStatusOut,
   VoteResponse,
   ExportTarget,
   ExportFileFormat,
@@ -792,6 +798,20 @@ class ApiClient {
   async deletePairing(setId: number, pairingId: number): Promise<void> {
     await this.rawFetch(`/api/setbuilder/sets/${setId}/pairings/${pairingId}`, {
       method: 'DELETE',
+    });
+  }
+
+  async getTransportStatus(setId: number): Promise<TransportStatusOut> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/transport/status`);
+  }
+
+  async sendTransportCommand(
+    setId: number,
+    payload: TransportCommandIn,
+  ): Promise<TransportCommandOut> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/transport/command`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
     });
   }
 

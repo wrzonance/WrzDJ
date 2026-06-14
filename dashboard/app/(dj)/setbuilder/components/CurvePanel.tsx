@@ -61,6 +61,11 @@ export interface CurvePanelProps {
   hoveredIdx: number | null;
   onHover: (idx: number | null) => void;
   onBlockClick: (idx: number) => void;
+  onBlockDoubleClick?: (idx: number) => void;
+  playheadSec?: number;
+  isPlaying?: boolean;
+  scrubEnabled?: boolean;
+  onScrub?: (positionSec: number) => void;
   /** Candidate pool for the replacement popover (#388 feeds this). */
   pool?: TrackView[];
 }
@@ -72,6 +77,11 @@ export default function CurvePanel({
   hoveredIdx,
   onHover,
   onBlockClick,
+  onBlockDoubleClick,
+  playheadSec = 0,
+  isPlaying = false,
+  scrubEnabled = false,
+  onScrub,
   pool = [],
 }: CurvePanelProps) {
   const [view, setView] = useState<CurveViewMode>('normal');
@@ -320,6 +330,11 @@ export default function CurvePanel({
         hoveredIdx={hoveredIdx}
         onHover={onHover}
         onBlockClick={onBlockClick}
+        onBlockDoubleClick={onBlockDoubleClick}
+        playheadSec={playheadSec}
+        isPlaying={isPlaying}
+        scrubEnabled={scrubEnabled}
+        onScrub={onScrub}
         onTargetDragEnd={handleTargetDragEnd}
         onWindowChange={changeWindow}
         onWindowCommit={commitWindow}

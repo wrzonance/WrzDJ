@@ -221,6 +221,11 @@ export type PairingUpdate = Schemas['PairingUpdate'];
 export type Pairing = Schemas['PairingOut'];
 export type PairingsState = Schemas['PairingsState'];
 
+// WrzDJSet transport (issue #393)
+export type TransportCommandIn = Schemas['TransportCommandIn'];
+export type TransportCommandOut = Schemas['TransportCommandOut'];
+export type TransportStatusOut = Schemas['TransportStatusOut'];
+
 // WrzDJSet pool (issue #388)
 export type PoolSource = Schemas['PoolSourceOut'];
 export type PoolTrack = Schemas['PoolTrackOut'];

@@ -41,6 +41,7 @@ function makeSet(overrides: Partial<SetDetail> = {}): SetDetail {
     share_token: null,
     vibe_theme: null,
     target_duration_sec: null,
+    avg_transition_overlap_sec: 8,
     bpm_floor: null,
     bpm_ceiling: null,
     key_strictness: 0,

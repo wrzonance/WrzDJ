@@ -103,6 +103,54 @@ def test_rename_other_dj_set_returns_404(client, auth_headers, db):
     assert resp.status_code == 404
 
 
+def test_update_target_settings_persists_target_and_overlap(client, auth_headers):
+    created = client.post(
+        "/api/setbuilder/sets", json={"name": "Targeted"}, headers=auth_headers
+    ).json()
+    assert created["avg_transition_overlap_sec"] == 8
+
+    resp = client.put(
+        f"/api/setbuilder/sets/{created['id']}/target",
+        json={"target_duration_sec": 5400, "avg_transition_overlap_sec": 12},
+        headers=auth_headers,
+    )
+
+    assert resp.status_code == 200, resp.json()
+    body = resp.json()
+    assert body["target_duration_sec"] == 5400
+    assert body["avg_transition_overlap_sec"] == 12
+
+    fetched = client.get(f"/api/setbuilder/sets/{created['id']}", headers=auth_headers).json()
+    assert fetched["target_duration_sec"] == 5400
+    assert fetched["avg_transition_overlap_sec"] == 12
+
+
+def test_update_target_settings_validates_overlap_range(client, auth_headers):
+    created = client.post(
+        "/api/setbuilder/sets", json={"name": "Targeted"}, headers=auth_headers
+    ).json()
+    resp = client.put(
+        f"/api/setbuilder/sets/{created['id']}/target",
+        json={"target_duration_sec": 3600, "avg_transition_overlap_sec": 33},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422
+
+
+def test_update_target_settings_owner_scoped(client, auth_headers, db):
+    _make_second_dj(db)
+    other_headers = _login(client, "otherdj", "xxxxxxxxxxxx")
+    theirs = client.post(
+        "/api/setbuilder/sets", json={"name": "Theirs"}, headers=other_headers
+    ).json()
+    resp = client.put(
+        f"/api/setbuilder/sets/{theirs['id']}/target",
+        json={"target_duration_sec": 3600, "avg_transition_overlap_sec": 8},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 404
+
+
 def test_delete_set(client, auth_headers):
     created = client.post(
         "/api/setbuilder/sets", json={"name": "Doomed"}, headers=auth_headers

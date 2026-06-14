@@ -223,6 +223,30 @@ describe('BuilderWorkspace', () => {
     expect(mockGetSetSlots).toHaveBeenCalledWith(5);
   });
 
+  it('reports effective target projection from loaded slots', async () => {
+    const onProjectionChange = vi.fn();
+    render(
+      <BuilderWorkspace
+        setId={5}
+        targetSettings={{ targetDurationSec: 600, avgTransitionOverlapSec: 10 }}
+        onProjectionChange={onProjectionChange}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('slot-block-0')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(onProjectionChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          rawTotalSec: 633,
+          effectiveSec: 613,
+          deltaSec: 13,
+          tier: 'on-target',
+        }),
+      ),
+    );
+    expect(screen.getByTestId('timeline-summary')).toHaveTextContent('10:33 raw');
+    expect(screen.getByTestId('timeline-summary')).toHaveTextContent('10:13 live, est.');
+  });
+
   it('hover on a curve block highlights the timeline row (and back)', async () => {
     render(<BuilderWorkspace setId={5} />);
     await waitFor(() => expect(screen.getByTestId('slot-block-1')).toBeInTheDocument());

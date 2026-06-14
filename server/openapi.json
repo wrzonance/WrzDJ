@@ -7502,6 +7502,10 @@
       "SetDetail": {
         "description": "Full set record (Phase 0: no slot/curve expansion yet).",
         "properties": {
+          "avg_transition_overlap_sec": {
+            "title": "Avg Transition Overlap Sec",
+            "type": "integer"
+          },
           "bpm_ceiling": {
             "anyOf": [
               {
@@ -7632,6 +7636,7 @@
           }
         },
         "required": [
+          "avg_transition_overlap_sec",
           "bpm_ceiling",
           "bpm_floor",
           "created_at",
@@ -8300,6 +8305,35 @@
         "title": "SetSummary",
         "type": "object"
       },
+      "SetTargetUpdate": {
+        "description": "Body for updating set-length planning settings.",
+        "properties": {
+          "avg_transition_overlap_sec": {
+            "maximum": 32.0,
+            "minimum": 0.0,
+            "title": "Avg Transition Overlap Sec",
+            "type": "integer"
+          },
+          "target_duration_sec": {
+            "anyOf": [
+              {
+                "maximum": 86400.0,
+                "minimum": 60.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Duration Sec"
+          }
+        },
+        "required": [
+          "avg_transition_overlap_sec"
+        ],
+        "title": "SetTargetUpdate",
+        "type": "object"
+      },
       "ShareTokenOut": {
         "description": "Owner response after creating/rotating a share token (issue #398).",
         "properties": {
@@ -8358,6 +8392,10 @@
       "SharedSetView": {
         "description": "Public read-only projection of a shared set (issue #398).\n\nNever include owner identity, internal ids, event linkage,\ncollaborator info, or the token itself.",
         "properties": {
+          "avg_transition_overlap_sec": {
+            "title": "Avg Transition Overlap Sec",
+            "type": "integer"
+          },
           "bpm_ceiling": {
             "anyOf": [
               {
@@ -8435,6 +8473,7 @@
           }
         },
         "required": [
+          "avg_transition_overlap_sec",
           "bpm_ceiling",
           "bpm_floor",
           "curve_points",
@@ -19094,6 +19133,64 @@
           }
         ],
         "summary": "Update Slot Target",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/target": {
+      "put": {
+        "description": "Update set-length target + average transition overlap.",
+        "operationId": "update_set_target_api_setbuilder_sets__set_id__target_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetTargetUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Update Set Target",
         "tags": [
           "setbuilder"
         ]

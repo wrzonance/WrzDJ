@@ -73,6 +73,32 @@ describe('CurveEditor', () => {
     expect(screen.getByTestId('pairing-pin-0')).toBeInTheDocument();
   });
 
+  it('renders target marker and amber over-region using overlap-adjusted raw target', () => {
+    const slots = [
+      mkSlot(0, { durationSec: 400 }),
+      mkSlot(1, { durationSec: 300 }),
+      mkSlot(2, { durationSec: 300 }),
+    ];
+    const { rerender, props } = renderEditor({
+      slots,
+      targetDurationSec: 500,
+      avgTransitionOverlapSec: 0,
+    });
+
+    const marker = screen.getByTestId('curve-target-marker');
+    expect(marker).toHaveAttribute('x1', '400');
+    expect(screen.getByTestId('curve-over-region')).toBeInTheDocument();
+
+    rerender(
+      <CurveEditor
+        {...props}
+        targetDurationSec={500}
+        avgTransitionOverlapSec={30}
+      />,
+    );
+    expect(screen.getByTestId('curve-target-marker')).toHaveAttribute('x1', '448');
+  });
+
   it('renders amber hatch when target > energy and dashed line when target < energy', () => {
     renderEditor({
       slots: [

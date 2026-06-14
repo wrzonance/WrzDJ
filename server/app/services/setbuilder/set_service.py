@@ -37,6 +37,21 @@ def rename_set(db: Session, set_obj: Set, name: str) -> Set:
     return set_obj
 
 
+def update_target_settings(
+    db: Session,
+    set_obj: Set,
+    *,
+    target_duration_sec: int | None,
+    avg_transition_overlap_sec: int,
+) -> Set:
+    """Update set-length planning settings."""
+    set_obj.target_duration_sec = target_duration_sec
+    set_obj.avg_transition_overlap_sec = avg_transition_overlap_sec
+    db.commit()
+    db.refresh(set_obj)
+    return set_obj
+
+
 def delete_set(db: Session, set_obj: Set) -> None:
     """Delete a set (children cascade via FK ondelete + ORM cascade)."""
     db.delete(set_obj)

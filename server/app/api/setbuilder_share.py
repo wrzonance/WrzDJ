@@ -103,6 +103,7 @@ def view_shared_set(
         status=set_obj.status,
         vibe_theme=set_obj.vibe_theme,
         target_duration_sec=set_obj.target_duration_sec,
+        avg_transition_overlap_sec=set_obj.avg_transition_overlap_sec,
         bpm_floor=set_obj.bpm_floor,
         bpm_ceiling=set_obj.bpm_ceiling,
         key_strictness=set_obj.key_strictness,

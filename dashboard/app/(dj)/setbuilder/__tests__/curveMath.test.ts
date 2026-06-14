@@ -194,6 +194,14 @@ describe('slotBlocksFromSlots / effectiveTarget', () => {
     expect(blocks[1].target).toBe(9);
     expect(effectiveTarget(slots[0])).toBe(4);
   });
+
+  it('uses a larger target domain without stretching raw slot blocks', () => {
+    const slots = [mkSlot(0, { durationSec: 100 }), mkSlot(1, { durationSec: 300 })];
+    const blocks = slotBlocksFromSlots(slots, 800, 800);
+    expect(blocks[0].width).toBeCloseTo(100);
+    expect(blocks[1].width).toBeCloseTo(300);
+    expect(blocks[1].x1).toBeCloseTo(400);
+  });
 });
 
 describe('slotViewFromApi', () => {

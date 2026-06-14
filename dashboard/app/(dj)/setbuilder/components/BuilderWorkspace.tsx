@@ -13,6 +13,12 @@ import CurvePanel from './CurvePanel';
 import TimelinePanel, { type ScrollRequest } from './TimelinePanel';
 import TransportBar from './TransportBar';
 import type { ConfirmAction } from './ConfirmActionDialog';
+import {
+  formatTimecode,
+  projectTarget,
+  type TargetProjection,
+  type TargetSettings,
+} from './targetMath';
 import type { SlotView, TrackView } from './types';
 import { slotViewFromApi, trackViewFromPool } from './types';
 import type { BuilderCommit } from './useSetDocumentHistory';
@@ -49,6 +55,55 @@ interface BuilderWorkspaceProps {
   onSuggestReplacementsChange?: (checked: boolean) => void;
   confirmRecompute?: boolean;
   requestConfirmation?: (action: ConfirmAction) => Promise<boolean>;
+  targetSettings?: TargetSettings;
+  onProjectionChange?: (projection: TargetProjection) => void;
+}
+
+const DEFAULT_TARGET_SETTINGS: TargetSettings = {
+  targetDurationSec: null,
+  avgTransitionOverlapSec: 8,
+};
+
+function TimelineSummary({
+  projection,
+  overlapSec,
+}: {
+  projection: TargetProjection;
+  overlapSec: number;
+}) {
+  const avgTrackSec = projection.slotCount > 0 ? projection.rawTotalSec / projection.slotCount : 0;
+  const overlapPct = avgTrackSec > 0 ? (overlapSec / avgTrackSec) * 100 : 0;
+  return (
+    <div className={sbStyles.timelineSummary} data-testid="timeline-summary">
+      <span>
+        <strong>{projection.slotCount}</strong> tracks
+      </span>
+      <span>
+        <strong>{formatTimecode(projection.rawTotalSec)}</strong> raw
+      </span>
+      {projection.slotCount > 1 && overlapSec > 0 ? (
+        <span className={sbStyles.timelineLiveWrap}>
+          <span className={sbStyles.timelineLive}>
+            <strong>{formatTimecode(projection.effectiveSec)}</strong> live, est.
+          </span>
+          <span className={sbStyles.timelineTooltip} role="tooltip">
+            <strong>Estimated live runtime</strong>
+            <span>Actual runtime depends on how you blend on the night.</span>
+            <span className={sbStyles.timelineTooltipGrid}>
+              <span>Raw total</span>
+              <b>{formatTimecode(projection.rawTotalSec)}</b>
+              <span>Transitions</span>
+              <b>{projection.transitionCount} x {overlapSec}s overlap</b>
+              <span>~% of avg track</span>
+              <b>{overlapPct.toFixed(1)}%</b>
+              <span>Live (est.)</span>
+              <b>{formatTimecode(projection.effectiveSec)}</b>
+            </span>
+          </span>
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
 export default function BuilderWorkspace({
@@ -61,6 +116,8 @@ export default function BuilderWorkspace({
   onSuggestReplacementsChange,
   confirmRecompute = true,
   requestConfirmation,
+  targetSettings = DEFAULT_TARGET_SETTINGS,
+  onProjectionChange,
 }: BuilderWorkspaceProps) {
   const [slots, setSlots] = useState<SlotView[]>([]);
   const [pool, setPool] = useState<TrackView[]>([]);
@@ -77,6 +134,10 @@ export default function BuilderWorkspace({
   });
 
   const totalSec = useMemo(() => totalDuration(slots), [slots]);
+  const projection = useMemo(
+    () => projectTarget(slots, targetSettings),
+    [slots, targetSettings],
+  );
 
   const loadSlots = useCallback(() => {
     return Promise.all([api.getSetSlots(setId), api.getPool(setId)])
@@ -259,6 +320,10 @@ export default function BuilderWorkspace({
     sendCommand(idx, 'seek', bounded);
   };
 
+  useEffect(() => {
+    onProjectionChange?.(projection);
+  }, [projection, onProjectionChange]);
+
   return (
     <>
       <section className={`${sbStyles.panel} ${sbStyles.panelCurve}`} aria-label="Curve">
@@ -283,6 +348,8 @@ export default function BuilderWorkspace({
           onSuggestReplacementsChange={onSuggestReplacementsChange}
           confirmRecompute={confirmRecompute}
           requestConfirmation={requestConfirmation}
+          targetDurationSec={targetSettings.targetDurationSec}
+          avgTransitionOverlapSec={targetSettings.avgTransitionOverlapSec}
         />
       </section>
 
@@ -300,7 +367,13 @@ export default function BuilderWorkspace({
       </section>
 
       <section className={`${sbStyles.panel} ${sbStyles.panelTimeline}`} aria-label="Timeline">
-        <div className={sbStyles.panelHeader}>Timeline</div>
+        <div className={sbStyles.panelHeaderRow}>
+          <div className={sbStyles.panelHeader}>Timeline</div>
+          <TimelineSummary
+            projection={projection}
+            overlapSec={targetSettings.avgTransitionOverlapSec}
+          />
+        </div>
         <TimelinePanel
           slots={slots}
           hoveredIdx={hoveredIdx}

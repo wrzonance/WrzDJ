@@ -21,6 +21,13 @@ class SetRename(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
 
 
+class SetTargetUpdate(BaseModel):
+    """Body for updating set-length planning settings."""
+
+    target_duration_sec: int | None = Field(None, ge=60, le=24 * 3600)
+    avg_transition_overlap_sec: int = Field(..., ge=0, le=32)
+
+
 class SetSummary(BaseModel):
     """Set list item (no children)."""
 
@@ -42,6 +49,7 @@ class SetDetail(SetSummary):
 
     vibe_theme: str | None
     target_duration_sec: int | None
+    avg_transition_overlap_sec: int
     bpm_floor: int | None
     bpm_ceiling: int | None
     key_strictness: float
@@ -691,6 +699,7 @@ class SharedSetView(BaseModel):
     status: Literal["draft", "locked", "exported"]
     vibe_theme: str | None
     target_duration_sec: int | None
+    avg_transition_overlap_sec: int
     bpm_floor: int | None
     bpm_ceiling: int | None
     key_strictness: float

@@ -88,6 +88,70 @@ class PoolTrackOut(BaseModel):
     created_at: datetime
 
 
+def _validate_pairing_tags(tags: list[str]) -> list[str]:
+    """Shape-only tag guard; service handles normalization/de-dupe."""
+    if len(tags) > 12:
+        raise ValueError("too many tags")
+    for tag in tags:
+        if len(tag.strip()) > 32:
+            raise ValueError("tags must be 32 characters or fewer")
+    return tags
+
+
+class PairingCreate(BaseModel):
+    """Create/update a DJ-curated from->into pairing."""
+
+    from_track_id: str = Field(..., min_length=1, max_length=255)
+    into_track_id: str = Field(..., min_length=1, max_length=255)
+    cue_in_sec: int | None = Field(None, ge=0, le=36000)
+    note: str | None = Field(None, max_length=2000)
+    tags: list[str] = Field(default_factory=list)
+    increment_use_count: bool = False
+
+    _check_tags = field_validator("tags")(_validate_pairing_tags)
+
+
+class PairingUpdate(BaseModel):
+    """Editable pairing details."""
+
+    cue_in_sec: int | None = Field(None, ge=0, le=36000)
+    note: str | None = Field(None, max_length=2000)
+    tags: list[str] | None = None
+
+    @field_validator("tags")
+    @classmethod
+    def _check_tags_optional(cls, tags: list[str] | None) -> list[str] | None:
+        if tags is not None:
+            return _validate_pairing_tags(tags)
+        return tags
+
+
+class PairingOut(BaseModel):
+    """Pairing card/detail payload for the overlay."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    set_id: int
+    from_track_id: str
+    into_track_id: str
+    cue_in_sec: int | None
+    note: str | None
+    tags: list[str]
+    use_count: int
+    from_track: PoolTrackOut | None = None
+    into_track: PoolTrackOut | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class PairingsState(BaseModel):
+    """Pairings list response."""
+
+    count: int
+    pairings: list[PairingOut]
+
+
 class PoolState(BaseModel):
     """Full pool snapshot: sources + tracks."""
 
@@ -254,6 +318,8 @@ class SlotOut(BaseModel):
     camelot: str | None = None
     energy: int | None = None
     duration_sec: int | None = None
+    next_pairing_id: int | None = None
+    next_is_dj_pairing: bool = False
 
 
 class SlotTargetUpdate(BaseModel):

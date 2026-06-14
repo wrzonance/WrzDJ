@@ -50,6 +50,10 @@ import type {
   MyRequestsResponse,
   NowPlayingInfo,
   PaginatedResponse,
+  Pairing,
+  PairingCreate,
+  PairingUpdate,
+  PairingsState,
   PlayHistoryResponse,
   PlaylistListResponse,
   PoolImportManualIn,
@@ -146,6 +150,10 @@ export type {
   MyRequestsResponse,
   NowPlayingInfo,
   PaginatedResponse,
+  Pairing,
+  PairingCreate,
+  PairingUpdate,
+  PairingsState,
   PlayHistoryItem,
   PlayHistoryResponse,
   PublicBridgeStatus,
@@ -761,6 +769,29 @@ class ApiClient {
     return this.fetch(`/api/setbuilder/sets/${setId}/vibe-windows`, {
       method: 'PUT',
       body: JSON.stringify({ windows }),
+    });
+  }
+
+  // WrzDJSet pairings (issue #392)
+  async getPairings(setId: number, query?: string): Promise<PairingsState> {
+    const qs = query?.trim() ? `?query=${encodeURIComponent(query.trim())}` : '';
+    return this.fetch(`/api/setbuilder/sets/${setId}/pairings${qs}`);
+  }
+  async savePairing(setId: number, pairing: PairingCreate): Promise<Pairing> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/pairings`, {
+      method: 'POST',
+      body: JSON.stringify(pairing),
+    });
+  }
+  async updatePairing(setId: number, pairingId: number, patch: PairingUpdate): Promise<Pairing> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/pairings/${pairingId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+  }
+  async deletePairing(setId: number, pairingId: number): Promise<void> {
+    await this.rawFetch(`/api/setbuilder/sets/${setId}/pairings/${pairingId}`, {
+      method: 'DELETE',
     });
   }
 

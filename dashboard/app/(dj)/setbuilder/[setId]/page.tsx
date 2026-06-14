@@ -9,9 +9,14 @@ import type { SetDetail } from '@/lib/api-types';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import BuilderWorkspace from '../components/BuilderWorkspace';
 import ChatSidebar from '../components/ChatSidebar';
+import PairingsOverlay from '../components/PairingsOverlay';
 import PoolPanel from '../components/PoolPanel';
 import SetActionsMenu from '../SetActionsMenu';
 import styles from '../setbuilder.module.css';
+
+interface OpenPairingsEvent extends Event {
+  detail?: { pairingId?: number | null };
+}
 
 export default function BuilderPage({ params }: { params: Promise<{ setId: string }> }) {
   const { setId } = use(params);
@@ -24,6 +29,9 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
   const [confirmBuild, setConfirmBuild] = useState(false);
   const [building, setBuilding] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [pairingsOpen, setPairingsOpen] = useState(false);
+  const [pairingCount, setPairingCount] = useState(0);
+  const [initialPairingId, setInitialPairingId] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -62,6 +70,35 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
     }
   };
 
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    const refreshCount = () => {
+      api
+        .getPairings(Number(setId))
+        .then((state) => {
+          if (!cancelled) setPairingCount(state.count);
+        })
+        .catch(() => {
+          if (!cancelled) setPairingCount(0);
+        });
+    };
+    const openPairings = (event: Event) => {
+      const detail = (event as OpenPairingsEvent).detail;
+      setInitialPairingId(detail?.pairingId ?? null);
+      setPairingsOpen(true);
+      refreshCount();
+    };
+    refreshCount();
+    window.addEventListener('wrzdj:setbuilder-pairings-changed', refreshCount);
+    window.addEventListener('wrzdj:open-pairings', openPairings);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('wrzdj:setbuilder-pairings-changed', refreshCount);
+      window.removeEventListener('wrzdj:open-pairings', openPairings);
+    };
+  }, [isAuthenticated, setId]);
+
   if (isLoading || !isAuthenticated) {
     return (
       <div className="container">
@@ -99,6 +136,27 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
         </Link>
         <span className={styles.topbarTitle}>{set?.name ?? 'Loading…'}</span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+          <button
+            type="button"
+            className={styles.topbarPairingsBtn}
+            onClick={() => {
+              setInitialPairingId(null);
+              setPairingsOpen(true);
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M10.5 13.5 13.5 10.5M8.5 17.5H7.8a4.8 4.8 0 0 1 0-9.6h3.4M12.8 16.1h3.4a4.8 4.8 0 1 0 0-9.6h-.7"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.8"
+              />
+            </svg>
+            Pairings
+            <span className={styles.topbarPairingsBadge}>{pairingCount}</span>
+          </button>
           {set && (
             <SetActionsMenu
               set={set}
@@ -136,7 +194,6 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
           />
         </div>
       </div>
-
       {confirmBuild && (
         <div className={styles.confirmWrap}>
           <div
@@ -177,6 +234,19 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
           {toast}
         </div>
       )}
+
+      <PairingsOverlay
+        setId={Number(setId)}
+        open={pairingsOpen}
+        initialPairingId={initialPairingId}
+        onClose={() => setPairingsOpen(false)}
+        onChanged={setPairingCount}
+        onJumpSlot={(idx) =>
+          window.dispatchEvent(
+            new CustomEvent('wrzdj:setbuilder-jump-slot', { detail: { idx } }),
+          )
+        }
+      />
     </div>
   );
 }

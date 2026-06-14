@@ -7,6 +7,7 @@ projection (no ids / owner identity leakage), auth gating.
 """
 
 from app.models.set import Set, SetCurvePoint, SetSlot
+from app.models.set_pairing import SetPairing
 from app.services.auth import get_password_hash
 from app.services.setbuilder import share_service
 
@@ -39,6 +40,17 @@ def _seed_set(db, owner_id, **overrides) -> Set:
         )
     )
     db.add(SetSlot(set_id=set_obj.id, position=2, track_id="tidal:222"))
+    db.add(
+        SetPairing(
+            set_id=set_obj.id,
+            from_track_id="tidal:111",
+            into_track_id="tidal:222",
+            cue_in_sec=32,
+            note="Tested mix",
+            tags_json='["safe"]',
+            use_count=3,
+        )
+    )
     db.add(
         SetCurvePoint(
             set_id=set_obj.id,
@@ -120,6 +132,14 @@ def test_duplicate_copies_children_and_resets_state(db, test_user):
     ]
     assert points[0].is_slow_window_start is True
     assert points[1].is_slow_window_end is True
+    assert len(dup.pairings) == 1
+    pairing = dup.pairings[0]
+    assert pairing.from_track_id == "tidal:111"
+    assert pairing.into_track_id == "tidal:222"
+    assert pairing.cue_in_sec == 32
+    assert pairing.note == "Tested mix"
+    assert pairing.tags_json == '["safe"]'
+    assert pairing.use_count == 3
     # source untouched
     db.refresh(src)
     assert src.status == "locked"

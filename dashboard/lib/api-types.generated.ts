@@ -2806,6 +2806,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setbuilder/sets/{set_id}/pairings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Set Pairings
+         * @description Searchable pairings overlay state for one of the current DJ's sets.
+         */
+        get: operations["list_set_pairings_api_setbuilder_sets__set_id__pairings_get"];
+        put?: never;
+        /**
+         * Create Set Pairing
+         * @description Create or update a DJ-curated transition pairing.
+         */
+        post: operations["create_set_pairing_api_setbuilder_sets__set_id__pairings_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/pairings/{pairing_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Set Pairing
+         * @description Delete a pairing from one of the current DJ's sets.
+         */
+        delete: operations["delete_set_pairing_api_setbuilder_sets__set_id__pairings__pairing_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Set Pairing
+         * @description Inline-edit note, tags, and cue-in for a pairing.
+         */
+        patch: operations["update_set_pairing_api_setbuilder_sets__set_id__pairings__pairing_id__patch"];
+        trace?: never;
+    };
     "/api/setbuilder/sets/{set_id}/pool": {
         parameters: {
             query?: never;
@@ -5227,6 +5275,83 @@ export interface components {
             /** Total */
             total: number;
         };
+        /**
+         * PairingCreate
+         * @description Create/update a DJ-curated from->into pairing.
+         */
+        PairingCreate: {
+            /** Cue In Sec */
+            cue_in_sec?: number | null;
+            /** From Track Id */
+            from_track_id: string;
+            /**
+             * Increment Use Count
+             * @default false
+             */
+            increment_use_count: boolean;
+            /** Into Track Id */
+            into_track_id: string;
+            /** Note */
+            note?: string | null;
+            /** Tags */
+            tags?: string[];
+        };
+        /**
+         * PairingOut
+         * @description Pairing card/detail payload for the overlay.
+         */
+        PairingOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Cue In Sec */
+            cue_in_sec: number | null;
+            from_track: components["schemas"]["PoolTrackOut"] | null;
+            /** From Track Id */
+            from_track_id: string;
+            /** Id */
+            id: number;
+            into_track: components["schemas"]["PoolTrackOut"] | null;
+            /** Into Track Id */
+            into_track_id: string;
+            /** Note */
+            note: string | null;
+            /** Set Id */
+            set_id: number;
+            /** Tags */
+            tags: string[];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Use Count */
+            use_count: number;
+        };
+        /**
+         * PairingUpdate
+         * @description Editable pairing details.
+         */
+        PairingUpdate: {
+            /** Cue In Sec */
+            cue_in_sec?: number | null;
+            /** Note */
+            note?: string | null;
+            /** Tags */
+            tags?: string[] | null;
+        };
+        /**
+         * PairingsState
+         * @description Pairings list response.
+         */
+        PairingsState: {
+            /** Count */
+            count: number;
+            /** Pairings */
+            pairings: components["schemas"]["PairingOut"][];
+        };
         /** PendingReviewResponse */
         PendingReviewResponse: {
             /** Requests */
@@ -6007,6 +6132,13 @@ export interface components {
             key: string | null;
             /** Locked */
             locked: boolean;
+            /**
+             * Next Is Dj Pairing
+             * @default false
+             */
+            next_is_dj_pairing: boolean;
+            /** Next Pairing Id */
+            next_pairing_id: number | null;
             /** Notes */
             notes: string | null;
             /** Pool Track Id */
@@ -11531,6 +11663,140 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    list_set_pairings_api_setbuilder_sets__set_id__pairings_get: {
+        parameters: {
+            query?: {
+                query?: string | null;
+            };
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PairingsState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_set_pairing_api_setbuilder_sets__set_id__pairings_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PairingCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PairingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_set_pairing_api_setbuilder_sets__set_id__pairings__pairing_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+                pairing_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_set_pairing_api_setbuilder_sets__set_id__pairings__pairing_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+                pairing_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PairingUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PairingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
             };
         };
     };

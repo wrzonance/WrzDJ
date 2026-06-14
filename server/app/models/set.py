@@ -91,6 +91,11 @@ class Set(Base):
         back_populates="set",
         cascade="all, delete-orphan",
     )
+    pairings: Mapped[list["SetPairing"]] = relationship(
+        "SetPairing",
+        back_populates="set",
+        cascade="all, delete-orphan",
+    )
 
 
 class SetSlot(Base):

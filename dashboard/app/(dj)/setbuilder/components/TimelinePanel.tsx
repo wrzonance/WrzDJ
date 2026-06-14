@@ -7,7 +7,7 @@
  * Full drag-reorder timeline lands with #390/#397.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { fmtTime } from './curveMath';
 import type { SlotView } from './types';
 import { effectiveTarget } from './types';
@@ -24,6 +24,7 @@ export interface TimelinePanelProps {
   hoveredIdx: number | null;
   onHover: (idx: number | null) => void;
   scrollRequest: ScrollRequest | null;
+  onPairingAction?: (idx: number) => void | Promise<void>;
 }
 
 export default function TimelinePanel({
@@ -31,9 +32,11 @@ export default function TimelinePanel({
   hoveredIdx,
   onHover,
   scrollRequest,
+  onPairingAction,
 }: TimelinePanelProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const [menu, setMenu] = useState<{ x: number; y: number; idx: number } | null>(null);
 
   useEffect(() => {
     if (!scrollRequest || !listRef.current) return;
@@ -47,6 +50,17 @@ export default function TimelinePanel({
     }
   }, [scrollRequest]);
 
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    window.addEventListener('click', close);
+    window.addEventListener('keydown', close);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('keydown', close);
+    };
+  }, [menu]);
+
   if (slots.length === 0) {
     return (
       <div className={styles.emptyState} data-testid="timeline-empty">
@@ -57,35 +71,94 @@ export default function TimelinePanel({
 
   return (
     <div className={styles.timelineList} ref={listRef} data-testid="timeline-list">
-      {slots.map((s, i) => (
+      {slots.map((s, i) => {
+        const prev = i > 0 ? slots[i - 1] : null;
+        const seamScore = prev?.transitionScore ?? s.transitionScore;
+        const isPairedSeam = Boolean(prev?.nextIsDjPairing);
+        return (
+          <div key={s.id} className={styles.timelineSlotGroup}>
+            {i > 0 && (isPairedSeam || seamScore != null) && (
+              <div
+                className={`${styles.timelineTransition} ${
+                  isPairedSeam ? styles.timelineTransitionPairing : ''
+                }`}
+                data-testid={`timeline-transition-${i - 1}`}
+              >
+                {seamScore != null && (
+                  <span className={styles.timelineScoreChip}>{Math.round(seamScore)}</span>
+                )}
+                {isPairedSeam && (
+                  <span className={styles.timelinePairingChip}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="M10.5 13.5 13.5 10.5M8.5 17.5H7.8a4.8 4.8 0 0 1 0-9.6h3.4M12.8 16.1h3.4a4.8 4.8 0 1 0 0-9.6h-.7"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="1.9"
+                      />
+                    </svg>
+                    DJ pairing
+                  </span>
+                )}
+              </div>
+            )}
+            <div
+              ref={(el) => {
+                rowRefs.current[i] = el;
+              }}
+              className={`${styles.timelineRow} ${hoveredIdx === i ? styles.timelineRowHover : ''}`}
+              onMouseEnter={() => onHover(i)}
+              onMouseLeave={() => onHover(null)}
+              onContextMenu={(event) => {
+                if (i >= slots.length - 1) return;
+                event.preventDefault();
+                setMenu({ x: event.clientX, y: event.clientY, idx: i });
+              }}
+              data-testid={`timeline-row-${i}`}
+            >
+              <span className={styles.timelinePos}>{String(i + 1).padStart(2, '0')}</span>
+              <span className={styles.timelineTitle}>
+                {s.track.title}
+                {s.track.artist ? (
+                  <span className={styles.timelineArtist}> — {s.track.artist}</span>
+                ) : null}
+              </span>
+              <span className={styles.timelineBadge}>{fmtTime(s.track.durationSec)}</span>
+              <span className={styles.timelineBadge}>
+                {s.track.bpm != null ? `${Math.round(s.track.bpm)} BPM` : '— BPM'}
+              </span>
+              <span className={styles.timelineBadge}>{s.track.key ?? '—'}</span>
+              <span className={styles.timelineBadge}>e{s.track.energy}</span>
+              <span className={styles.timelineTarget} title="Target energy">
+                ◎ {effectiveTarget(s).toFixed(1)}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+      {menu && (
         <div
-          key={s.id}
-          ref={(el) => {
-            rowRefs.current[i] = el;
-          }}
-          className={`${styles.timelineRow} ${hoveredIdx === i ? styles.timelineRowHover : ''}`}
-          onMouseEnter={() => onHover(i)}
-          onMouseLeave={() => onHover(null)}
-          data-testid={`timeline-row-${i}`}
+          className={styles.timelineContextMenu}
+          style={{ left: menu.x, top: menu.y }}
+          onClick={(event) => event.stopPropagation()}
+          data-testid="timeline-context-menu"
         >
-          <span className={styles.timelinePos}>{String(i + 1).padStart(2, '0')}</span>
-          <span className={styles.timelineTitle}>
-            {s.track.title}
-            {s.track.artist ? (
-              <span className={styles.timelineArtist}> — {s.track.artist}</span>
-            ) : null}
-          </span>
-          <span className={styles.timelineBadge}>{fmtTime(s.track.durationSec)}</span>
-          <span className={styles.timelineBadge}>
-            {s.track.bpm != null ? `${Math.round(s.track.bpm)} BPM` : '— BPM'}
-          </span>
-          <span className={styles.timelineBadge}>{s.track.key ?? '—'}</span>
-          <span className={styles.timelineBadge}>e{s.track.energy}</span>
-          <span className={styles.timelineTarget} title="Target energy">
-            ◎ {effectiveTarget(s).toFixed(1)}
-          </span>
+          <button
+            type="button"
+            className={styles.timelineContextItem}
+            onClick={() => {
+              onPairingAction?.(menu.idx);
+              setMenu(null);
+            }}
+          >
+            {slots[menu.idx]?.nextIsDjPairing
+              ? 'Open saved pairing'
+              : `Save -> ${slots[menu.idx + 1]?.track.title ?? 'next'} as pairing`}
+          </button>
         </div>
-      ))}
+      )}
     </div>
   );
 }

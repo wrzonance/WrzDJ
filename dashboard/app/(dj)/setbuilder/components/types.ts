@@ -6,7 +6,7 @@
  * renderable from the bare Phase 0 slot rows.
  */
 
-import type { SetSlotOut } from '@/lib/api-types';
+import type { PoolTrack, SetSlotOut } from '@/lib/api-types';
 
 export interface TrackView {
   id: string;
@@ -26,6 +26,9 @@ export interface SlotView {
   locked: boolean;
   /** Explicit target; null = fall back to track energy. */
   targetEnergy: number | null;
+  transitionScore: number | null;
+  nextPairingId: number | null;
+  nextIsDjPairing: boolean;
   track: TrackView;
 }
 
@@ -40,13 +43,29 @@ export interface VibeWindowView {
 export const DEFAULT_TRACK_DURATION_SEC = 210;
 export const DEFAULT_TRACK_ENERGY = 5;
 
-export function slotViewFromApi(slot: SetSlotOut): SlotView {
+export function trackViewFromPool(track: PoolTrack): TrackView {
+  return {
+    id: track.track_id ?? `pool-${track.id}`,
+    title: track.title,
+    artist: track.artist,
+    durationSec: track.duration_sec ?? DEFAULT_TRACK_DURATION_SEC,
+    energy: track.energy ?? DEFAULT_TRACK_ENERGY,
+    bpm: track.bpm,
+    key: track.camelot ?? track.key,
+  };
+}
+
+export function slotViewFromApi(slot: SetSlotOut, poolTrack?: PoolTrack | null): SlotView {
+  const track = poolTrack ? trackViewFromPool(poolTrack) : null;
   return {
     id: slot.id,
     position: slot.position,
     locked: slot.locked,
     targetEnergy: slot.target_energy ?? null,
-    track: {
+    transitionScore: slot.transition_score ?? null,
+    nextPairingId: slot.next_pairing_id ?? null,
+    nextIsDjPairing: slot.next_is_dj_pairing ?? false,
+    track: track ?? {
       id: slot.track_id ?? `slot-${slot.id}`,
       title: slot.title ?? slot.track_id ?? `Slot ${slot.position + 1}`,
       artist: slot.artist ?? '',

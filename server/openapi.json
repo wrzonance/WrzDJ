@@ -5350,6 +5350,234 @@
         "title": "PaginatedResponse",
         "type": "object"
       },
+      "PairingCreate": {
+        "description": "Create/update a DJ-curated from->into pairing.",
+        "properties": {
+          "cue_in_sec": {
+            "anyOf": [
+              {
+                "maximum": 36000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cue In Sec"
+          },
+          "from_track_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "From Track Id",
+            "type": "string"
+          },
+          "increment_use_count": {
+            "default": false,
+            "title": "Increment Use Count",
+            "type": "boolean"
+          },
+          "into_track_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Into Track Id",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": [
+          "from_track_id",
+          "into_track_id"
+        ],
+        "title": "PairingCreate",
+        "type": "object"
+      },
+      "PairingOut": {
+        "description": "Pairing card/detail payload for the overlay.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "cue_in_sec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cue In Sec"
+          },
+          "from_track": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PoolTrackOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "from_track_id": {
+            "title": "From Track Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "into_track": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PoolTrackOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "into_track_id": {
+            "title": "Into Track Id",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "set_id": {
+            "title": "Set Id",
+            "type": "integer"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "use_count": {
+            "title": "Use Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "created_at",
+          "cue_in_sec",
+          "from_track",
+          "from_track_id",
+          "id",
+          "into_track",
+          "into_track_id",
+          "note",
+          "set_id",
+          "tags",
+          "updated_at",
+          "use_count"
+        ],
+        "title": "PairingOut",
+        "type": "object"
+      },
+      "PairingUpdate": {
+        "description": "Editable pairing details.",
+        "properties": {
+          "cue_in_sec": {
+            "anyOf": [
+              {
+                "maximum": 36000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cue In Sec"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          }
+        },
+        "title": "PairingUpdate",
+        "type": "object"
+      },
+      "PairingsState": {
+        "description": "Pairings list response.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "pairings": {
+            "items": {
+              "$ref": "#/components/schemas/PairingOut"
+            },
+            "title": "Pairings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "count",
+          "pairings"
+        ],
+        "title": "PairingsState",
+        "type": "object"
+      },
       "PendingReviewResponse": {
         "properties": {
           "requests": {
@@ -7786,6 +8014,22 @@
             "title": "Locked",
             "type": "boolean"
           },
+          "next_is_dj_pairing": {
+            "default": false,
+            "title": "Next Is Dj Pairing",
+            "type": "boolean"
+          },
+          "next_pairing_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Pairing Id"
+          },
           "notes": {
             "anyOf": [
               {
@@ -7877,6 +8121,8 @@
           "id",
           "key",
           "locked",
+          "next_is_dj_pairing",
+          "next_pairing_id",
           "notes",
           "pool_track_id",
           "position",
@@ -16951,6 +17197,241 @@
           }
         ],
         "summary": "Export Set Tidal",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/pairings": {
+      "get": {
+        "description": "Searchable pairings overlay state for one of the current DJ's sets.",
+        "operationId": "list_set_pairings_api_setbuilder_sets__set_id__pairings_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Query"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairingsState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Set Pairings",
+        "tags": [
+          "setbuilder"
+        ]
+      },
+      "post": {
+        "description": "Create or update a DJ-curated transition pairing.",
+        "operationId": "create_set_pairing_api_setbuilder_sets__set_id__pairings_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PairingCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Create Set Pairing",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/pairings/{pairing_id}": {
+      "delete": {
+        "description": "Delete a pairing from one of the current DJ's sets.",
+        "operationId": "delete_set_pairing_api_setbuilder_sets__set_id__pairings__pairing_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pairing_id",
+            "required": true,
+            "schema": {
+              "title": "Pairing Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Delete Set Pairing",
+        "tags": [
+          "setbuilder"
+        ]
+      },
+      "patch": {
+        "description": "Inline-edit note, tags, and cue-in for a pairing.",
+        "operationId": "update_set_pairing_api_setbuilder_sets__set_id__pairings__pairing_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pairing_id",
+            "required": true,
+            "schema": {
+              "title": "Pairing Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PairingUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Update Set Pairing",
         "tags": [
           "setbuilder"
         ]

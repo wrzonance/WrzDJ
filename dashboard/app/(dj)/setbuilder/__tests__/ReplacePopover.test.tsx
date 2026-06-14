@@ -22,6 +22,9 @@ const slot: SlotView = {
   position: 0,
   locked: false,
   targetEnergy: 8,
+  transitionScore: null,
+  nextPairingId: null,
+  nextIsDjPairing: false,
   track: mkTrack(),
 };
 

@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.main import create_app, no_background_lifespan
 from app.models.user import User
+from app.services.auth import decode_token
+from tests.conftest import _auth_headers_for_user
 
 
 def test_db_fixture_uses_external_transaction(db: Session):
@@ -64,3 +66,14 @@ def test_real_lifespan_starts_and_cancels_background_tasks():
     tidal_loop.assert_called_once()
     cleanup_loop.assert_called_once()
     health_loop.assert_called_once()
+
+
+def test_auth_headers_for_user_builds_valid_token(test_user: User):
+    headers = _auth_headers_for_user(test_user)
+    token = headers["Authorization"].removeprefix("Bearer ")
+
+    token_data = decode_token(token)
+
+    assert token_data is not None
+    assert token_data.username == "testuser"
+    assert token_data.token_version == test_user.token_version

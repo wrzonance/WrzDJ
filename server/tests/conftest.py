@@ -19,7 +19,7 @@ from app.models.event import Event
 from app.models.guest import Guest
 from app.models.request import Request, RequestStatus
 from app.models.user import User
-from app.services.auth import get_password_hash
+from app.services.auth import create_access_token
 
 # Use SQLite in-memory for tests (fast, isolated)
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
@@ -29,6 +29,19 @@ engine = create_engine(
     connect_args={"check_same_thread": False},
     poolclass=StaticPool,
 )
+
+TEST_USER_PASSWORD = "testpassword123"
+ADMIN_USER_PASSWORD = "adminpassword123"
+PENDING_USER_PASSWORD = "pendingpassword123"
+
+TEST_USER_PASSWORD_HASH = "$2b$04$BIUR.p93nOe8nGJXBjtYhu6QLsv7BHn22sAfR/Tpt6xMdl9tEf4tS"
+ADMIN_USER_PASSWORD_HASH = "$2b$04$LaJfWm6YwkBoEVVFvnxu7unVKG7HRGM9hiSvk448HhWZK.hPijb7a"
+PENDING_USER_PASSWORD_HASH = "$2b$04$BnvACwtrVGvZhu5TzYdOR.tpGyY6OQ4p5oILNEgHPmvOGWotCWWYu"
+
+
+def _auth_headers_for_user(user: User) -> dict[str, str]:
+    token = create_access_token(data={"sub": user.username, "tv": user.token_version})
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -107,7 +120,7 @@ def test_user(db: Session) -> User:
     """Create a test user with DJ role."""
     user = User(
         username="testuser",
-        password_hash=get_password_hash("testpassword123"),
+        password_hash=TEST_USER_PASSWORD_HASH,
         role="dj",
     )
     db.add(user)
@@ -121,7 +134,7 @@ def admin_user(db: Session) -> User:
     """Create an admin test user."""
     user = User(
         username="adminuser",
-        password_hash=get_password_hash("adminpassword123"),
+        password_hash=ADMIN_USER_PASSWORD_HASH,
         role="admin",
     )
     db.add(user)
@@ -131,15 +144,9 @@ def admin_user(db: Session) -> User:
 
 
 @pytest.fixture
-def admin_headers(client: TestClient, admin_user: User) -> dict[str, str]:
-    """Get authentication headers for the admin user."""
-    response = client.post(
-        "/api/auth/login",
-        data={"username": "adminuser", "password": "adminpassword123"},
-    )
-    assert response.status_code == 200, f"Login failed: {response.json()}"
-    token = response.json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
+def admin_headers(admin_user: User) -> dict[str, str]:
+    """Authentication headers for the admin user without exercising login."""
+    return _auth_headers_for_user(admin_user)
 
 
 @pytest.fixture
@@ -147,7 +154,7 @@ def pending_user(db: Session) -> User:
     """Create a pending test user."""
     user = User(
         username="pendinguser",
-        password_hash=get_password_hash("pendingpassword123"),
+        password_hash=PENDING_USER_PASSWORD_HASH,
         role="pending",
     )
     db.add(user)
@@ -157,27 +164,15 @@ def pending_user(db: Session) -> User:
 
 
 @pytest.fixture
-def pending_headers(client: TestClient, pending_user: User) -> dict[str, str]:
-    """Get authentication headers for the pending user."""
-    response = client.post(
-        "/api/auth/login",
-        data={"username": "pendinguser", "password": "pendingpassword123"},
-    )
-    assert response.status_code == 200, f"Login failed: {response.json()}"
-    token = response.json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
+def pending_headers(pending_user: User) -> dict[str, str]:
+    """Authentication headers for the pending user without exercising login."""
+    return _auth_headers_for_user(pending_user)
 
 
 @pytest.fixture
-def auth_headers(client: TestClient, test_user: User) -> dict[str, str]:
-    """Get authentication headers for the test user."""
-    response = client.post(
-        "/api/auth/login",
-        data={"username": "testuser", "password": "testpassword123"},
-    )
-    assert response.status_code == 200, f"Login failed: {response.json()}"
-    token = response.json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
+def auth_headers(test_user: User) -> dict[str, str]:
+    """Authentication headers for the DJ user without exercising login."""
+    return _auth_headers_for_user(test_user)
 
 
 @pytest.fixture

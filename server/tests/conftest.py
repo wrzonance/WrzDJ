@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.db.session as _db_session_module
+from app.api import deps as _deps_module
 from app.api import sse as _sse_module
 from app.api.deps import get_db
 from app.core.time import utcnow
@@ -22,6 +23,7 @@ from app.models.user import User
 from app.services.auth import create_access_token
 
 DIRECT_SESSIONLOCAL_MODULES = (_sse_module,)
+DEPENDENCY_OVERRIDE_SESSIONLOCAL_MODULES = (_deps_module,)
 
 # Use SQLite in-memory for tests (fast, isolated)
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"

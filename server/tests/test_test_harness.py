@@ -1,5 +1,7 @@
 """Regression tests for backend pytest harness behavior."""
 
+import ast
+from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -8,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.main import create_app, no_background_lifespan
 from app.models.user import User
 from app.services.auth import decode_token
+from tests import conftest as test_fixtures
 from tests.conftest import DIRECT_SESSIONLOCAL_MODULES, _auth_headers_for_user
 
 
@@ -83,3 +86,30 @@ def test_direct_sessionlocal_module_aliases_are_registered():
     module_names = {module.__name__ for module in DIRECT_SESSIONLOCAL_MODULES}
 
     assert "app.api.sse" in module_names
+
+
+def test_module_level_sessionlocal_aliases_are_classified():
+    app_root = Path(__file__).parents[1] / "app"
+    searched_roots = (app_root / "api", app_root / "services", app_root / "main.py")
+    discovered_module_names: set[str] = set()
+
+    for root in searched_roots:
+        paths = [root] if root.is_file() else root.rglob("*.py")
+        for path in paths:
+            tree = ast.parse(path.read_text(), filename=str(path))
+            for statement in tree.body:
+                if (
+                    isinstance(statement, ast.ImportFrom)
+                    and statement.module == "app.db.session"
+                    and any(alias.name == "SessionLocal" for alias in statement.names)
+                ):
+                    relative_path = path.relative_to(app_root.parent).with_suffix("")
+                    discovered_module_names.add(".".join(relative_path.parts))
+
+    direct_module_names = {module.__name__ for module in DIRECT_SESSIONLOCAL_MODULES}
+    dependency_override_names = {
+        module.__name__
+        for module in getattr(test_fixtures, "DEPENDENCY_OVERRIDE_SESSIONLOCAL_MODULES", ())
+    }
+
+    assert discovered_module_names <= direct_module_names | dependency_override_names

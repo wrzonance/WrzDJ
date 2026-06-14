@@ -123,8 +123,8 @@ class TestSSEEndpoint:
     """Tests for the SSE endpoint route registration."""
 
     def test_sse_route_is_registered(self):
-        """Verify the SSE endpoint route exists in the app."""
-        from app.api import api_router
+        """Verify the SSE endpoint route exists on the SSE router."""
+        from app.api.sse import router
 
-        routes = [r.path for r in api_router.routes if hasattr(r, "path")]
-        assert "/public/events/{code}/stream" in routes
+        routes = [r.path for r in router.routes if hasattr(r, "path")]
+        assert "/events/{code}/stream" in routes

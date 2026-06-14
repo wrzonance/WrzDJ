@@ -58,6 +58,7 @@ from app.schemas.setbuilder import (
     SetCreate,
     SetCritiqueOut,
     SetDetail,
+    SetDocumentSnapshot,
     SetRename,
     SetSummary,
     SlotOut,
@@ -81,6 +82,7 @@ from app.services.llm.exceptions import NoLlmConfigured
 from app.services.now_playing import get_now_playing
 from app.services.setbuilder import (
     curve,
+    document_snapshot,
     export_common,
     export_files,
     export_tidal,
@@ -637,7 +639,6 @@ def put_vibe_windows(
 
 # ---------------------------------------------------------------------------
 # Transport (issue #393) — queue playback commands for the attached event's Bridge.
-# ---------------------------------------------------------------------------
 
 
 @router.post("/sets/{set_id}/transport/command", response_model=TransportCommandOut)
@@ -702,6 +703,37 @@ def get_transport_status(
         device_name=now_playing.bridge_device_name,
         last_seen=now_playing.bridge_last_seen,
     )
+
+
+# ---------------------------------------------------------------------------
+# Document snapshots (issue #395) — undo/redo + autosave restore surface.
+
+
+@router.get("/sets/{set_id}/document", response_model=SetDocumentSnapshot)
+@limiter.limit("60/minute")
+def get_document_snapshot(
+    set_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> SetDocumentSnapshot:
+    """Full restorable builder document snapshot for one of the current DJ's sets."""
+    set_obj = _get_owned_or_404(db, set_id, current_user)
+    return document_snapshot.build_snapshot(set_obj)
+
+
+@router.put("/sets/{set_id}/document", response_model=SetDocumentSnapshot)
+@limiter.limit("30/minute")
+def put_document_snapshot(
+    set_id: int,
+    payload: SetDocumentSnapshot,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> SetDocumentSnapshot:
+    """Replace the restorable builder document with a prior snapshot."""
+    set_obj = _get_owned_or_404(db, set_id, current_user)
+    return document_snapshot.restore_snapshot(db, set_obj, payload)
 
 
 # ---------------------------------------------------------------------------

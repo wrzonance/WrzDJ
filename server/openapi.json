@@ -7651,6 +7651,563 @@
         "title": "SetDetail",
         "type": "object"
       },
+      "SetDocumentCurvePoint": {
+        "description": "Curve/vibe-window row as stored in a document snapshot.",
+        "properties": {
+          "energy": {
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Energy",
+            "type": "integer"
+          },
+          "id": {
+            "minimum": 1.0,
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_slow_window_end": {
+            "default": false,
+            "title": "Is Slow Window End",
+            "type": "boolean"
+          },
+          "is_slow_window_start": {
+            "default": false,
+            "title": "Is Slow Window Start",
+            "type": "boolean"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "position_sec": {
+            "minimum": 0.0,
+            "title": "Position Sec",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "energy",
+          "id",
+          "is_slow_window_end",
+          "is_slow_window_start",
+          "label",
+          "position_sec"
+        ],
+        "title": "SetDocumentCurvePoint",
+        "type": "object"
+      },
+      "SetDocumentPool": {
+        "description": "Pool state in a restorable document snapshot.",
+        "properties": {
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SetDocumentPoolSource"
+            },
+            "maxItems": 500,
+            "title": "Sources",
+            "type": "array"
+          },
+          "tracks": {
+            "items": {
+              "$ref": "#/components/schemas/SetDocumentPoolTrack"
+            },
+            "maxItems": 5000,
+            "title": "Tracks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sources",
+          "tracks"
+        ],
+        "title": "SetDocumentPool",
+        "type": "object"
+      },
+      "SetDocumentPoolSource": {
+        "description": "Pool source row as stored in a document snapshot.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "external_ref": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Ref"
+          },
+          "id": {
+            "minimum": 1.0,
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "event",
+              "tidal",
+              "beatport",
+              "public_url",
+              "manual"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          }
+        },
+        "required": [
+          "created_at",
+          "external_ref",
+          "id",
+          "kind",
+          "label",
+          "meta"
+        ],
+        "title": "SetDocumentPoolSource",
+        "type": "object"
+      },
+      "SetDocumentPoolTrack": {
+        "description": "Pool track row as stored in a document snapshot.",
+        "properties": {
+          "album": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Album"
+          },
+          "artist": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Artist",
+            "type": "string"
+          },
+          "artwork_url": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artwork Url"
+          },
+          "bpm": {
+            "anyOf": [
+              {
+                "maximum": 400.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bpm"
+          },
+          "camelot": {
+            "anyOf": [
+              {
+                "maxLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Camelot"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dedupe_sig": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Dedupe Sig",
+            "type": "string"
+          },
+          "duration_sec": {
+            "anyOf": [
+              {
+                "maximum": 36000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Sec"
+          },
+          "energy": {
+            "anyOf": [
+              {
+                "maximum": 10.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy"
+          },
+          "genre": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Genre"
+          },
+          "id": {
+            "minimum": 1.0,
+            "title": "Id",
+            "type": "integer"
+          },
+          "isrc": {
+            "anyOf": [
+              {
+                "maxLength": 15,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isrc"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "source_id": {
+            "minimum": 1.0,
+            "title": "Source Id",
+            "type": "integer"
+          },
+          "title": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "track_id": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track Id"
+          }
+        },
+        "required": [
+          "album",
+          "artist",
+          "artwork_url",
+          "bpm",
+          "camelot",
+          "created_at",
+          "dedupe_sig",
+          "duration_sec",
+          "energy",
+          "genre",
+          "id",
+          "isrc",
+          "key",
+          "source_id",
+          "title",
+          "track_id"
+        ],
+        "title": "SetDocumentPoolTrack",
+        "type": "object"
+      },
+      "SetDocumentSettings": {
+        "description": "Mutable target-setting fields included in history/autosave snapshots.",
+        "properties": {
+          "bpm_ceiling": {
+            "anyOf": [
+              {
+                "maximum": 400.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bpm Ceiling"
+          },
+          "bpm_floor": {
+            "anyOf": [
+              {
+                "maximum": 400.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bpm Floor"
+          },
+          "key_strictness": {
+            "default": 0.2,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Key Strictness",
+            "type": "number"
+          },
+          "target_duration_sec": {
+            "anyOf": [
+              {
+                "maximum": 36000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Duration Sec"
+          },
+          "vibe_theme": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vibe Theme"
+          }
+        },
+        "required": [
+          "bpm_ceiling",
+          "bpm_floor",
+          "key_strictness",
+          "target_duration_sec",
+          "vibe_theme"
+        ],
+        "title": "SetDocumentSettings",
+        "type": "object"
+      },
+      "SetDocumentSlot": {
+        "description": "Slot row as stored in a document snapshot.",
+        "properties": {
+          "id": {
+            "minimum": 1.0,
+            "title": "Id",
+            "type": "integer"
+          },
+          "locked": {
+            "default": false,
+            "title": "Locked",
+            "type": "boolean"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "position": {
+            "minimum": 0.0,
+            "title": "Position",
+            "type": "integer"
+          },
+          "target_energy": {
+            "anyOf": [
+              {
+                "maximum": 10.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Energy"
+          },
+          "track_id": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track Id"
+          },
+          "transition_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transition Score"
+          },
+          "transition_warnings": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transition Warnings"
+          }
+        },
+        "required": [
+          "id",
+          "locked",
+          "notes",
+          "position",
+          "target_energy",
+          "track_id",
+          "transition_score",
+          "transition_warnings"
+        ],
+        "title": "SetDocumentSlot",
+        "type": "object"
+      },
+      "SetDocumentSnapshot-Input": {
+        "description": "Full builder document snapshot for undo/redo and autosave.",
+        "properties": {
+          "curve_points": {
+            "items": {
+              "$ref": "#/components/schemas/SetDocumentCurvePoint"
+            },
+            "maxItems": 1000,
+            "title": "Curve Points",
+            "type": "array"
+          },
+          "pool": {
+            "$ref": "#/components/schemas/SetDocumentPool"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/SetDocumentSettings"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/SetDocumentSlot"
+            },
+            "maxItems": 500,
+            "title": "Slots",
+            "type": "array"
+          }
+        },
+        "required": [
+          "settings",
+          "pool"
+        ],
+        "title": "SetDocumentSnapshot",
+        "type": "object"
+      },
+      "SetDocumentSnapshot-Output": {
+        "description": "Full builder document snapshot for undo/redo and autosave.",
+        "properties": {
+          "curve_points": {
+            "items": {
+              "$ref": "#/components/schemas/SetDocumentCurvePoint"
+            },
+            "maxItems": 1000,
+            "title": "Curve Points",
+            "type": "array"
+          },
+          "pool": {
+            "$ref": "#/components/schemas/SetDocumentPool"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/SetDocumentSettings"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/SetDocumentSlot"
+            },
+            "maxItems": 500,
+            "title": "Slots",
+            "type": "array"
+          }
+        },
+        "required": [
+          "curve_points",
+          "pool",
+          "settings",
+          "slots"
+        ],
+        "title": "SetDocumentSnapshot",
+        "type": "object"
+      },
       "SetRename": {
         "description": "Body for renaming a set.",
         "properties": {
@@ -17099,6 +17656,110 @@
           }
         ],
         "summary": "Apply Curve Template",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/document": {
+      "get": {
+        "description": "Full restorable builder document snapshot for one of the current DJ's sets.",
+        "operationId": "get_document_snapshot_api_setbuilder_sets__set_id__document_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetDocumentSnapshot-Output"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Document Snapshot",
+        "tags": [
+          "setbuilder"
+        ]
+      },
+      "put": {
+        "description": "Replace the restorable builder document with a prior snapshot.",
+        "operationId": "put_document_snapshot_api_setbuilder_sets__set_id__document_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetDocumentSnapshot-Input"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetDocumentSnapshot-Output"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Put Document Snapshot",
         "tags": [
           "setbuilder"
         ]

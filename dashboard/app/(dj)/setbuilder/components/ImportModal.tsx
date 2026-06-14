@@ -16,6 +16,7 @@ import type {
 } from '@/lib/api-types';
 import styles from '../setbuilder.module.css';
 import { SourceIcon, sourceColor } from './PoolBadges';
+import type { BuilderCommit } from './useSetDocumentHistory';
 
 export type ImportKind = 'event' | 'tidal' | 'beatport' | 'public_url' | 'manual';
 
@@ -27,6 +28,7 @@ interface ImportModalProps {
   onClose: () => void;
   onImported: (result: PoolImportResult) => void;
   onError: (message: string) => void;
+  commit?: BuilderCommit;
 }
 
 export default function ImportModal(props: ImportModalProps) {
@@ -75,7 +77,15 @@ function errMessage(e: unknown): string {
   return 'Import failed — try again';
 }
 
-function ImportEvent({ setId, existingRefs, onClose, onImported, onError }: ImportModalProps) {
+function runImport(
+  commit: BuilderCommit | undefined,
+  label: string,
+  action: () => Promise<PoolImportResult>,
+) {
+  return commit ? commit(label, action) : action();
+}
+
+function ImportEvent({ setId, existingRefs, onClose, onImported, onError, commit }: ImportModalProps) {
   const [events, setEvents] = useState<Event[] | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -91,7 +101,7 @@ function ImportEvent({ setId, existingRefs, onClose, onImported, onError }: Impo
     if (picked == null) return;
     setBusy(true);
     try {
-      onImported(await api.importPoolEvent(setId, picked));
+      onImported(await runImport(commit, 'Import event requests', () => api.importPoolEvent(setId, picked)));
     } catch (e) {
       onError(errMessage(e));
     } finally {
@@ -158,7 +168,15 @@ function ImportEvent({ setId, existingRefs, onClose, onImported, onError }: Impo
   );
 }
 
-function ImportPlaylist({ kind, setId, existingRefs, onClose, onImported, onError }: ImportModalProps) {
+function ImportPlaylist({
+  kind,
+  setId,
+  existingRefs,
+  onClose,
+  onImported,
+  onError,
+  commit,
+}: ImportModalProps) {
   const service = kind as 'tidal' | 'beatport';
   const [playlists, setPlaylists] = useState<BuilderPlaylists | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
@@ -185,7 +203,9 @@ function ImportPlaylist({ kind, setId, existingRefs, onClose, onImported, onErro
     setBusy(true);
     try {
       const call = service === 'tidal' ? api.importPoolTidal : api.importPoolBeatport;
-      onImported(await call.call(api, setId, picked, name));
+      onImported(
+        await runImport(commit, `Import ${label} playlist`, () => call.call(api, setId, picked, name)),
+      );
     } catch (e) {
       onError(errMessage(e));
     } finally {
@@ -250,7 +270,7 @@ function ImportPlaylist({ kind, setId, existingRefs, onClose, onImported, onErro
   );
 }
 
-function ImportPublicUrl({ setId, onClose, onImported, onError }: ImportModalProps) {
+function ImportPublicUrl({ setId, onClose, onImported, onError, commit }: ImportModalProps) {
   const [url, setUrl] = useState('');
   const [preview, setPreview] = useState<PoolUrlPreview | null>(null);
   const [validating, setValidating] = useState(false);
@@ -273,7 +293,9 @@ function ImportPublicUrl({ setId, onClose, onImported, onError }: ImportModalPro
   const doImport = async () => {
     setBusy(true);
     try {
-      onImported(await api.importPoolUrl(setId, url.trim()));
+      onImported(
+        await runImport(commit, 'Import public playlist', () => api.importPoolUrl(setId, url.trim())),
+      );
     } catch (e) {
       onError(errMessage(e));
     } finally {
@@ -362,7 +384,7 @@ function ImportPublicUrl({ setId, onClose, onImported, onError }: ImportModalPro
   );
 }
 
-function ImportManual({ setId, onClose, onImported, onError }: ImportModalProps) {
+function ImportManual({ setId, onClose, onImported, onError, commit }: ImportModalProps) {
   const [q, setQ] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -393,18 +415,20 @@ function ImportManual({ setId, onClose, onImported, onError }: ImportModalProps)
           ? r.source
           : 'manual';
       onImported(
-        await api.importPoolManual(setId, {
-          title: r.title,
-          artist: r.artist,
-          album: r.album ?? null,
-          genre: r.genre ?? null,
-          bpm: r.bpm ?? null,
-          key: r.key ?? null,
-          isrc: r.isrc ?? null,
-          artwork_url: r.album_art?.startsWith('https://') ? r.album_art : null,
-          source_service: service,
-          source_track_id: service === 'spotify' ? (r.spotify_id ?? null) : null,
-        })
+        await runImport(commit, `Add ${r.title}`, () =>
+          api.importPoolManual(setId, {
+            title: r.title,
+            artist: r.artist,
+            album: r.album ?? null,
+            genre: r.genre ?? null,
+            bpm: r.bpm ?? null,
+            key: r.key ?? null,
+            isrc: r.isrc ?? null,
+            artwork_url: r.album_art?.startsWith('https://') ? r.album_art : null,
+            source_service: service,
+            source_track_id: service === 'spotify' ? (r.spotify_id ?? null) : null,
+          }),
+        ),
       );
     } catch (e) {
       onError(errMessage(e));

@@ -8,11 +8,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
+import type { SetDocumentSnapshot } from '@/lib/api-types';
 import CurvePanel from './CurvePanel';
 import TimelinePanel, { type ScrollRequest } from './TimelinePanel';
 import TransportBar from './TransportBar';
+import type { ConfirmAction } from './ConfirmActionDialog';
 import type { SlotView, TrackView } from './types';
 import { slotViewFromApi, trackViewFromPool } from './types';
+import type { BuilderCommit } from './useSetDocumentHistory';
 import {
   commandPayload,
   previousIndex,
@@ -36,13 +39,29 @@ interface JumpSlotEvent extends Event {
   detail?: { idx?: number };
 }
 
+interface BuilderWorkspaceProps {
+  setId: number;
+  refreshToken?: number;
+  snapshot?: SetDocumentSnapshot | null;
+  snapshotVersion?: number;
+  commit?: BuilderCommit;
+  suggestReplacements?: boolean;
+  onSuggestReplacementsChange?: (checked: boolean) => void;
+  confirmRecompute?: boolean;
+  requestConfirmation?: (action: ConfirmAction) => Promise<boolean>;
+}
+
 export default function BuilderWorkspace({
   setId,
   refreshToken = 0,
-}: {
-  setId: number;
-  refreshToken?: number;
-}) {
+  snapshot,
+  snapshotVersion = 0,
+  commit,
+  suggestReplacements,
+  onSuggestReplacementsChange,
+  confirmRecompute = true,
+  requestConfirmation,
+}: BuilderWorkspaceProps) {
   const [slots, setSlots] = useState<SlotView[]>([]);
   const [pool, setPool] = useState<TrackView[]>([]);
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
@@ -84,7 +103,7 @@ export default function BuilderWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [loadSlots, refreshToken]);
+  }, [loadSlots, refreshToken, snapshotVersion]);
 
   useEffect(() => {
     const onPairingsChanged = () => {
@@ -248,6 +267,9 @@ export default function BuilderWorkspace({
           setId={setId}
           slots={slots}
           onSlotsChange={(updater) => setSlots(updater)}
+          snapshot={snapshot}
+          snapshotVersion={snapshotVersion}
+          commit={commit}
           hoveredIdx={hoveredIdx}
           onHover={setHoveredIdx}
           onBlockClick={(idx) => setScrollRequest((prev) => ({ idx, n: (prev?.n ?? 0) + 1 }))}
@@ -257,6 +279,10 @@ export default function BuilderWorkspace({
           scrubEnabled={scrubEnabled}
           onScrub={handleScrub}
           pool={pool}
+          suggestReplacementsSetting={suggestReplacements}
+          onSuggestReplacementsChange={onSuggestReplacementsChange}
+          confirmRecompute={confirmRecompute}
+          requestConfirmation={requestConfirmation}
         />
       </section>
 

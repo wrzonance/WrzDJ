@@ -66,6 +66,7 @@ import type {
   RecommendationResponse,
   SearchResult,
   SetCritique,
+  SetDocumentSnapshot,
   SetDetail,
   SetSlotOut,
   SetSummary,
@@ -167,6 +168,7 @@ export type {
   SearchResult,
   ServiceCapabilities,
   SetCritique,
+  SetDocumentSnapshot,
   SetDetail,
   SetSummary,
   SharedCurvePointView,
@@ -696,6 +698,18 @@ class ApiClient {
   }
   async getSet(setId: number): Promise<SetDetail> {
     return this.fetch(`/api/setbuilder/sets/${setId}`);
+  }
+  async getSetDocument(setId: number): Promise<SetDocumentSnapshot> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/document`);
+  }
+  async putSetDocument(
+    setId: number,
+    snapshot: SetDocumentSnapshot
+  ): Promise<SetDocumentSnapshot> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/document`, {
+      method: 'PUT',
+      body: JSON.stringify(snapshot),
+    });
   }
   async renameSet(setId: number, name: string): Promise<SetDetail> {
     return this.fetch(`/api/setbuilder/sets/${setId}`, {

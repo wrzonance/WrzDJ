@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import type { SetDetail } from '@/lib/api-types';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import BuilderWorkspace from '../components/BuilderWorkspace';
+import ChatSidebar from '../components/ChatSidebar';
 import PoolPanel from '../components/PoolPanel';
 import SetActionsMenu from '../SetActionsMenu';
 import styles from '../setbuilder.module.css';
@@ -18,6 +19,11 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
   const router = useRouter();
   const [set, setSet] = useState<SetDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [refreshToken, setRefreshToken] = useState(0);
+  const [confirmBuild, setConfirmBuild] = useState(false);
+  const [building, setBuilding] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -35,6 +41,26 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
         .catch(() => setError('Set not found'));
     }
   }, [isAuthenticated, setId]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  const runBuild = async () => {
+    setBuilding(true);
+    try {
+      const result = await api.buildSet(Number(setId), true);
+      setRefreshToken((v) => v + 1);
+      setToast(`Pass 1 rebuilt ${result.slot_count} slots · ${result.iterations} refine steps`);
+      setConfirmBuild(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to recompute set');
+    } finally {
+      setBuilding(false);
+    }
+  };
 
   if (isLoading || !isAuthenticated) {
     return (
@@ -82,22 +108,68 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
               onSetUpdated={(patch) => setSet((prev) => (prev ? { ...prev, ...patch } : prev))}
             />
           )}
+          <button
+            className="btn btn-sm"
+            title="Re-run deterministic pass 1"
+            onClick={() => setConfirmBuild(true)}
+          >
+            Recompute
+          </button>
           <ThemeToggle />
         </span>
       </div>
 
-      <div className={styles.workspace}>
+      <div className={`${styles.workspace} ${chatOpen ? styles.chatOpen : styles.chatClosed}`}>
         <section className={`${styles.panel} ${styles.panelPool}`} aria-label="Pool">
           <PoolPanel setId={Number(setId)} />
         </section>
 
-        <BuilderWorkspace setId={Number(setId)} />
+        <BuilderWorkspace setId={Number(setId)} refreshToken={refreshToken} />
 
-        <section className={`${styles.panel} ${styles.panelChat}`} aria-label="Chat">
-          <div className={styles.panelHeader}>Chat</div>
-          <div className={styles.panelBody}>Agent chat coming soon.</div>
-        </section>
+        <div className={styles.panelChat}>
+          <ChatSidebar
+            setId={Number(setId)}
+            open={chatOpen}
+            onToggle={() => setChatOpen((open) => !open)}
+            refreshToken={refreshToken}
+            onMutationApplied={() => setRefreshToken((v) => v + 1)}
+          />
+        </div>
       </div>
+
+      {confirmBuild && (
+        <div className={styles.confirmWrap}>
+          <div className={styles.confirmBackdrop} onClick={() => setConfirmBuild(false)} />
+          <div className={styles.confirmDialog} role="dialog" aria-modal="true">
+            <div className={styles.confirmHeader}>
+              <div className={styles.confirmIcon}>!</div>
+              <div className={styles.confirmTitle}>Recompute set order?</div>
+            </div>
+            <div className={styles.confirmBody}>
+              <p>
+                This reruns deterministic pass 1 and may overwrite unlocked manual order using
+                the current pool, curve targets, transition scoring, and saved pairings.
+              </p>
+              <ul>
+                <li>Locked slots stay fixed.</li>
+                <li>Unlocked manual reorders may be replaced.</li>
+                <li>Saved pairings are weighted into scoring.</li>
+                <li>This action is designed to be undoable once undo/save lands.</li>
+              </ul>
+            </div>
+            <div className={styles.confirmFooter}>
+              <button className="btn" onClick={() => setConfirmBuild(false)} disabled={building}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={runBuild} disabled={building}>
+                {building ? 'Recomputing...' : 'Yes, recompute'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && <div className={styles.builderToast}>{toast}</div>}
     </div>
   );
 }

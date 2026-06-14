@@ -672,6 +672,141 @@
         "title": "AdminUserUpdate",
         "type": "object"
       },
+      "AgentChatHistoryItem": {
+        "description": "Prior chat turn supplied by the client for context.",
+        "properties": {
+          "content": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "title": "AgentChatHistoryItem",
+        "type": "object"
+      },
+      "AgentChatIn": {
+        "description": "One chat turn for the setbuilder agent.",
+        "properties": {
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/AgentChatHistoryItem"
+            },
+            "maxItems": 30,
+            "title": "History",
+            "type": "array"
+          },
+          "message": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "AgentChatIn",
+        "type": "object"
+      },
+      "AgentChatOut": {
+        "description": "Agent chat turn result after applying tool calls.",
+        "properties": {
+          "affected_transition_scores": {
+            "items": {
+              "$ref": "#/components/schemas/TransitionScoreOut"
+            },
+            "title": "Affected Transition Scores",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/SlotOut"
+            },
+            "title": "Slots",
+            "type": "array"
+          },
+          "tool_calls": {
+            "items": {
+              "$ref": "#/components/schemas/AppliedToolCallOut"
+            },
+            "title": "Tool Calls",
+            "type": "array"
+          }
+        },
+        "required": [
+          "affected_transition_scores",
+          "message",
+          "slots",
+          "tool_calls"
+        ],
+        "title": "AgentChatOut",
+        "type": "object"
+      },
+      "AppliedToolCallOut": {
+        "description": "One agent tool call, including rationale for mutating tools.",
+        "properties": {
+          "args": {
+            "additionalProperties": true,
+            "title": "Args",
+            "type": "object"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "mutating": {
+            "title": "Mutating",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rationale"
+          },
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "args",
+          "id",
+          "mutating",
+          "name",
+          "rationale",
+          "result"
+        ],
+        "title": "AppliedToolCallOut",
+        "type": "object"
+      },
       "ApplyTemplateRequest": {
         "description": "Apply a template's shape onto the set's slots.\n\nExactly one of ``builtin`` / ``template_id``. ``slot_midpoints`` are the\nnormalized slot midpoints (client knows track durations); omitted means\nuniform buckets.",
         "properties": {
@@ -1405,6 +1540,53 @@
           "uptime_seconds"
         ],
         "title": "BridgeStatusResponse",
+        "type": "object"
+      },
+      "BuildSetRequest": {
+        "description": "Run deterministic set generation. confirmed=true is an explicit user gate.",
+        "properties": {
+          "confirmed": {
+            "default": false,
+            "title": "Confirmed",
+            "type": "boolean"
+          }
+        },
+        "title": "BuildSetRequest",
+        "type": "object"
+      },
+      "BuildSetResponse": {
+        "description": "Result of the deterministic pass.",
+        "properties": {
+          "iterations": {
+            "title": "Iterations",
+            "type": "integer"
+          },
+          "slot_count": {
+            "title": "Slot Count",
+            "type": "integer"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/SlotOut"
+            },
+            "title": "Slots",
+            "type": "array"
+          },
+          "transition_scores": {
+            "items": {
+              "$ref": "#/components/schemas/TransitionScoreOut"
+            },
+            "title": "Transition Scores",
+            "type": "array"
+          }
+        },
+        "required": [
+          "iterations",
+          "slot_count",
+          "slots",
+          "transition_scores"
+        ],
+        "title": "BuildSetResponse",
         "type": "object"
       },
       "BuilderPlaylistsOut": {
@@ -2799,6 +2981,52 @@
           "ok"
         ],
         "title": "ConnectorTestResult",
+        "type": "object"
+      },
+      "CritiqueFlagOut": {
+        "description": "A structured critique flag from the agent pass.",
+        "properties": {
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "slot_position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Position"
+          },
+          "type": {
+            "enum": [
+              "energy_dip",
+              "vibe_clash",
+              "era_jump",
+              "sing_along_missing",
+              "banger_buried",
+              "transition_brilliant"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "slot_position",
+          "type"
+        ],
+        "title": "CritiqueFlagOut",
         "type": "object"
       },
       "CurvePointModel": {
@@ -7005,6 +7233,33 @@
         "title": "SetCreate",
         "type": "object"
       },
+      "SetCritiqueOut": {
+        "description": "Structured auto-critique output.",
+        "properties": {
+          "flags": {
+            "items": {
+              "$ref": "#/components/schemas/CritiqueFlagOut"
+            },
+            "title": "Flags",
+            "type": "array"
+          },
+          "overall_grade": {
+            "title": "Overall Grade",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "flags",
+          "overall_grade",
+          "summary"
+        ],
+        "title": "SetCritiqueOut",
+        "type": "object"
+      },
       "SetDetail": {
         "description": "Full set record (Phase 0: no slot/curve expansion yet).",
         "properties": {
@@ -7453,9 +7708,75 @@
       "SlotOut": {
         "description": "Timeline slot (curve-editor surface; track metadata joins with #388).",
         "properties": {
+          "artist": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artist"
+          },
+          "bpm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bpm"
+          },
+          "camelot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Camelot"
+          },
+          "duration_sec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Sec"
+          },
+          "energy": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy"
+          },
           "id": {
             "title": "Id",
             "type": "integer"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
           },
           "locked": {
             "title": "Locked",
@@ -7472,6 +7793,17 @@
             ],
             "title": "Notes"
           },
+          "pool_track_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pool Track Id"
+          },
           "position": {
             "title": "Position",
             "type": "integer"
@@ -7487,6 +7819,17 @@
             ],
             "title": "Target Energy"
           },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
           "track_id": {
             "anyOf": [
               {
@@ -7497,15 +7840,47 @@
               }
             ],
             "title": "Track Id"
+          },
+          "transition_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transition Score"
+          },
+          "transition_warnings": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transition Warnings"
           }
         },
         "required": [
+          "artist",
+          "bpm",
+          "camelot",
+          "duration_sec",
+          "energy",
           "id",
+          "key",
           "locked",
           "notes",
+          "pool_track_id",
           "position",
           "target_energy",
-          "track_id"
+          "title",
+          "track_id",
+          "transition_score",
+          "transition_warnings"
         ],
         "title": "SlotOut",
         "type": "object"
@@ -8324,6 +8699,38 @@
           "vibe_key"
         ],
         "title": "TrackVibeStateOut",
+        "type": "object"
+      },
+      "TransitionScoreOut": {
+        "description": "One recomputed transition score.",
+        "properties": {
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "slot_id": {
+            "title": "Slot Id",
+            "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "position",
+          "score",
+          "slot_id",
+          "warnings"
+        ],
+        "title": "TransitionScoreOut",
         "type": "object"
       },
       "UnresolvedTrackOut": {
@@ -16045,6 +16452,176 @@
           }
         ],
         "summary": "Rename Set",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/agent/chat": {
+      "post": {
+        "description": "Run one agent chat turn and apply validated tool calls.",
+        "operationId": "chat_with_set_agent_api_setbuilder_sets__set_id__agent_chat_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentChatIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentChatOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Invalid agent tool call or no LLM connector configured."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Chat With Set Agent",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/build": {
+      "post": {
+        "description": "Run deterministic pass 1 after explicit user confirmation.",
+        "operationId": "build_set_api_setbuilder_sets__set_id__build_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BuildSetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuildSetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Build Set",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/critique": {
+      "post": {
+        "description": "Run pass 2 auto-critique through the LLM gateway.",
+        "operationId": "critique_set_api_setbuilder_sets__set_id__critique_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetCritiqueOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "No LLM connector configured for this DJ or the org."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Critique Set",
         "tags": [
           "setbuilder"
         ]

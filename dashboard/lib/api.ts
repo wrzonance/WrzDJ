@@ -21,10 +21,13 @@ import type {
   LlmFeaturePreferences,
   LlmFeaturePreferenceSet,
   ArchivedEvent,
+  AgentChatIn,
+  AgentChatOut,
   BeatportEventSettings,
   BeatportSearchResult,
   BeatportStatus,
   BridgeCommandResponse,
+  BuildSetResponse,
   BuilderPlaylists,
   DisplaySettingsResponse,
   PublicBridgeStatus,
@@ -58,6 +61,7 @@ import type {
   PublicEvent,
   RecommendationResponse,
   SearchResult,
+  SetCritique,
   SetDetail,
   SetSlotOut,
   SetSummary,
@@ -111,11 +115,14 @@ export type {
   LlmFeaturePreferenceSet,
   LlmUsageRow,
   ArchivedEvent,
+  AgentChatIn,
+  AgentChatOut,
   BeatportEventSettings,
   BeatportSearchResult,
   BeatportStatus,
   BridgeCommandResponse,
   BridgeEnrichedStatus,
+  BuildSetResponse,
   CapabilityStatus,
   DisplaySettingsResponse,
   Event,
@@ -148,6 +155,7 @@ export type {
   RecommendedTrack,
   SearchResult,
   ServiceCapabilities,
+  SetCritique,
   SetDetail,
   SetSummary,
   SharedCurvePointView,
@@ -719,6 +727,21 @@ class ApiClient {
     return this.fetch(`/api/setbuilder/sets/${setId}/slots/${slotId}/target`, {
       method: 'PATCH',
       body: JSON.stringify({ target_energy: targetEnergy }),
+    });
+  }
+  async buildSet(setId: number, confirmed: boolean): Promise<BuildSetResponse> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/build`, {
+      method: 'POST',
+      body: JSON.stringify({ confirmed }),
+    });
+  }
+  async critiqueSet(setId: number): Promise<SetCritique> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/critique`, { method: 'POST' });
+  }
+  async chatWithSetAgent(setId: number, payload: AgentChatIn): Promise<AgentChatOut> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/agent/chat`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
     });
   }
   async applyCurveTemplate(

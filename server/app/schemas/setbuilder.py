@@ -244,6 +244,16 @@ class SlotOut(BaseModel):
     locked: bool
     target_energy: float | None
     notes: str | None
+    transition_score: float | None = None
+    transition_warnings: str | None = None
+    pool_track_id: int | None = None
+    title: str | None = None
+    artist: str | None = None
+    bpm: float | None = None
+    key: str | None = None
+    camelot: str | None = None
+    energy: int | None = None
+    duration_sec: int | None = None
 
 
 class SlotTargetUpdate(BaseModel):
@@ -329,6 +339,95 @@ class VibeWindowsResponse(BaseModel):
     """A set's stored vibe windows."""
 
     windows: list[VibeWindowModel]
+
+
+# ---------------------------------------------------------------------------
+# Two-pass set builder (#390)
+# ---------------------------------------------------------------------------
+
+
+class BuildSetRequest(BaseModel):
+    """Run deterministic set generation. confirmed=true is an explicit user gate."""
+
+    confirmed: bool = False
+
+
+class TransitionScoreOut(BaseModel):
+    """One recomputed transition score."""
+
+    slot_id: int
+    position: int
+    score: float
+    warnings: list[str]
+
+
+class BuildSetResponse(BaseModel):
+    """Result of the deterministic pass."""
+
+    slot_count: int
+    iterations: int
+    slots: list[SlotOut]
+    transition_scores: list[TransitionScoreOut]
+
+
+AgentCritiqueFlagType = Literal[
+    "energy_dip",
+    "vibe_clash",
+    "era_jump",
+    "sing_along_missing",
+    "banger_buried",
+    "transition_brilliant",
+]
+
+
+class CritiqueFlagOut(BaseModel):
+    """A structured critique flag from the agent pass."""
+
+    type: AgentCritiqueFlagType
+    slot_position: int | None = None
+    message: str | None = None
+
+
+class SetCritiqueOut(BaseModel):
+    """Structured auto-critique output."""
+
+    overall_grade: str
+    summary: str
+    flags: list[CritiqueFlagOut]
+
+
+class AgentChatHistoryItem(BaseModel):
+    """Prior chat turn supplied by the client for context."""
+
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1, max_length=4000)
+
+
+class AgentChatIn(BaseModel):
+    """One chat turn for the setbuilder agent."""
+
+    message: str = Field(..., min_length=1, max_length=4000)
+    history: list[AgentChatHistoryItem] = Field(default_factory=list, max_length=30)
+
+
+class AppliedToolCallOut(BaseModel):
+    """One agent tool call, including rationale for mutating tools."""
+
+    id: str
+    name: str
+    args: dict
+    rationale: str | None
+    result: dict
+    mutating: bool
+
+
+class AgentChatOut(BaseModel):
+    """Agent chat turn result after applying tool calls."""
+
+    message: str
+    tool_calls: list[AppliedToolCallOut]
+    slots: list[SlotOut]
+    affected_transition_scores: list[TransitionScoreOut]
 
 
 # ---------------------------------------------------------------------------

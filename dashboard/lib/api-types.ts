@@ -207,6 +207,14 @@ export type ApplyTemplateResponse = Schemas['ApplyTemplateResponse'];
 export type VibeWindow = Schemas['VibeWindowModel'];
 export type VibeWindowsResponse = Schemas['VibeWindowsResponse'];
 
+// WrzDJSet two-pass builder (#390)
+export type BuildSetResponse = Schemas['BuildSetResponse'];
+export type SetCritique = Schemas['SetCritiqueOut'];
+export type AgentChatIn = Schemas['AgentChatIn'];
+export type AgentChatOut = Schemas['AgentChatOut'];
+export type AppliedToolCall = Schemas['AppliedToolCallOut'];
+export type TransitionScore = Schemas['TransitionScoreOut'];
+
 // WrzDJSet pool (issue #388)
 export type PoolSource = Schemas['PoolSourceOut'];
 export type PoolTrack = Schemas['PoolTrackOut'];

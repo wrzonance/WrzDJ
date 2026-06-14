@@ -62,6 +62,71 @@ describe('ApiClient', () => {
     });
   });
 
+  describe('setbuilder two-pass API', () => {
+    it('runs deterministic build with explicit confirmation', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ slot_count: 2, iterations: 1, slots: [], transition_scores: [] }),
+      });
+
+      const result = await api.buildSet(42, true);
+
+      expect(result.slot_count).toBe(2);
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/setbuilder/sets/42/build');
+      expect(options.method).toBe('POST');
+      expect(JSON.parse(options.body)).toEqual({ confirmed: true });
+    });
+
+    it('requests structured critique and sends chat turns', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ overall_grade: 'B+', summary: 'Good arc', flags: [] }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            message: 'Swapped.',
+            tool_calls: [
+              {
+                id: 'swap-1',
+                name: 'swap_slots',
+                args: { slot_a_id: 1, slot_b_id: 2, rationale: 'Better opener' },
+                rationale: 'Better opener',
+                result: {},
+                mutating: true,
+              },
+            ],
+            slots: [],
+            affected_transition_scores: [],
+          }),
+        });
+
+      const critique = await api.critiqueSet(42);
+      const chat = await api.chatWithSetAgent(42, {
+        message: 'Swap these',
+        history: [{ role: 'user', content: 'Earlier turn' }],
+      });
+
+      expect(critique.overall_grade).toBe('B+');
+      expect(chat.message).toBe('Swapped.');
+      expect(chat.tool_calls[0].args).toEqual({
+        slot_a_id: 1,
+        slot_b_id: 2,
+        rationale: 'Better opener',
+      });
+      expect(mockFetch.mock.calls[0][0]).toContain('/api/setbuilder/sets/42/critique');
+      const [chatUrl, chatOptions] = mockFetch.mock.calls[1];
+      expect(chatUrl).toContain('/api/setbuilder/sets/42/agent/chat');
+      expect(chatOptions.method).toBe('POST');
+      expect(JSON.parse(chatOptions.body)).toEqual({
+        message: 'Swap these',
+        history: [{ role: 'user', content: 'Earlier turn' }],
+      });
+    });
+  });
+
   describe('search', () => {
     it('encodes search query properly', async () => {
       mockFetch.mockResolvedValueOnce({

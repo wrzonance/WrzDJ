@@ -14,7 +14,7 @@ import type { SlotView } from './types';
 import { slotViewFromApi } from './types';
 import sbStyles from '../setbuilder.module.css';
 
-export default function BuilderWorkspace({ setId }: { setId: number }) {
+export default function BuilderWorkspace({ setId, refreshToken = 0 }: { setId: number; refreshToken?: number }) {
   const [slots, setSlots] = useState<SlotView[]>([]);
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const [scrollRequest, setScrollRequest] = useState<ScrollRequest | null>(null);
@@ -32,7 +32,7 @@ export default function BuilderWorkspace({ setId }: { setId: number }) {
     return () => {
       cancelled = true;
     };
-  }, [setId]);
+  }, [setId, refreshToken]);
 
   return (
     <>

@@ -2646,6 +2646,66 @@ export interface paths {
         patch: operations["rename_set_api_setbuilder_sets__set_id__patch"];
         trace?: never;
     };
+    "/api/setbuilder/sets/{set_id}/agent/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Chat With Set Agent
+         * @description Run one agent chat turn and apply validated tool calls.
+         */
+        post: operations["chat_with_set_agent_api_setbuilder_sets__set_id__agent_chat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/build": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Build Set
+         * @description Run deterministic pass 1 after explicit user confirmation.
+         */
+        post: operations["build_set_api_setbuilder_sets__set_id__build_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/critique": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Critique Set
+         * @description Run pass 2 auto-critique through the LLM gateway.
+         */
+        post: operations["critique_set_api_setbuilder_sets__set_id__critique_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setbuilder/sets/{set_id}/curve/apply-template": {
         parameters: {
             query?: never;
@@ -3518,6 +3578,65 @@ export interface components {
             role?: string | null;
         };
         /**
+         * AgentChatHistoryItem
+         * @description Prior chat turn supplied by the client for context.
+         */
+        AgentChatHistoryItem: {
+            /** Content */
+            content: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+        };
+        /**
+         * AgentChatIn
+         * @description One chat turn for the setbuilder agent.
+         */
+        AgentChatIn: {
+            /** History */
+            history?: components["schemas"]["AgentChatHistoryItem"][];
+            /** Message */
+            message: string;
+        };
+        /**
+         * AgentChatOut
+         * @description Agent chat turn result after applying tool calls.
+         */
+        AgentChatOut: {
+            /** Affected Transition Scores */
+            affected_transition_scores: components["schemas"]["TransitionScoreOut"][];
+            /** Message */
+            message: string;
+            /** Slots */
+            slots: components["schemas"]["SlotOut"][];
+            /** Tool Calls */
+            tool_calls: components["schemas"]["AppliedToolCallOut"][];
+        };
+        /**
+         * AppliedToolCallOut
+         * @description One agent tool call, including rationale for mutating tools.
+         */
+        AppliedToolCallOut: {
+            /** Args */
+            args: {
+                [key: string]: unknown;
+            };
+            /** Id */
+            id: string;
+            /** Mutating */
+            mutating: boolean;
+            /** Name */
+            name: string;
+            /** Rationale */
+            rationale: string | null;
+            /** Result */
+            result: {
+                [key: string]: unknown;
+            };
+        };
+        /**
          * ApplyTemplateRequest
          * @description Apply a template's shape onto the set's slots.
          *
@@ -3779,6 +3898,32 @@ export interface components {
             plugin_id: string | null;
             /** Uptime Seconds */
             uptime_seconds: number | null;
+        };
+        /**
+         * BuildSetRequest
+         * @description Run deterministic set generation. confirmed=true is an explicit user gate.
+         */
+        BuildSetRequest: {
+            /**
+             * Confirmed
+             * @description Must be true to confirm unlocked slots may be reordered.
+             * @constant
+             */
+            confirmed: true;
+        };
+        /**
+         * BuildSetResponse
+         * @description Result of the deterministic pass.
+         */
+        BuildSetResponse: {
+            /** Iterations */
+            iterations: number;
+            /** Slot Count */
+            slot_count: number;
+            /** Slots */
+            slots: components["schemas"]["SlotOut"][];
+            /** Transition Scores */
+            transition_scores: components["schemas"]["TransitionScoreOut"][];
         };
         /**
          * BuilderPlaylistsOut
@@ -4205,6 +4350,21 @@ export interface components {
             message: string | null;
             /** Ok */
             ok: boolean;
+        };
+        /**
+         * CritiqueFlagOut
+         * @description A structured critique flag from the agent pass.
+         */
+        CritiqueFlagOut: {
+            /** Message */
+            message: string | null;
+            /** Slot Position */
+            slot_position: number | null;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "energy_dip" | "vibe_clash" | "era_jump" | "sing_along_missing" | "banger_buried" | "transition_brilliant";
         };
         /**
          * CurvePointModel
@@ -5655,6 +5815,18 @@ export interface components {
             name: string;
         };
         /**
+         * SetCritiqueOut
+         * @description Structured auto-critique output.
+         */
+        SetCritiqueOut: {
+            /** Flags */
+            flags: components["schemas"]["CritiqueFlagOut"][];
+            /** Overall Grade */
+            overall_grade: string;
+            /** Summary */
+            summary: string;
+        };
+        /**
          * SetDetail
          * @description Full set record (Phase 0: no slot/curve expansion yet).
          */
@@ -5819,18 +5991,38 @@ export interface components {
          * @description Timeline slot (curve-editor surface; track metadata joins with #388).
          */
         SlotOut: {
+            /** Artist */
+            artist: string | null;
+            /** Bpm */
+            bpm: number | null;
+            /** Camelot */
+            camelot: string | null;
+            /** Duration Sec */
+            duration_sec: number | null;
+            /** Energy */
+            energy: number | null;
             /** Id */
             id: number;
+            /** Key */
+            key: string | null;
             /** Locked */
             locked: boolean;
             /** Notes */
             notes: string | null;
+            /** Pool Track Id */
+            pool_track_id: number | null;
             /** Position */
             position: number;
             /** Target Energy */
             target_energy: number | null;
+            /** Title */
+            title: string | null;
             /** Track Id */
             track_id: string | null;
+            /** Transition Score */
+            transition_score: number | null;
+            /** Transition Warnings */
+            transition_warnings: string | null;
         };
         /**
          * SlotTargetOut
@@ -6090,6 +6282,20 @@ export interface components {
             resolved: components["schemas"]["ResolvedVibeOut"];
             /** Vibe Key */
             vibe_key: string;
+        };
+        /**
+         * TransitionScoreOut
+         * @description One recomputed transition score.
+         */
+        TransitionScoreOut: {
+            /** Position */
+            position: number;
+            /** Score */
+            score: number;
+            /** Slot Id */
+            slot_id: number;
+            /** Warnings */
+            warnings: string[];
         };
         /**
          * UnresolvedTrackOut
@@ -10982,6 +11188,128 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SetDetail"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_with_set_agent_api_setbuilder_sets__set_id__agent_chat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentChatIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentChatOut"];
+                };
+            };
+            /** @description Invalid agent tool call or no LLM connector configured. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    build_set_api_setbuilder_sets__set_id__build_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BuildSetRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuildSetResponse"];
+                };
+            };
+            /** @description Build requires explicit confirmation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    critique_set_api_setbuilder_sets__set_id__critique_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetCritiqueOut"];
+                };
+            };
+            /** @description No LLM connector configured for this DJ or the org. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

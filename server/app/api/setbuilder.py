@@ -13,13 +13,20 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_active_user, get_db
 from app.core.rate_limit import limiter
 from app.models.set import Set
+from app.models.set_pool import SetPoolTrack
 from app.models.user import User
 from app.schemas.setbuilder import (
+    AgentChatIn,
+    AgentChatOut,
+    AppliedToolCallOut,
     ApplyTemplateRequest,
     ApplyTemplateResponse,
     BuilderPlaylistsOut,
+    BuildSetRequest,
+    BuildSetResponse,
     BuiltinTemplateOut,
     CommunityVibeOut,
+    CritiqueFlagOut,
     CurvePointModel,
     CurveTemplateCreate,
     CurveTemplateOut,
@@ -45,6 +52,7 @@ from app.schemas.setbuilder import (
     PoolVibesState,
     ResolvedVibeOut,
     SetCreate,
+    SetCritiqueOut,
     SetDetail,
     SetRename,
     SetSummary,
@@ -53,6 +61,7 @@ from app.schemas.setbuilder import (
     SlotTargetUpdate,
     TemplateWindowOut,
     TrackVibeStateOut,
+    TransitionScoreOut,
     UnresolvedTrackOut,
     UnresolvedTracksError,
     VibeEnrichmentResult,
@@ -66,6 +75,8 @@ from app.services.setbuilder import (
     export_common,
     export_files,
     export_tidal,
+    pass1_deterministic,
+    pass2_agent,
     pool,
     set_service,
     vibe_enrichment,
@@ -81,6 +92,59 @@ def _get_owned_or_404(db: Session, set_id: int, user: User) -> Set:
     if set_obj is None:
         raise HTTPException(status_code=404, detail="Set not found")
     return set_obj
+
+
+def _slots_out(db: Session, set_obj: Set) -> list[SlotOut]:
+    """Ordered slots with pool metadata joined by namespaced track_id."""
+    slots = sorted(set_obj.slots, key=lambda s: s.position)
+    track_ids = [s.track_id for s in slots if s.track_id]
+    tracks_by_id: dict[str, SetPoolTrack] = {}
+    if track_ids:
+        tracks = (
+            db.query(SetPoolTrack)
+            .filter(SetPoolTrack.set_id == set_obj.id, SetPoolTrack.track_id.in_(track_ids))
+            .all()
+        )
+        tracks_by_id = {t.track_id: t for t in tracks if t.track_id}
+
+    out: list[SlotOut] = []
+    for slot in slots:
+        track = tracks_by_id.get(slot.track_id or "")
+        out.append(
+            SlotOut(
+                id=slot.id,
+                position=slot.position,
+                track_id=slot.track_id,
+                locked=slot.locked,
+                target_energy=slot.target_energy,
+                notes=slot.notes,
+                transition_score=slot.transition_score,
+                transition_warnings=slot.transition_warnings,
+                pool_track_id=track.id if track else None,
+                title=track.title if track else None,
+                artist=track.artist if track else None,
+                bpm=track.bpm if track else None,
+                key=track.key if track else None,
+                camelot=track.camelot if track else None,
+                energy=track.energy if track else None,
+                duration_sec=track.duration_sec if track else None,
+            )
+        )
+    return out
+
+
+def _transition_scores_out(
+    scores: list[pass1_deterministic.TransitionScore],
+) -> list[TransitionScoreOut]:
+    return [
+        TransitionScoreOut(
+            slot_id=s.slot_id,
+            position=s.position,
+            score=s.score,
+            warnings=s.warnings,
+        )
+        for s in scores
+    ]
 
 
 @router.post("/sets", response_model=SetDetail, status_code=status.HTTP_201_CREATED)
@@ -243,8 +307,7 @@ def list_set_slots(
 ) -> list[SlotOut]:
     """Ordered timeline slots for one of the current DJ's sets."""
     set_obj = _get_owned_or_404(db, set_id, current_user)
-    slots = sorted(set_obj.slots, key=lambda s: s.position)
-    return [SlotOut.model_validate(s) for s in slots]
+    return _slots_out(db, set_obj)
 
 
 @router.patch("/sets/{set_id}/slots/{slot_id}/target", response_model=SlotTargetOut)
@@ -264,6 +327,119 @@ def update_slot_target(
         raise HTTPException(status_code=404, detail="Slot not found")
     slot = curve.set_slot_target(db, slot, payload.target_energy)
     return SlotTargetOut(slot_id=slot.id, target_energy=slot.target_energy)
+
+
+@router.post(
+    "/sets/{set_id}/build",
+    response_model=BuildSetResponse,
+    responses={400: {"description": "Build requires explicit confirmation"}},
+)
+@limiter.limit("10/minute")
+def build_set(
+    set_id: int,
+    payload: BuildSetRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> BuildSetResponse:
+    """Run deterministic pass 1 after explicit user confirmation."""
+    set_obj = _get_owned_or_404(db, set_id, current_user)
+    if not payload.confirmed:
+        raise HTTPException(status_code=400, detail="Build requires explicit confirmation")
+    result = pass1_deterministic.build_set(db, set_obj)
+    db.expire(set_obj, ["slots"])
+    return BuildSetResponse(
+        slot_count=result.slot_count,
+        iterations=result.iterations,
+        slots=_slots_out(db, set_obj),
+        transition_scores=_transition_scores_out(result.transition_scores),
+    )
+
+
+@router.post(
+    "/sets/{set_id}/critique",
+    response_model=SetCritiqueOut,
+    responses={400: {"description": "No LLM connector configured for this DJ or the org."}},
+)
+@limiter.limit("10/minute")
+async def critique_set(
+    set_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> SetCritiqueOut:
+    """Run pass 2 auto-critique through the LLM gateway."""
+    set_obj = _get_owned_or_404(db, set_id, current_user)
+    try:
+        critique = await pass2_agent.critique_set(db, current_user, set_obj)
+    except NoLlmConfigured:
+        raise HTTPException(
+            status_code=400,
+            detail="No AI connector configured — connect one in Settings → AI.",
+        ) from None
+    return SetCritiqueOut(
+        overall_grade=critique.overall_grade,
+        summary=critique.summary,
+        flags=[
+            CritiqueFlagOut(
+                type=f.type,
+                slot_position=f.slot_position,
+                message=f.message,
+            )
+            for f in critique.flags
+        ],
+    )
+
+
+@router.post(
+    "/sets/{set_id}/agent/chat",
+    response_model=AgentChatOut,
+    responses={
+        400: {"description": "Invalid agent tool call or no LLM connector configured."},
+    },
+)
+@limiter.limit("20/minute")
+async def chat_with_set_agent(
+    set_id: int,
+    payload: AgentChatIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> AgentChatOut:
+    """Run one agent chat turn and apply validated tool calls."""
+    set_obj = _get_owned_or_404(db, set_id, current_user)
+    try:
+        result = await pass2_agent.chat_with_agent(
+            db,
+            current_user,
+            set_obj,
+            message=payload.message,
+            history=[h.model_dump() for h in payload.history],
+        )
+    except NoLlmConfigured:
+        raise HTTPException(
+            status_code=400,
+            detail="No AI connector configured — connect one in Settings → AI.",
+        ) from None
+    except pass2_agent.AgentToolError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    db.expire(set_obj, ["slots"])
+    return AgentChatOut(
+        message=result.message,
+        tool_calls=[
+            AppliedToolCallOut(
+                id=t.id,
+                name=t.name,
+                args=t.args,
+                rationale=t.rationale,
+                result=t.result,
+                mutating=t.mutating,
+            )
+            for t in result.tool_calls
+        ],
+        slots=_slots_out(db, set_obj),
+        affected_transition_scores=_transition_scores_out(result.affected_transition_scores),
+    )
 
 
 @router.post("/sets/{set_id}/curve/apply-template", response_model=ApplyTemplateResponse)

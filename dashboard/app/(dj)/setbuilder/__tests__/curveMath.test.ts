@@ -202,6 +202,16 @@ describe('slotViewFromApi', () => {
       locked: false,
       target_energy: null,
       notes: null,
+      transition_score: null,
+      transition_warnings: null,
+      pool_track_id: null,
+      title: null,
+      artist: null,
+      bpm: null,
+      key: null,
+      camelot: null,
+      energy: null,
+      duration_sec: null,
     });
     expect(v.track.durationSec).toBe(210);
     expect(v.track.energy).toBe(5);

@@ -48,12 +48,12 @@ export function slotViewFromApi(slot: SetSlotOut): SlotView {
     targetEnergy: slot.target_energy ?? null,
     track: {
       id: slot.track_id ?? `slot-${slot.id}`,
-      title: slot.track_id ?? `Slot ${slot.position + 1}`,
-      artist: '',
-      durationSec: DEFAULT_TRACK_DURATION_SEC,
-      energy: DEFAULT_TRACK_ENERGY,
-      bpm: null,
-      key: null,
+      title: slot.title ?? slot.track_id ?? `Slot ${slot.position + 1}`,
+      artist: slot.artist ?? '',
+      durationSec: slot.duration_sec ?? DEFAULT_TRACK_DURATION_SEC,
+      energy: slot.energy ?? DEFAULT_TRACK_ENERGY,
+      bpm: slot.bpm ?? null,
+      key: slot.camelot ?? slot.key ?? null,
     },
   };
 }

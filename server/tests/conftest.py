@@ -9,16 +9,21 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+import app.db.session as _db_session_module
+from app.api import deps as _deps_module
 from app.api import sse as _sse_module
 from app.api.deps import get_db
 from app.core.time import utcnow
-from app.main import app
+from app.main import create_app, no_background_lifespan
 from app.models.base import Base
 from app.models.event import Event
 from app.models.guest import Guest
 from app.models.request import Request, RequestStatus
 from app.models.user import User
-from app.services.auth import get_password_hash
+from app.services.auth import create_access_token
+
+DIRECT_SESSIONLOCAL_MODULES = (_sse_module,)
+DEPENDENCY_OVERRIDE_SESSIONLOCAL_MODULES = (_deps_module,)
 
 # Use SQLite in-memory for tests (fast, isolated)
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
@@ -28,33 +33,79 @@ engine = create_engine(
     connect_args={"check_same_thread": False},
     poolclass=StaticPool,
 )
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# The SSE endpoint (``app.api.sse``) opens its own short-lived
-# ``with SessionLocal() as db:`` block for the existence check, bypassing the
-# FastAPI ``get_db`` dependency that other endpoints use. The
-# ``app.dependency_overrides[get_db]`` swap below never reaches it, so the SSE
-# handler would hit the real ``DATABASE_URL`` (Postgres in CI) instead of the
-# in-memory SQLite test DB and fail with "relation does not exist". Swap only
-# the SSE module's ``SessionLocal`` reference — scoped so we don't disturb
-# other modules that also import the production ``SessionLocal``.
-_sse_module.SessionLocal = TestingSessionLocal
+TEST_USER_PASSWORD = "testpassword123"
+ADMIN_USER_PASSWORD = "adminpassword123"
+PENDING_USER_PASSWORD = "pendingpassword123"
+
+TEST_USER_PASSWORD_HASH = "$2b$04$BIUR.p93nOe8nGJXBjtYhu6QLsv7BHn22sAfR/Tpt6xMdl9tEf4tS"
+ADMIN_USER_PASSWORD_HASH = "$2b$04$LaJfWm6YwkBoEVVFvnxu7unVKG7HRGM9hiSvk448HhWZK.hPijb7a"
+PENDING_USER_PASSWORD_HASH = "$2b$04$BnvACwtrVGvZhu5TzYdOR.tpGyY6OQ4p5oILNEgHPmvOGWotCWWYu"
 
 
-@pytest.fixture(scope="function")
-def db() -> Generator[Session, None, None]:
-    """Create a fresh database for each test."""
+def _auth_headers_for_user(user: User) -> dict[str, str]:
+    token = create_access_token(data={"sub": user.username, "tv": user.token_version})
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _database_schema() -> Generator[None, None, None]:
+    """Create the in-memory SQLite schema once per pytest process."""
     Base.metadata.create_all(bind=engine)
-    session = TestingSessionLocal()
     try:
-        yield session
+        yield
     finally:
-        session.close()
         Base.metadata.drop_all(bind=engine)
 
 
 @pytest.fixture(scope="function")
-def client(db: Session) -> Generator[TestClient, None, None]:
+def db(monkeypatch: pytest.MonkeyPatch, _database_schema: None) -> Generator[Session, None, None]:
+    """Run each test inside an externally managed transaction.
+
+    Application code may call Session.commit(); SQLAlchemy keeps those commits
+    inside a SAVEPOINT while this fixture rolls back the outer transaction.
+    """
+    connection = engine.connect()
+    # SQLite's legacy transaction control does not always emit BEGIN before the
+    # first SAVEPOINT, so start the driver transaction explicitly.
+    connection.exec_driver_sql("BEGIN")
+    transaction = connection.get_transaction()
+    assert transaction is not None
+    TestSessionLocal = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=connection,
+        join_transaction_mode="create_savepoint",
+    )
+    AppSessionLocal = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=connection,
+        # Detached app sessions can overlap with the fixture session; avoid
+        # competing SAVEPOINT ownership while keeping their writes rollback-bound.
+        join_transaction_mode="rollback_only",
+    )
+    monkeypatch.setattr(_db_session_module, "SessionLocal", AppSessionLocal)
+    for module in DIRECT_SESSIONLOCAL_MODULES:
+        monkeypatch.setattr(module, "SessionLocal", AppSessionLocal, raising=False)
+
+    session = TestSessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
+
+
+@pytest.fixture(scope="session")
+def test_app():
+    """FastAPI app instance for tests; lifespan runs without production loops."""
+    return create_app(lifespan_context=no_background_lifespan)
+
+
+@pytest.fixture(scope="function")
+def client(db: Session, test_app) -> Generator[TestClient, None, None]:
     """Create a test client with database override."""
 
     def override_get_db():
@@ -63,10 +114,10 @@ def client(db: Session) -> Generator[TestClient, None, None]:
         finally:
             pass  # Don't close the session here, let the db fixture handle it
 
-    app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as c:
+    test_app.dependency_overrides[get_db] = override_get_db
+    with TestClient(test_app) as c:
         yield c
-    app.dependency_overrides.clear()
+    test_app.dependency_overrides.clear()
 
 
 @pytest.fixture
@@ -74,7 +125,7 @@ def test_user(db: Session) -> User:
     """Create a test user with DJ role."""
     user = User(
         username="testuser",
-        password_hash=get_password_hash("testpassword123"),
+        password_hash=TEST_USER_PASSWORD_HASH,
         role="dj",
     )
     db.add(user)
@@ -88,7 +139,7 @@ def admin_user(db: Session) -> User:
     """Create an admin test user."""
     user = User(
         username="adminuser",
-        password_hash=get_password_hash("adminpassword123"),
+        password_hash=ADMIN_USER_PASSWORD_HASH,
         role="admin",
     )
     db.add(user)
@@ -98,15 +149,9 @@ def admin_user(db: Session) -> User:
 
 
 @pytest.fixture
-def admin_headers(client: TestClient, admin_user: User) -> dict[str, str]:
-    """Get authentication headers for the admin user."""
-    response = client.post(
-        "/api/auth/login",
-        data={"username": "adminuser", "password": "adminpassword123"},
-    )
-    assert response.status_code == 200, f"Login failed: {response.json()}"
-    token = response.json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
+def admin_headers(admin_user: User) -> dict[str, str]:
+    """Authentication headers for the admin user without exercising login."""
+    return _auth_headers_for_user(admin_user)
 
 
 @pytest.fixture
@@ -114,7 +159,7 @@ def pending_user(db: Session) -> User:
     """Create a pending test user."""
     user = User(
         username="pendinguser",
-        password_hash=get_password_hash("pendingpassword123"),
+        password_hash=PENDING_USER_PASSWORD_HASH,
         role="pending",
     )
     db.add(user)
@@ -124,27 +169,15 @@ def pending_user(db: Session) -> User:
 
 
 @pytest.fixture
-def pending_headers(client: TestClient, pending_user: User) -> dict[str, str]:
-    """Get authentication headers for the pending user."""
-    response = client.post(
-        "/api/auth/login",
-        data={"username": "pendinguser", "password": "pendingpassword123"},
-    )
-    assert response.status_code == 200, f"Login failed: {response.json()}"
-    token = response.json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
+def pending_headers(pending_user: User) -> dict[str, str]:
+    """Authentication headers for the pending user without exercising login."""
+    return _auth_headers_for_user(pending_user)
 
 
 @pytest.fixture
-def auth_headers(client: TestClient, test_user: User) -> dict[str, str]:
-    """Get authentication headers for the test user."""
-    response = client.post(
-        "/api/auth/login",
-        data={"username": "testuser", "password": "testpassword123"},
-    )
-    assert response.status_code == 200, f"Login failed: {response.json()}"
-    token = response.json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
+def auth_headers(test_user: User) -> dict[str, str]:
+    """Authentication headers for the DJ user without exercising login."""
+    return _auth_headers_for_user(test_user)
 
 
 @pytest.fixture

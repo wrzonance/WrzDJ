@@ -6,7 +6,7 @@
  * multi-select removal, per-track context menu, import toast.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import type {
   PoolImportResult,
@@ -83,6 +83,8 @@ export default function PoolPanel({
   const [showVibes, setShowVibes] = useState(false);
   const [vibesLoaded, setVibesLoaded] = useState(false);
   const [vibesBusy, setVibesBusy] = useState(false);
+  const addMenuRef = useRef<HTMLSpanElement | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,11 +121,13 @@ export default function PoolPanel({
     return () => clearTimeout(handle);
   }, [toast]);
 
-  // Close popovers on outside click
+  // Close popovers on outside clicks without pre-empting their own click handlers.
   useEffect(() => {
-    const onDoc = () => {
-      setAddMenuOpen(false);
-      setContextMenu(null);
+    const onDoc = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (!addMenuRef.current?.contains(target)) setAddMenuOpen(false);
+      if (!contextMenuRef.current?.contains(target)) setContextMenu(null);
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
@@ -294,7 +298,7 @@ export default function PoolPanel({
         >
           Vibes
         </button>
-        <span style={{ position: 'relative' }} onMouseDown={(e) => e.stopPropagation()}>
+        <span ref={addMenuRef} style={{ position: 'relative' }}>
           <button
             className="btn btn-sm"
             onClick={() => setAddMenuOpen((o) => !o)}
@@ -526,9 +530,9 @@ export default function PoolPanel({
       {/* Context menu */}
       {contextMenu && (
         <div
+          ref={contextMenuRef}
           className={styles.popoverMenu}
           style={{ position: 'fixed', left: contextMenu.x, top: contextMenu.y, right: 'auto' }}
-          onMouseDown={(e) => e.stopPropagation()}
         >
           <button
             className={styles.popoverItem}

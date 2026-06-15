@@ -46,8 +46,8 @@ async function flushReact() {
   });
 }
 
-function Harness({ mutate }: { mutate: () => Promise<void> }) {
-  const history = useSetDocumentHistory(5);
+function Harness({ mutate, enabled = true }: { mutate: () => Promise<void>; enabled?: boolean }) {
+  const history = useSetDocumentHistory(5, { enabled });
   return (
     <div>
       <div data-testid="undo-depth">{history.undoDepth}</div>
@@ -115,6 +115,18 @@ describe('useSetDocumentHistory', () => {
 
     await waitFor(() => expect(mockApi.putSetDocument).toHaveBeenCalledWith(5, snapshot(null)));
     expect(screen.getByTestId('undo-depth')).toHaveTextContent('0');
+  });
+
+  it('does not fetch the set document until history is enabled', async () => {
+    const { rerender } = render(<Harness mutate={() => Promise.resolve()} enabled={false} />);
+
+    await flushReact();
+    expect(mockApi.getSetDocument).not.toHaveBeenCalled();
+
+    rerender(<Harness mutate={() => Promise.resolve()} enabled />);
+
+    await waitFor(() => expect(mockApi.getSetDocument).toHaveBeenCalledWith(5));
+    expect(screen.getByTestId('slot-target')).toHaveTextContent('none');
   });
 
   it('autosaves every 30s while dirty after a failed save', async () => {

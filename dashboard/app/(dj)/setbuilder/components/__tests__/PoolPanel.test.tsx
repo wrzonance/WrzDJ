@@ -207,12 +207,46 @@ describe('PoolPanel', () => {
     render(<PoolPanel setId={1} />);
     await screen.findByText('Event Song');
     fireEvent.click(screen.getByText('+ Add'));
-    fireEvent.click(screen.getByText('WrzDJ Event Requests'));
+    const eventImportItem = screen.getByText('WrzDJ Event Requests').closest('button')!;
+    fireEvent.mouseDown(eventImportItem);
+    fireEvent.click(eventImportItem);
     // event picker modal: pick the event then import
-    fireEvent.click(await screen.findByText('ABC123'));
+    fireEvent.click(await screen.findByLabelText('Select Prom Night'));
     fireEvent.click(screen.getByText('Import requests'));
     await waitFor(() => expect(mockApi.importPoolEvent).toHaveBeenCalledWith(1, 7));
     expect(await screen.findByText('3 new · 2 de-duped')).toBeTruthy();
+  });
+
+  it('opens every Add-menu import modal after the browser mousedown/click sequence', async () => {
+    mockApi.getEvents.mockResolvedValue([]);
+    mockApi.getBuilderPlaylists.mockResolvedValue({
+      tidal_connected: true,
+      beatport_connected: true,
+      tidal: [],
+      beatport: [],
+    });
+    render(<PoolPanel setId={1} />);
+    await screen.findByText('Event Song');
+
+    const cases = [
+      ['WrzDJ Event Requests', 'Import event requests'],
+      ['Tidal Playlist', 'Import Tidal playlist'],
+      ['Beatport Playlist', 'Import Beatport playlist'],
+      ['Public Playlist URL', 'Import public playlist'],
+      ['Add single track', 'Add a single track'],
+    ] as const;
+
+    for (const [menuLabel, modalTitle] of cases) {
+      fireEvent.click(screen.getByText('+ Add'));
+      const menuItem = screen.getByText(menuLabel).closest('button')!;
+      fireEvent.mouseDown(menuItem);
+      fireEvent.click(menuItem);
+
+      expect(await screen.findByRole('dialog')).toBeTruthy();
+      expect(screen.getByText(modalTitle)).toBeTruthy();
+      fireEvent.click(screen.getByLabelText('Close'));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    }
   });
 
   it('context menu offers per-track and per-source removal', async () => {

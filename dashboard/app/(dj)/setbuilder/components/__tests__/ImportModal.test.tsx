@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import type { BuilderPlaylists, PoolImportResult, SearchResult } from '@/lib/api-types';
 import ImportModal from '../ImportModal';
 import type { BuilderCommit } from '../useSetDocumentHistory';
@@ -36,6 +36,44 @@ const IMPORT_RESULT: PoolImportResult = {
   },
   pool: { sources: [], tracks: [] },
 } as unknown as PoolImportResult;
+
+function importResult(eventId: number, added: number, deduped: number): PoolImportResult {
+  return {
+    added,
+    deduped,
+    source: {
+      id: eventId,
+      kind: 'event',
+      external_ref: String(eventId),
+      label: `Event ${eventId}`,
+      meta: null,
+      created_at: '2026-06-09T00:00:00Z',
+    },
+    pool: {
+      sources: [
+        {
+          id: eventId,
+          kind: 'event',
+          external_ref: String(eventId),
+          label: `Event ${eventId}`,
+          meta: null,
+          created_at: '2026-06-09T00:00:00Z',
+        },
+      ],
+      tracks: [],
+    },
+  } as unknown as PoolImportResult;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 
 const PLAYLISTS: BuilderPlaylists = {
   tidal_connected: true,
@@ -98,31 +136,77 @@ describe('ImportModal — event flow', () => {
     expect(await screen.findByText('No events yet.')).toBeTruthy();
   });
 
-  it('marks already-imported events and imports the picked event', async () => {
+  it('renders owned events as checkboxes, marks imported ones, and keeps import disabled until selection', async () => {
     mockApi.getEvents.mockResolvedValue([
       { id: 7, code: 'ABC123', name: 'Prom Night' },
       { id: 8, code: 'DEF456', name: 'Warehouse' },
     ]);
     mockApi.importPoolEvent.mockResolvedValue(IMPORT_RESULT);
-    const onImported = vi.fn();
     render(
       <ImportModal
         kind="event"
         {...baseProps}
-        onImported={onImported}
         existingRefs={new Set(['event:7'])}
       />
     );
-    await screen.findByText('Prom Night');
+    expect(await screen.findByLabelText('Select Prom Night')).toHaveAttribute('type', 'checkbox');
+    expect(screen.getByLabelText('Select Warehouse')).toHaveAttribute('type', 'checkbox');
     expect(screen.getByText('· already imported')).toBeTruthy();
-    // import button disabled until a pick
     const importBtn = screen.getByText('Import requests') as HTMLButtonElement;
     expect(importBtn.disabled).toBe(true);
-    fireEvent.click(screen.getByText('Warehouse'));
+    fireEvent.click(screen.getByLabelText('Select Prom Night'));
     expect(importBtn.disabled).toBe(false);
-    fireEvent.click(importBtn);
+  });
+
+  it('imports selected events sequentially and reports aggregate added/deduped totals', async () => {
+    const first = deferred<PoolImportResult>();
+    const second = importResult(8, 3, 2);
+    mockApi.getEvents.mockResolvedValue([
+      { id: 7, code: 'ABC123', name: 'Prom Night' },
+      { id: 8, code: 'DEF456', name: 'Warehouse' },
+    ]);
+    mockApi.importPoolEvent.mockImplementation((_setId: number, eventId: number) =>
+      eventId === 7 ? first.promise : Promise.resolve(second),
+    );
+    const onImported = vi.fn();
+    render(<ImportModal kind="event" {...baseProps} onImported={onImported} />);
+
+    fireEvent.click(await screen.findByLabelText('Select Prom Night'));
+    fireEvent.click(screen.getByLabelText('Select Warehouse'));
+    fireEvent.click(screen.getByText('Import requests'));
+
+    await waitFor(() => expect(mockApi.importPoolEvent).toHaveBeenCalledWith(1, 7));
+    expect(mockApi.importPoolEvent).not.toHaveBeenCalledWith(1, 8);
+
+    await act(async () => {
+      first.resolve(importResult(7, 2, 1));
+      await first.promise;
+    });
+
     await waitFor(() => expect(mockApi.importPoolEvent).toHaveBeenCalledWith(1, 8));
-    expect(onImported).toHaveBeenCalledWith(IMPORT_RESULT);
+    await waitFor(() =>
+      expect(onImported).toHaveBeenCalledWith(
+        expect.objectContaining({
+          added: 5,
+          deduped: 3,
+          pool: second.pool,
+          source: second.source,
+        }),
+      ),
+    );
+  });
+
+  it('allows already-imported events to be selected again for new requests', async () => {
+    mockApi.getEvents.mockResolvedValue([{ id: 7, code: 'ABC123', name: 'Prom Night' }]);
+    mockApi.importPoolEvent.mockResolvedValue(IMPORT_RESULT);
+    render(<ImportModal kind="event" {...baseProps} existingRefs={new Set(['event:7'])} />);
+
+    const checkbox = await screen.findByLabelText('Select Prom Night');
+    expect(checkbox).not.toBeDisabled();
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByText('Import requests'));
+
+    await waitFor(() => expect(mockApi.importPoolEvent).toHaveBeenCalledWith(1, 7));
   });
 
   it('surfaces import errors via onError with the Error message', async () => {
@@ -130,7 +214,7 @@ describe('ImportModal — event flow', () => {
     mockApi.importPoolEvent.mockRejectedValue(new Error('Event not found'));
     const onError = vi.fn();
     render(<ImportModal kind="event" {...baseProps} onError={onError} />);
-    fireEvent.click(await screen.findByText('Prom Night'));
+    fireEvent.click(await screen.findByLabelText('Select Prom Night'));
     fireEvent.click(screen.getByText('Import requests'));
     await waitFor(() => expect(onError).toHaveBeenCalledWith('Event not found'));
   });
@@ -146,7 +230,7 @@ describe('ImportModal — event flow', () => {
     const onImported = vi.fn();
     render(<ImportModal kind="event" {...baseProps} commit={commit} onImported={onImported} />);
 
-    fireEvent.click(await screen.findByText('Prom Night'));
+    fireEvent.click(await screen.findByLabelText('Select Prom Night'));
     fireEvent.click(screen.getByText('Import requests'));
 
     await waitFor(() =>

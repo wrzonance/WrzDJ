@@ -85,9 +85,21 @@ function runImport(
   return commit ? commit(label, action) : action();
 }
 
+function appendImportResult(
+  aggregate: PoolImportResult | null,
+  result: PoolImportResult,
+): PoolImportResult {
+  if (!aggregate) return result;
+  return {
+    ...result,
+    added: aggregate.added + result.added,
+    deduped: aggregate.deduped + result.deduped,
+  };
+}
+
 function ImportEvent({ setId, existingRefs, onClose, onImported, onError, commit }: ImportModalProps) {
   const [events, setEvents] = useState<Event[] | null>(null);
-  const [picked, setPicked] = useState<number | null>(null);
+  const [picked, setPicked] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -97,12 +109,29 @@ function ImportEvent({ setId, existingRefs, onClose, onImported, onError, commit
       .catch(() => setEvents([]));
   }, []);
 
+  const togglePicked = (eventId: number) => {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(eventId)) next.delete(eventId);
+      else next.add(eventId);
+      return next;
+    });
+  };
+
   const doImport = async () => {
-    if (picked == null) return;
+    if (!picked.size) return;
     setBusy(true);
+    let aggregate: PoolImportResult | null = null;
     try {
-      onImported(await runImport(commit, 'Import event requests', () => api.importPoolEvent(setId, picked)));
+      for (const eventId of (events ?? []).map((event) => event.id).filter((eventId) => picked.has(eventId))) {
+        const result = await runImport(commit, 'Import event requests', () =>
+          api.importPoolEvent(setId, eventId),
+        );
+        aggregate = appendImportResult(aggregate, result);
+      }
+      if (aggregate) onImported(aggregate);
     } catch (e) {
+      if (aggregate) onImported(aggregate);
       onError(errMessage(e));
     } finally {
       setBusy(false);
@@ -125,13 +154,20 @@ function ImportEvent({ setId, existingRefs, onClose, onImported, onError, commit
         <div className={styles.imList}>
           {(events ?? []).map((e) => {
             const already = existingRefs.has(`event:${e.id}`);
+            const checked = picked.has(e.id);
             return (
-              <button
+              <label
                 key={e.id}
-                className={`${styles.imListItem} ${picked === e.id ? styles.imPicked : ''}`}
-                onClick={() => setPicked(e.id)}
-                disabled={busy}
+                className={`${styles.imListItem} ${checked ? styles.imPicked : ''}`}
+                aria-disabled={busy}
               >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => togglePicked(e.id)}
+                  disabled={busy}
+                  aria-label={`Select ${e.name}`}
+                />
                 <span style={{ color: sourceColor('event') }}>
                   <SourceIcon kind="event" size={16} />
                 </span>
@@ -142,7 +178,7 @@ function ImportEvent({ setId, existingRefs, onClose, onImported, onError, commit
                   </span>
                   <span className={styles.imListSub}>{e.code}</span>
                 </span>
-              </button>
+              </label>
             );
           })}
         </div>
@@ -158,7 +194,7 @@ function ImportEvent({ setId, existingRefs, onClose, onImported, onError, commit
         <span style={{ flex: 1 }} />
         <button
           className="btn btn-primary btn-sm"
-          disabled={picked == null || busy}
+          disabled={!picked.size || busy}
           onClick={doImport}
         >
           {busy ? 'Importing…' : 'Import requests'}

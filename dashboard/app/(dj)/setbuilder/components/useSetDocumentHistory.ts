@@ -13,6 +13,10 @@ interface HistoryEntry {
   snapshot: SetDocumentSnapshot;
 }
 
+interface UseSetDocumentHistoryOptions {
+  enabled?: boolean;
+}
+
 function readAutosave(): boolean {
   try {
     return window.localStorage.getItem(AUTOSAVE_KEY) !== 'false';
@@ -33,7 +37,10 @@ function cloneSnapshot(snapshot: SetDocumentSnapshot): SetDocumentSnapshot {
   return JSON.parse(JSON.stringify(snapshot)) as SetDocumentSnapshot;
 }
 
-export function useSetDocumentHistory(setId: number) {
+export function useSetDocumentHistory(
+  setId: number,
+  { enabled = true }: UseSetDocumentHistoryOptions = {},
+) {
   const [snapshot, setSnapshot] = useState<SetDocumentSnapshot | null>(null);
   const [snapshotVersion, setSnapshotVersion] = useState(0);
   const [undoStack, setUndoStack] = useState<HistoryEntry[]>([]);
@@ -74,6 +81,11 @@ export function useSetDocumentHistory(setId: number) {
     setLastSavedAt(null);
     setIsDirty(false);
     setAutosaveState(readAutosave());
+    if (!enabled) {
+      return () => {
+        cancelled = true;
+      };
+    }
     api
       .getSetDocument(setId)
       .then((doc) => {
@@ -88,7 +100,7 @@ export function useSetDocumentHistory(setId: number) {
     return () => {
       cancelled = true;
     };
-  }, [publishSnapshot, setId]);
+  }, [enabled, publishSnapshot, setId]);
 
   useEffect(() => {
     if (!toast) return;
@@ -107,11 +119,12 @@ export function useSetDocumentHistory(setId: number) {
   }, [isDirty, isSaving, saveError]);
 
   const fetchCurrent = useCallback(async () => {
+    if (!enabled) throw new Error('Document history is not ready');
     if (snapshotRef.current) return cloneSnapshot(snapshotRef.current);
     const current = await api.getSetDocument(setId);
     publishSnapshot(current);
     return cloneSnapshot(current);
-  }, [publishSnapshot, setId]);
+  }, [enabled, publishSnapshot, setId]);
 
   const commit: BuilderCommit = useCallback(
     async (label, action) => {

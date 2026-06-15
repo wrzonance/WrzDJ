@@ -61,6 +61,7 @@ from app.schemas.setbuilder import (
     SetDocumentSnapshot,
     SetRename,
     SetSummary,
+    SetTargetUpdate,
     SlotOut,
     SlotTargetOut,
     SlotTargetUpdate,
@@ -170,6 +171,27 @@ def rename_set(
     """Rename one of the current DJ's sets, or 404."""
     set_obj = _get_owned_or_404(db, set_id, current_user)
     return SetDetail.model_validate(set_service.rename_set(db, set_obj, payload.name))
+
+
+@router.put("/sets/{set_id}/target", response_model=SetDetail)
+@limiter.limit("30/minute")
+def update_set_target(
+    set_id: int,
+    payload: SetTargetUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> SetDetail:
+    """Update set-length target + average transition overlap."""
+    set_obj = _get_owned_or_404(db, set_id, current_user)
+    return SetDetail.model_validate(
+        set_service.update_target_settings(
+            db,
+            set_obj,
+            target_duration_sec=payload.target_duration_sec,
+            avg_transition_overlap_sec=payload.avg_transition_overlap_sec,
+        )
+    )
 
 
 @router.delete("/sets/{set_id}", status_code=status.HTTP_204_NO_CONTENT)

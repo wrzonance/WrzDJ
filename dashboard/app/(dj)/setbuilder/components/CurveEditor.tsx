@@ -20,6 +20,7 @@ import {
   fmtTime,
   slotBlocksFromSlots,
 } from './curveMath';
+import { rawTargetSecForSlots } from './targetMath';
 import type { SlotView, VibeWindowView } from './types';
 import styles from './curve.module.css';
 
@@ -53,6 +54,8 @@ export interface CurveEditorProps {
   onWindowChange?: (id: string, patch: Partial<VibeWindowView>) => void;
   onWindowCommit?: (id: string) => void;
   onWindowDelete?: (id: string) => void;
+  targetDurationSec?: number | null;
+  avgTransitionOverlapSec?: number;
 }
 
 export default function CurveEditor({
@@ -71,6 +74,8 @@ export default function CurveEditor({
   onWindowChange,
   onWindowCommit,
   onWindowDelete,
+  targetDurationSec = null,
+  avgTransitionOverlapSec = 0,
 }: CurveEditorProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -96,7 +101,14 @@ export default function CurveEditor({
   const eOfY = (y: number) => Math.max(0, Math.min(10, (1 - y / h) * 10));
 
   const totalSec = slots.reduce((acc, s) => acc + s.track.durationSec, 0);
-  const baseBlocks = slotBlocksFromSlots(slots, w);
+  const rawTargetSec = rawTargetSecForSlots(
+    targetDurationSec,
+    slots.length,
+    avgTransitionOverlapSec,
+  );
+  const domainSec = Math.max(totalSec, rawTargetSec ?? 0, 1);
+  const targetX = rawTargetSec == null ? null : Math.round((rawTargetSec / domainSec) * w);
+  const baseBlocks = slotBlocksFromSlots(slots, w, domainSec);
   const blocks = baseBlocks.map((b) =>
     dragIdx === b.idx && dragEnergy != null ? { ...b, target: dragEnergy } : b,
   );
@@ -183,12 +195,13 @@ export default function CurveEditor({
   const linePath = blocks
     .map((b, i) => `${i === 0 ? 'M' : 'L'} ${b.xMid.toFixed(2)} ${yOf(b.target).toFixed(2)}`)
     .join(' ');
-  const playheadX = totalSec > 0 ? Math.max(0, Math.min(1, playheadSec / totalSec)) * w : 0;
+  const secToX = (sec: number) => (Math.max(0, Math.min(domainSec, sec)) / domainSec) * w;
+  const playheadX = domainSec > 0 ? secToX(playheadSec) : 0;
   const scrubFromClientX = (clientX: number) => {
     if (!svgRef.current || !scrubEnabled || !onScrub || totalSec <= 0) return;
     const rect = svgRef.current.getBoundingClientRect();
     const t = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
-    onScrub(t * totalSec);
+    onScrub(Math.min(totalSec, t * domainSec));
   };
   const handleSvgClickCapture = (ev: ReactMouseEvent<SVGSVGElement>) => {
     if (!scrubEnabled || !onScrub || totalSec <= 0) return;
@@ -221,7 +234,7 @@ export default function CurveEditor({
       </div>
       <div className={styles.xaxis}>
         {[0, 0.25, 0.5, 0.75, 1].map((t) => (
-          <div key={t}>{fmtTime(t * totalSec)}</div>
+          <div key={t}>{fmtTime(t * domainSec)}</div>
         ))}
       </div>
       <svg
@@ -266,6 +279,43 @@ export default function CurveEditor({
             data-testid="curve-scrub-hit"
             style={{ cursor: 'crosshair' }}
           />
+        )}
+
+        {/* Target marker + over-target region. The marker is expressed in raw
+            timeline seconds needed to hit the effective target after overlaps. */}
+        {rawTargetSec != null && (
+          <g pointerEvents="none">
+            {totalSec > rawTargetSec && targetX != null ? (
+              <rect
+                data-testid="curve-over-region"
+                x={targetX}
+                y={0}
+                width={Math.max(0, ((totalSec - rawTargetSec) / domainSec) * w)}
+                height={h}
+                fill="rgba(245,158,11,0.12)"
+              />
+            ) : null}
+            <line
+              data-testid="curve-target-marker"
+              x1={targetX ?? 0}
+              x2={targetX ?? 0}
+              y1={0}
+              y2={h}
+              stroke="rgba(251,191,36,0.95)"
+              strokeWidth="1.5"
+              strokeDasharray="5 4"
+            />
+            <text
+              x={Math.min(Math.max((targetX ?? 0) + 6, 34), w - 28)}
+              y={13}
+              fill="#fbbf24"
+              fontSize="9"
+              fontWeight="800"
+              letterSpacing="0.08em"
+            >
+              TARGET
+            </text>
+          </g>
         )}
 
         {/* Peak floor reference */}

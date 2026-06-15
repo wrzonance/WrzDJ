@@ -18,6 +18,7 @@ def _seed_set(db, owner_id, **overrides) -> Set:
         "name": "Warehouse Closer",
         "vibe_theme": "dark-techno",
         "target_duration_sec": 3600,
+        "avg_transition_overlap_sec": 12,
         "bpm_floor": 124,
         "bpm_ceiling": 132,
         "key_strictness": 0.7,
@@ -108,6 +109,7 @@ def test_duplicate_copies_children_and_resets_state(db, test_user):
     # targets + vibe copied
     assert dup.vibe_theme == "dark-techno"
     assert dup.target_duration_sec == 3600
+    assert dup.avg_transition_overlap_sec == 12
     assert dup.bpm_floor == 124
     assert dup.bpm_ceiling == 132
     assert dup.key_strictness == 0.7
@@ -291,6 +293,7 @@ def test_public_shared_view_projection(client, auth_headers, db, test_user):
     assert body["name"] == "Warehouse Closer"
     assert body["vibe_theme"] == "dark-techno"
     assert body["bpm_floor"] == 124
+    assert body["avg_transition_overlap_sec"] == 12
     assert [s["position"] for s in body["slots"]] == [1, 2]
     assert body["slots"][0]["notes"] == "opener"
     assert [c["energy"] for c in body["curve_points"]] == [4, 9]

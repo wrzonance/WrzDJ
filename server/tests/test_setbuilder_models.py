@@ -111,6 +111,7 @@ def test_set_persists_with_defaults(db):
     assert s.status == "draft"
     assert s.sharing_mode == "private"
     assert s.key_strictness == 0.2
+    assert s.avg_transition_overlap_sec == 8
     assert s.event_id is None
     assert s.created_at is not None
     assert s.updated_at is not None

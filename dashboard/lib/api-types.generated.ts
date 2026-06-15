@@ -3162,6 +3162,26 @@ export interface paths {
         patch: operations["update_slot_target_api_setbuilder_sets__set_id__slots__slot_id__target_patch"];
         trace?: never;
     };
+    "/api/setbuilder/sets/{set_id}/target": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update Set Target
+         * @description Update set-length target + average transition overlap.
+         */
+        put: operations["update_set_target_api_setbuilder_sets__set_id__target_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setbuilder/sets/{set_id}/transport/command": {
         parameters: {
             query?: never;
@@ -6027,6 +6047,8 @@ export interface components {
          * @description Full set record (Phase 0: no slot/curve expansion yet).
          */
         SetDetail: {
+            /** Avg Transition Overlap Sec */
+            avg_transition_overlap_sec: number;
             /** Bpm Ceiling */
             bpm_ceiling: number | null;
             /** Bpm Floor */
@@ -6280,6 +6302,16 @@ export interface components {
             updated_at: string;
         };
         /**
+         * SetTargetUpdate
+         * @description Body for updating set-length planning settings.
+         */
+        SetTargetUpdate: {
+            /** Avg Transition Overlap Sec */
+            avg_transition_overlap_sec: number;
+            /** Target Duration Sec */
+            target_duration_sec?: number | null;
+        };
+        /**
          * ShareTokenOut
          * @description Owner response after creating/rotating a share token (issue #398).
          */
@@ -6311,6 +6343,8 @@ export interface components {
          *     collaborator info, or the token itself.
          */
         SharedSetView: {
+            /** Avg Transition Overlap Sec */
+            avg_transition_overlap_sec: number;
             /** Bpm Ceiling */
             bpm_ceiling: number | null;
             /** Bpm Floor */
@@ -12691,6 +12725,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SlotTargetOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_set_target_api_setbuilder_sets__set_id__target_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetTargetUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetDetail"];
                 };
             };
             /** @description Validation Error */

@@ -100,6 +100,8 @@ export interface CurvePanelProps {
   onSuggestReplacementsChange?: (on: boolean) => void;
   confirmRecompute?: boolean;
   requestConfirmation?: (action: ConfirmAction) => Promise<boolean>;
+  targetDurationSec?: number | null;
+  avgTransitionOverlapSec?: number;
 }
 
 export default function CurvePanel({
@@ -122,6 +124,8 @@ export default function CurvePanel({
   onSuggestReplacementsChange,
   confirmRecompute = true,
   requestConfirmation,
+  targetDurationSec = null,
+  avgTransitionOverlapSec = 0,
 }: CurvePanelProps) {
   const [view, setView] = useState<CurveViewMode>('normal');
   const [templates, setTemplates] = useState<CurveTemplatesResponse | null>(null);
@@ -437,6 +441,8 @@ export default function CurvePanel({
         onWindowChange={changeWindow}
         onWindowCommit={commitWindow}
         onWindowDelete={deleteWindow}
+        targetDurationSec={targetDurationSec}
+        avgTransitionOverlapSec={avgTransitionOverlapSec}
       />
       <CurveTemplateEditorOverlay
         open={overlay.open}

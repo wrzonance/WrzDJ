@@ -73,6 +73,71 @@ describe('CurveEditor', () => {
     expect(screen.getByTestId('pairing-pin-0')).toBeInTheDocument();
   });
 
+  it('renders target marker and amber over-region using overlap-adjusted raw target', () => {
+    const slots = [
+      mkSlot(0, { durationSec: 400 }),
+      mkSlot(1, { durationSec: 300 }),
+      mkSlot(2, { durationSec: 300 }),
+    ];
+    const { rerender, props } = renderEditor({
+      slots,
+      targetDurationSec: 500,
+      avgTransitionOverlapSec: 0,
+    });
+
+    const marker = screen.getByTestId('curve-target-marker');
+    expect(marker).toHaveAttribute('x1', '400');
+    expect(screen.getByTestId('curve-over-region')).toBeInTheDocument();
+
+    rerender(
+      <CurveEditor
+        {...props}
+        targetDurationSec={500}
+        avgTransitionOverlapSec={30}
+      />,
+    );
+    expect(screen.getByTestId('curve-target-marker')).toHaveAttribute('x1', '448');
+  });
+
+  it('maps playhead and scrub positions against the extended target domain', () => {
+    const onScrub = vi.fn();
+    const { container } = renderEditor({
+      slots: [
+        mkSlot(0, { durationSec: 200 }),
+        mkSlot(1, { durationSec: 200 }),
+        mkSlot(2, { durationSec: 200 }),
+      ],
+      targetDurationSec: 900,
+      avgTransitionOverlapSec: 0,
+      playheadSec: 300,
+      scrubEnabled: true,
+      onScrub,
+    });
+
+    const playheadLine = screen.getByTestId('curve-playhead').querySelector('line');
+    expect(Number(playheadLine?.getAttribute('x1'))).toBeCloseTo(266.67);
+
+    const svg = container.querySelector('svg');
+    expect(svg).not.toBeNull();
+    vi.spyOn(svg as SVGSVGElement, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 800,
+      bottom: 160,
+      width: 800,
+      height: 160,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    fireEvent.click(screen.getByTestId('curve-scrub-hit'), { clientX: 400 });
+    expect(onScrub).toHaveBeenLastCalledWith(450);
+
+    fireEvent.click(screen.getByTestId('curve-scrub-hit'), { clientX: 800 });
+    expect(onScrub).toHaveBeenLastCalledWith(600);
+  });
+
   it('renders amber hatch when target > energy and dashed line when target < energy', () => {
     renderEditor({
       slots: [

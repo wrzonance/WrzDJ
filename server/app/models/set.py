@@ -40,6 +40,9 @@ class Set(Base):
     vibe_theme: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     target_duration_sec: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    avg_transition_overlap_sec: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=8, server_default="8"
+    )
     bpm_floor: Mapped[int | None] = mapped_column(Integer, nullable=True)
     bpm_ceiling: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # 0.0 ignore Camelot ... 1.0 strict +/-1

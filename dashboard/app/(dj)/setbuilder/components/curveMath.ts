@@ -220,15 +220,20 @@ export interface SlotBlock {
   target: number;
 }
 
-export function slotBlocksFromSlots(slots: SlotView[], width: number): SlotBlock[] {
+export function slotBlocksFromSlots(
+  slots: SlotView[],
+  width: number,
+  domainSec?: number,
+): SlotBlock[] {
   const total = slots.reduce((acc, s) => acc + s.track.durationSec, 0);
   if (total <= 0) return [];
+  const domain = Math.max(1, domainSec ?? total);
   const blocks: SlotBlock[] = [];
   let cur = 0;
   for (let i = 0; i < slots.length; i++) {
     const s = slots[i];
-    const t0 = cur / total;
-    const t1 = (cur + s.track.durationSec) / total;
+    const t0 = cur / domain;
+    const t1 = (cur + s.track.durationSec) / domain;
     blocks.push({
       idx: i,
       slot: s,

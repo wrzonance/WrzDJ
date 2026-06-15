@@ -717,6 +717,19 @@ class ApiClient {
       body: JSON.stringify({ name }),
     });
   }
+  async updateSetTargetSettings(
+    setId: number,
+    targetDurationSec: number | null,
+    avgTransitionOverlapSec: number,
+  ): Promise<SetDetail> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/target`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        target_duration_sec: targetDurationSec,
+        avg_transition_overlap_sec: avgTransitionOverlapSec,
+      }),
+    });
+  }
   async deleteSet(setId: number): Promise<void> {
     await this.rawFetch(`/api/setbuilder/sets/${setId}`, { method: 'DELETE' });
   }

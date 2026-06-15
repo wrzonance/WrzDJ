@@ -62,6 +62,7 @@ def duplicate_set(db: Session, src: Set) -> Set:
         name=name,
         vibe_theme=src.vibe_theme,
         target_duration_sec=src.target_duration_sec,
+        avg_transition_overlap_sec=src.avg_transition_overlap_sec,
         bpm_floor=src.bpm_floor,
         bpm_ceiling=src.bpm_ceiling,
         key_strictness=src.key_strictness,

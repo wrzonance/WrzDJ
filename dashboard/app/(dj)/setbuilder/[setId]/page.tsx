@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useEffect, useRef, useState } from 'react';
+import { use, useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
@@ -16,6 +16,12 @@ import ConfirmActionDialog, { type ConfirmAction } from '../components/ConfirmAc
 import HistoryControls from '../components/HistoryControls';
 import PoolPanel from '../components/PoolPanel';
 import { useSetDocumentHistory } from '../components/useSetDocumentHistory';
+import TargetEditor from '../components/TargetEditor';
+import {
+  DEFAULT_AVG_TRANSITION_OVERLAP_SEC,
+  type TargetProjection,
+  type TargetSettings,
+} from '../components/targetMath';
 import SetActionsMenu from '../SetActionsMenu';
 import styles from '../setbuilder.module.css';
 
@@ -74,6 +80,14 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const confirmResolverRef = useRef<((value: boolean) => void) | null>(null);
   const history = useSetDocumentHistory(numericSetId);
+  const [targetOpen, setTargetOpen] = useState(false);
+  const [targetSettings, setTargetSettings] = useState<TargetSettings>({
+    targetDurationSec: null,
+    avgTransitionOverlapSec: DEFAULT_AVG_TRANSITION_OVERLAP_SEC,
+  });
+  const [targetProjection, setTargetProjection] = useState<TargetProjection | null>(null);
+  const [savingTarget, setSavingTarget] = useState(false);
+  const [targetError, setTargetError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -188,6 +202,60 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
     };
   }, [isAuthenticated, setId]);
 
+  useEffect(() => {
+    if (!set) return;
+    setTargetSettings({
+      targetDurationSec: set.target_duration_sec,
+      avgTransitionOverlapSec:
+        set.avg_transition_overlap_sec ?? DEFAULT_AVG_TRANSITION_OVERLAP_SEC,
+    });
+  }, [set?.id, set?.target_duration_sec, set?.avg_transition_overlap_sec]);
+
+  const targetDirty =
+    !!set &&
+    (targetSettings.targetDurationSec !== set.target_duration_sec ||
+      targetSettings.avgTransitionOverlapSec !==
+        (set.avg_transition_overlap_sec ?? DEFAULT_AVG_TRANSITION_OVERLAP_SEC));
+
+  const undoTarget = () => {
+    if (!set) return;
+    setTargetError(null);
+    setTargetSettings({
+      targetDurationSec: set.target_duration_sec,
+      avgTransitionOverlapSec:
+        set.avg_transition_overlap_sec ?? DEFAULT_AVG_TRANSITION_OVERLAP_SEC,
+    });
+  };
+
+  const updateTargetSettings = useCallback((settings: TargetSettings) => {
+    setTargetError(null);
+    setTargetSettings(settings);
+  }, []);
+
+  const saveTarget = async () => {
+    if (!set || !targetDirty) return;
+    setSavingTarget(true);
+    setTargetError(null);
+    try {
+      const updated = await api.updateSetTargetSettings(
+        set.id,
+        targetSettings.targetDurationSec,
+        targetSettings.avgTransitionOverlapSec,
+      );
+      setSet(updated);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save target settings';
+      setTargetError(message);
+      setToast(message);
+    } finally {
+      setSavingTarget(false);
+    }
+  };
+
+  const handleProjectionChange = useCallback((projection: TargetProjection) => {
+    setTargetProjection(projection);
+  }, []);
+
   if (isLoading || !isAuthenticated) {
     return (
       <div className="container">
@@ -235,6 +303,34 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
           />
         </span>
         <span className={styles.topbarActions}>
+          <span className={styles.topbarStats}>
+            {targetProjection ? (
+              <>
+                <span>
+                  <strong>{targetProjection.slotCount}</strong> tracks
+                </span>
+                <span className={styles.statDot} />
+              </>
+            ) : null}
+            {set && (
+              <TargetEditor
+                settings={targetSettings}
+                projection={targetProjection}
+                dirty={targetDirty}
+                saving={savingTarget}
+                open={targetOpen}
+                onOpenChange={setTargetOpen}
+                onSettingsChange={updateTargetSettings}
+                onSave={saveTarget}
+                onUndo={undoTarget}
+              />
+            )}
+            {targetError ? (
+              <span className={styles.targetSaveError} role="alert">
+                {targetError}
+              </span>
+            ) : null}
+          </span>
           <HistoryControls
             undoDepth={history.undoDepth}
             redoDepth={history.redoDepth}
@@ -312,6 +408,8 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
           }
           confirmRecompute={builderSettings.confirmRecompute}
           requestConfirmation={requestConfirmation}
+          targetSettings={targetSettings}
+          onProjectionChange={handleProjectionChange}
         />
 
         <div className={styles.panelChat}>

@@ -189,6 +189,7 @@ export interface SetSummary {
 export interface SetDetail extends SetSummary {
   vibe_theme: string | null;
   target_duration_sec: number | null;
+  avg_transition_overlap_sec: number;
   bpm_floor: number | null;
   bpm_ceiling: number | null;
   key_strictness: number;
@@ -274,6 +275,7 @@ export interface SharedSetView {
   status: 'draft' | 'locked' | 'exported';
   vibe_theme: string | null;
   target_duration_sec: number | null;
+  avg_transition_overlap_sec: number;
   bpm_floor: number | null;
   bpm_ceiling: number | null;
   key_strictness: number;

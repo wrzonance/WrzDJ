@@ -21,6 +21,7 @@ function makeView(overrides: Partial<SharedSetView> = {}): SharedSetView {
     status: 'draft',
     vibe_theme: 'dark-techno',
     target_duration_sec: 3600,
+    avg_transition_overlap_sec: 8,
     bpm_floor: 124,
     bpm_ceiling: 132,
     key_strictness: 0.7,

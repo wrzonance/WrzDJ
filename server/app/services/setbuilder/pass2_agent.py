@@ -124,15 +124,17 @@ async def chat_with_agent(
     *,
     message: str,
     history: list[dict[str, str]] | None = None,
+    messages: list[Message] | None = None,
 ) -> AgentChatResult:
     """Run one chat turn and apply any requested setbuilder tools."""
-    messages = [Message(role="user", content=_set_context(db, set_obj))]
-    for item in history or []:
-        role = item.get("role")
-        content = item.get("content")
-        if role in {"user", "assistant"} and content:
-            messages.append(Message(role=role, content=content))
-    messages.append(Message(role="user", content=message))
+    if messages is None:
+        messages = [Message(role="user", content=_set_context(db, set_obj))]
+        for item in history or []:
+            role = item.get("role")
+            content = item.get("content")
+            if role in {"user", "assistant"} and content:
+                messages.append(Message(role=role, content=content))
+        messages.append(Message(role="user", content=message))
 
     response = await Gateway.dispatch(
         db,

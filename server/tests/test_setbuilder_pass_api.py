@@ -180,3 +180,77 @@ def test_agent_history_initially_empty_without_llm(monkeypatch, client, auth_hea
     assert body["messages"] == []
     assert body["context_summary"] is None
     assert body["uses_compact_context"] is True
+
+
+def test_agent_chat_persists_turns_and_history(monkeypatch, client, auth_headers, db):
+    set_obj = _mk_set(client, auth_headers)
+    _mk_pool(db, set_obj["id"])
+    built = client.post(
+        f"/api/setbuilder/sets/{set_obj['id']}/build",
+        json={"confirmed": True},
+        headers=auth_headers,
+    ).json()
+    first, second = built["slots"][0], built["slots"][1]
+
+    async def fake_dispatch(db_arg, actor, request, *, purpose):
+        assert len([m for m in request.messages if m.content == "Earlier turn"]) == 0
+        return ChatResponse(
+            text="",
+            stop_reason="tool_use",
+            tool_calls=[
+                ToolCall(
+                    id="swap-1",
+                    name="swap_slots",
+                    input={
+                        "slot_a_id": first["id"],
+                        "slot_b_id": second["id"],
+                        "rationale": "Open with the better transition.",
+                    },
+                )
+            ],
+        )
+
+    monkeypatch.setattr("app.services.setbuilder.pass2_agent.Gateway.dispatch", fake_dispatch)
+
+    resp = client.post(
+        f"/api/setbuilder/sets/{set_obj['id']}/agent/chat",
+        json={
+            "message": "Swap the opener",
+            "history": [{"role": "user", "content": "Earlier turn"}],
+        },
+        headers=auth_headers,
+    )
+
+    assert resp.status_code == 200, resp.json()
+    body = resp.json()
+    assert body["message"].startswith("Swapped slot 1")
+    assert body["tool_calls"][0]["display_summary"].startswith("Swapped slot 1")
+    assert body["assistant_message"]["content"].startswith("Swapped slot 1")
+
+    history = client.get(
+        f"/api/setbuilder/sets/{set_obj['id']}/agent/history",
+        headers=auth_headers,
+    ).json()
+    assert [m["role"] for m in history["messages"]] == ["user", "assistant"]
+    assert history["messages"][0]["content"] == "Swap the opener"
+    assert history["messages"][1]["display_summary"].startswith("Swapped slot 1")
+
+
+def test_agent_history_owner_isolation(client, auth_headers, db):
+    set_obj = _mk_set(client, auth_headers)
+
+    from app.models.user import User
+    from app.services.auth import create_access_token, get_password_hash
+
+    other = User(username="agentother", password_hash=get_password_hash("password1234"), role="dj")
+    db.add(other)
+    db.commit()
+    token = create_access_token(data={"sub": other.username, "tv": other.token_version})
+    other_headers = {"Authorization": f"Bearer {token}"}
+
+    resp = client.get(
+        f"/api/setbuilder/sets/{set_obj['id']}/agent/history",
+        headers=other_headers,
+    )
+
+    assert resp.status_code == 404

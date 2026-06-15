@@ -8168,6 +8168,8 @@
         },
         "required": [
           "settings",
+          "slots",
+          "curve_points",
           "pool"
         ],
         "title": "SetDocumentSnapshot",
@@ -17687,6 +17689,9 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "description": "Set not found or not accessible"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -17742,6 +17747,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "404": {
+            "description": "Set not found or not accessible"
           },
           "422": {
             "content": {

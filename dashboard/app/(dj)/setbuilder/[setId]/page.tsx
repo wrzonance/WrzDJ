@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
@@ -72,7 +72,7 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [builderSettings, setBuilderSettings] = useState(DEFAULT_SETTINGS);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
-  const [confirmResolver, setConfirmResolver] = useState<((value: boolean) => void) | null>(null);
+  const confirmResolverRef = useRef<((value: boolean) => void) | null>(null);
   const history = useSetDocumentHistory(numericSetId);
 
   useEffect(() => {
@@ -103,13 +103,14 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
 
   const requestConfirmation = (action: ConfirmAction) =>
     new Promise<boolean>((resolve) => {
+      confirmResolverRef.current?.(false);
+      confirmResolverRef.current = (value: boolean) => resolve(value);
       setConfirmAction(action);
-      setConfirmResolver(() => resolve);
     });
 
   const closeConfirm = (value: boolean) => {
-    confirmResolver?.(value);
-    setConfirmResolver(null);
+    confirmResolverRef.current?.(value);
+    confirmResolverRef.current = null;
     setConfirmAction(null);
   };
 

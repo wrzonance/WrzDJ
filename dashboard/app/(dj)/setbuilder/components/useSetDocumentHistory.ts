@@ -45,6 +45,17 @@ export function useSetDocumentHistory(setId: number) {
   const [toast, setToast] = useState<string | null>(null);
   const [autosave, setAutosaveState] = useState(true);
   const snapshotRef = useRef<SetDocumentSnapshot | null>(null);
+  const operationInFlightRef = useRef(false);
+
+  const beginOperation = useCallback(() => {
+    if (operationInFlightRef.current) return false;
+    operationInFlightRef.current = true;
+    return true;
+  }, []);
+
+  const finishOperation = useCallback(() => {
+    operationInFlightRef.current = false;
+  }, []);
 
   const publishSnapshot = useCallback((next: SetDocumentSnapshot) => {
     snapshotRef.current = cloneSnapshot(next);
@@ -57,6 +68,11 @@ export function useSetDocumentHistory(setId: number) {
     setSaveError(null);
     setUndoStack([]);
     setRedoStack([]);
+    snapshotRef.current = null;
+    setSnapshot(null);
+    setSnapshotVersion(0);
+    setLastSavedAt(null);
+    setIsDirty(false);
     setAutosaveState(readAutosave());
     api
       .getSetDocument(setId)
@@ -99,11 +115,14 @@ export function useSetDocumentHistory(setId: number) {
 
   const commit: BuilderCommit = useCallback(
     async (label, action) => {
-      const before = await fetchCurrent();
-      setIsSaving(true);
-      setIsDirty(true);
-      setSaveError(null);
+      if (!beginOperation()) {
+        throw new Error('Another document history operation is already in progress');
+      }
       try {
+        const before = await fetchCurrent();
+        setIsSaving(true);
+        setIsDirty(true);
+        setSaveError(null);
         const result = await action();
         const after = await api.getSetDocument(setId);
         setUndoStack((prev) => [...prev, { label, snapshot: before }].slice(-50));
@@ -117,9 +136,10 @@ export function useSetDocumentHistory(setId: number) {
         throw error;
       } finally {
         setIsSaving(false);
+        finishOperation();
       }
     },
-    [fetchCurrent, publishSnapshot, setId],
+    [beginOperation, fetchCurrent, finishOperation, publishSnapshot, setId],
   );
 
   const restore = useCallback(
@@ -127,11 +147,12 @@ export function useSetDocumentHistory(setId: number) {
       const source = direction === 'undo' ? undoStack : redoStack;
       const entry = source[source.length - 1];
       if (!entry) return;
-      const current = await fetchCurrent();
-      setIsSaving(true);
-      setIsDirty(true);
-      setSaveError(null);
+      if (!beginOperation()) return;
       try {
+        const current = await fetchCurrent();
+        setIsSaving(true);
+        setIsDirty(true);
+        setSaveError(null);
         const restored = await api.putSetDocument(setId, entry.snapshot);
         if (direction === 'undo') {
           setUndoStack((prev) => prev.slice(0, -1));
@@ -149,20 +170,22 @@ export function useSetDocumentHistory(setId: number) {
         setSaveError(error instanceof Error ? error.message : 'Restore failed');
       } finally {
         setIsSaving(false);
+        finishOperation();
       }
     },
-    [fetchCurrent, publishSnapshot, redoStack, setId, undoStack],
+    [beginOperation, fetchCurrent, finishOperation, publishSnapshot, redoStack, setId, undoStack],
   );
 
   const undo = useCallback(() => restore('undo'), [restore]);
   const redo = useCallback(() => restore('redo'), [restore]);
 
   const saveNow = useCallback(async () => {
-    const current = await fetchCurrent();
-    setIsSaving(true);
-    setIsDirty(true);
-    setSaveError(null);
+    if (!beginOperation()) return;
     try {
+      const current = await fetchCurrent();
+      setIsSaving(true);
+      setIsDirty(true);
+      setSaveError(null);
       const saved = await api.putSetDocument(setId, current);
       publishSnapshot(saved);
       setLastSavedAt(new Date());
@@ -172,8 +195,9 @@ export function useSetDocumentHistory(setId: number) {
       setSaveError(error instanceof Error ? error.message : 'Save failed');
     } finally {
       setIsSaving(false);
+      finishOperation();
     }
-  }, [fetchCurrent, publishSnapshot, setId]);
+  }, [beginOperation, fetchCurrent, finishOperation, publishSnapshot, setId]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

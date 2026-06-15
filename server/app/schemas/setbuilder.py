@@ -641,8 +641,8 @@ class SetDocumentSnapshot(BaseModel):
     """Full builder document snapshot for undo/redo and autosave."""
 
     settings: SetDocumentSettings
-    slots: list[SetDocumentSlot] = Field(default_factory=list, max_length=500)
-    curve_points: list[SetDocumentCurvePoint] = Field(default_factory=list, max_length=1000)
+    slots: list[SetDocumentSlot] = Field(..., max_length=500)
+    curve_points: list[SetDocumentCurvePoint] = Field(..., max_length=1000)
     pool: SetDocumentPool
 
 

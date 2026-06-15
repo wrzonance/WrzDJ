@@ -107,26 +107,25 @@ def restore_snapshot(
         synchronize_session=False
     )
 
+    source_id_map: dict[int, int] = {}
     for source in snapshot.pool.sources:
-        db.add(
-            SetPoolSource(
-                id=source.id,
-                set_id=set_obj.id,
-                kind=source.kind,
-                external_ref=source.external_ref,
-                label=source.label,
-                meta=source.meta,
-                created_at=source.created_at,
-            )
+        restored_source = SetPoolSource(
+            set_id=set_obj.id,
+            kind=source.kind,
+            external_ref=source.external_ref,
+            label=source.label,
+            meta=source.meta,
+            created_at=source.created_at,
         )
-    db.flush()
+        db.add(restored_source)
+        db.flush()
+        source_id_map[source.id] = restored_source.id
 
     for track in snapshot.pool.tracks:
         db.add(
             SetPoolTrack(
-                id=track.id,
                 set_id=set_obj.id,
-                source_id=track.source_id,
+                source_id=source_id_map[track.source_id],
                 track_id=track.track_id,
                 title=track.title,
                 artist=track.artist,
@@ -147,7 +146,6 @@ def restore_snapshot(
     for slot in snapshot.slots:
         db.add(
             SetSlot(
-                id=slot.id,
                 set_id=set_obj.id,
                 position=slot.position,
                 track_id=slot.track_id,
@@ -162,7 +160,6 @@ def restore_snapshot(
     for point in snapshot.curve_points:
         db.add(
             SetCurvePoint(
-                id=point.id,
                 set_id=set_obj.id,
                 position_sec=point.position_sec,
                 energy=point.energy,

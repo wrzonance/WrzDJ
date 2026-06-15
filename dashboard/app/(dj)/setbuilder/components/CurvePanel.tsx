@@ -171,12 +171,14 @@ export default function CurvePanel({
 
   useEffect(() => {
     if (snapshot || totalSec <= 0 || windowsLoadedFor.current === setId) return;
+    let cancelled = false;
     // Mark eagerly so in-flight fetches dedupe; roll back on failure so a
     // transient error doesn't block the load for the rest of the session.
     windowsLoadedFor.current = setId;
     api
       .getVibeWindows(setId)
       .then((resp) => {
+        if (cancelled) return;
         setWindows(
           resp.windows.map((w, i) => ({
             id: `w-${i}-${w.t0_sec}`,
@@ -187,10 +189,14 @@ export default function CurvePanel({
         );
       })
       .catch(() => {
+        if (cancelled) return;
         if (windowsLoadedFor.current === setId) windowsLoadedFor.current = null;
         setWindows([]);
       });
-  }, [setId, totalSec]);
+    return () => {
+      cancelled = true;
+    };
+  }, [setId, snapshot, totalSec]);
 
   const persistWindows = useCallback(
     (next: VibeWindowView[], label: string) => {

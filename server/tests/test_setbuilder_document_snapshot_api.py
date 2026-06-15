@@ -9,6 +9,24 @@ from app.models.set_pool import SetPoolSource, SetPoolTrack
 from app.services.auth import get_password_hash
 
 
+def _without_keys(row: dict, *keys: str) -> dict:
+    return {key: value for key, value in row.items() if key not in keys}
+
+
+def _logical_snapshot(snapshot: dict) -> dict:
+    return {
+        "settings": snapshot["settings"],
+        "slots": [_without_keys(slot, "id") for slot in snapshot["slots"]],
+        "curve_points": [_without_keys(point, "id") for point in snapshot["curve_points"]],
+        "pool": {
+            "sources": [_without_keys(source, "id") for source in snapshot["pool"]["sources"]],
+            "tracks": [
+                _without_keys(track, "id", "source_id") for track in snapshot["pool"]["tracks"]
+            ],
+        },
+    }
+
+
 def _make_second_dj(db: Session):
     from app.models.user import User
 
@@ -111,29 +129,82 @@ def test_document_snapshot_round_trips_destructive_builder_state(client, db, aut
 
     original = client.get(f"/api/setbuilder/sets/{set_id}/document", headers=auth_headers).json()
 
-    client.patch(
+    patch_resp = client.patch(
         f"/api/setbuilder/sets/{set_id}/slots/9001/target",
         json={"target_energy": 9.5},
         headers=auth_headers,
     )
-    client.delete(
+    assert patch_resp.status_code == 200, patch_resp.json()
+
+    delete_resp = client.delete(
         f"/api/setbuilder/sets/{set_id}/pool/sources/{original['pool']['sources'][0]['id']}",
         headers=auth_headers,
     )
-    client.put(
+    assert delete_resp.status_code == 200, delete_resp.json()
+
+    windows_resp = client.put(
         f"/api/setbuilder/sets/{set_id}/vibe-windows",
         json={"windows": [{"t0_sec": 120, "t1_sec": 150, "label": "Peak"}]},
         headers=auth_headers,
     )
+    assert windows_resp.status_code == 200, windows_resp.json()
 
     restore = client.put(
         f"/api/setbuilder/sets/{set_id}/document", json=original, headers=auth_headers
     )
     assert restore.status_code == 200, restore.json()
     restored = restore.json()
-    assert restored["slots"] == original["slots"]
-    assert restored["pool"] == original["pool"]
-    assert restored["curve_points"] == original["curve_points"]
+    assert _logical_snapshot(restored) == _logical_snapshot(original)
+
+
+def test_document_snapshot_restore_ignores_client_primary_keys(client, db, auth_headers):
+    set_id = _create_seeded_set(client, db, auth_headers)
+    other = client.post("/api/setbuilder/sets", json={"name": "Other Set"}, headers=auth_headers)
+    assert other.status_code == 201, other.json()
+    other_set_id = other.json()["id"]
+    other_source = SetPoolSource(
+        id=9903,
+        set_id=other_set_id,
+        kind="manual",
+        external_ref=None,
+        label="Other",
+    )
+    db.add(other_source)
+    db.flush()
+    db.add_all(
+        [
+            SetSlot(id=9901, set_id=other_set_id, position=0, track_id="other:1"),
+            SetCurvePoint(id=9902, set_id=other_set_id, position_sec=1, energy=1),
+            SetPoolTrack(
+                id=9904,
+                set_id=other_set_id,
+                source_id=other_source.id,
+                track_id="other:1",
+                title="Other",
+                artist="Artist",
+                dedupe_sig="other",
+            ),
+        ]
+    )
+    db.commit()
+
+    payload = client.get(f"/api/setbuilder/sets/{set_id}/document", headers=auth_headers).json()
+    payload["slots"][0]["id"] = 9901
+    payload["curve_points"][0]["id"] = 9902
+    payload["pool"]["sources"][0]["id"] = 9903
+    for track in payload["pool"]["tracks"]:
+        track["id"] = 9904
+        track["source_id"] = 9903
+
+    restore = client.put(
+        f"/api/setbuilder/sets/{set_id}/document", json=payload, headers=auth_headers
+    )
+    assert restore.status_code == 200, restore.json()
+    restored = restore.json()
+    assert restored["slots"][0]["id"] != 9901
+    assert restored["curve_points"][0]["id"] != 9902
+    assert restored["pool"]["sources"][0]["id"] != 9903
+    assert all(track["id"] != 9904 for track in restored["pool"]["tracks"])
 
 
 def test_document_snapshot_owner_isolation(client, db, auth_headers):

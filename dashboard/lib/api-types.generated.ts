@@ -6219,11 +6219,11 @@ export interface components {
          */
         "SetDocumentSnapshot-Input": {
             /** Curve Points */
-            curve_points?: components["schemas"]["SetDocumentCurvePoint"][];
+            curve_points: components["schemas"]["SetDocumentCurvePoint"][];
             pool: components["schemas"]["SetDocumentPool"];
             settings: components["schemas"]["SetDocumentSettings"];
             /** Slots */
-            slots?: components["schemas"]["SetDocumentSlot"][];
+            slots: components["schemas"]["SetDocumentSlot"][];
         };
         /**
          * SetDocumentSnapshot
@@ -11820,6 +11820,13 @@ export interface operations {
                     "application/json": components["schemas"]["SetDocumentSnapshot-Output"];
                 };
             };
+            /** @description Set not found or not accessible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -11854,6 +11861,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SetDocumentSnapshot-Output"];
                 };
+            };
+            /** @description Set not found or not accessible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

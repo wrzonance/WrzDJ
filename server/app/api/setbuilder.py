@@ -709,7 +709,11 @@ def get_transport_status(
 # Document snapshots (issue #395) — undo/redo + autosave restore surface.
 
 
-@router.get("/sets/{set_id}/document", response_model=SetDocumentSnapshot)
+@router.get(
+    "/sets/{set_id}/document",
+    response_model=SetDocumentSnapshot,
+    responses={404: {"description": "Set not found or not accessible"}},
+)
 @limiter.limit("60/minute")
 def get_document_snapshot(
     set_id: int,
@@ -722,7 +726,11 @@ def get_document_snapshot(
     return document_snapshot.build_snapshot(set_obj)
 
 
-@router.put("/sets/{set_id}/document", response_model=SetDocumentSnapshot)
+@router.put(
+    "/sets/{set_id}/document",
+    response_model=SetDocumentSnapshot,
+    responses={404: {"description": "Set not found or not accessible"}},
+)
 @limiter.limit("30/minute")
 def put_document_snapshot(
     set_id: int,

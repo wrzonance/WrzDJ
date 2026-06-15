@@ -85,19 +85,32 @@ export default function PoolPanel({
   const [vibesBusy, setVibesBusy] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     setVibes(new Map());
     setShowVibes(false);
     setVibesLoaded(false);
+    setLoaded(false);
     if (snapshot) {
       setPool(snapshot.pool);
       setLoaded(true);
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
     api
       .getPool(setId)
-      .then(setPool)
-      .catch(() => setToast('Failed to load pool'))
-      .finally(() => setLoaded(true));
+      .then((next) => {
+        if (!cancelled) setPool(next);
+      })
+      .catch(() => {
+        if (!cancelled) setToast('Failed to load pool');
+      })
+      .finally(() => {
+        if (!cancelled) setLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [setId, snapshot, snapshotVersion]);
 
   useEffect(() => {

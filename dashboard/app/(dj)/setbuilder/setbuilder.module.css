@@ -1868,7 +1868,7 @@
 
 .saveDotDirty {
   background: #f59e0b;
-  animation: savePulse 1.5s ease-in-out infinite;
+  animation: save-pulse 1.5s ease-in-out infinite;
   box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14);
 }
 
@@ -2065,7 +2065,7 @@
   margin-top: 1rem;
 }
 
-@keyframes savePulse {
+@keyframes save-pulse {
   0%,
   100% {
     transform: scale(1);

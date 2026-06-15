@@ -42,6 +42,32 @@ describe('useMeasuredVirtualList', () => {
     expect(result.current.indexFromScrollTop(100)).toBe(2);
   });
 
+  it('resets measured heights when the measurement key changes', () => {
+    const { result, rerender } = renderHook(
+      ({ measurementKey }) =>
+        useMeasuredVirtualList({
+          itemCount: 10,
+          estimateHeight: 50,
+          viewportHeight: 150,
+          scrollTop: 0,
+          overscan: 1,
+          measurementKey,
+        }),
+      { initialProps: { measurementKey: 'initial-structure' } },
+    );
+
+    act(() => {
+      result.current.setMeasuredHeight(0, 80);
+    });
+
+    expect(result.current.scrollTopForIndex(1)).toBe(80);
+
+    rerender({ measurementKey: 'reordered-structure' });
+
+    expect(result.current.scrollTopForIndex(1)).toBe(50);
+    expect(result.current.totalHeight).toBe(500);
+  });
+
   it('clamps invalid list bounds', () => {
     const { result } = renderHook(() =>
       useMeasuredVirtualList({

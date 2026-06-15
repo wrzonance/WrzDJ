@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 export interface VirtualListItem {
   idx: number;
@@ -15,19 +15,30 @@ export interface UseMeasuredVirtualListInput {
   viewportHeight: number;
   scrollTop: number;
   overscan?: number;
+  /** Changing this clears cached measured heights after structural list changes. */
+  measurementKey?: string | number;
 }
 
 export interface UseMeasuredVirtualListResult {
   startIdx: number;
+  /** Exclusive upper bound for visible item indices. */
   endIdx: number;
   beforeHeight: number;
   afterHeight: number;
   totalHeight: number;
   items: VirtualListItem[];
   setMeasuredHeight: (idx: number, height: number) => void;
+  /** Returns totalHeight when called with itemCount. */
   scrollTopForIndex: (idx: number) => number;
   indexFromScrollTop: (top: number) => number;
 }
+
+interface MeasurementState {
+  key: string | number | undefined;
+  heights: Map<number, number>;
+}
+
+const EMPTY_MEASURED_HEIGHTS = new Map<number, number>();
 
 function buildOffsets(itemCount: number, estimateHeight: number, measured: Map<number, number>) {
   const offsets: number[] = new Array(itemCount + 1);
@@ -82,6 +93,7 @@ export function useMeasuredVirtualList({
   viewportHeight,
   scrollTop,
   overscan = 4,
+  measurementKey,
 }: UseMeasuredVirtualListInput): UseMeasuredVirtualListResult {
   const safeItemCount = Number.isFinite(itemCount) ? Math.max(0, Math.floor(itemCount)) : 0;
   const safeEstimateHeight = Number.isFinite(estimateHeight) && estimateHeight > 0 ? estimateHeight : 1;
@@ -89,7 +101,24 @@ export function useMeasuredVirtualList({
   const safeScrollTop = Number.isFinite(scrollTop) ? Math.max(0, scrollTop) : 0;
   const safeOverscan = Number.isFinite(overscan) ? Math.max(0, Math.floor(overscan)) : 0;
 
-  const [measuredHeights, setMeasuredHeights] = useState<Map<number, number>>(() => new Map());
+  const [measurementState, setMeasurementState] = useState<MeasurementState>(() => ({
+    key: measurementKey,
+    heights: new Map(),
+  }));
+  const measuredHeights = Object.is(measurementState.key, measurementKey)
+    ? measurementState.heights
+    : EMPTY_MEASURED_HEIGHTS;
+
+  useEffect(() => {
+    setMeasurementState((prev) => {
+      if (Object.is(prev.key, measurementKey)) return prev;
+
+      return {
+        key: measurementKey,
+        heights: new Map(),
+      };
+    });
+  }, [measurementKey]);
 
   const offsets = useMemo(
     () => buildOffsets(safeItemCount, safeEstimateHeight, measuredHeights),
@@ -126,14 +155,22 @@ export function useMeasuredVirtualList({
     const safeIdx = Math.floor(idx);
     if (safeIdx < 0 || safeIdx >= safeItemCount) return;
 
-    setMeasuredHeights((prev) => {
-      if (prev.get(safeIdx) === height) return prev;
+    setMeasurementState((prev) => {
+      const prevHeights = Object.is(prev.key, measurementKey)
+        ? prev.heights
+        : EMPTY_MEASURED_HEIGHTS;
 
-      const next = new Map(prev);
+      if (Object.is(prev.key, measurementKey) && prevHeights.get(safeIdx) === height) return prev;
+
+      const next = new Map(prevHeights);
       next.set(safeIdx, height);
-      return next;
+
+      return {
+        key: measurementKey,
+        heights: next,
+      };
     });
-  }, [safeItemCount]);
+  }, [measurementKey, safeItemCount]);
 
   const scrollTopForIndex = useCallback(
     (idx: number) => {

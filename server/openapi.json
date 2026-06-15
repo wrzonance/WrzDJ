@@ -6426,6 +6426,38 @@
         "title": "PoolUrlPreview",
         "type": "object"
       },
+      "PoolVibeOverrideIn": {
+        "description": "Explicit DJ edit for one pool track's vibe fields.",
+        "properties": {
+          "energy": {
+            "anyOf": [
+              {
+                "maximum": 10.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy"
+          },
+          "mood": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mood"
+          }
+        },
+        "title": "PoolVibeOverrideIn",
+        "type": "object"
+      },
       "PoolVibesState": {
         "description": "Vibe state for every track in a set's pool.",
         "properties": {
@@ -18927,6 +18959,130 @@
           }
         ],
         "summary": "Enrich Pool Vibes",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/pool/vibes/{pool_track_id}/agree": {
+      "post": {
+        "description": "Upvote the best non-own vibe signal for one pool track without creating an own tier.",
+        "operationId": "agree_pool_vibe_api_setbuilder_sets__set_id__pool_vibes__pool_track_id__agree_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pool_track_id",
+            "required": true,
+            "schema": {
+              "title": "Pool Track Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PoolVibesState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Agree Pool Vibe",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/pool/vibes/{pool_track_id}/override": {
+      "patch": {
+        "description": "Write an explicit DJ vibe edit, preserving omitted fields from their latest vote.",
+        "operationId": "override_pool_vibe_api_setbuilder_sets__set_id__pool_vibes__pool_track_id__override_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pool_track_id",
+            "required": true,
+            "schema": {
+              "title": "Pool Track Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PoolVibeOverrideIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PoolVibesState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Override Pool Vibe",
         "tags": [
           "setbuilder"
         ]

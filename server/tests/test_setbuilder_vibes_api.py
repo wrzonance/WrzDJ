@@ -56,6 +56,49 @@ def _seed_pool_tracks(db: Session, set_id: int, n: int) -> None:
     db.commit()
 
 
+def _pool_track_id(db: Session, set_id: int, track_id: str = "tidal:0") -> int:
+    row = (
+        db.query(SetPoolTrack)
+        .filter(SetPoolTrack.set_id == set_id, SetPoolTrack.track_id == track_id)
+        .one()
+    )
+    return row.id
+
+
+def _make_voters(db: Session, n: int) -> list[User]:
+    from app.services.auth import get_password_hash
+
+    pw = get_password_hash("password123")
+    users = [User(username=f"vibe-voter-{i}", password_hash=pw, role="dj") for i in range(n)]
+    db.add_all(users)
+    db.commit()
+    for user in users:
+        db.refresh(user)
+    return users
+
+
+def _vote(
+    db: Session,
+    track_id: str,
+    user_id: int,
+    *,
+    energy: int | None = None,
+    mood: str | None = None,
+    source: str = "explicit_edit",
+) -> TrackVibeOverride:
+    row = TrackVibeOverride(
+        track_id=track_id,
+        user_id=user_id,
+        energy_override=energy,
+        mood_override=mood,
+        source=source,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
 def _llm_vibe_row(track_id: str = "tidal:0", *, energy: int = 5, confidence: float = 0.8):
     return TrackVibe(
         track_id=track_id,
@@ -166,6 +209,131 @@ class TestGetPoolVibes:
         assert llm["low_confidence"] is False
         assert llm["llm_provider"] == "anthropic_apikey"
         assert llm["llm_model"] == "claude-haiku-4-5"
+
+
+class TestWritePoolVibes:
+    def test_agree_upvotes_consensus_without_own_override(
+        self, client, db, auth_headers, set_id, test_user
+    ):
+        _seed_pool_tracks(db, set_id, 1)
+        pool_track_id = _pool_track_id(db, set_id)
+        for voter in _make_voters(db, 3):
+            _vote(db, "tidal:0", voter.id, energy=7, mood="dark")
+
+        resp = client.post(
+            f"/api/setbuilder/sets/{set_id}/pool/vibes/{pool_track_id}/agree",
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        (track,) = body["tracks"]
+        assert track["own"] is None
+        assert track["community"] == {"energy": 7, "mood": "dark", "sample_size": 3}
+        assert track["resolved"] == {
+            "energy": 7,
+            "energy_source": "community",
+            "mood": "dark",
+            "mood_source": "community",
+        }
+
+        row = (
+            db.query(TrackVibeOverride)
+            .filter(
+                TrackVibeOverride.user_id == test_user.id,
+                TrackVibeOverride.track_id == "tidal:0",
+            )
+            .one()
+        )
+        assert row.source == "upvote"
+        assert row.energy_override == 7
+        assert row.mood_override == "dark"
+        assert row.energy_was is None
+        assert row.mood_was is None
+
+    def test_agree_rejects_track_with_no_vibe_to_upvote(self, client, db, auth_headers, set_id):
+        _seed_pool_tracks(db, set_id, 1)
+        pool_track_id = _pool_track_id(db, set_id)
+
+        resp = client.post(
+            f"/api/setbuilder/sets/{set_id}/pool/vibes/{pool_track_id}/agree",
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "No vibe available to agree with"
+        assert db.query(TrackVibeOverride).count() == 0
+
+    def test_tweak_writes_explicit_override_with_previous_resolved_capture(
+        self, client, db, auth_headers, set_id, test_user
+    ):
+        _seed_pool_tracks(db, set_id, 1)
+        pool_track_id = _pool_track_id(db, set_id)
+        llm = _llm_vibe_row("tidal:0", energy=5, confidence=0.8)
+        db.add(llm)
+        db.commit()
+        db.refresh(llm)
+
+        resp = client.patch(
+            f"/api/setbuilder/sets/{set_id}/pool/vibes/{pool_track_id}/override",
+            json={"energy": 8, "mood": "dark"},
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 200
+        (track,) = resp.json()["tracks"]
+        assert track["own"] == {"energy": 8, "mood": "dark"}
+        assert track["resolved"] == {
+            "energy": 8,
+            "energy_source": "own",
+            "mood": "dark",
+            "mood_source": "own",
+        }
+
+        row = (
+            db.query(TrackVibeOverride)
+            .filter(
+                TrackVibeOverride.user_id == test_user.id,
+                TrackVibeOverride.track_id == "tidal:0",
+            )
+            .one()
+        )
+        assert row.source == "explicit_edit"
+        assert row.energy_override == 8
+        assert row.mood_override == "dark"
+        assert row.energy_was == 5
+        assert row.mood_was == "happy"
+        assert row.overridden_from_vibe_id == llm.id
+
+    def test_tweak_carries_forward_omitted_fields_from_latest_vote(
+        self, client, db, auth_headers, set_id, test_user
+    ):
+        _seed_pool_tracks(db, set_id, 1)
+        pool_track_id = _pool_track_id(db, set_id)
+        _vote(db, "tidal:0", test_user.id, energy=6, mood="dark", source="explicit_edit")
+
+        resp = client.patch(
+            f"/api/setbuilder/sets/{set_id}/pool/vibes/{pool_track_id}/override",
+            json={"energy": 9},
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 200
+        rows = (
+            db.query(TrackVibeOverride)
+            .filter(
+                TrackVibeOverride.user_id == test_user.id,
+                TrackVibeOverride.track_id == "tidal:0",
+            )
+            .order_by(TrackVibeOverride.id)
+            .all()
+        )
+        assert len(rows) == 2
+        assert rows[-1].source == "explicit_edit"
+        assert rows[-1].energy_override == 9
+        assert rows[-1].mood_override == "dark"
+        assert rows[-1].energy_was == 6
+        assert rows[-1].mood_was == "dark"
 
 
 class TestEnrichPoolVibes:

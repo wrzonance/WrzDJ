@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models.set import Set
 from app.models.set_pool import SetPoolTrack
-from app.models.track_vibe import TrackVibe, TrackVibeOverride
+from app.models.track_vibe import TRACK_VIBE_SOURCE_EXPLICIT_EDIT, TrackVibe, TrackVibeOverride
 from app.models.user import User
 from app.services.setbuilder.community_vibe import CommunityVibe, community_consensus
 from app.services.setbuilder.vibe_enrichment import PROMPT_VERSION, SCHEMA_VERSION, vibe_key
@@ -79,7 +79,7 @@ class TrackVibeState:
 
 
 def _own_overrides(db: Session, user_id: int, keys: list[str]) -> dict[str, OwnVibe]:
-    """Latest override per track for one user; rows with both fields null count as no override."""
+    """Latest explicit edit per track; upvotes are community votes, not own overrides."""
     unique_keys = list(dict.fromkeys(keys))
     rows = (
         db.query(TrackVibeOverride)
@@ -93,8 +93,19 @@ def _own_overrides(db: Session, user_id: int, keys: list[str]) -> dict[str, OwnV
     return {
         key: OwnVibe(energy=row.energy_override, mood=row.mood_override)
         for key, row in latest.items()
-        if row.energy_override is not None or row.mood_override is not None
+        if row.source == TRACK_VIBE_SOURCE_EXPLICIT_EDIT
+        and (row.energy_override is not None or row.mood_override is not None)
     }
+
+
+def latest_override_row(db: Session, user_id: int, track_id: str) -> TrackVibeOverride | None:
+    """Latest vote snapshot for one user+track, regardless of source."""
+    return (
+        db.query(TrackVibeOverride)
+        .filter(TrackVibeOverride.user_id == user_id, TrackVibeOverride.track_id == track_id)
+        .order_by(TrackVibeOverride.id.desc())
+        .first()
+    )
 
 
 def _llm_vibes(db: Session, keys: list[str]) -> dict[str, TrackVibe]:

@@ -25,6 +25,8 @@ const mockApi = vi.hoisted(() => ({
   search: vi.fn(),
   getPoolVibes: vi.fn(),
   enrichPoolVibes: vi.fn(),
+  agreePoolVibe: vi.fn(),
+  overridePoolVibe: vi.fn(),
 }));
 
 vi.mock('@/lib/api', async (importOriginal) => {
@@ -103,6 +105,13 @@ const VIBE_STATE: TrackVibeState = {
 
 const POOL_VIBES: PoolVibesState = { tracks: [VIBE_STATE] };
 
+const COMMUNITY_VIBE_STATE: TrackVibeState = {
+  ...VIBE_STATE,
+  own: null,
+  community: { energy: 7, mood: 'dark', sample_size: 3 },
+  resolved: { energy: 7, energy_source: 'community', mood: 'dark', mood_source: 'community' },
+};
+
 const ENRICHED_VIBE_STATE: TrackVibeState = {
   ...VIBE_STATE,
   llm: {
@@ -126,6 +135,12 @@ const ENRICH_RESULT: VibeEnrichmentResult = {
   failed: 0,
   llm_calls: 2,
   vibes: { tracks: [ENRICHED_VIBE_STATE] },
+};
+
+const OVERRIDDEN_VIBE_STATE: TrackVibeState = {
+  ...COMMUNITY_VIBE_STATE,
+  own: { energy: 8, mood: 'gritty' },
+  resolved: { energy: 8, energy_source: 'own', mood: 'gritty', mood_source: 'own' },
 };
 
 beforeEach(() => {
@@ -339,6 +354,34 @@ describe('PoolPanel', () => {
     expect(await screen.findByText(/2 analyzed · 0 cached · 0 failed/)).toBeTruthy();
     // chips updated from the enrichment result — AI tier now populated
     expect(screen.getByLabelText('AI vibe: energy 5, mood happy')).toBeTruthy();
+  });
+
+  it('vibe controls agree and tweak pool-row ratings through the API', async () => {
+    mockApi.getPoolVibes.mockResolvedValue({ tracks: [COMMUNITY_VIBE_STATE] });
+    mockApi.agreePoolVibe.mockResolvedValue({ tracks: [COMMUNITY_VIBE_STATE] });
+    mockApi.overridePoolVibe.mockResolvedValue({ tracks: [OVERRIDDEN_VIBE_STATE] });
+    render(<PoolPanel setId={1} />);
+    await screen.findByText('Event Song');
+
+    fireEvent.click(screen.getByText('Vibes'));
+    expect(await screen.findByLabelText('Vibe source: community consensus')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Agree' }));
+    await waitFor(() => expect(mockApi.agreePoolVibe).toHaveBeenCalledWith(1, 11));
+    expect(await screen.findByText('Vibe upvoted')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tweak' }));
+    fireEvent.change(screen.getByLabelText('Energy'), { target: { value: '8' } });
+    fireEvent.change(screen.getByLabelText('Mood'), { target: { value: 'gritty' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() =>
+      expect(mockApi.overridePoolVibe).toHaveBeenCalledWith(1, 11, {
+        energy: 8,
+        mood: 'gritty',
+      })
+    );
+    expect(await screen.findByLabelText('Your vibe: energy 8, mood gritty')).toBeTruthy();
   });
 
   it('analyze failure surfaces ApiError 400 message, generic text otherwise', async () => {

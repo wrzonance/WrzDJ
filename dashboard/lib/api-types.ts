@@ -247,6 +247,7 @@ export type BuilderPlaylists = Schemas['BuilderPlaylistsOut'];
 export type PoolVibesState = Schemas['PoolVibesState'];
 export type TrackVibeState = Schemas['TrackVibeStateOut'];
 export type VibeEnrichmentResult = Schemas['VibeEnrichmentResult'];
+export type PoolVibeOverrideIn = Schemas['PoolVibeOverrideIn'];
 
 // WrzDJSet sharing + duplication (issue #398)
 export interface ShareTokenOut {

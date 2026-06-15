@@ -24,6 +24,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.time import utcnow
 from app.models.base import Base
 
+TRACK_VIBE_SOURCE_EXPLICIT_EDIT = "explicit_edit"
+TRACK_VIBE_SOURCE_UPVOTE = "upvote"
+TRACK_VIBE_SOURCE_DOWNVOTE_IMPLICIT = "downvote_implicit"
+
 
 class TrackVibe(Base):
     """Global LLM vibe cache. One row per track+provider+model+prompt+schema."""

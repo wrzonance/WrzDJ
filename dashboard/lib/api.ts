@@ -61,6 +61,7 @@ import type {
   PoolMutationResult,
   PoolState,
   PoolUrlPreview,
+  PoolVibeOverrideIn,
   PoolVibesState,
   PublicEvent,
   RecommendationResponse,
@@ -852,6 +853,21 @@ class ApiClient {
   }
   async enrichPoolVibes(setId: number): Promise<VibeEnrichmentResult> {
     return this.fetch(`/api/setbuilder/sets/${setId}/pool/vibes/enrich`, { method: 'POST' });
+  }
+  async agreePoolVibe(setId: number, poolTrackId: number): Promise<PoolVibesState> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/pool/vibes/${poolTrackId}/agree`, {
+      method: 'POST',
+    });
+  }
+  async overridePoolVibe(
+    setId: number,
+    poolTrackId: number,
+    payload: PoolVibeOverrideIn
+  ): Promise<PoolVibesState> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/pool/vibes/${poolTrackId}/override`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
   }
   async getBuilderPlaylists(): Promise<BuilderPlaylists> {
     return this.fetch('/api/setbuilder/playlists');

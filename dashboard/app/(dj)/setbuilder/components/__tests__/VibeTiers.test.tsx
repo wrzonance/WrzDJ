@@ -4,8 +4,8 @@
  * and winner highlight from the resolved precedence.
  */
 
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import type { TrackVibeState } from '@/lib/api-types';
 import styles from '../../setbuilder.module.css';
 import VibeTiers from '../VibeTiers';
@@ -44,7 +44,7 @@ describe('VibeTiers', () => {
   it('renders all three tiers side-by-side with their values', () => {
     render(<VibeTiers state={makeState()} />);
     // labels
-    expect(screen.getByText('You')).toBeTruthy();
+    expect(screen.getAllByText('You').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('Crowd')).toBeTruthy();
     expect(screen.getByText('AI')).toBeTruthy();
     // own: E9 (no mood)
@@ -106,5 +106,46 @@ describe('VibeTiers', () => {
     expect(crowd.className).toContain(styles.vibeWinner);
     const ai = screen.getByLabelText('AI vibe: energy 5, mood happy');
     expect(ai.className).not.toContain(styles.vibeWinner);
+  });
+
+  it('shows the highest-priority row source indicator', () => {
+    const { rerender } = render(<VibeTiers state={makeState()} />);
+    expect(screen.getByLabelText('Vibe source: your override').textContent).toBe('You');
+
+    rerender(<VibeTiers state={makeState({ own: null })} />);
+    expect(screen.getByLabelText('Vibe source: community consensus').textContent).toBe('Crowd');
+
+    rerender(
+      <VibeTiers
+        state={makeState({
+          own: null,
+          community: null,
+          resolved: { energy: 5, energy_source: 'llm', mood: 'happy', mood_source: 'llm' },
+        })}
+      />
+    );
+    expect(screen.getByLabelText('Vibe source: AI guess').textContent).toBe('AI');
+  });
+
+  it('offers agree and tweak controls when callbacks are provided', () => {
+    const onAgree = vi.fn();
+    const onSaveOverride = vi.fn();
+    render(
+      <VibeTiers
+        state={makeState({ own: null })}
+        onAgree={onAgree}
+        onSaveOverride={onSaveOverride}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Agree' }));
+    expect(onAgree).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tweak' }));
+    fireEvent.change(screen.getByLabelText('Energy'), { target: { value: '8' } });
+    fireEvent.change(screen.getByLabelText('Mood'), { target: { value: 'gritty' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(onSaveOverride).toHaveBeenCalledWith({ energy: 8, mood: 'gritty' });
   });
 });

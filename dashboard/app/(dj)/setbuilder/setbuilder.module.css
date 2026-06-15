@@ -2141,10 +2141,36 @@
 
 /* Three-tier vibe chips (issue #391) */
 
+.vibeBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.vibeTopRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.vibeSource {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid #4b5563;
+  color: #d1d5db;
+  font-size: 10px;
+  font-weight: 700;
+}
+
 .vibeTiers {
   display: flex;
   gap: 6px;
-  margin-top: 4px;
+  flex-wrap: wrap;
 }
 
 .vibeChip {
@@ -2175,6 +2201,68 @@
 
 .vibeWinner {
   border-color: var(--color-primary, #8b5cf6);
+}
+
+.vibeActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.vibeActionBtn {
+  min-height: 20px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--border, #3a3a3a);
+  background: #202020;
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.vibeActionBtn:hover:not(:disabled) {
+  border-color: #6b7280;
+  color: var(--text-primary, #ededed);
+}
+
+.vibeActionBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.vibeEditForm {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.vibeEditLabel {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.vibeNumber,
+.vibeMood {
+  min-height: 24px;
+  border: 1px solid var(--border, #3a3a3a);
+  border-radius: 4px;
+  background: #111;
+  color: var(--text-primary, #ededed);
+  font-size: 12px;
+  padding: 2px 6px;
+}
+
+.vibeNumber {
+  width: 54px;
+}
+
+.vibeMood {
+  width: 110px;
 }
 
 @media (max-width: 980px) {

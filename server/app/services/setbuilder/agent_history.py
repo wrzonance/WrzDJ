@@ -18,7 +18,9 @@ COMPACTION_TURN_THRESHOLD = 30
 SUMMARY_CHAR_LIMIT = 6_000
 
 
-def get_or_create_session(db: Session, set_id: int, user_id: int) -> SetAgentSession:
+def get_or_create_session(
+    db: Session, set_id: int, user_id: int, *, commit: bool = True
+) -> SetAgentSession:
     session = (
         db.query(SetAgentSession)
         .filter(SetAgentSession.set_id == set_id, SetAgentSession.user_id == user_id)
@@ -28,7 +30,10 @@ def get_or_create_session(db: Session, set_id: int, user_id: int) -> SetAgentSes
         return session
     session = SetAgentSession(set_id=set_id, user_id=user_id)
     db.add(session)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(session)
     return session
 
@@ -51,6 +56,7 @@ def append_message(
     display_summary: str | None = None,
     tool_calls: list[dict[str, Any]] | None = None,
     affected_transition_scores: list[dict[str, Any]] | None = None,
+    commit: bool = True,
 ) -> SetAgentMessage:
     message = SetAgentMessage(
         session_id=session.id,
@@ -65,7 +71,10 @@ def append_message(
         ),
     )
     db.add(message)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(message)
     return message
 
@@ -112,6 +121,7 @@ def compact_if_needed(
     *,
     turn_threshold: int = COMPACTION_TURN_THRESHOLD,
     char_budget: int = CONTEXT_CHAR_BUDGET,
+    commit: bool = True,
 ) -> bool:
     messages = list_messages(db, session)
     last_cursor = session.compacted_through_message_id or 0
@@ -128,7 +138,10 @@ def compact_if_needed(
     next_summary = "\n".join(summary_parts)[-SUMMARY_CHAR_LIMIT:]
     session.context_summary = next_summary
     session.compacted_through_message_id = messages[-1].id if messages else last_cursor
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(session)
     return True
 

@@ -621,7 +621,7 @@ async def chat_with_set_agent(
 ) -> AgentChatOut:
     """Run one agent chat turn and apply validated tool calls."""
     set_obj = _get_owned_or_404(db, set_id, current_user)
-    session = agent_history.get_or_create_session(db, set_obj.id, current_user.id)
+    session = agent_history.get_or_create_session(db, set_obj.id, current_user.id, commit=False)
     try:
         result = await pass2_agent.chat_with_agent(
             db,
@@ -629,15 +629,18 @@ async def chat_with_set_agent(
             set_obj,
             message=payload.message,
             messages=agent_history.context_messages(db, set_obj, session, payload.message),
+            commit=False,
         )
     except NoLlmConfigured:
+        db.rollback()
         raise HTTPException(
             status_code=400,
             detail="No AI connector configured — connect one in Settings → AI.",
         ) from None
     except pass2_agent.AgentToolError as exc:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    agent_history.append_message(db, session, role="user", content=payload.message)
+    agent_history.append_message(db, session, role="user", content=payload.message, commit=False)
     tool_call_payloads = [
         {
             "id": t.id,
@@ -667,8 +670,11 @@ async def chat_with_set_agent(
         display_summary=result.message,
         tool_calls=tool_call_payloads,
         affected_transition_scores=score_payloads,
+        commit=False,
     )
-    agent_history.compact_if_needed(db, session)
+    agent_history.compact_if_needed(db, session, commit=False)
+    db.commit()
+    db.refresh(assistant_message)
     db.expire(set_obj, ["slots"])
     return AgentChatOut(
         message=result.message,

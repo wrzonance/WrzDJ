@@ -501,7 +501,7 @@ class AppliedToolCallOut(BaseModel):
     rationale: str | None
     result: dict
     mutating: bool
-    display_summary: str
+    display_summary: str = ""
 
 
 class AgentChatMessageOut(BaseModel):

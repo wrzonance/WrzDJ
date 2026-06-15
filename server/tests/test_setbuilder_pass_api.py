@@ -182,6 +182,40 @@ def test_agent_history_initially_empty_without_llm(monkeypatch, client, auth_hea
     assert body["uses_compact_context"] is True
 
 
+def test_agent_history_handles_legacy_tool_call_without_display_summary(
+    client, auth_headers, db, test_user
+):
+    from app.services.setbuilder import agent_history
+
+    set_obj = _mk_set(client, auth_headers)
+    session = agent_history.get_or_create_session(db, set_obj["id"], test_user.id)
+    agent_history.append_message(
+        db,
+        session,
+        role="assistant",
+        content="Legacy assistant turn.",
+        tool_calls=[
+            {
+                "id": "legacy-1",
+                "name": "swap_slots",
+                "args": {},
+                "rationale": None,
+                "result": {},
+                "mutating": True,
+            }
+        ],
+    )
+
+    resp = client.get(
+        f"/api/setbuilder/sets/{set_obj['id']}/agent/history",
+        headers=auth_headers,
+    )
+
+    assert resp.status_code == 200, resp.json()
+    body = resp.json()
+    assert body["messages"][0]["tool_calls"][0]["display_summary"] == ""
+
+
 def test_agent_chat_persists_turns_and_history(monkeypatch, client, auth_headers, db):
     set_obj = _mk_set(client, auth_headers)
     _mk_pool(db, set_obj["id"])
@@ -234,6 +268,86 @@ def test_agent_chat_persists_turns_and_history(monkeypatch, client, auth_headers
     assert [m["role"] for m in history["messages"]] == ["user", "assistant"]
     assert history["messages"][0]["content"] == "Swap the opener"
     assert history["messages"][1]["display_summary"].startswith("Swapped slot 1")
+
+
+def test_agent_chat_rolls_back_all_work_when_later_tool_fails(
+    monkeypatch, client, auth_headers, db
+):
+    from app.models.set import SetSlot
+
+    set_obj = _mk_set(client, auth_headers)
+    _mk_pool(db, set_obj["id"])
+    built = client.post(
+        f"/api/setbuilder/sets/{set_obj['id']}/build",
+        json={"confirmed": True},
+        headers=auth_headers,
+    ).json()
+    first, second, locked = built["slots"][0], built["slots"][1], built["slots"][2]
+    locked_slot = db.get(SetSlot, locked["id"])
+    locked_slot.locked = True
+    db.commit()
+
+    original_track_ids = [
+        track_id
+        for (track_id,) in (
+            db.query(SetSlot.track_id)
+            .filter(SetSlot.set_id == set_obj["id"])
+            .order_by(SetSlot.position.asc())
+            .all()
+        )
+    ]
+
+    async def fake_dispatch(*args, **kwargs):
+        return ChatResponse(
+            text="",
+            stop_reason="tool_use",
+            tool_calls=[
+                ToolCall(
+                    id="swap-1",
+                    name="swap_slots",
+                    input={
+                        "slot_a_id": first["id"],
+                        "slot_b_id": second["id"],
+                        "rationale": "Try the better opener.",
+                    },
+                ),
+                ToolCall(
+                    id="remove-1",
+                    name="remove_slot",
+                    input={
+                        "slot_id": locked["id"],
+                        "rationale": "Remove the locked slot.",
+                    },
+                ),
+            ],
+        )
+
+    monkeypatch.setattr("app.services.setbuilder.pass2_agent.Gateway.dispatch", fake_dispatch)
+
+    resp = client.post(
+        f"/api/setbuilder/sets/{set_obj['id']}/agent/chat",
+        json={"message": "Swap first, then remove locked"},
+        headers=auth_headers,
+    )
+
+    assert resp.status_code == 400, resp.json()
+    db.expire_all()
+    current_track_ids = [
+        track_id
+        for (track_id,) in (
+            db.query(SetSlot.track_id)
+            .filter(SetSlot.set_id == set_obj["id"])
+            .order_by(SetSlot.position.asc())
+            .all()
+        )
+    ]
+    assert current_track_ids == original_track_ids
+
+    history = client.get(
+        f"/api/setbuilder/sets/{set_obj['id']}/agent/history",
+        headers=auth_headers,
+    ).json()
+    assert history["messages"] == []
 
 
 def test_agent_history_owner_isolation(client, auth_headers, db):

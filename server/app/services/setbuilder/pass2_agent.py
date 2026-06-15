@@ -125,6 +125,7 @@ async def chat_with_agent(
     message: str,
     history: list[dict[str, str]] | None = None,
     messages: list[Message] | None = None,
+    commit: bool = True,
 ) -> AgentChatResult:
     """Run one chat turn and apply any requested setbuilder tools."""
     if messages is None:
@@ -156,34 +157,43 @@ async def chat_with_agent(
     )
     applied: list[AppliedToolCall] = []
     affected: set[int] = set()
-    for call in response.tool_calls:
-        before = _slot_snapshots(db, set_obj)
-        result, positions = apply_tool_call(db, set_obj, call.name, call.input)
-        after = _slot_snapshots(db, set_obj)
-        mutating = call.name in MUTATION_TOOLS
-        summary = _tool_display_summary(call.name, call.input, result, before, after)
-        applied.append(
-            AppliedToolCall(
-                id=call.id,
-                name=call.name,
-                args=call.input,
-                rationale=call.input.get("rationale"),
-                result=result,
-                mutating=mutating,
-                display_summary=summary,
+    try:
+        for call in response.tool_calls:
+            before = _slot_snapshots(db, set_obj)
+            result, positions = apply_tool_call(db, set_obj, call.name, call.input)
+            after = _slot_snapshots(db, set_obj)
+            mutating = call.name in MUTATION_TOOLS
+            summary = _tool_display_summary(call.name, call.input, result, before, after)
+            applied.append(
+                AppliedToolCall(
+                    id=call.id,
+                    name=call.name,
+                    args=call.input,
+                    rationale=call.input.get("rationale"),
+                    result=result,
+                    mutating=mutating,
+                    display_summary=summary,
+                )
             )
-        )
-        affected.update(positions)
+            affected.update(positions)
 
-    message = response.text or ""
-    if not message.strip() and applied:
-        message = " ".join(tool.display_summary for tool in applied)
+        message = response.text or ""
+        if not message.strip() and applied:
+            message = " ".join(tool.display_summary for tool in applied)
 
-    slots = _ordered_slots(db, set_obj.id)
-    transition_scores: list[TransitionScore] = []
-    if affected:
-        affected_with_neighbors = _with_neighbors(affected)
-        transition_scores = recompute_transition_scores(db, set_obj, slots, affected_with_neighbors)
+        slots = _ordered_slots(db, set_obj.id)
+        transition_scores: list[TransitionScore] = []
+        if affected:
+            affected_with_neighbors = _with_neighbors(affected)
+            transition_scores = recompute_transition_scores(
+                db, set_obj, slots, affected_with_neighbors, commit=False
+            )
+    except Exception:
+        if commit:
+            db.rollback()
+        raise
+    if commit:
+        db.commit()
     return AgentChatResult(
         message=message,
         tool_calls=applied,
@@ -238,7 +248,7 @@ def _tool_reorder_slot(
     remaining.insert(new_position, moving)
     for idx, row in enumerate(remaining):
         row.position = idx
-    db.commit()
+    db.flush()
     return {"slot_id": slot.id, "position": new_position}, set(range(low, high + 1))
 
 
@@ -251,7 +261,7 @@ def _tool_swap_slots(
         raise AgentToolError("Locked slots cannot be swapped")
     a.track_id, b.track_id = b.track_id, a.track_id
     a.target_energy, b.target_energy = b.target_energy, a.target_energy
-    db.commit()
+    db.flush()
     return {"slot_a_id": a.id, "slot_b_id": b.id}, {a.position, b.position}
 
 
@@ -269,7 +279,7 @@ def _tool_remove_slot(
     for row in slots:
         if row.id != slot.id and row.position > position:
             row.position -= 1
-    db.commit()
+    db.flush()
     return {"removed_slot_id": slot.id}, {position}
 
 
@@ -309,7 +319,7 @@ def _tool_add_slow_window(
         raise AgentToolError("t1_sec must be greater than t0_sec")
     windows = curve.get_vibe_windows(db, set_obj.id)
     windows.append({"t0_sec": t0_sec, "t1_sec": t1_sec, "label": label})
-    curve.replace_vibe_windows(db, set_obj, windows)
+    curve.replace_vibe_windows(db, set_obj, windows, commit=False)
     return {"label": label, "t0_sec": t0_sec, "t1_sec": t1_sec}, set()
 
 
@@ -320,7 +330,7 @@ def _tool_set_peak_at(
     energy = float(payload.get("energy", 10.0))
     slot = _slot_at_position_or_error(db, set_obj.id, position)
     slot.target_energy = round(max(0.0, min(10.0, energy)), 1)
-    db.commit()
+    db.flush()
     return {"slot_id": slot.id, "target_energy": slot.target_energy}, {slot.position}
 
 
@@ -337,7 +347,7 @@ def _tool_bump_energy(
     for slot in slots:
         base = slot.target_energy if slot.target_energy is not None else 5.0
         slot.target_energy = round(max(0.0, min(10.0, base + amount)), 1)
-    db.commit()
+    db.flush()
     return {"updated": len(slots)}, {s.position for s in slots}
 
 
@@ -382,7 +392,7 @@ def _insert_track_at(
             slot.position += 1
     slot_track_id = track.track_id or f"pool:{track.id}"
     db.add(SetSlot(set_id=set_obj.id, position=position, track_id=slot_track_id))
-    db.commit()
+    db.flush()
     return {"pool_track_id": track.id, "position": position}, set(range(position, len(slots) + 1))
 
 

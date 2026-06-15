@@ -1,6 +1,8 @@
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import BuilderWorkspace from '../components/BuilderWorkspace';
+import { timelineMeasurementKey } from '../components/TimelinePanel';
+import { slotViewFromApi } from '../components/types';
 import type { PoolTrack, SetDocumentSnapshot, SetSlotOut } from '@/lib/api-types';
 
 beforeAll(() => {
@@ -528,6 +530,26 @@ describe('BuilderWorkspace', () => {
     expect(screen.getByTestId('timeline-transition-0')).toHaveTextContent('94');
   });
 
+  it('measurement key changes when transition or pairing metadata changes without slot reorder', () => {
+    const baseSlots = SLOTS.map((slot, idx) => slotViewFromApi(slot, POOL_TRACKS[idx]));
+    const scoreChangedSlots = SLOTS.map((slot, idx) =>
+      slotViewFromApi(idx === 0 ? { ...slot, transition_score: 94 } : slot, POOL_TRACKS[idx]),
+    );
+    const pairingChangedSlots = SLOTS.map((slot, idx) =>
+      slotViewFromApi(
+        idx === 0 ? { ...slot, next_pairing_id: 77, next_is_dj_pairing: true } : slot,
+        POOL_TRACKS[idx],
+      ),
+    );
+
+    expect(scoreChangedSlots.map((slot) => slot.id)).toEqual(baseSlots.map((slot) => slot.id));
+    expect(pairingChangedSlots.map((slot) => slot.id)).toEqual(baseSlots.map((slot) => slot.id));
+    expect(timelineMeasurementKey(scoreChangedSlots)).not.toBe(timelineMeasurementKey(baseSlots));
+    expect(timelineMeasurementKey(pairingChangedSlots)).not.toBe(
+      timelineMeasurementKey(baseSlots),
+    );
+  });
+
   it('timeline context menu saves the transition to the next slot as a pairing', async () => {
     render(<BuilderWorkspace setId={5} />);
     await waitFor(() => expect(screen.getByTestId('timeline-row-0')).toBeInTheDocument());
@@ -553,6 +575,39 @@ describe('BuilderWorkspace', () => {
     // scrollIntoView only fires when out of view; with jsdom 0-rects rows are
     // "in view", so just assert no crash and the row exists.
     expect(screen.getByTestId('timeline-row-2')).toBeInTheDocument();
+  });
+
+  it('click on a curve block scrolls once and does not replay after manual scroll measurement', async () => {
+    const slots = largeSlots(120);
+    const tracks = largePoolTracks(120);
+    mockGetSetSlots.mockResolvedValue(slots);
+    mockGetPool.mockResolvedValue({ sources: [], tracks });
+
+    let measuredRowHeight = 52;
+    const offsetHeightSpy = vi
+      .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
+      .mockImplementation(() => measuredRowHeight);
+
+    try {
+      render(<BuilderWorkspace setId={5} />);
+      await waitFor(() => expect(screen.getByTestId('slot-block-80')).toBeInTheDocument());
+
+      const timelineList = screen.getByTestId('timeline-list');
+      fireEvent.click(screen.getByTestId('slot-block-80'));
+
+      await waitFor(() => expect(screen.getByTestId('timeline-row-80')).toBeInTheDocument());
+      expect(timelineList.scrollTop).toBeGreaterThan(0);
+
+      measuredRowHeight = 60;
+      fireEvent.scroll(timelineList, { target: { scrollTop: 0 } });
+
+      await waitFor(() => expect(screen.getByTestId('timeline-row-0')).toBeInTheDocument());
+      await act(async () => {});
+
+      expect(timelineList.scrollTop).toBe(0);
+    } finally {
+      offsetHeightSpy.mockRestore();
+    }
   });
 
   it('dropping a pool track on a timeline row inserts it before that row', async () => {

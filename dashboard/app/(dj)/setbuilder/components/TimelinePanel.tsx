@@ -44,6 +44,18 @@ export interface TimelinePanelProps {
 const ESTIMATED_SLOT_GROUP_HEIGHT = 52;
 const TIMELINE_OVERSCAN_ROWS = 8;
 
+export function timelineMeasurementKey(slots: SlotView[]): string {
+  return slots
+    .map((slot) =>
+      [
+        slot.id,
+        slot.transitionScore ?? '',
+        slot.nextIsDjPairing ? 1 : 0,
+      ].join(','),
+    )
+    .join(':');
+}
+
 export default function TimelinePanel({
   slots,
   hoveredIdx,
@@ -57,13 +69,13 @@ export default function TimelinePanel({
   onPoolTrackDrop,
 }: TimelinePanelProps) {
   const listRef = useRef<HTMLDivElement>(null);
-  const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const handledScrollRequestNRef = useRef<number | null>(null);
   const [menu, setMenu] = useState<TimelineMenu | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
 
-  const measurementKey = useMemo(() => slots.map((slot) => slot.id).join(':'), [slots]);
+  const measurementKey = useMemo(() => timelineMeasurementKey(slots), [slots]);
   const virtual = useMeasuredVirtualList({
     itemCount: slots.length,
     estimateHeight: ESTIMATED_SLOT_GROUP_HEIGHT,
@@ -104,6 +116,9 @@ export default function TimelinePanel({
 
   useEffect(() => {
     if (!scrollRequest || !listRef.current) return;
+    if (handledScrollRequestNRef.current === scrollRequest.n) return;
+    handledScrollRequestNRef.current = scrollRequest.n;
+
     const nextScrollTop = scrollTopForIndex(scrollRequest.idx);
     listRef.current.scrollTop = nextScrollTop;
     setScrollTop(nextScrollTop);
@@ -221,9 +236,6 @@ export default function TimelinePanel({
             onRowDoubleClick={onRowDoubleClick}
             onPoolTrackDrop={onPoolTrackDrop}
             setMenu={setMenu}
-            setRowRef={(rowIdx, el) => {
-              rowRefs.current[rowIdx] = el;
-            }}
             measureRef={measureSlotGroup}
           />
         );

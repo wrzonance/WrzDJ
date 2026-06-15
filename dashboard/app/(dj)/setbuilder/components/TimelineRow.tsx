@@ -1,6 +1,6 @@
 'use client';
 
-import { type Dispatch, type DragEvent, type SetStateAction } from 'react';
+import { type Dispatch, type DragEvent, type SetStateAction, useCallback } from 'react';
 import { fmtTime } from './curveMath';
 import { readPoolTrackDragPayload } from './dnd';
 import { localPositionSec } from './transportMath';
@@ -30,7 +30,6 @@ export interface TimelineRowProps {
   onRowDoubleClick?: (idx: number) => void;
   onPoolTrackDrop?: (poolTrackId: number, insertIdx: number) => void | Promise<void>;
   setMenu: Dispatch<SetStateAction<TimelineMenu | null>>;
-  setRowRef: (idx: number, el: HTMLDivElement | null) => void;
   measureRef?: (idx: number, el: HTMLDivElement | null) => void;
 }
 
@@ -50,7 +49,6 @@ export default function TimelineRow({
   onRowDoubleClick,
   onPoolTrackDrop,
   setMenu,
-  setRowRef,
   measureRef,
 }: TimelineRowProps) {
   const seamScore = prevSlot?.transitionScore ?? slot.transitionScore;
@@ -69,6 +67,12 @@ export default function TimelineRow({
   const pairingActionLabel = slot.nextIsDjPairing
     ? `Open saved pairing after ${slot.track.title}`
     : `Save ${slot.track.title} into ${nextSlot?.track.title ?? 'next track'} as pairing`;
+  const handleMeasureRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      measureRef?.(idx, el);
+    },
+    [idx, measureRef],
+  );
 
   const markPoolTrackDrop = (event: DragEvent<HTMLElement>, insertIdx: number) => {
     event.preventDefault();
@@ -92,7 +96,7 @@ export default function TimelineRow({
   };
 
   return (
-    <div className={styles.timelineSlotGroup} ref={(el) => measureRef?.(idx, el)}>
+    <div className={styles.timelineSlotGroup} ref={handleMeasureRef}>
       {idx > 0 && (isPairedSeam || seamScore != null) && (
         <div
           className={`${styles.timelineTransition} ${
@@ -121,9 +125,6 @@ export default function TimelineRow({
         </div>
       )}
       <div
-        ref={(el) => {
-          setRowRef(idx, el);
-        }}
         className={`${styles.timelineRow} ${hoveredIdx === idx ? styles.timelineRowHover : ''} ${
           isCurrent ? styles.timelineRowNow : ''
         } ${dropIdx === idx ? styles.timelineRowDrop : ''}`}

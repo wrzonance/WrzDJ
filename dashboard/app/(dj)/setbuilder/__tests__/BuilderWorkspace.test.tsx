@@ -577,6 +577,53 @@ describe('BuilderWorkspace', () => {
     expect(screen.getByTestId('timeline-row-2')).toBeInTheDocument();
   });
 
+  it('click on a visible curve block keeps the timeline scroll position stable', async () => {
+    const slots = largeSlots(40);
+    const tracks = largePoolTracks(40);
+    mockGetSetSlots.mockResolvedValue(slots);
+    mockGetPool.mockResolvedValue({ sources: [], tracks });
+
+    render(<BuilderWorkspace setId={5} />);
+    await waitFor(() => expect(screen.getByTestId('slot-block-2')).toBeInTheDocument());
+
+    const timelineList = screen.getByTestId('timeline-list');
+    Object.defineProperty(timelineList, 'clientHeight', {
+      value: 260,
+      configurable: true,
+    });
+    timelineList.scrollTop = 52;
+    fireEvent.scroll(timelineList);
+
+    fireEvent.click(screen.getByTestId('slot-block-2'));
+
+    await act(async () => {});
+    expect(timelineList.scrollTop).toBe(52);
+  });
+
+  it('external jump requests wait for the requested row to exist', async () => {
+    const { rerender } = render(<BuilderWorkspace setId={5} refreshToken={0} />);
+    await waitFor(() => expect(screen.getByTestId('timeline-row-0')).toBeInTheDocument());
+
+    const timelineList = screen.getByTestId('timeline-list');
+    Object.defineProperty(timelineList, 'clientHeight', {
+      value: 260,
+      configurable: true,
+    });
+
+    window.dispatchEvent(new CustomEvent('wrzdj:setbuilder-jump-slot', { detail: { idx: 80 } }));
+    await act(async () => {});
+    expect(timelineList.scrollTop).toBe(0);
+
+    const slots = largeSlots(120);
+    const tracks = largePoolTracks(120);
+    mockGetSetSlots.mockResolvedValue(slots);
+    mockGetPool.mockResolvedValue({ sources: [], tracks });
+    rerender(<BuilderWorkspace setId={5} refreshToken={1} />);
+
+    await waitFor(() => expect(screen.getByTestId('timeline-row-80')).toBeInTheDocument());
+    expect(timelineList.scrollTop).toBeGreaterThan(0);
+  });
+
   it('click on a curve block scrolls once and does not replay after manual scroll measurement', async () => {
     const slots = largeSlots(120);
     const tracks = largePoolTracks(120);

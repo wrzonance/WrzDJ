@@ -117,12 +117,28 @@ export default function TimelinePanel({
   useEffect(() => {
     if (!scrollRequest || !listRef.current) return;
     if (handledScrollRequestNRef.current === scrollRequest.n) return;
+    if (scrollRequest.idx < 0 || scrollRequest.idx >= slots.length) return;
     handledScrollRequestNRef.current = scrollRequest.n;
 
-    const nextScrollTop = scrollTopForIndex(scrollRequest.idx);
-    listRef.current.scrollTop = nextScrollTop;
+    const list = listRef.current;
+    const rowTop = scrollTopForIndex(scrollRequest.idx);
+    const rowBottom = scrollTopForIndex(scrollRequest.idx + 1);
+    const rowHeight = Math.max(1, rowBottom - rowTop);
+    const visibleTop = list.scrollTop;
+    const visibleHeight =
+      viewportHeight || list.clientHeight || list.getBoundingClientRect().height || rowHeight;
+    const visibleBottom = visibleTop + visibleHeight;
+    let nextScrollTop = visibleTop;
+
+    if (rowTop < visibleTop) {
+      nextScrollTop = rowTop;
+    } else if (rowBottom > visibleBottom) {
+      nextScrollTop = Math.max(0, rowBottom - visibleHeight);
+    }
+
+    list.scrollTop = nextScrollTop;
     setScrollTop(nextScrollTop);
-  }, [scrollRequest, scrollTopForIndex]);
+  }, [scrollRequest, scrollTopForIndex, slots.length, viewportHeight]);
 
   useEffect(() => {
     if (!menu) return;

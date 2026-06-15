@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { SlotView } from '../components/types';
+import { effectiveTarget, type SlotView } from '../components/types';
 import {
   CURVE_LOD_THRESHOLDS,
   clampPxPerSecond,
@@ -61,8 +61,20 @@ describe('curveViewport helpers', () => {
     });
   });
 
+  it('clamps stale scroll into a valid viewport range', () => {
+    expect(
+      curveViewportRange({ scrollLeft: 200, viewportWidth: 50, pxPerSecond: 1, totalSec: 100 }),
+    ).toEqual({
+      startSec: 50,
+      endSec: 100,
+    });
+  });
+
   it('returns only visible blocks plus overscan in viewport-local coordinates', () => {
-    const slots = Array.from({ length: 20 }, (_, i) => mkSlot(i, 60));
+    const explicitTargetSlot = { ...mkSlot(5, 60), targetEnergy: 9 };
+    const slots = Array.from({ length: 20 }, (_, i) =>
+      i === 5 ? explicitTargetSlot : mkSlot(i, 60),
+    );
     const blocks = visibleBlocksFromSlots({
       slots,
       visibleStartSec: 300,
@@ -75,6 +87,9 @@ describe('curveViewport helpers', () => {
     expect(blocks[0].x0).toBe(-120);
     expect(blocks[1].x0).toBe(0);
     expect(blocks[1].width).toBe(120);
+    expect(blocks.find((block) => block.idx === 5)?.target).toBe(
+      effectiveTarget(explicitTargetSlot),
+    );
   });
 
   it('uses median visible slot width for LOD thresholds', () => {

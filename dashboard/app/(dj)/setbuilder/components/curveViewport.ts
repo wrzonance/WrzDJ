@@ -59,11 +59,13 @@ export function curveViewportRange({
   totalSec: number;
 }): { startSec: number; endSec: number } {
   const scale = clampPxPerSecond(pxPerSecond);
-  const startSec = Math.max(0, scrollLeft / scale);
   const spanSec = Math.max(1, viewportWidth / scale);
+  const maxSec = Math.max(totalSec, 1);
+  const maxStartSec = Math.max(0, maxSec - spanSec);
+  const startSec = Math.min(maxStartSec, Math.max(0, scrollLeft / scale));
   return {
     startSec,
-    endSec: Math.min(Math.max(totalSec, 1), startSec + spanSec),
+    endSec: Math.min(maxSec, startSec + spanSec),
   };
 }
 

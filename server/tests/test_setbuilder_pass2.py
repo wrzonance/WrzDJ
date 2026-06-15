@@ -132,6 +132,36 @@ async def test_agent_swap_applies_and_returns_rationale(monkeypatch, db: Session
 
 
 @pytest.mark.asyncio
+async def test_agent_swap_returns_readable_tool_summary(monkeypatch, db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    slots = sorted(set_obj.slots, key=lambda s: s.position)
+
+    async def fake_dispatch(*args, **kwargs):
+        return ChatResponse(
+            text="",
+            stop_reason="tool_use",
+            tool_calls=[
+                ToolCall(
+                    id="swap-1",
+                    name="swap_slots",
+                    input={
+                        "slot_a_id": slots[0].id,
+                        "slot_b_id": slots[1].id,
+                        "rationale": "Start with the stronger groove.",
+                    },
+                )
+            ],
+        )
+
+    monkeypatch.setattr("app.services.setbuilder.pass2_agent.Gateway.dispatch", fake_dispatch)
+
+    result = await chat_with_agent(db, test_user, set_obj, message="Swap the first two")
+
+    assert result.message == "Swapped slot 1 Track 0 - Artist 0 with slot 2 Track 1 - Artist 1."
+    assert result.tool_calls[0].display_summary == result.message
+
+
+@pytest.mark.asyncio
 async def test_agent_remove_does_not_shift_locked_slots(monkeypatch, db: Session, test_user: User):
     set_obj = _mk_set_with_tracks(db, test_user)
     slots = sorted(set_obj.slots, key=lambda s: s.position)

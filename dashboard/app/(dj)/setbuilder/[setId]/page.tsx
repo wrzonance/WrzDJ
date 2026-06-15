@@ -79,7 +79,8 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
   const [builderSettings, setBuilderSettings] = useState(DEFAULT_SETTINGS);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const confirmResolverRef = useRef<((value: boolean) => void) | null>(null);
-  const history = useSetDocumentHistory(numericSetId);
+  const historyEnabled = !isLoading && isAuthenticated && role !== 'pending';
+  const history = useSetDocumentHistory(numericSetId, { enabled: historyEnabled });
   const [targetOpen, setTargetOpen] = useState(false);
   const [targetSettings, setTargetSettings] = useState<TargetSettings>({
     targetDurationSec: null,

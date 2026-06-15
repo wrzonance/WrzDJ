@@ -337,6 +337,7 @@ describe('BuilderWorkspace', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    window.localStorage.clear();
   });
 
   it('fetches slots and renders curve blocks + timeline rows', async () => {
@@ -509,7 +510,6 @@ describe('BuilderWorkspace', () => {
 
     await waitFor(() => expect(mockUpdateSlotTarget).toHaveBeenCalled());
     expect(screen.queryByTestId('replace-popover')).not.toBeInTheDocument();
-    window.localStorage.removeItem('wrzdj.curve.suggestReplacements');
   });
 
   it('applying a built-in template re-targets slots from the server response', async () => {
@@ -618,8 +618,7 @@ describe('BuilderWorkspace', () => {
 
     fireEvent.click(screen.getByTestId('slot-block-2'));
 
-    await act(async () => {});
-    expect(timelineList.scrollTop).toBe(52);
+    await waitFor(() => expect(timelineList.scrollTop).toBe(52));
   });
 
   it('click on a row with a clipped transition strip keeps the visible row stable', async () => {
@@ -685,8 +684,7 @@ describe('BuilderWorkspace', () => {
 
       fireEvent.click(screen.getByTestId('slot-block-2'));
 
-      await act(async () => {});
-      expect(timelineList.scrollTop).toBe(112);
+      await waitFor(() => expect(timelineList.scrollTop).toBe(112));
     } finally {
       rectSpy.mockRestore();
     }
@@ -703,8 +701,7 @@ describe('BuilderWorkspace', () => {
     });
 
     window.dispatchEvent(new CustomEvent('wrzdj:setbuilder-jump-slot', { detail: { idx: 80 } }));
-    await act(async () => {});
-    expect(timelineList.scrollTop).toBe(0);
+    await waitFor(() => expect(timelineList.scrollTop).toBe(0));
 
     const slots = largeSlots(120);
     const tracks = largePoolTracks(120);
@@ -741,9 +738,7 @@ describe('BuilderWorkspace', () => {
       fireEvent.scroll(timelineList, { target: { scrollTop: 0 } });
 
       await waitFor(() => expect(screen.getByTestId('timeline-row-0')).toBeInTheDocument());
-      await act(async () => {});
-
-      expect(timelineList.scrollTop).toBe(0);
+      await waitFor(() => expect(timelineList.scrollTop).toBe(0));
     } finally {
       offsetHeightSpy.mockRestore();
     }

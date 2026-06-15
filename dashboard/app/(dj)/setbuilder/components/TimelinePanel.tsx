@@ -69,6 +69,7 @@ export default function TimelinePanel({
   onPoolTrackDrop,
 }: TimelinePanelProps) {
   const listRef = useRef<HTMLDivElement>(null);
+  const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
   const handledScrollRequestNRef = useRef<number | null>(null);
   const [menu, setMenu] = useState<TimelineMenu | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
@@ -121,8 +122,17 @@ export default function TimelinePanel({
     handledScrollRequestNRef.current = scrollRequest.n;
 
     const list = listRef.current;
-    const rowTop = scrollTopForIndex(scrollRequest.idx);
-    const rowBottom = scrollTopForIndex(scrollRequest.idx + 1);
+    const row = rowRefs.current[scrollRequest.idx];
+    const listRect = row ? list.getBoundingClientRect() : null;
+    const rowRect = row ? row.getBoundingClientRect() : null;
+    const rowTop =
+      rowRect && listRect
+        ? list.scrollTop + rowRect.top - listRect.top
+        : scrollTopForIndex(scrollRequest.idx);
+    const rowBottom =
+      rowRect && listRect
+        ? list.scrollTop + rowRect.bottom - listRect.top
+        : scrollTopForIndex(scrollRequest.idx + 1);
     const rowHeight = Math.max(1, rowBottom - rowTop);
     const visibleTop = list.scrollTop;
     const visibleHeight =
@@ -252,6 +262,9 @@ export default function TimelinePanel({
             onRowDoubleClick={onRowDoubleClick}
             onPoolTrackDrop={onPoolTrackDrop}
             setMenu={setMenu}
+            setRowRef={(rowIdx, el) => {
+              rowRefs.current[rowIdx] = el;
+            }}
             measureRef={measureSlotGroup}
           />
         );

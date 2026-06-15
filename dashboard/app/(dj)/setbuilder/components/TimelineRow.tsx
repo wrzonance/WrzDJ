@@ -30,6 +30,7 @@ export interface TimelineRowProps {
   onRowDoubleClick?: (idx: number) => void;
   onPoolTrackDrop?: (poolTrackId: number, insertIdx: number) => void | Promise<void>;
   setMenu: Dispatch<SetStateAction<TimelineMenu | null>>;
+  setRowRef?: (idx: number, el: HTMLDivElement | null) => void;
   measureRef?: (idx: number, el: HTMLDivElement | null) => void;
 }
 
@@ -49,6 +50,7 @@ export default function TimelineRow({
   onRowDoubleClick,
   onPoolTrackDrop,
   setMenu,
+  setRowRef,
   measureRef,
 }: TimelineRowProps) {
   const seamScore = prevSlot?.transitionScore ?? slot.transitionScore;
@@ -72,6 +74,12 @@ export default function TimelineRow({
       measureRef?.(idx, el);
     },
     [idx, measureRef],
+  );
+  const handleRowRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      setRowRef?.(idx, el);
+    },
+    [idx, setRowRef],
   );
 
   const markPoolTrackDrop = (event: DragEvent<HTMLElement>, insertIdx: number) => {
@@ -125,6 +133,7 @@ export default function TimelineRow({
         </div>
       )}
       <div
+        ref={handleRowRef}
         className={`${styles.timelineRow} ${hoveredIdx === idx ? styles.timelineRowHover : ''} ${
           isCurrent ? styles.timelineRowNow : ''
         } ${dropIdx === idx ? styles.timelineRowDrop : ''}`}

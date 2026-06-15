@@ -600,6 +600,76 @@ describe('BuilderWorkspace', () => {
     expect(timelineList.scrollTop).toBe(52);
   });
 
+  it('click on a row with a clipped transition strip keeps the visible row stable', async () => {
+    const slots = largeSlots(40).map((slot, idx) =>
+      idx === 1 ? { ...slot, transition_score: 88 } : slot,
+    );
+    const tracks = largePoolTracks(40);
+    mockGetSetSlots.mockResolvedValue(slots);
+    mockGetPool.mockResolvedValue({ sources: [], tracks });
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function mockTimelineRects(this: HTMLElement) {
+        if (this.dataset.testid === 'timeline-list') {
+          return {
+            x: 0,
+            y: 0,
+            width: 320,
+            height: 260,
+            top: 0,
+            right: 320,
+            bottom: 260,
+            left: 0,
+            toJSON: () => ({}),
+          } as DOMRect;
+        }
+        if (this.dataset.testid === 'timeline-row-2') {
+          return {
+            x: 0,
+            y: 14,
+            width: 320,
+            height: 32,
+            top: 14,
+            right: 320,
+            bottom: 46,
+            left: 0,
+            toJSON: () => ({}),
+          } as DOMRect;
+        }
+        return {
+          x: 0,
+          y: 0,
+          width: 0,
+          height: 0,
+          top: 0,
+          right: 0,
+          bottom: 0,
+          left: 0,
+          toJSON: () => ({}),
+        } as DOMRect;
+      });
+
+    try {
+      render(<BuilderWorkspace setId={5} />);
+      await waitFor(() => expect(screen.getByTestId('timeline-transition-1')).toBeInTheDocument());
+
+      const timelineList = screen.getByTestId('timeline-list');
+      Object.defineProperty(timelineList, 'clientHeight', {
+        value: 260,
+        configurable: true,
+      });
+      timelineList.scrollTop = 112;
+      fireEvent.scroll(timelineList);
+
+      fireEvent.click(screen.getByTestId('slot-block-2'));
+
+      await act(async () => {});
+      expect(timelineList.scrollTop).toBe(112);
+    } finally {
+      rectSpy.mockRestore();
+    }
+  });
+
   it('external jump requests wait for the requested row to exist', async () => {
     const { rerender } = render(<BuilderWorkspace setId={5} refreshToken={0} />);
     await waitFor(() => expect(screen.getByTestId('timeline-row-0')).toBeInTheDocument());

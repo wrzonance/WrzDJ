@@ -127,7 +127,9 @@ def _create_seeded_set(client, db: Session, auth_headers: dict) -> int:
 def test_document_snapshot_round_trips_destructive_builder_state(client, db, auth_headers):
     set_id = _create_seeded_set(client, db, auth_headers)
 
-    original = client.get(f"/api/setbuilder/sets/{set_id}/document", headers=auth_headers).json()
+    original_resp = client.get(f"/api/setbuilder/sets/{set_id}/document", headers=auth_headers)
+    assert original_resp.status_code == 200, original_resp.json()
+    original = original_resp.json()
 
     patch_resp = client.patch(
         f"/api/setbuilder/sets/{set_id}/slots/9001/target",
@@ -188,7 +190,9 @@ def test_document_snapshot_restore_ignores_client_primary_keys(client, db, auth_
     )
     db.commit()
 
-    payload = client.get(f"/api/setbuilder/sets/{set_id}/document", headers=auth_headers).json()
+    payload_resp = client.get(f"/api/setbuilder/sets/{set_id}/document", headers=auth_headers)
+    assert payload_resp.status_code == 200, payload_resp.json()
+    payload = payload_resp.json()
     payload["slots"][0]["id"] = 9901
     payload["curve_points"][0]["id"] = 9902
     payload["pool"]["sources"][0]["id"] = 9903
@@ -201,10 +205,13 @@ def test_document_snapshot_restore_ignores_client_primary_keys(client, db, auth_
     )
     assert restore.status_code == 200, restore.json()
     restored = restore.json()
+    restored_source_ids = {source["id"] for source in restored["pool"]["sources"]}
     assert restored["slots"][0]["id"] != 9901
     assert restored["curve_points"][0]["id"] != 9902
     assert restored["pool"]["sources"][0]["id"] != 9903
     assert all(track["id"] != 9904 for track in restored["pool"]["tracks"])
+    assert all(track["source_id"] in restored_source_ids for track in restored["pool"]["tracks"])
+    assert all(track["source_id"] != 9903 for track in restored["pool"]["tracks"])
 
 
 def test_document_snapshot_owner_isolation(client, db, auth_headers):
@@ -235,6 +242,7 @@ def test_document_snapshot_rejects_tracks_for_missing_source(client, auth_header
     created = client.post(
         "/api/setbuilder/sets", json={"name": "Bad Snapshot"}, headers=auth_headers
     )
+    assert created.status_code == 201, created.json()
     set_id = created.json()["id"]
     payload = {
         "settings": {"key_strictness": 0.2},

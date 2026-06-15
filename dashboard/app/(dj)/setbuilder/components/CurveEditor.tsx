@@ -163,6 +163,15 @@ export default function CurveEditor({
   const showDenseSeams = lod === 'detail';
   const scrollableWidth = Math.max(effectiveViewportWidth, domainSec * effectivePxPerSecond);
 
+  const clientXToDomainT = (clientX: number) => {
+    if (!svgRef.current || domainSec <= 0) return 0;
+    const rect = svgRef.current.getBoundingClientRect();
+    const viewportT = (clientX - rect.left) / Math.max(1, rect.width);
+    const sec =
+      visibleRange.startSec + viewportT * (effectiveViewportWidth / effectivePxPerSecond);
+    return Math.max(0, Math.min(1, sec / domainSec));
+  };
+
   // Per-slot handle drag (vertical only)
   useEffect(() => {
     if (dragIdx == null) return;
@@ -204,8 +213,7 @@ export default function CurveEditor({
     if (!winDrag) return;
     const onMove = (ev: PointerEvent) => {
       if (!svgRef.current || !onWindowChange) return;
-      const rect = svgRef.current.getBoundingClientRect();
-      const mouseT = Math.max(0, Math.min(1, (ev.clientX - rect.left) / Math.max(1, rect.width)));
+      const mouseT = clientXToDomainT(ev.clientX);
       const dt = mouseT - winDrag.startMouseT;
       if (winDrag.mode === 'move') {
         const span = winDrag.startT1 - winDrag.startT0;
@@ -237,8 +245,7 @@ export default function CurveEditor({
       if (!svgRef.current || !onWindowChange) return;
       ev.preventDefault();
       ev.stopPropagation();
-      const rect = svgRef.current.getBoundingClientRect();
-      const mouseT = (ev.clientX - rect.left) / Math.max(1, rect.width);
+      const mouseT = clientXToDomainT(ev.clientX);
       setWinDrag({ id, mode, startMouseT: mouseT, startT0: t0, startT1: t1 });
     };
 
@@ -296,13 +303,14 @@ export default function CurveEditor({
           style={{ width: scrollableWidth }}
           aria-hidden="true"
         />
-        <svg
-          ref={svgRef}
-          className={styles.svg}
-          viewBox={`0 0 ${effectiveViewportWidth} ${h}`}
-          preserveAspectRatio="none"
-          onClickCapture={handleSvgClickCapture}
-        >
+      </div>
+      <svg
+        ref={svgRef}
+        className={styles.svg}
+        viewBox={`0 0 ${effectiveViewportWidth} ${h}`}
+        preserveAspectRatio="none"
+        onClickCapture={handleSvgClickCapture}
+      >
         <defs>
           <pattern
             id="curveGrid"
@@ -760,7 +768,6 @@ export default function CurveEditor({
 
         {/* Transport playhead lands with #393. */}
       </svg>
-      </div>
       <div className={styles.yaxis}>
         <div>10·peak</div>
         <div>7</div>

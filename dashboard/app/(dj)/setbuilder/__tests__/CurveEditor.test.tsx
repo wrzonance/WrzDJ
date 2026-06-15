@@ -221,6 +221,79 @@ describe('CurveEditor', () => {
     expect(onWindowDelete).toHaveBeenCalledWith('w1');
   });
 
+  it('keeps the viewport-local svg outside the horizontal scroll layer', () => {
+    const { container } = renderEditor({
+      pxPerSecond: 2,
+      scrollLeft: 200,
+      viewportWidth: 600,
+      scrubEnabled: true,
+      onScrub: vi.fn(),
+    });
+
+    const scrollViewport = screen.getByTestId('curve-scroll-viewport');
+    const svg = container.querySelector('svg');
+
+    expect(svg).not.toBeNull();
+    expect(scrollViewport.querySelector('svg')).toBeNull();
+    expect(svg?.parentElement).toBe(screen.getByTestId('curve-canvas'));
+    expect(screen.getByTestId('curve-scrub-hit')).toBeInTheDocument();
+  });
+
+  it('maps vibe-window move and resize through the visible viewport seconds', () => {
+    const onWindowChange = vi.fn();
+    const onWindowCommit = vi.fn();
+    const { container } = renderEditor({
+      slots: [
+        mkSlot(0, { durationSec: 200 }),
+        mkSlot(1, { durationSec: 200 }),
+        mkSlot(2, { durationSec: 200 }),
+      ],
+      windows: [{ id: 'w1', t0: 0.2, t1: 0.3, label: 'First Dance' }],
+      pxPerSecond: 2,
+      scrollLeft: 200,
+      viewportWidth: 200,
+      onWindowChange,
+      onWindowCommit,
+    });
+
+    const svg = container.querySelector('svg');
+    expect(svg).not.toBeNull();
+    vi.spyOn(svg as SVGSVGElement, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 200,
+      bottom: 160,
+      width: 200,
+      height: 160,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    fireEvent.pointerDown(screen.getByTestId('vibe-window-header-w1'), { clientX: 80 });
+    fireEvent.pointerMove(window, { clientX: 130 });
+    expect(onWindowChange).toHaveBeenLastCalledWith('w1', {
+      t0: expect.closeTo(145 / 600, 5),
+      t1: expect.closeTo(205 / 600, 5),
+    });
+    fireEvent.pointerUp(window);
+    expect(onWindowCommit).toHaveBeenCalledWith('w1');
+
+    onWindowChange.mockClear();
+    onWindowCommit.mockClear();
+    const rectHandles = screen
+      .getByTestId('vibe-window-w1')
+      .querySelectorAll('rect[data-scrub-ignore="1"]');
+    const rightHandle = rectHandles[2];
+    expect(rightHandle).toBeDefined();
+
+    fireEvent.pointerDown(rightHandle, { clientX: 160 });
+    fireEvent.pointerMove(window, { clientX: 180 });
+    expect(onWindowChange).toHaveBeenLastCalledWith('w1', {
+      t1: expect.closeTo(190 / 600, 5),
+    });
+  });
+
   it('renders only viewport-visible slot blocks in detail zoom', () => {
     // Regression for b2d595a: large sets must not render every SVG slot node at once.
     const slots = Array.from({ length: 200 }, (_, i) => mkSlot(i, { durationSec: 60 }));

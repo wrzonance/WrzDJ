@@ -23,17 +23,35 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 1rem;
   height: 56px;
   padding: 0 1rem;
   background: var(--card);
   border-bottom: 1px solid var(--border);
 }
 
-.topbarTitle {
+.topbarLeft,
+.topbarActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.topbarActions {
+  flex-shrink: 0;
+}
+
+.topbarTitle,
+.brandTitle {
   font-family: var(--font-display), sans-serif;
   font-weight: 600;
   font-size: 1rem;
   color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .topbarPairingsBtn {
@@ -1456,6 +1474,12 @@
   font-weight: 800;
 }
 
+.warningBtn {
+  background: rgba(245, 158, 11, 0.14) !important;
+  border-color: rgba(245, 158, 11, 0.38) !important;
+  color: #fbbf24 !important;
+}
+
 .poolToast {
   position: absolute;
   left: 50%;
@@ -1762,5 +1786,293 @@
   .pairingStatsGrid,
   .pairingAddGrid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Document history / settings (#395) - functional styling only. */
+
+.brandMenuWrap {
+  position: relative;
+  min-width: 0;
+}
+
+.brandButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  max-width: min(34vw, 28rem);
+  padding: 0.32rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.brandButton:hover,
+.brandButton:focus-visible {
+  background: var(--surface-raised, rgba(255, 255, 255, 0.06));
+  border-color: var(--border-subtle);
+  outline: none;
+}
+
+.brandMenu {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  z-index: 60;
+  width: 260px;
+  padding: 0.35rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.48);
+}
+
+.brandMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.5rem 0.55rem;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.brandMenuItem:hover:not(:disabled) {
+  background: var(--surface-raised, rgba(255, 255, 255, 0.06));
+}
+
+.brandMenuItem:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.brandSaveRow {
+  align-items: flex-start;
+}
+
+.saveDot {
+  width: 0.55rem;
+  height: 0.55rem;
+  flex-shrink: 0;
+  margin-top: 0.22rem;
+  border-radius: 999px;
+  background: #34d399;
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.1);
+}
+
+.saveDotDirty {
+  background: #f59e0b;
+  animation: save-pulse 1.5s ease-in-out infinite;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14);
+}
+
+.saveLabel,
+.saveSub {
+  display: block;
+}
+
+.saveLabel {
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.saveSub {
+  margin-top: 0.1rem;
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  line-height: 1.35;
+}
+
+.historyControls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.historyIconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  min-width: 2.45rem;
+  height: 2rem;
+  padding: 0 0.45rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface-raised, rgba(255, 255, 255, 0.05));
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.historyIconButton:hover:not(:disabled) {
+  border-color: var(--border);
+  background: var(--surface-raised, rgba(255, 255, 255, 0.08));
+}
+
+.historyIconButton:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
+.depthBadge {
+  display: inline-block;
+  min-width: 1.15rem;
+  margin-left: 0.2rem;
+  border-radius: 999px;
+  background: var(--surface-raised, rgba(255, 255, 255, 0.08));
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.settingsModal,
+.confirmDialog {
+  position: relative;
+  z-index: 1;
+  width: min(520px, calc(100vw - 2rem));
+  max-height: min(680px, calc(100vh - 4rem));
+  overflow: auto;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+}
+
+.settingsHeader {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settingsHeader h2,
+.confirmDialog h2 {
+  margin: 0;
+  flex: 1;
+  font-size: 1rem;
+}
+
+.settingsSection {
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settingsSection h3 {
+  margin: 0 0 0.55rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.settingsToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.45rem 0;
+}
+
+.settingsToggleTitle,
+.settingsToggleDescription {
+  display: block;
+}
+
+.settingsToggleTitle {
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.settingsToggleDescription,
+.settingsNote,
+.confirmDialog p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.confirmDialog {
+  padding: 1rem;
+}
+
+.confirmHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.confirmIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex-shrink: 0;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 800;
+}
+
+.confirmIconWarning {
+  background: rgba(245, 158, 11, 0.14);
+  color: #fbbf24;
+}
+
+.confirmIconDanger {
+  background: rgba(239, 68, 68, 0.14);
+  color: #f87171;
+}
+
+.confirmIconNeutral {
+  background: var(--surface-raised, rgba(255, 255, 255, 0.08));
+  color: var(--text-secondary);
+}
+
+.confirmBody {
+  margin-top: 0.75rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.confirmBody p {
+  margin: 0 0 0.45rem;
+}
+
+.confirmBody ul {
+  margin: 0.45rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.confirmBody li + li {
+  margin-top: 0.25rem;
+}
+
+.confirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+@keyframes save-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.72);
+    opacity: 0.7;
   }
 }

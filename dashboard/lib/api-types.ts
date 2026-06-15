@@ -206,6 +206,12 @@ export type SlotTargetOut = Schemas['SlotTargetOut'];
 export type ApplyTemplateResponse = Schemas['ApplyTemplateResponse'];
 export type VibeWindow = Schemas['VibeWindowModel'];
 export type VibeWindowsResponse = Schemas['VibeWindowsResponse'];
+export type SetDocumentSettings = Schemas['SetDocumentSettings'];
+export type SetDocumentSlot = Schemas['SetDocumentSlot'];
+export type SetDocumentCurvePoint = Schemas['SetDocumentCurvePoint'];
+export type SetDocumentPoolSource = Schemas['SetDocumentPoolSource'];
+export type SetDocumentPoolTrack = Schemas['SetDocumentPoolTrack'];
+export type SetDocumentSnapshot = Schemas['SetDocumentSnapshot-Output'];
 
 // WrzDJSet two-pass builder (#390)
 export type BuildSetResponse = Schemas['BuildSetResponse'];

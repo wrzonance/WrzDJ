@@ -8,11 +8,19 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
-import type { PoolImportResult, PoolSource, PoolState, TrackVibeState } from '@/lib/api-types';
+import type {
+  PoolImportResult,
+  PoolSource,
+  PoolState,
+  SetDocumentSnapshot,
+  TrackVibeState,
+} from '@/lib/api-types';
 import styles from '../setbuilder.module.css';
+import type { ConfirmAction } from './ConfirmActionDialog';
 import ImportModal, { type ImportKind } from './ImportModal';
 import { BpmBadge, CamelotBadge, EnergyMini, SourceIcon, sourceColor } from './PoolBadges';
 import VibeTiers from './VibeTiers';
+import type { BuilderCommit } from './useSetDocumentHistory';
 
 function buildVibeMap(tracks: TrackVibeState[]): Map<number, TrackVibeState> {
   return new Map(tracks.map((v) => [v.pool_track_id, v]));
@@ -42,7 +50,23 @@ interface ContextMenuState {
   sourceId: number;
 }
 
-export default function PoolPanel({ setId }: { setId: number }) {
+interface PoolPanelProps {
+  setId: number;
+  snapshot?: SetDocumentSnapshot | null;
+  snapshotVersion?: number;
+  commit?: BuilderCommit;
+  confirmRemovals?: boolean;
+  requestConfirmation?: (action: ConfirmAction) => Promise<boolean>;
+}
+
+export default function PoolPanel({
+  setId,
+  snapshot,
+  snapshotVersion = 0,
+  commit,
+  confirmRemovals = false,
+  requestConfirmation,
+}: PoolPanelProps) {
   const [pool, setPool] = useState<PoolState>({ sources: [], tracks: [] });
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState('all');
@@ -61,15 +85,33 @@ export default function PoolPanel({ setId }: { setId: number }) {
   const [vibesBusy, setVibesBusy] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     setVibes(new Map());
     setShowVibes(false);
     setVibesLoaded(false);
+    setLoaded(false);
+    if (snapshot) {
+      setPool(snapshot.pool);
+      setLoaded(true);
+      return () => {
+        cancelled = true;
+      };
+    }
     api
       .getPool(setId)
-      .then(setPool)
-      .catch(() => setToast('Failed to load pool'))
-      .finally(() => setLoaded(true));
-  }, [setId]);
+      .then((next) => {
+        if (!cancelled) setPool(next);
+      })
+      .catch(() => {
+        if (!cancelled) setToast('Failed to load pool');
+      })
+      .finally(() => {
+        if (!cancelled) setLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [setId, snapshot, snapshotVersion]);
 
   useEffect(() => {
     if (!toast) return;
@@ -133,8 +175,20 @@ export default function PoolPanel({ setId }: { setId: number }) {
 
   const removeTracks = useCallback(
     async (ids: number[]) => {
+      if (confirmRemovals && requestConfirmation) {
+        const ok = await requestConfirmation({
+          title: ids.length === 1 ? 'Remove this track?' : `Remove ${ids.length} tracks?`,
+          body: 'Removing pool tracks changes the builder document and can be undone from the topbar.',
+          confirmLabel: 'Remove',
+          kind: 'danger',
+        });
+        if (!ok) return;
+      }
       try {
-        const result = await api.removePoolTracks(setId, ids);
+        const save = () => api.removePoolTracks(setId, ids);
+        const result = commit
+          ? await commit(ids.length === 1 ? 'Remove pool track' : `Remove ${ids.length} pool tracks`, save)
+          : await save();
         setPool(result.pool);
         setSelected(new Set());
         setSelectMode(false);
@@ -143,13 +197,27 @@ export default function PoolPanel({ setId }: { setId: number }) {
         setToast('Remove failed');
       }
     },
-    [setId]
+    [commit, confirmRemovals, requestConfirmation, setId],
   );
 
   const removeSource = useCallback(
     async (sourceId: number) => {
+      const source = pool.sources.find((s) => s.id === sourceId);
+      if (confirmRemovals && requestConfirmation) {
+        const ok = await requestConfirmation({
+          title: `Remove source${source ? ` ${source.label}` : ''}?`,
+          body:
+            'Removing a source removes its imported tracks from the builder document and can be undone from the topbar.',
+          confirmLabel: 'Remove source',
+          kind: 'danger',
+        });
+        if (!ok) return;
+      }
       try {
-        const result = await api.removePoolSource(setId, sourceId);
+        const save = () => api.removePoolSource(setId, sourceId);
+        const result = commit
+          ? await commit(`Remove source${source ? ` ${source.label}` : ''}`, save)
+          : await save();
         setPool(result.pool);
         if (activeSourceId === sourceId) setActiveSourceId(null);
         setToast(`Removed source · ${result.removed} tracks`);
@@ -157,7 +225,7 @@ export default function PoolPanel({ setId }: { setId: number }) {
         setToast('Remove failed');
       }
     },
-    [setId, activeSourceId]
+    [activeSourceId, commit, confirmRemovals, pool.sources, requestConfirmation, setId],
   );
 
   const toggleVibes = useCallback(() => {
@@ -514,6 +582,7 @@ export default function PoolPanel({ setId }: { setId: number }) {
           onClose={() => setImportKind(null)}
           onImported={onImported}
           onError={(msg) => setToast(msg)}
+          commit={commit}
         />
       )}
 

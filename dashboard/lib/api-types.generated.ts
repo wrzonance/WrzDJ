@@ -2726,6 +2726,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setbuilder/sets/{set_id}/document": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Document Snapshot
+         * @description Full restorable builder document snapshot for one of the current DJ's sets.
+         */
+        get: operations["get_document_snapshot_api_setbuilder_sets__set_id__document_get"];
+        /**
+         * Put Document Snapshot
+         * @description Replace the restorable builder document with a prior snapshot.
+         */
+        put: operations["put_document_snapshot_api_setbuilder_sets__set_id__document_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setbuilder/sets/{set_id}/duplicate": {
         parameters: {
             query?: never;
@@ -6045,6 +6069,173 @@ export interface components {
             updated_at: string;
             /** Vibe Theme */
             vibe_theme: string | null;
+        };
+        /**
+         * SetDocumentCurvePoint
+         * @description Curve/vibe-window row as stored in a document snapshot.
+         */
+        SetDocumentCurvePoint: {
+            /** Energy */
+            energy: number;
+            /** Id */
+            id: number;
+            /**
+             * Is Slow Window End
+             * @default false
+             */
+            is_slow_window_end: boolean;
+            /**
+             * Is Slow Window Start
+             * @default false
+             */
+            is_slow_window_start: boolean;
+            /** Label */
+            label: string | null;
+            /** Position Sec */
+            position_sec: number;
+        };
+        /**
+         * SetDocumentPool
+         * @description Pool state in a restorable document snapshot.
+         */
+        SetDocumentPool: {
+            /** Sources */
+            sources: components["schemas"]["SetDocumentPoolSource"][];
+            /** Tracks */
+            tracks: components["schemas"]["SetDocumentPoolTrack"][];
+        };
+        /**
+         * SetDocumentPoolSource
+         * @description Pool source row as stored in a document snapshot.
+         */
+        SetDocumentPoolSource: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** External Ref */
+            external_ref: string | null;
+            /** Id */
+            id: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "event" | "tidal" | "beatport" | "public_url" | "manual";
+            /** Label */
+            label: string;
+            /** Meta */
+            meta: string | null;
+        };
+        /**
+         * SetDocumentPoolTrack
+         * @description Pool track row as stored in a document snapshot.
+         */
+        SetDocumentPoolTrack: {
+            /** Album */
+            album: string | null;
+            /** Artist */
+            artist: string;
+            /** Artwork Url */
+            artwork_url: string | null;
+            /** Bpm */
+            bpm: number | null;
+            /** Camelot */
+            camelot: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Dedupe Sig */
+            dedupe_sig: string;
+            /** Duration Sec */
+            duration_sec: number | null;
+            /** Energy */
+            energy: number | null;
+            /** Genre */
+            genre: string | null;
+            /** Id */
+            id: number;
+            /** Isrc */
+            isrc: string | null;
+            /** Key */
+            key: string | null;
+            /** Source Id */
+            source_id: number;
+            /** Title */
+            title: string;
+            /** Track Id */
+            track_id: string | null;
+        };
+        /**
+         * SetDocumentSettings
+         * @description Mutable target-setting fields included in history/autosave snapshots.
+         */
+        SetDocumentSettings: {
+            /** Bpm Ceiling */
+            bpm_ceiling: number | null;
+            /** Bpm Floor */
+            bpm_floor: number | null;
+            /**
+             * Key Strictness
+             * @default 0.2
+             */
+            key_strictness: number;
+            /** Target Duration Sec */
+            target_duration_sec: number | null;
+            /** Vibe Theme */
+            vibe_theme: string | null;
+        };
+        /**
+         * SetDocumentSlot
+         * @description Slot row as stored in a document snapshot.
+         */
+        SetDocumentSlot: {
+            /** Id */
+            id: number;
+            /**
+             * Locked
+             * @default false
+             */
+            locked: boolean;
+            /** Notes */
+            notes: string | null;
+            /** Position */
+            position: number;
+            /** Target Energy */
+            target_energy: number | null;
+            /** Track Id */
+            track_id: string | null;
+            /** Transition Score */
+            transition_score: number | null;
+            /** Transition Warnings */
+            transition_warnings: string | null;
+        };
+        /**
+         * SetDocumentSnapshot
+         * @description Full builder document snapshot for undo/redo and autosave.
+         */
+        "SetDocumentSnapshot-Input": {
+            /** Curve Points */
+            curve_points: components["schemas"]["SetDocumentCurvePoint"][];
+            pool: components["schemas"]["SetDocumentPool"];
+            settings: components["schemas"]["SetDocumentSettings"];
+            /** Slots */
+            slots: components["schemas"]["SetDocumentSlot"][];
+        };
+        /**
+         * SetDocumentSnapshot
+         * @description Full builder document snapshot for undo/redo and autosave.
+         */
+        "SetDocumentSnapshot-Output": {
+            /** Curve Points */
+            curve_points: components["schemas"]["SetDocumentCurvePoint"][];
+            pool: components["schemas"]["SetDocumentPool"];
+            settings: components["schemas"]["SetDocumentSettings"];
+            /** Slots */
+            slots: components["schemas"]["SetDocumentSlot"][];
         };
         /**
          * SetRename
@@ -11597,6 +11788,86 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ApplyTemplateResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_document_snapshot_api_setbuilder_sets__set_id__document_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetDocumentSnapshot-Output"];
+                };
+            };
+            /** @description Set not found or not accessible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_document_snapshot_api_setbuilder_sets__set_id__document_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetDocumentSnapshot-Input"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetDocumentSnapshot-Output"];
+                };
+            };
+            /** @description Set not found or not accessible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

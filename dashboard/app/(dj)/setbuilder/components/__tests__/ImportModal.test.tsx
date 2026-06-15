@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import type { BuilderPlaylists, PoolImportResult, SearchResult } from '@/lib/api-types';
 import ImportModal from '../ImportModal';
+import type { BuilderCommit } from '../useSetDocumentHistory';
 
 const mockApi = vi.hoisted(() => ({
   getEvents: vi.fn(),
@@ -132,6 +133,27 @@ describe('ImportModal — event flow', () => {
     fireEvent.click(await screen.findByText('Prom Night'));
     fireEvent.click(screen.getByText('Import requests'));
     await waitFor(() => expect(onError).toHaveBeenCalledWith('Event not found'));
+  });
+
+  it('runs the import mutation inside the document-history commit boundary', async () => {
+    mockApi.getEvents.mockResolvedValue([{ id: 7, code: 'ABC123', name: 'Prom Night' }]);
+    mockApi.importPoolEvent.mockResolvedValue(IMPORT_RESULT);
+    const commitSpy = vi.fn();
+    const commit: BuilderCommit = async (label, action) => {
+      commitSpy(label, action);
+      return action();
+    };
+    const onImported = vi.fn();
+    render(<ImportModal kind="event" {...baseProps} commit={commit} onImported={onImported} />);
+
+    fireEvent.click(await screen.findByText('Prom Night'));
+    fireEvent.click(screen.getByText('Import requests'));
+
+    await waitFor(() =>
+      expect(commitSpy).toHaveBeenCalledWith('Import event requests', expect.any(Function)),
+    );
+    expect(mockApi.importPoolEvent).toHaveBeenCalledWith(1, 7);
+    expect(onImported).toHaveBeenCalledWith(IMPORT_RESULT);
   });
 
   it('closes via the Cancel button and the backdrop', async () => {

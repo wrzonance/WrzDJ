@@ -196,6 +196,54 @@ describe('ImportModal — event flow', () => {
     );
   });
 
+  it('wraps a multi-event import in a single document-history commit', async () => {
+    mockApi.getEvents.mockResolvedValue([
+      { id: 7, code: 'ABC123', name: 'Prom Night' },
+      { id: 8, code: 'DEF456', name: 'Warehouse' },
+    ]);
+    mockApi.importPoolEvent
+      .mockResolvedValueOnce(importResult(7, 2, 1))
+      .mockResolvedValueOnce(importResult(8, 3, 2));
+    const commitSpy = vi.fn();
+    const commit: BuilderCommit = async (label, action) => {
+      commitSpy(label, action);
+      return action();
+    };
+    render(<ImportModal kind="event" {...baseProps} commit={commit} />);
+
+    fireEvent.click(await screen.findByLabelText('Select Prom Night'));
+    fireEvent.click(screen.getByLabelText('Select Warehouse'));
+    fireEvent.click(screen.getByText('Import requests'));
+
+    await waitFor(() => expect(mockApi.importPoolEvent).toHaveBeenCalledWith(1, 8));
+    expect(commitSpy).toHaveBeenCalledTimes(1);
+    expect(commitSpy).toHaveBeenCalledWith('Import event requests', expect.any(Function));
+  });
+
+  it('reports partial import results before surfacing a later event failure', async () => {
+    const partial = importResult(7, 2, 1);
+    mockApi.getEvents.mockResolvedValue([
+      { id: 7, code: 'ABC123', name: 'Prom Night' },
+      { id: 8, code: 'DEF456', name: 'Warehouse' },
+    ]);
+    mockApi.importPoolEvent
+      .mockResolvedValueOnce(partial)
+      .mockRejectedValueOnce(new Error('Warehouse import failed'));
+    const onImported = vi.fn();
+    const onError = vi.fn();
+    render(<ImportModal kind="event" {...baseProps} onImported={onImported} onError={onError} />);
+
+    fireEvent.click(await screen.findByLabelText('Select Prom Night'));
+    fireEvent.click(screen.getByLabelText('Select Warehouse'));
+    fireEvent.click(screen.getByText('Import requests'));
+
+    await waitFor(() => expect(onImported).toHaveBeenCalledWith(partial));
+    expect(onError).toHaveBeenCalledWith('Warehouse import failed');
+    expect(onImported.mock.invocationCallOrder[0]).toBeLessThan(
+      onError.mock.invocationCallOrder[0],
+    );
+  });
+
   it('allows already-imported events to be selected again for new requests', async () => {
     mockApi.getEvents.mockResolvedValue([{ id: 7, code: 'ABC123', name: 'Prom Night' }]);
     mockApi.importPoolEvent.mockResolvedValue(IMPORT_RESULT);

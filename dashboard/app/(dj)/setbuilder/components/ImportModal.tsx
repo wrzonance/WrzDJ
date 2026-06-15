@@ -77,10 +77,10 @@ function errMessage(e: unknown): string {
   return 'Import failed — try again';
 }
 
-function runImport(
+function runImport<T>(
   commit: BuilderCommit | undefined,
   label: string,
-  action: () => Promise<PoolImportResult>,
+  action: () => Promise<T>,
 ) {
   return commit ? commit(label, action) : action();
 }
@@ -119,19 +119,30 @@ function ImportEvent({ setId, existingRefs, onClose, onImported, onError, commit
   };
 
   const doImport = async () => {
-    if (!picked.size) return;
+    const selectedEventIds = (events ?? [])
+      .map((event) => event.id)
+      .filter((eventId) => picked.has(eventId));
+    if (!selectedEventIds.length) return;
     setBusy(true);
-    let aggregate: PoolImportResult | null = null;
     try {
-      for (const eventId of (events ?? []).map((event) => event.id).filter((eventId) => picked.has(eventId))) {
-        const result = await runImport(commit, 'Import event requests', () =>
-          api.importPoolEvent(setId, eventId),
-        );
-        aggregate = appendImportResult(aggregate, result);
+      const outcome = await runImport(commit, 'Import event requests', async () => {
+        let aggregate: PoolImportResult | null = null;
+        for (const eventId of selectedEventIds) {
+          try {
+            const result = await api.importPoolEvent(setId, eventId);
+            aggregate = appendImportResult(aggregate, result);
+          } catch (e) {
+            if (!aggregate) throw e;
+            return { aggregate, error: e };
+          }
+        }
+        return { aggregate, error: null };
+      });
+      if (outcome.aggregate) onImported(outcome.aggregate);
+      if (outcome.error) {
+        onError(errMessage(outcome.error));
       }
-      if (aggregate) onImported(aggregate);
     } catch (e) {
-      if (aggregate) onImported(aggregate);
       onError(errMessage(e));
     } finally {
       setBusy(false);

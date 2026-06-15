@@ -173,8 +173,8 @@ async def chat_with_agent(
         )
         affected.update(positions)
 
-    message = response.text.strip() if response.text else ""
-    if not message and applied:
+    message = response.text or ""
+    if not message.strip() and applied:
         message = " ".join(tool.display_summary for tool in applied)
 
     slots = _ordered_slots(db, set_obj.id)

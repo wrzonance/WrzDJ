@@ -10,6 +10,7 @@ from app.services.llm.base import ChatResponse, ToolCall
 from app.services.setbuilder import agent_history
 from app.services.setbuilder.pass2_agent import (
     AgentToolError,
+    _tool_display_summary,
     chat_with_agent,
     critique_set,
 )
@@ -159,6 +160,59 @@ async def test_agent_swap_returns_readable_tool_summary(monkeypatch, db: Session
 
     assert result.message == "Swapped slot 1 Track 0 - Artist 0 with slot 2 Track 1 - Artist 1."
     assert result.tool_calls[0].display_summary == result.message
+
+
+@pytest.mark.asyncio
+async def test_agent_preserves_non_empty_gateway_text(monkeypatch, db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    slots = sorted(set_obj.slots, key=lambda s: s.position)
+
+    async def fake_dispatch(*args, **kwargs):
+        return ChatResponse(
+            text="  I swapped the opener.\n",
+            stop_reason="tool_use",
+            tool_calls=[
+                ToolCall(
+                    id="swap-1",
+                    name="swap_slots",
+                    input={
+                        "slot_a_id": slots[0].id,
+                        "slot_b_id": slots[1].id,
+                        "rationale": "Start with the stronger groove.",
+                    },
+                )
+            ],
+        )
+
+    monkeypatch.setattr("app.services.setbuilder.pass2_agent.Gateway.dispatch", fake_dispatch)
+
+    result = await chat_with_agent(db, test_user, set_obj, message="Swap the first two")
+
+    assert result.message == "  I swapped the opener.\n"
+
+
+def test_tool_display_summary_handles_reorder_and_fallback():
+    before = {
+        10: {
+            "slot_id": 10,
+            "position": 0,
+            "track_id": "tidal:0",
+            "label": "Track 0 - Artist 0",
+            "target_energy": None,
+        }
+    }
+
+    assert (
+        _tool_display_summary(
+            "reorder_slot",
+            {"slot_id": 10},
+            {"position": 2},
+            before,
+            {},
+        )
+        == "Moved Track 0 - Artist 0 from slot 1 to slot 3."
+    )
+    assert _tool_display_summary("unknown_tool", {}, {}, {}, {}) == "Unknown tool."
 
 
 @pytest.mark.asyncio

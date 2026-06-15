@@ -2666,6 +2666,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setbuilder/sets/{set_id}/agent/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Set Agent History
+         * @description Load persisted agent sidebar history without dispatching an LLM call.
+         */
+        get: operations["get_set_agent_history_api_setbuilder_sets__set_id__agent_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setbuilder/sets/{set_id}/build": {
         parameters: {
             query?: never;
@@ -3723,6 +3743,25 @@ export interface components {
             role: "user" | "assistant";
         };
         /**
+         * AgentChatHistoryOut
+         * @description Persisted agent sidebar transcript and compact context metadata.
+         */
+        AgentChatHistoryOut: {
+            /** Compacted Through Message Id */
+            compacted_through_message_id: number | null;
+            /** Context Summary */
+            context_summary: string | null;
+            /** Messages */
+            messages: components["schemas"]["AgentChatMessageOut"][];
+            /** Recent Turn Limit */
+            recent_turn_limit: number;
+            /**
+             * Uses Compact Context
+             * @default true
+             */
+            uses_compact_context: boolean;
+        };
+        /**
          * AgentChatIn
          * @description One chat turn for the setbuilder agent.
          */
@@ -3733,12 +3772,39 @@ export interface components {
             message: string;
         };
         /**
+         * AgentChatMessageOut
+         * @description One persisted agent sidebar message.
+         */
+        AgentChatMessageOut: {
+            /** Affected Transition Scores */
+            affected_transition_scores: components["schemas"]["TransitionScoreOut"][];
+            /** Content */
+            content: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Display Summary */
+            display_summary: string | null;
+            /** Id */
+            id: number;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+            /** Tool Calls */
+            tool_calls: components["schemas"]["AppliedToolCallOut"][];
+        };
+        /**
          * AgentChatOut
          * @description Agent chat turn result after applying tool calls.
          */
         AgentChatOut: {
             /** Affected Transition Scores */
             affected_transition_scores: components["schemas"]["TransitionScoreOut"][];
+            assistant_message: components["schemas"]["AgentChatMessageOut"];
             /** Message */
             message: string;
             /** Slots */
@@ -3755,6 +3821,11 @@ export interface components {
             args: {
                 [key: string]: unknown;
             };
+            /**
+             * Display Summary
+             * @default
+             */
+            display_summary: string;
             /** Id */
             id: string;
             /** Mutating */
@@ -11707,6 +11778,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_set_agent_history_api_setbuilder_sets__set_id__agent_history_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentChatHistoryOut"];
+                };
             };
             /** @description Validation Error */
             422: {

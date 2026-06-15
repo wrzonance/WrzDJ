@@ -11,7 +11,11 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import type { MouseEvent as ReactMouseEvent } from 'react';
+import type {
+  MouseEvent as ReactMouseEvent,
+  ReactNode,
+  SVGProps,
+} from 'react';
 import {
   BPM_TIER_COLORS,
   KEY_TIER_COLORS,
@@ -34,6 +38,70 @@ export type CurveViewMode = 'normal' | 'bpm' | 'key';
 const NEON = '#00f5d4';
 const NEON_PURPLE = '#b78bff';
 const WARNING = '#f59e0b';
+
+interface SvgFixedGroupProps extends SVGProps<SVGGElement> {
+  x: number;
+  y: number;
+  scaleX: number;
+  scaleY: number;
+  children: ReactNode;
+}
+
+interface SvgFixedTextProps extends Omit<SVGProps<SVGTextElement>, 'x' | 'y'> {
+  x: number;
+  y: number;
+  scaleX: number;
+  scaleY: number;
+  testId?: string;
+  children: ReactNode;
+}
+
+function fixedLabelTransform(x: number, y: number, scaleX: number, scaleY: number) {
+  return `translate(${x} ${y}) scale(${scaleX.toFixed(4)} ${scaleY.toFixed(4)})`;
+}
+
+function SvgFixedGroup({
+  x,
+  y,
+  scaleX,
+  scaleY,
+  children,
+  ...props
+}: SvgFixedGroupProps) {
+  return (
+    <g
+      {...props}
+      data-fixed-svg-label="true"
+      transform={fixedLabelTransform(x, y, scaleX, scaleY)}
+    >
+      {children}
+    </g>
+  );
+}
+
+function SvgFixedText({
+  x,
+  y,
+  scaleX,
+  scaleY,
+  testId,
+  children,
+  ...textProps
+}: SvgFixedTextProps) {
+  return (
+    <SvgFixedGroup
+      x={x}
+      y={y}
+      scaleX={scaleX}
+      scaleY={scaleY}
+      data-testid={testId}
+    >
+      <text x={0} y={0} {...textProps}>
+        {children}
+      </text>
+    </SvgFixedGroup>
+  );
+}
 
 interface WindowDrag {
   id: string;
@@ -165,6 +233,12 @@ export default function CurveEditor({
   const showDenseSeams = lod === 'detail';
   const scrollableWidth = Math.max(effectiveViewportWidth, domainSec * effectivePxPerSecond);
   const maxScrollLeft = Math.max(0, scrollableWidth - effectiveViewportWidth);
+  const viewBoxWidth = effectiveViewportWidth;
+  const viewBoxHeight = h;
+  const renderedSvgWidth = w;
+  const renderedSvgHeight = h;
+  const fixedLabelScaleX = viewBoxWidth / Math.max(1, renderedSvgWidth);
+  const fixedLabelScaleY = viewBoxHeight / Math.max(1, renderedSvgHeight);
 
   const commitScrollLeft = (next: number) => {
     const clamped = Math.max(0, Math.min(maxScrollLeft, next));
@@ -398,16 +472,19 @@ export default function CurveEditor({
               strokeWidth="1.5"
               strokeDasharray="5 4"
             />
-            <text
+            <SvgFixedText
               x={Math.min(Math.max((targetX ?? 0) + 6, 34), effectiveViewportWidth - 28)}
               y={13}
+              scaleX={fixedLabelScaleX}
+              scaleY={fixedLabelScaleY}
+              testId="curve-target-label"
               fill="#fbbf24"
               fontSize="9"
               fontWeight="800"
               letterSpacing="0.08em"
             >
               TARGET
-            </text>
+            </SvgFixedText>
           </g>
         )}
 
@@ -462,9 +539,12 @@ export default function CurveEditor({
                 }}
                 onPointerDown={startWindowDrag(win.id, 'move', win.t0, win.t1)}
               />
-              <text
+              <SvgFixedText
                 x={x + 7}
                 y={headerH / 2 + 3.5}
+                scaleX={fixedLabelScaleX}
+                scaleY={fixedLabelScaleY}
+                testId={`vibe-window-label-${win.id}`}
                 fontSize="9.5"
                 fill="rgb(220,200,255)"
                 fontWeight="700"
@@ -472,7 +552,7 @@ export default function CurveEditor({
                 pointerEvents="none"
               >
                 {win.label.toUpperCase()}
-              </text>
+              </SvgFixedText>
               {/* Resize handles */}
               <rect
                 x={x - 5}
@@ -634,11 +714,14 @@ export default function CurveEditor({
                 />
                 <circle cx={seamX} cy={h - 1} r={isClash ? 3.5 : 3} fill={color.stroke} />
                 {isHovered && (
-                  <g
-                    transform={`translate(${Math.min(
+                  <SvgFixedGroup
+                    x={Math.min(
                       Math.max(seamX, 40),
                       effectiveViewportWidth - 40,
-                    )}, ${h - 18})`}
+                    )}
+                    y={h - 18}
+                    scaleX={fixedLabelScaleX}
+                    scaleY={fixedLabelScaleY}
                     data-testid={`seam-chip-${b.idx}`}
                   >
                     <rect
@@ -661,7 +744,7 @@ export default function CurveEditor({
                     >
                       {chipText}
                     </text>
-                  </g>
+                  </SvgFixedGroup>
                 )}
               </g>
             );
@@ -710,11 +793,15 @@ export default function CurveEditor({
               stroke={isPlaying ? '#00f5d4' : 'rgba(255,255,255,0.7)'}
               strokeWidth={1.5}
             />
-            <g
-              transform={`translate(${Math.min(
+            <SvgFixedGroup
+              x={Math.min(
                 Math.max(playheadX, 24),
                 effectiveViewportWidth - 24,
-              )}, 14)`}
+              )}
+              y={14}
+              scaleX={fixedLabelScaleX}
+              scaleY={fixedLabelScaleY}
+              data-testid="curve-playhead-label"
             >
               <rect x={-22} y={-10} width={44} height={18} rx={3} fill="var(--bg)" stroke="#00f5d4" strokeOpacity="0.6" />
               <text
@@ -727,7 +814,7 @@ export default function CurveEditor({
               >
                 {fmtTime(playheadSec)}
               </text>
-            </g>
+            </SvgFixedGroup>
           </g>
         )}
 
@@ -774,7 +861,14 @@ export default function CurveEditor({
               />
               {/* Live value chip while dragging */}
               {isDragging && (
-                <g transform="translate(0,-22)" pointerEvents="none" data-testid="drag-chip">
+                <SvgFixedGroup
+                  x={0}
+                  y={-22}
+                  scaleX={fixedLabelScaleX}
+                  scaleY={fixedLabelScaleY}
+                  pointerEvents="none"
+                  data-testid="drag-chip"
+                >
                   <rect x={-26} y={-11} width="52" height="20" rx="3" fill="var(--bg)" stroke={NEON} />
                   <text
                     x="0"
@@ -786,7 +880,7 @@ export default function CurveEditor({
                   >
                     {(dragEnergy ?? b.target).toFixed(1)}
                   </text>
-                </g>
+                </SvgFixedGroup>
               )}
               </g>
             );

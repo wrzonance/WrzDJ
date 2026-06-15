@@ -372,4 +372,29 @@ describe('CurveEditor', () => {
     expect(screen.queryByTestId('slot-block-0')).not.toBeInTheDocument();
     expect(screen.getByTestId('curve-line')).toBeInTheDocument();
   });
+
+  it('keeps svg label text from stretching when the rendered viewport and viewBox diverge', () => {
+    renderEditor({
+      targetDurationSec: 900,
+      viewportWidth: 600,
+      playheadSec: 120,
+      windows: [{ id: 'w1', t0: 0.15, t1: 0.35, label: 'Build' }],
+    });
+
+    expect(screen.getByTestId('curve-target-label')).toHaveAttribute(
+      'data-fixed-svg-label',
+      'true',
+    );
+    expect(screen.getByTestId('vibe-window-label-w1')).toHaveAttribute(
+      'data-fixed-svg-label',
+      'true',
+    );
+    expect(screen.getByTestId('curve-playhead-label')).toHaveAttribute(
+      'data-fixed-svg-label',
+      'true',
+    );
+    expect(screen.getByTestId('curve-target-label').getAttribute('transform')).toContain(
+      'scale(0.7500 1.0000)',
+    );
+  });
 });

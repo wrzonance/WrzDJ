@@ -160,3 +160,23 @@ def test_agent_chat_applies_tool_and_returns_scores(monkeypatch, client, auth_he
     assert body["tool_calls"][0]["rationale"] == "Open with the better transition."
     assert body["slots"][0]["track_id"] == second["track_id"]
     assert body["affected_transition_scores"]
+
+
+def test_agent_history_initially_empty_without_llm(monkeypatch, client, auth_headers, db):
+    set_obj = _mk_set(client, auth_headers)
+
+    async def fail_dispatch(*args, **kwargs):
+        raise AssertionError("history load must not call the LLM gateway")
+
+    monkeypatch.setattr("app.services.setbuilder.pass2_agent.Gateway.dispatch", fail_dispatch)
+
+    resp = client.get(
+        f"/api/setbuilder/sets/{set_obj['id']}/agent/history",
+        headers=auth_headers,
+    )
+
+    assert resp.status_code == 200, resp.json()
+    body = resp.json()
+    assert body["messages"] == []
+    assert body["context_summary"] is None
+    assert body["uses_compact_context"] is True

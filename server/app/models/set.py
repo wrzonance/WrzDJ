@@ -99,6 +99,11 @@ class Set(Base):
         back_populates="set",
         cascade="all, delete-orphan",
     )
+    agent_sessions: Mapped[list["SetAgentSession"]] = relationship(
+        "SetAgentSession",
+        back_populates="set",
+        cascade="all, delete-orphan",
+    )
 
 
 class SetSlot(Base):

@@ -220,4 +220,35 @@ describe('CurveEditor', () => {
     fireEvent.contextMenu(screen.getByTestId('vibe-window-header-w1'));
     expect(onWindowDelete).toHaveBeenCalledWith('w1');
   });
+
+  it('renders only viewport-visible slot blocks in detail zoom', () => {
+    // Regression for b2d595a: large sets must not render every SVG slot node at once.
+    const slots = Array.from({ length: 200 }, (_, i) => mkSlot(i, { durationSec: 60 }));
+    renderEditor({
+      slots,
+      pxPerSecond: 2,
+      scrollLeft: 60 * 50 * 2,
+      viewportWidth: 600,
+    });
+
+    expect(screen.queryByTestId('slot-block-0')).not.toBeInTheDocument();
+    expect(screen.getByTestId('slot-block-50')).toBeInTheDocument();
+    expect(document.querySelectorAll('[data-testid^="slot-block-"]').length).toBeLessThan(30);
+  });
+
+  it('hides per-slot drag handles at overview zoom', () => {
+    // Regression for b2d595a: overview mode should not expose hundreds of tiny handles.
+    const slots = Array.from({ length: 200 }, (_, i) => mkSlot(i, { durationSec: 60 }));
+    renderEditor({
+      slots,
+      pxPerSecond: 0.02,
+      scrollLeft: 0,
+      viewportWidth: 600,
+    });
+
+    expect(screen.getByTestId('curve-lod')).toHaveTextContent('overview');
+    expect(screen.queryByTestId('target-handle-0')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('slot-block-0')).not.toBeInTheDocument();
+    expect(screen.getByTestId('curve-line')).toBeInTheDocument();
+  });
 });

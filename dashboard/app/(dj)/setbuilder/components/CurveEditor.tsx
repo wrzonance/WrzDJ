@@ -18,8 +18,13 @@ import {
   bpmPercentDelta,
   camelotMixTier,
   fmtTime,
-  slotBlocksFromSlots,
 } from './curveMath';
+import {
+  curveViewportRange,
+  fitPxPerSecond,
+  lodForMedianSlotWidth,
+  visibleBlocksFromSlots,
+} from './curveViewport';
 import { rawTargetSecForSlots } from './targetMath';
 import type { SlotView, VibeWindowView } from './types';
 import styles from './curve.module.css';
@@ -56,6 +61,11 @@ export interface CurveEditorProps {
   onWindowDelete?: (id: string) => void;
   targetDurationSec?: number | null;
   avgTransitionOverlapSec?: number;
+  pxPerSecond?: number;
+  scrollLeft?: number;
+  viewportWidth?: number;
+  onScrollLeftChange?: (scrollLeft: number) => void;
+  onViewportWidthChange?: (width: number) => void;
 }
 
 export default function CurveEditor({
@@ -76,8 +86,14 @@ export default function CurveEditor({
   onWindowDelete,
   targetDurationSec = null,
   avgTransitionOverlapSec = 0,
+  pxPerSecond,
+  scrollLeft = 0,
+  viewportWidth,
+  onScrollLeftChange,
+  onViewportWidthChange,
 }: CurveEditorProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
+  const scrollViewportRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [w, setW] = useState(800);
   const [h, setH] = useState(220);
@@ -89,13 +105,22 @@ export default function CurveEditor({
     if (!wrapRef.current) return;
     const ro = new ResizeObserver((entries) => {
       for (const e of entries) {
-        setW(Math.max(300, e.contentRect.width));
-        setH(Math.max(140, e.contentRect.height));
+        const nextW = Math.max(300, e.contentRect.width);
+        const nextH = Math.max(140, e.contentRect.height);
+        setW(nextW);
+        setH(nextH);
+        onViewportWidthChange?.(nextW);
       }
     });
     ro.observe(wrapRef.current);
     return () => ro.disconnect();
-  }, []);
+  }, [onViewportWidthChange]);
+
+  useEffect(() => {
+    if (!scrollViewportRef.current) return;
+    if (Math.abs(scrollViewportRef.current.scrollLeft - scrollLeft) < 1) return;
+    scrollViewportRef.current.scrollLeft = scrollLeft;
+  }, [scrollLeft]);
 
   const yOf = (e: number) => h - (e / 10) * h;
   const eOfY = (y: number) => Math.max(0, Math.min(10, (1 - y / h) * 10));
@@ -107,11 +132,36 @@ export default function CurveEditor({
     avgTransitionOverlapSec,
   );
   const domainSec = Math.max(totalSec, rawTargetSec ?? 0, 1);
-  const targetX = rawTargetSec == null ? null : Math.round((rawTargetSec / domainSec) * w);
-  const baseBlocks = slotBlocksFromSlots(slots, w, domainSec);
+  const effectiveViewportWidth = viewportWidth ?? w;
+  const effectivePxPerSecond = pxPerSecond ?? fitPxPerSecond({
+    totalSec: domainSec,
+    viewportWidth: effectiveViewportWidth,
+  });
+  const visibleRange = curveViewportRange({
+    scrollLeft,
+    viewportWidth: effectiveViewportWidth,
+    pxPerSecond: effectivePxPerSecond,
+    totalSec: domainSec,
+  });
+  const overscanSec = Math.max(30, effectiveViewportWidth / effectivePxPerSecond);
+  const targetX = rawTargetSec == null
+    ? null
+    : Math.round((rawTargetSec - visibleRange.startSec) * effectivePxPerSecond);
+  const baseBlocks = visibleBlocksFromSlots({
+    slots,
+    visibleStartSec: visibleRange.startSec,
+    visibleEndSec: visibleRange.endSec,
+    pxPerSecond: effectivePxPerSecond,
+    overscanSec,
+  });
   const blocks = baseBlocks.map((b) =>
     dragIdx === b.idx && dragEnergy != null ? { ...b, target: dragEnergy } : b,
   );
+  const lod = lodForMedianSlotWidth(blocks.map((b) => b.width));
+  const showBlocks = lod !== 'overview';
+  const showSlotHandles = lod === 'detail';
+  const showDenseSeams = lod === 'detail';
+  const scrollableWidth = Math.max(effectiveViewportWidth, domainSec * effectivePxPerSecond);
 
   // Per-slot handle drag (vertical only)
   useEffect(() => {
@@ -125,14 +175,14 @@ export default function CurveEditor({
     };
     const onUp = () => {
       if (dragEnergy != null && onTargetDragEnd) {
-        const b = blocks[dragIdx];
+        const b = blocks.find((block) => block.idx === dragIdx);
         // Convert SVG-local coords to viewport coords — the popover positions
         // with `position: fixed`.
         const rect = svgRef.current?.getBoundingClientRect();
         const anchor =
           b && rect
             ? {
-                x: rect.left + (b.xMid / Math.max(1, w)) * rect.width,
+                x: rect.left + (b.xMid / Math.max(1, effectiveViewportWidth)) * rect.width,
                 y: rect.top + (yOf(dragEnergy) / Math.max(1, h)) * rect.height,
               }
             : { x: 0, y: 0 };
@@ -195,13 +245,15 @@ export default function CurveEditor({
   const linePath = blocks
     .map((b, i) => `${i === 0 ? 'M' : 'L'} ${b.xMid.toFixed(2)} ${yOf(b.target).toFixed(2)}`)
     .join(' ');
-  const secToX = (sec: number) => (Math.max(0, Math.min(domainSec, sec)) / domainSec) * w;
+  const secToX = (sec: number) =>
+    (Math.max(0, Math.min(domainSec, sec)) - visibleRange.startSec) * effectivePxPerSecond;
   const playheadX = domainSec > 0 ? secToX(playheadSec) : 0;
   const scrubFromClientX = (clientX: number) => {
     if (!svgRef.current || !scrubEnabled || !onScrub || totalSec <= 0) return;
     const rect = svgRef.current.getBoundingClientRect();
     const t = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
-    onScrub(Math.min(totalSec, t * domainSec));
+    const sec = visibleRange.startSec + t * (effectiveViewportWidth / effectivePxPerSecond);
+    onScrub(Math.min(totalSec, Math.max(0, sec)));
   };
   const handleSvgClickCapture = (ev: ReactMouseEvent<SVGSVGElement>) => {
     if (!scrubEnabled || !onScrub || totalSec <= 0) return;
@@ -224,37 +276,44 @@ export default function CurveEditor({
   }
 
   return (
-    <div className={styles.canvasWrap} ref={wrapRef} data-testid="curve-canvas">
-      <div className={styles.yaxis}>
-        <div>10·peak</div>
-        <div>7</div>
-        <div>5</div>
-        <div>2</div>
-        <div>0</div>
-      </div>
-      <div className={styles.xaxis}>
-        {[0, 0.25, 0.5, 0.75, 1].map((t) => (
-          <div key={t}>{fmtTime(t * domainSec)}</div>
-        ))}
-      </div>
-      <svg
-        ref={svgRef}
-        className={styles.svg}
-        viewBox={`0 0 ${w} ${h}`}
-        preserveAspectRatio="none"
-        onClickCapture={handleSvgClickCapture}
+    <div
+      className={styles.canvasWrap}
+      ref={wrapRef}
+      data-testid="curve-canvas"
+      data-lod={lod}
+    >
+      <span data-testid="curve-lod" className={styles.srOnly}>
+        {lod}
+      </span>
+      <div
+        ref={scrollViewportRef}
+        className={styles.curveScrollViewport}
+        data-testid="curve-scroll-viewport"
+        onScroll={(event) => onScrollLeftChange?.(event.currentTarget.scrollLeft)}
       >
+        <div
+          className={styles.curveScrollInner}
+          style={{ width: scrollableWidth }}
+          aria-hidden="true"
+        />
+        <svg
+          ref={svgRef}
+          className={styles.svg}
+          viewBox={`0 0 ${effectiveViewportWidth} ${h}`}
+          preserveAspectRatio="none"
+          onClickCapture={handleSvgClickCapture}
+        >
         <defs>
           <pattern
             id="curveGrid"
             x="0"
             y="0"
-            width={w / 8}
+            width={effectiveViewportWidth / 8}
             height={h / 5}
             patternUnits="userSpaceOnUse"
           >
             <path
-              d={`M ${w / 8} 0 L 0 0 0 ${h / 5}`}
+              d={`M ${effectiveViewportWidth / 8} 0 L 0 0 0 ${h / 5}`}
               fill="none"
               stroke="rgba(255,255,255,0.04)"
               strokeWidth="1"
@@ -270,10 +329,10 @@ export default function CurveEditor({
           </pattern>
         </defs>
 
-        <rect width={w} height={h} fill="url(#curveGrid)" />
+        <rect width={effectiveViewportWidth} height={h} fill="url(#curveGrid)" />
         {scrubEnabled && (
           <rect
-            width={w}
+            width={effectiveViewportWidth}
             height={h}
             fill="transparent"
             data-testid="curve-scrub-hit"
@@ -290,7 +349,7 @@ export default function CurveEditor({
                 data-testid="curve-over-region"
                 x={targetX}
                 y={0}
-                width={Math.max(0, ((totalSec - rawTargetSec) / domainSec) * w)}
+                width={Math.max(0, (totalSec - rawTargetSec) * effectivePxPerSecond)}
                 height={h}
                 fill="rgba(245,158,11,0.12)"
               />
@@ -306,7 +365,7 @@ export default function CurveEditor({
               strokeDasharray="5 4"
             />
             <text
-              x={Math.min(Math.max((targetX ?? 0) + 6, 34), w - 28)}
+              x={Math.min(Math.max((targetX ?? 0) + 6, 34), effectiveViewportWidth - 28)}
               y={13}
               fill="#fbbf24"
               fontSize="9"
@@ -322,7 +381,7 @@ export default function CurveEditor({
         <line
           x1="0"
           y1={yOf(8)}
-          x2={w}
+          x2={effectiveViewportWidth}
           y2={yOf(8)}
           stroke="rgba(255,157,63,0.18)"
           strokeDasharray="3 4"
@@ -331,8 +390,10 @@ export default function CurveEditor({
 
         {/* Vibe windows */}
         {windows.map((win) => {
-          const x = win.t0 * w;
-          const width = Math.max(2, (win.t1 - win.t0) * w);
+          const startSec = win.t0 * domainSec;
+          const endSec = win.t1 * domainSec;
+          const x = (startSec - visibleRange.startSec) * effectivePxPerSecond;
+          const width = Math.max(2, (endSec - startSec) * effectivePxPerSecond);
           const isDragging = winDrag?.id === win.id;
           const headerH = 22;
           return (
@@ -404,30 +465,31 @@ export default function CurveEditor({
         })}
 
         {/* Slot blocks */}
-        {blocks.map((b) => {
-          const isHover = hoveredIdx === b.idx;
-          const isDragging = dragIdx === b.idx;
-          const gap = view === 'normal' ? 1.5 : 4;
-          const blockH = (b.energy / 10) * h;
-          const targetY = yOf(b.target);
-          const targetAbove = b.target > b.energy + 0.5;
-          const targetBelow = b.energy > b.target + 0.5;
-          return (
-            <g
-              key={`sb-${b.idx}`}
-              data-testid={`slot-block-${b.idx}`}
-              onMouseEnter={() => onHover(b.idx)}
-              onMouseLeave={() => onHover(null)}
-              onClick={(ev) => {
-                if ((ev.target as SVGElement).dataset?.handle) return;
-                if (onBlockClick) onBlockClick(b.idx);
-              }}
-              onDoubleClick={(ev) => {
-                ev.preventDefault();
-                if (onBlockDoubleClick) onBlockDoubleClick(b.idx);
-              }}
-              style={{ cursor: 'pointer' }}
-            >
+        {showBlocks &&
+          blocks.map((b) => {
+            const isHover = hoveredIdx === b.idx;
+            const isDragging = dragIdx === b.idx;
+            const gap = view === 'normal' ? 1.5 : 4;
+            const blockH = (b.energy / 10) * h;
+            const targetY = yOf(b.target);
+            const targetAbove = b.target > b.energy + 0.5;
+            const targetBelow = b.energy > b.target + 0.5;
+            return (
+              <g
+                key={`sb-${b.idx}`}
+                data-testid={`slot-block-${b.idx}`}
+                onMouseEnter={() => onHover(b.idx)}
+                onMouseLeave={() => onHover(null)}
+                onClick={(ev) => {
+                  if ((ev.target as SVGElement).dataset?.handle) return;
+                  if (onBlockClick) onBlockClick(b.idx);
+                }}
+                onDoubleClick={(ev) => {
+                  ev.preventDefault();
+                  if (onBlockDoubleClick) onBlockDoubleClick(b.idx);
+                }}
+                style={{ cursor: 'pointer' }}
+              >
               {/* Block (intrinsic energy) */}
               <rect
                 x={b.x0 + gap / 2}
@@ -486,16 +548,17 @@ export default function CurveEditor({
               )}
               {/* Invisible hit-target */}
               <rect x={b.x0} y={0} width={b.width} height={h} fill="transparent" />
-            </g>
-          );
-        })}
+              </g>
+            );
+          })}
 
         {/* Friction seams (BPM / Key views) */}
-        {view !== 'normal' &&
+        {showDenseSeams &&
+          view !== 'normal' &&
           blocks.slice(0, -1).map((b, i) => {
             const next = blocks[i + 1];
-            const a = slots[i].track;
-            const z = slots[i + 1].track;
+            const a = slots[b.idx].track;
+            const z = slots[next.idx].track;
             let color: { stroke: string };
             let chipText: string;
             let isClash: boolean;
@@ -517,11 +580,15 @@ export default function CurveEditor({
             const seamW = Math.max(3, next.x0 - b.x1 - 0.5);
             // Band sized to the SHORTER neighbor block
             const meetTop = h - Math.min((b.energy / 10) * h, (next.energy / 10) * h);
-            const isHovered = hoveredIdx === i || hoveredIdx === i + 1;
+            const isHovered = hoveredIdx === b.idx || hoveredIdx === next.idx;
             return (
-              <g key={`seam-${i}`} pointerEvents="none" data-testid={`seam-${view}-${i}`}>
+              <g
+                key={`seam-${b.idx}`}
+                pointerEvents="none"
+                data-testid={`seam-${view}-${b.idx}`}
+              >
                 <rect
-                  data-testid={`seam-band-${i}`}
+                  data-testid={`seam-band-${b.idx}`}
                   data-stroke={color.stroke}
                   x={seamX - seamW / 2}
                   y={meetTop}
@@ -534,8 +601,11 @@ export default function CurveEditor({
                 <circle cx={seamX} cy={h - 1} r={isClash ? 3.5 : 3} fill={color.stroke} />
                 {isHovered && (
                   <g
-                    transform={`translate(${Math.min(Math.max(seamX, 40), w - 40)}, ${h - 18})`}
-                    data-testid={`seam-chip-${i}`}
+                    transform={`translate(${Math.min(
+                      Math.max(seamX, 40),
+                      effectiveViewportWidth - 40,
+                    )}, ${h - 18})`}
+                    data-testid={`seam-chip-${b.idx}`}
                   >
                     <rect
                       x={-Math.max(30, chipText.length * 3.4 + 7)}
@@ -564,18 +634,22 @@ export default function CurveEditor({
           })}
 
         {/* DJ pairing seam markers */}
-        {blocks.slice(0, -1).map((b, i) => {
-          if (!slots[i].nextIsDjPairing) return null;
-          const next = blocks[i + 1];
-          const seamX = (b.x1 + next.x0) / 2;
-          const markerY = Math.max(18, Math.min(h - 28, (yOf(b.target) + yOf(next.target)) / 2 - 18));
-          return (
-            <g
-              key={`pairing-pin-${i}`}
-              transform={`translate(${seamX}, ${markerY})`}
-              pointerEvents="none"
-              data-testid={`pairing-pin-${i}`}
-            >
+        {showDenseSeams &&
+          blocks.slice(0, -1).map((b, i) => {
+            if (!slots[b.idx].nextIsDjPairing) return null;
+            const next = blocks[i + 1];
+            const seamX = (b.x1 + next.x0) / 2;
+            const markerY = Math.max(
+              18,
+              Math.min(h - 28, (yOf(b.target) + yOf(next.target)) / 2 - 18),
+            );
+            return (
+              <g
+                key={`pairing-pin-${b.idx}`}
+                transform={`translate(${seamX}, ${markerY})`}
+                pointerEvents="none"
+                data-testid={`pairing-pin-${b.idx}`}
+              >
               <line y1={10} y2={Math.max(14, h - markerY - 4)} stroke={NEON_PURPLE} strokeOpacity="0.38" strokeDasharray="2 3" />
               <circle r="10" fill="rgba(183,139,255,0.18)" stroke={NEON_PURPLE} strokeWidth="1.4" />
               <path
@@ -586,11 +660,11 @@ export default function CurveEditor({
                 strokeLinejoin="round"
                 strokeWidth="1.3"
               />
-            </g>
-          );
-        })}
+              </g>
+            );
+          })}
 
-        {/* Derived target curve line */}
+        {/* Transport playhead */}
         {totalSec > 0 && (
           <g pointerEvents="none" data-testid="curve-playhead">
             <rect x={0} y={0} width={playheadX} height={h} fill="rgba(0,0,0,0.22)" />
@@ -602,7 +676,12 @@ export default function CurveEditor({
               stroke={isPlaying ? '#00f5d4' : 'rgba(255,255,255,0.7)'}
               strokeWidth={1.5}
             />
-            <g transform={`translate(${Math.min(Math.max(playheadX, 24), w - 24)}, 14)`}>
+            <g
+              transform={`translate(${Math.min(
+                Math.max(playheadX, 24),
+                effectiveViewportWidth - 24,
+              )}, 14)`}
+            >
               <rect x={-22} y={-10} width={44} height={18} rx={3} fill="var(--bg)" stroke="#00f5d4" strokeOpacity="0.6" />
               <text
                 x="0"
@@ -632,13 +711,14 @@ export default function CurveEditor({
         )}
 
         {/* Drag handles — one per slot at its target energy */}
-        {blocks.map((b) => {
-          const isHover = hoveredIdx === b.idx;
-          const isDragging = dragIdx === b.idx;
-          const r = isDragging ? 7 : isHover ? 6 : 5;
-          const targetY = yOf(b.target);
-          return (
-            <g key={`h-${b.idx}`} transform={`translate(${b.xMid},${targetY})`}>
+        {showSlotHandles &&
+          blocks.map((b) => {
+            const isHover = hoveredIdx === b.idx;
+            const isDragging = dragIdx === b.idx;
+            const r = isDragging ? 7 : isHover ? 6 : 5;
+            const targetY = yOf(b.target);
+            return (
+              <g key={`h-${b.idx}`} transform={`translate(${b.xMid},${targetY})`}>
               <circle
                 r={12}
                 fill="transparent"
@@ -674,12 +754,25 @@ export default function CurveEditor({
                   </text>
                 </g>
               )}
-            </g>
-          );
-        })}
+              </g>
+            );
+          })}
 
         {/* Transport playhead lands with #393. */}
       </svg>
+      </div>
+      <div className={styles.yaxis}>
+        <div>10·peak</div>
+        <div>7</div>
+        <div>5</div>
+        <div>2</div>
+        <div>0</div>
+      </div>
+      <div className={styles.xaxis}>
+        {[0, 0.25, 0.5, 0.75, 1].map((t) => (
+          <div key={t}>{fmtTime(t * domainSec)}</div>
+        ))}
+      </div>
     </div>
   );
 }

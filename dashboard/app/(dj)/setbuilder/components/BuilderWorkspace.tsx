@@ -83,7 +83,7 @@ function TimelineSummary({
       </span>
       {projection.slotCount > 1 && overlapSec > 0 ? (
         <span className={sbStyles.timelineLiveWrap}>
-          <span className={sbStyles.timelineLive}>
+          <span className={sbStyles.timelineLive} tabIndex={0}>
             <strong>{formatTimecode(projection.effectiveSec)}</strong> live, est.
           </span>
           <span className={sbStyles.timelineTooltip} role="tooltip">

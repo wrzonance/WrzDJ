@@ -34,6 +34,21 @@ def test_pass1_slot_budget_without_target_returns_empty_contract():
     assert budget.delta_sec is None
 
 
+def test_pass1_slot_budget_guards_non_increasing_effective_duration():
+    # Regression for dc018e8: overlap >= average track duration cannot use the closed form.
+    budget = targeting.pass1_slot_budget(
+        target_duration_sec=120,
+        avg_track_duration_sec=30,
+        avg_transition_overlap_sec=30,
+    )
+
+    assert budget.slot_count == 1
+    assert budget.projected_total_sec == 30
+    assert budget.projected_effective_sec == 30
+    assert budget.delta_sec == -90
+    assert budget.within_overflow_tolerance is False
+
+
 def test_pass1_slot_budget_from_actual_durations_respects_overflow_tolerance():
     budget = targeting.pass1_slot_budget_from_durations(
         target_duration_sec=600,

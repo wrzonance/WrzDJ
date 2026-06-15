@@ -87,6 +87,7 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
   });
   const [targetProjection, setTargetProjection] = useState<TargetProjection | null>(null);
   const [savingTarget, setSavingTarget] = useState(false);
+  const [targetError, setTargetError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -218,6 +219,7 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
 
   const undoTarget = () => {
     if (!set) return;
+    setTargetError(null);
     setTargetSettings({
       targetDurationSec: set.target_duration_sec,
       avgTransitionOverlapSec:
@@ -225,9 +227,15 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
     });
   };
 
+  const updateTargetSettings = useCallback((settings: TargetSettings) => {
+    setTargetError(null);
+    setTargetSettings(settings);
+  }, []);
+
   const saveTarget = async () => {
     if (!set || !targetDirty) return;
     setSavingTarget(true);
+    setTargetError(null);
     try {
       const updated = await api.updateSetTargetSettings(
         set.id,
@@ -235,6 +243,10 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
         targetSettings.avgTransitionOverlapSec,
       );
       setSet(updated);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save target settings';
+      setTargetError(message);
+      setToast(message);
     } finally {
       setSavingTarget(false);
     }
@@ -308,11 +320,16 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
                 saving={savingTarget}
                 open={targetOpen}
                 onOpenChange={setTargetOpen}
-                onSettingsChange={setTargetSettings}
+                onSettingsChange={updateTargetSettings}
                 onSave={saveTarget}
                 onUndo={undoTarget}
               />
             )}
+            {targetError ? (
+              <span className={styles.targetSaveError} role="alert">
+                {targetError}
+              </span>
+            ) : null}
           </span>
           <HistoryControls
             undoDepth={history.undoDepth}

@@ -43,6 +43,16 @@ def pass1_slot_budget(
 
     track_sec = max(1, int(avg_track_duration_sec))
     overlap_sec = max(0, int(avg_transition_overlap_sec))
+    if track_sec <= overlap_sec:
+        delta_sec = track_sec - target_duration_sec
+        return SlotBudget(
+            slot_count=1,
+            projected_total_sec=track_sec,
+            projected_effective_sec=track_sec,
+            delta_sec=delta_sec,
+            within_overflow_tolerance=0 <= delta_sec <= target_duration_sec * 0.10,
+        )
+
     effective_per_added_track = max(1, track_sec - overlap_sec)
     slot_count = max(1, ceil((target_duration_sec - overlap_sec) / effective_per_added_track))
     total_sec = slot_count * track_sec

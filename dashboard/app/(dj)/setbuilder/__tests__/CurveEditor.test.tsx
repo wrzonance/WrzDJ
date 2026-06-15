@@ -220,4 +220,222 @@ describe('CurveEditor', () => {
     fireEvent.contextMenu(screen.getByTestId('vibe-window-header-w1'));
     expect(onWindowDelete).toHaveBeenCalledWith('w1');
   });
+
+  it('keeps the viewport-local svg outside the horizontal scroll layer', () => {
+    const { container } = renderEditor({
+      pxPerSecond: 2,
+      scrollLeft: 200,
+      viewportWidth: 600,
+      scrubEnabled: true,
+      onScrub: vi.fn(),
+    });
+
+    const scrollViewport = screen.getByTestId('curve-scroll-viewport');
+    const svg = container.querySelector('svg');
+
+    expect(svg).not.toBeNull();
+    expect(scrollViewport.querySelector('svg')).toBeNull();
+    expect(svg?.parentElement).toBe(screen.getByTestId('curve-canvas'));
+    expect(screen.getByTestId('curve-scrub-hit')).toBeInTheDocument();
+  });
+
+  it('uses the rendered canvas size before ResizeObserver emits', () => {
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 226,
+        bottom: 160,
+        width: 226,
+        height: 160,
+        toJSON: () => ({}),
+      } as DOMRect);
+
+    try {
+      const { container } = renderEditor();
+      expect(container.querySelector('svg')).toHaveAttribute('viewBox', '0 0 226 160');
+    } finally {
+      rectSpy.mockRestore();
+    }
+  });
+
+  it('exposes a dedicated horizontal scroll hit target for the curve timeline', () => {
+    renderEditor({
+      pxPerSecond: 2,
+      viewportWidth: 600,
+    });
+
+    expect(screen.getByTestId('curve-scroll-viewport')).toHaveAttribute(
+      'aria-label',
+      'Curve timeline horizontal scroll',
+    );
+    expect(screen.getByTestId('curve-scroll-viewport')).toHaveAttribute(
+      'data-scrollbar-affordance',
+      'true',
+    );
+    expect(screen.getByTestId('curve-scrollbar')).toBeInTheDocument();
+    expect(screen.getByTestId('curve-scrollbar-thumb')).toBeInTheDocument();
+  });
+
+  it('maps vibe-window move and resize through the visible viewport seconds', () => {
+    const onWindowChange = vi.fn();
+    const onWindowCommit = vi.fn();
+    const { container } = renderEditor({
+      slots: [
+        mkSlot(0, { durationSec: 200 }),
+        mkSlot(1, { durationSec: 200 }),
+        mkSlot(2, { durationSec: 200 }),
+      ],
+      windows: [{ id: 'w1', t0: 0.2, t1: 0.3, label: 'First Dance' }],
+      pxPerSecond: 2,
+      scrollLeft: 200,
+      viewportWidth: 200,
+      onWindowChange,
+      onWindowCommit,
+    });
+
+    const svg = container.querySelector('svg');
+    expect(svg).not.toBeNull();
+    vi.spyOn(svg as SVGSVGElement, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 200,
+      bottom: 160,
+      width: 200,
+      height: 160,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    fireEvent.pointerDown(screen.getByTestId('vibe-window-header-w1'), { clientX: 80 });
+    fireEvent.pointerMove(window, { clientX: 130 });
+    expect(onWindowChange).toHaveBeenLastCalledWith('w1', {
+      t0: expect.closeTo(145 / 600, 5),
+      t1: expect.closeTo(205 / 600, 5),
+    });
+    fireEvent.pointerUp(window);
+    expect(onWindowCommit).toHaveBeenCalledWith('w1');
+
+    onWindowChange.mockClear();
+    onWindowCommit.mockClear();
+    const rectHandles = screen
+      .getByTestId('vibe-window-w1')
+      .querySelectorAll('rect[data-scrub-ignore="1"]');
+    const rightHandle = rectHandles[2];
+    expect(rightHandle).toBeDefined();
+
+    fireEvent.pointerDown(rightHandle, { clientX: 160 });
+    fireEvent.pointerMove(window, { clientX: 180 });
+    expect(onWindowChange).toHaveBeenLastCalledWith('w1', {
+      t1: expect.closeTo(190 / 600, 5),
+    });
+
+    onWindowChange.mockClear();
+    const leftHandle = rectHandles[1];
+    expect(leftHandle).toBeDefined();
+
+    fireEvent.pointerDown(leftHandle, { clientX: 40 });
+    fireEvent.pointerMove(window, { clientX: 20 });
+    expect(onWindowChange).toHaveBeenLastCalledWith('w1', {
+      t0: expect.closeTo(110 / 600, 5),
+    });
+  });
+
+  it('updates visible slots from internal scroll when uncontrolled', () => {
+    const slots = Array.from({ length: 200 }, (_, i) => mkSlot(i, { durationSec: 60 }));
+    renderEditor({
+      slots,
+      pxPerSecond: 2,
+      viewportWidth: 600,
+    });
+
+    expect(screen.getByTestId('slot-block-0')).toBeInTheDocument();
+    expect(screen.queryByTestId('slot-block-50')).not.toBeInTheDocument();
+
+    const scrollViewport = screen.getByTestId('curve-scroll-viewport');
+    fireEvent.scroll(scrollViewport, {
+      target: { scrollLeft: 60 * 50 * 2 },
+    });
+
+    expect(screen.queryByTestId('slot-block-0')).not.toBeInTheDocument();
+    expect(screen.getByTestId('slot-block-50')).toBeInTheDocument();
+  });
+
+  it('forwards wheel input over the svg overlay to horizontal scrolling', () => {
+    const onScrollLeftChange = vi.fn();
+    const slots = Array.from({ length: 200 }, (_, i) => mkSlot(i, { durationSec: 60 }));
+    const { container } = renderEditor({
+      slots,
+      pxPerSecond: 2,
+      viewportWidth: 600,
+      onScrollLeftChange,
+    });
+
+    const svg = container.querySelector('svg');
+    expect(svg).not.toBeNull();
+    fireEvent.wheel(svg as SVGSVGElement, { deltaY: 60 });
+
+    expect(screen.getByTestId('curve-scroll-viewport')).toHaveProperty('scrollLeft', 60);
+    expect(onScrollLeftChange).toHaveBeenLastCalledWith(60);
+  });
+
+  it('renders only viewport-visible slot blocks in detail zoom', () => {
+    // Regression for b2d595a: large sets must not render every SVG slot node at once.
+    const slots = Array.from({ length: 200 }, (_, i) => mkSlot(i, { durationSec: 60 }));
+    renderEditor({
+      slots,
+      pxPerSecond: 2,
+      scrollLeft: 60 * 50 * 2,
+      viewportWidth: 600,
+    });
+
+    expect(screen.queryByTestId('slot-block-0')).not.toBeInTheDocument();
+    expect(screen.getByTestId('slot-block-50')).toBeInTheDocument();
+    expect(document.querySelectorAll('[data-testid^="slot-block-"]').length).toBeLessThan(30);
+  });
+
+  it('hides per-slot drag handles at overview zoom', () => {
+    // Regression for b2d595a: overview mode should not expose hundreds of tiny handles.
+    const slots = Array.from({ length: 200 }, (_, i) => mkSlot(i, { durationSec: 60 }));
+    renderEditor({
+      slots,
+      pxPerSecond: 0.02,
+      scrollLeft: 0,
+      viewportWidth: 600,
+    });
+
+    expect(screen.getByTestId('curve-lod')).toHaveTextContent('overview');
+    expect(screen.queryByTestId('target-handle-0')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('slot-block-0')).not.toBeInTheDocument();
+    expect(screen.getByTestId('curve-line')).toBeInTheDocument();
+  });
+
+  it('keeps svg label text from stretching when the rendered viewport and viewBox diverge', () => {
+    renderEditor({
+      targetDurationSec: 900,
+      viewportWidth: 600,
+      playheadSec: 120,
+      windows: [{ id: 'w1', t0: 0.15, t1: 0.35, label: 'Build' }],
+    });
+
+    expect(screen.getByTestId('curve-target-label')).toHaveAttribute(
+      'data-fixed-svg-label',
+      'true',
+    );
+    expect(screen.getByTestId('vibe-window-label-w1')).toHaveAttribute(
+      'data-fixed-svg-label',
+      'true',
+    );
+    expect(screen.getByTestId('curve-playhead-label')).toHaveAttribute(
+      'data-fixed-svg-label',
+      'true',
+    );
+    expect(screen.getByTestId('curve-target-label').getAttribute('transform')).toContain(
+      'scale(0.7500 1.0000)',
+    );
+  });
 });

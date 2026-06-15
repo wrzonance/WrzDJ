@@ -1,6 +1,8 @@
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import BuilderWorkspace from '../components/BuilderWorkspace';
+import { timelineMeasurementKey } from '../components/TimelinePanel';
+import { slotViewFromApi } from '../components/types';
 import type { PoolTrack, SetDocumentSnapshot, SetSlotOut } from '@/lib/api-types';
 
 beforeAll(() => {
@@ -178,6 +180,41 @@ const POOL_TRACKS: PoolTrack[] = [
   },
 ];
 
+function largeSlots(count: number): SetSlotOut[] {
+  return Array.from({ length: count }, (_, idx) => ({
+    ...SLOTS[idx % SLOTS.length],
+    id: 1_000 + idx,
+    position: idx,
+    track_id: `large-${idx}`,
+    target_energy: idx % 3 === 0 ? null : 5 + (idx % 5),
+    title: null,
+    artist: null,
+    bpm: null,
+    key: null,
+    camelot: null,
+    energy: null,
+    duration_sec: null,
+    next_pairing_id: null,
+    next_is_dj_pairing: false,
+  }));
+}
+
+function largePoolTracks(count: number): PoolTrack[] {
+  return Array.from({ length: count }, (_, idx) => ({
+    ...POOL_TRACKS[idx % POOL_TRACKS.length],
+    id: 2_000 + idx,
+    track_id: `large-${idx}`,
+    title: `Large Track ${idx}`,
+    artist: `Large Artist ${idx}`,
+    bpm: 118 + (idx % 24),
+    camelot: `${(idx % 12) + 1}A`,
+    key: `${(idx % 12) + 1}A`,
+    energy: 4 + (idx % 6),
+    duration_sec: 180 + (idx % 90),
+    created_at: '2026-01-01T00:00:00Z',
+  }));
+}
+
 const EXTRA_POOL_TRACK: PoolTrack = {
   id: 14,
   source_id: 1,
@@ -300,6 +337,7 @@ describe('BuilderWorkspace', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    window.localStorage.clear();
   });
 
   it('fetches slots and renders curve blocks + timeline rows', async () => {
@@ -309,6 +347,88 @@ describe('BuilderWorkspace', () => {
       expect(screen.getByTestId('timeline-row-2')).toBeInTheDocument();
     });
     expect(mockGetSetSlots).toHaveBeenCalledWith(5);
+  });
+
+  it('zooms the curve timeline in, out, and back to fit', async () => {
+    render(<BuilderWorkspace setId={5} />);
+    await waitFor(() => expect(screen.getByTestId('curve-toolbar')).toBeInTheDocument());
+    expect(screen.getByRole('group', { name: 'Curve zoom controls' })).toBeInTheDocument();
+
+    const canvas = screen.getByTestId('curve-canvas');
+    const initialScale = canvas.getAttribute('data-px-per-second');
+
+    fireEvent.click(screen.getByTestId('curve-zoom-in'));
+    expect(screen.getByTestId('curve-canvas').getAttribute('data-px-per-second')).not.toBe(
+      initialScale,
+    );
+
+    fireEvent.click(screen.getByTestId('curve-zoom-out'));
+    fireEvent.click(screen.getByTestId('curve-zoom-fit'));
+    fireEvent.scroll(screen.getByTestId('curve-scroll-viewport'), { target: { scrollLeft: 0 } });
+
+    expect(screen.getByTestId('curve-zoom-label')).toHaveTextContent('Fit');
+  });
+
+  it('zooms the curve using the overlap-adjusted target domain', async () => {
+    render(
+      <BuilderWorkspace
+        setId={5}
+        targetSettings={{ targetDurationSec: 1000, avgTransitionOverlapSec: 10 }}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('curve-toolbar')).toBeInTheDocument());
+
+    expect(screen.getByTestId('curve-canvas')).toHaveAttribute('data-px-per-second', '0.7843');
+  });
+
+  it('zooms the curve from fit scroll without snapping scale and clamps stale scroll', async () => {
+    const { rerender } = render(
+      <BuilderWorkspace
+        setId={5}
+        targetSettings={{ targetDurationSec: 60_000, avgTransitionOverlapSec: 0 }}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('curve-toolbar')).toBeInTheDocument());
+
+    const initialScale = screen.getByTestId('curve-canvas').getAttribute('data-px-per-second');
+    fireEvent.scroll(screen.getByTestId('curve-scroll-viewport'), { target: { scrollLeft: 120 } });
+
+    await waitFor(() => expect(screen.getByTestId('curve-zoom-label')).toHaveTextContent('1 px/min'));
+    expect(screen.getByTestId('curve-canvas')).toHaveAttribute('data-px-per-second', initialScale);
+    expect(screen.getByTestId('curve-canvas')).toHaveAttribute('data-scroll-left', '120');
+
+    rerender(
+      <BuilderWorkspace
+        setId={5}
+        targetSettings={{ targetDurationSec: 600, avgTransitionOverlapSec: 0 }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId('curve-canvas')).toHaveAttribute('data-scroll-left', '0'),
+    );
+  });
+
+  it('uses overview curve LOD for hundreds of tracks at fit zoom', async () => {
+    // Regression for b2d595a: fit zoom must not render hundreds of target handles.
+    mockGetSetSlots.mockResolvedValue(largeSlots(400));
+    mockGetPool.mockResolvedValue({ sources: [], tracks: largePoolTracks(400) });
+
+    render(<BuilderWorkspace setId={5} />);
+    await waitFor(() => expect(screen.getByTestId('curve-canvas')).toBeInTheDocument());
+
+    expect(screen.getByTestId('curve-lod')).toHaveTextContent('overview');
+    expect(screen.queryAllByTestId(/^target-handle-/)).toHaveLength(0);
+    expect(screen.getByTestId('curve-line')).toBeInTheDocument();
+
+    const initialScale = screen.getByTestId('curve-canvas').getAttribute('data-px-per-second');
+    fireEvent.click(screen.getByTestId('curve-zoom-in'));
+    fireEvent.click(screen.getByTestId('curve-zoom-in'));
+    fireEvent.click(screen.getByTestId('curve-zoom-in'));
+
+    expect(screen.getByTestId('curve-canvas').getAttribute('data-px-per-second')).not.toBe(
+      initialScale,
+    );
   });
 
   it('reports effective target projection from loaded slots', async () => {
@@ -390,7 +510,6 @@ describe('BuilderWorkspace', () => {
 
     await waitFor(() => expect(mockUpdateSlotTarget).toHaveBeenCalled());
     expect(screen.queryByTestId('replace-popover')).not.toBeInTheDocument();
-    window.localStorage.removeItem('wrzdj.curve.suggestReplacements');
   });
 
   it('applying a built-in template re-targets slots from the server response', async () => {
@@ -433,6 +552,26 @@ describe('BuilderWorkspace', () => {
     expect(screen.getByTestId('timeline-transition-0')).toHaveTextContent('94');
   });
 
+  it('measurement key changes when transition or pairing metadata changes without slot reorder', () => {
+    const baseSlots = SLOTS.map((slot, idx) => slotViewFromApi(slot, POOL_TRACKS[idx]));
+    const scoreChangedSlots = SLOTS.map((slot, idx) =>
+      slotViewFromApi(idx === 0 ? { ...slot, transition_score: 94 } : slot, POOL_TRACKS[idx]),
+    );
+    const pairingChangedSlots = SLOTS.map((slot, idx) =>
+      slotViewFromApi(
+        idx === 0 ? { ...slot, next_pairing_id: 77, next_is_dj_pairing: true } : slot,
+        POOL_TRACKS[idx],
+      ),
+    );
+
+    expect(scoreChangedSlots.map((slot) => slot.id)).toEqual(baseSlots.map((slot) => slot.id));
+    expect(pairingChangedSlots.map((slot) => slot.id)).toEqual(baseSlots.map((slot) => slot.id));
+    expect(timelineMeasurementKey(scoreChangedSlots)).not.toBe(timelineMeasurementKey(baseSlots));
+    expect(timelineMeasurementKey(pairingChangedSlots)).not.toBe(
+      timelineMeasurementKey(baseSlots),
+    );
+  });
+
   it('timeline context menu saves the transition to the next slot as a pairing', async () => {
     render(<BuilderWorkspace setId={5} />);
     await waitFor(() => expect(screen.getByTestId('timeline-row-0')).toBeInTheDocument());
@@ -458,6 +597,151 @@ describe('BuilderWorkspace', () => {
     // scrollIntoView only fires when out of view; with jsdom 0-rects rows are
     // "in view", so just assert no crash and the row exists.
     expect(screen.getByTestId('timeline-row-2')).toBeInTheDocument();
+  });
+
+  it('click on a visible curve block keeps the timeline scroll position stable', async () => {
+    const slots = largeSlots(40);
+    const tracks = largePoolTracks(40);
+    mockGetSetSlots.mockResolvedValue(slots);
+    mockGetPool.mockResolvedValue({ sources: [], tracks });
+
+    render(<BuilderWorkspace setId={5} />);
+    await waitFor(() => expect(screen.getByTestId('slot-block-2')).toBeInTheDocument());
+
+    const timelineList = screen.getByTestId('timeline-list');
+    Object.defineProperty(timelineList, 'clientHeight', {
+      value: 260,
+      configurable: true,
+    });
+    timelineList.scrollTop = 52;
+    fireEvent.scroll(timelineList);
+
+    fireEvent.click(screen.getByTestId('slot-block-2'));
+
+    await waitFor(() => expect(timelineList.scrollTop).toBe(52));
+  });
+
+  it('click on a row with a clipped transition strip keeps the visible row stable', async () => {
+    const slots = largeSlots(40).map((slot, idx) =>
+      idx === 1 ? { ...slot, transition_score: 88 } : slot,
+    );
+    const tracks = largePoolTracks(40);
+    mockGetSetSlots.mockResolvedValue(slots);
+    mockGetPool.mockResolvedValue({ sources: [], tracks });
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function mockTimelineRects(this: HTMLElement) {
+        if (this.dataset.testid === 'timeline-list') {
+          return {
+            x: 0,
+            y: 0,
+            width: 320,
+            height: 260,
+            top: 0,
+            right: 320,
+            bottom: 260,
+            left: 0,
+            toJSON: () => ({}),
+          } as DOMRect;
+        }
+        if (this.dataset.testid === 'timeline-row-2') {
+          return {
+            x: 0,
+            y: 14,
+            width: 320,
+            height: 32,
+            top: 14,
+            right: 320,
+            bottom: 46,
+            left: 0,
+            toJSON: () => ({}),
+          } as DOMRect;
+        }
+        return {
+          x: 0,
+          y: 0,
+          width: 0,
+          height: 0,
+          top: 0,
+          right: 0,
+          bottom: 0,
+          left: 0,
+          toJSON: () => ({}),
+        } as DOMRect;
+      });
+
+    try {
+      render(<BuilderWorkspace setId={5} />);
+      await waitFor(() => expect(screen.getByTestId('timeline-transition-1')).toBeInTheDocument());
+
+      const timelineList = screen.getByTestId('timeline-list');
+      Object.defineProperty(timelineList, 'clientHeight', {
+        value: 260,
+        configurable: true,
+      });
+      timelineList.scrollTop = 112;
+      fireEvent.scroll(timelineList);
+
+      fireEvent.click(screen.getByTestId('slot-block-2'));
+
+      await waitFor(() => expect(timelineList.scrollTop).toBe(112));
+    } finally {
+      rectSpy.mockRestore();
+    }
+  });
+
+  it('external jump requests wait for the requested row to exist', async () => {
+    const { rerender } = render(<BuilderWorkspace setId={5} refreshToken={0} />);
+    await waitFor(() => expect(screen.getByTestId('timeline-row-0')).toBeInTheDocument());
+
+    const timelineList = screen.getByTestId('timeline-list');
+    Object.defineProperty(timelineList, 'clientHeight', {
+      value: 260,
+      configurable: true,
+    });
+
+    window.dispatchEvent(new CustomEvent('wrzdj:setbuilder-jump-slot', { detail: { idx: 80 } }));
+    await waitFor(() => expect(timelineList.scrollTop).toBe(0));
+
+    const slots = largeSlots(120);
+    const tracks = largePoolTracks(120);
+    mockGetSetSlots.mockResolvedValue(slots);
+    mockGetPool.mockResolvedValue({ sources: [], tracks });
+    rerender(<BuilderWorkspace setId={5} refreshToken={1} />);
+
+    await waitFor(() => expect(screen.getByTestId('timeline-row-80')).toBeInTheDocument());
+    expect(timelineList.scrollTop).toBeGreaterThan(0);
+  });
+
+  it('click on a curve block scrolls once and does not replay after manual scroll measurement', async () => {
+    const slots = largeSlots(120);
+    const tracks = largePoolTracks(120);
+    mockGetSetSlots.mockResolvedValue(slots);
+    mockGetPool.mockResolvedValue({ sources: [], tracks });
+
+    let measuredRowHeight = 52;
+    const offsetHeightSpy = vi
+      .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
+      .mockImplementation(() => measuredRowHeight);
+
+    try {
+      render(<BuilderWorkspace setId={5} />);
+      await waitFor(() => expect(screen.getByTestId('slot-block-80')).toBeInTheDocument());
+
+      const timelineList = screen.getByTestId('timeline-list');
+      fireEvent.click(screen.getByTestId('slot-block-80'));
+
+      await waitFor(() => expect(screen.getByTestId('timeline-row-80')).toBeInTheDocument());
+      expect(timelineList.scrollTop).toBeGreaterThan(0);
+
+      measuredRowHeight = 60;
+      fireEvent.scroll(timelineList, { target: { scrollTop: 0 } });
+
+      await waitFor(() => expect(screen.getByTestId('timeline-row-0')).toBeInTheDocument());
+      await waitFor(() => expect(timelineList.scrollTop).toBe(0));
+    } finally {
+      offsetHeightSpy.mockRestore();
+    }
   });
 
   it('dropping a pool track on a timeline row inserts it before that row', async () => {
@@ -564,6 +848,32 @@ describe('BuilderWorkspace', () => {
       }),
     );
     expect(screen.getByTestId('timeline-vu-1')).toBeInTheDocument();
+  });
+
+  it('virtualizes hundreds of timeline rows while preserving visible row actions', async () => {
+    // Regression for 7459707: large timelines must not mount every row.
+    const slots = largeSlots(400);
+    const tracks = largePoolTracks(400);
+    mockGetSetSlots.mockResolvedValue(slots);
+    mockGetPool.mockResolvedValue({ sources: [], tracks });
+
+    render(<BuilderWorkspace setId={5} />);
+    await waitFor(() => expect(screen.getByTestId('timeline-row-0')).toBeInTheDocument());
+
+    expect(screen.getByTestId('timeline-list')).toHaveAttribute('data-virtualized', 'true');
+    expect(screen.queryAllByTestId(/^timeline-row-/).length).toBeLessThan(60);
+
+    fireEvent.doubleClick(screen.getByTestId('timeline-row-1'));
+
+    await waitFor(() => expect(mockSendTransportCommand).toHaveBeenCalledTimes(1));
+    expect(mockSendTransportCommand).toHaveBeenCalledWith(
+      5,
+      expect.objectContaining({
+        action: 'play',
+        slot_index: 1,
+        title: 'Large Track 1',
+      }),
+    );
   });
 
   it('click-to-scrub queues a seek command and keeps the active row in sync', async () => {

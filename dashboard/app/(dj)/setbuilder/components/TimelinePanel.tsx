@@ -3,16 +3,23 @@
 /**
  * Minimal timeline list (#389) — ordered slot rows with BPM/key/energy
  * badges and bidirectional hover sync with the curve. Clicking a curve
- * block scrolls the matching row into view (only when out of view).
+ * block scrolls the matching row into view, including virtualized rows.
  * Full drag-reorder timeline lands with #390/#397.
  */
 
-import { type DragEvent, useEffect, useRef, useState } from 'react';
-import { fmtTime } from './curveMath';
+import {
+  type DragEvent,
+  type UIEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { readPoolTrackDragPayload } from './dnd';
-import { localPositionSec } from './transportMath';
+import TimelineRow, { type TimelineMenu } from './TimelineRow';
 import type { SlotView } from './types';
-import { effectiveTarget } from './types';
+import { useMeasuredVirtualList } from './useMeasuredVirtualList';
 import styles from './curve.module.css';
 
 export interface ScrollRequest {
@@ -34,6 +41,21 @@ export interface TimelinePanelProps {
   onPoolTrackDrop?: (poolTrackId: number, insertIdx: number) => void | Promise<void>;
 }
 
+const ESTIMATED_SLOT_GROUP_HEIGHT = 52;
+const TIMELINE_OVERSCAN_ROWS = 8;
+
+export function timelineMeasurementKey(slots: SlotView[]): string {
+  return slots
+    .map((slot) =>
+      [
+        slot.id,
+        slot.transitionScore ?? '',
+        slot.nextIsDjPairing ? 1 : 0,
+      ].join(','),
+    )
+    .join(':');
+}
+
 export default function TimelinePanel({
   slots,
   hoveredIdx,
@@ -48,20 +70,85 @@ export default function TimelinePanel({
 }: TimelinePanelProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const [menu, setMenu] = useState<{ x: number; y: number; idx: number } | null>(null);
+  const handledScrollRequestNRef = useRef<number | null>(null);
+  const [menu, setMenu] = useState<TimelineMenu | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
+
+  const measurementKey = useMemo(() => timelineMeasurementKey(slots), [slots]);
+  const virtual = useMeasuredVirtualList({
+    itemCount: slots.length,
+    estimateHeight: ESTIMATED_SLOT_GROUP_HEIGHT,
+    viewportHeight,
+    scrollTop,
+    overscan: TIMELINE_OVERSCAN_ROWS,
+    measurementKey,
+  });
+  const {
+    afterHeight,
+    beforeHeight,
+    indexFromScrollTop,
+    items,
+    scrollTopForIndex,
+    setMeasuredHeight,
+    totalHeight,
+  } = virtual;
+
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+
+    const measure = () => {
+      setViewportHeight(list.clientHeight || list.getBoundingClientRect().height || 0);
+    };
+
+    measure();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure);
+      return () => window.removeEventListener('resize', measure);
+    }
+
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [slots.length]);
 
   useEffect(() => {
     if (!scrollRequest || !listRef.current) return;
+    if (handledScrollRequestNRef.current === scrollRequest.n) return;
+    if (scrollRequest.idx < 0 || scrollRequest.idx >= slots.length) return;
+    handledScrollRequestNRef.current = scrollRequest.n;
+
+    const list = listRef.current;
     const row = rowRefs.current[scrollRequest.idx];
-    if (!row) return;
-    const list = listRef.current.getBoundingClientRect();
-    const r = row.getBoundingClientRect();
-    const outOfView = r.top < list.top || r.bottom > list.bottom;
-    if (outOfView) {
-      row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const listRect = row ? list.getBoundingClientRect() : null;
+    const rowRect = row ? row.getBoundingClientRect() : null;
+    const rowTop =
+      rowRect && listRect
+        ? list.scrollTop + rowRect.top - listRect.top
+        : scrollTopForIndex(scrollRequest.idx);
+    const rowBottom =
+      rowRect && listRect
+        ? list.scrollTop + rowRect.bottom - listRect.top
+        : scrollTopForIndex(scrollRequest.idx + 1);
+    const rowHeight = Math.max(1, rowBottom - rowTop);
+    const visibleTop = list.scrollTop;
+    const visibleHeight =
+      viewportHeight || list.clientHeight || list.getBoundingClientRect().height || rowHeight;
+    const visibleBottom = visibleTop + visibleHeight;
+    let nextScrollTop = visibleTop;
+
+    if (rowTop < visibleTop) {
+      nextScrollTop = rowTop;
+    } else if (rowBottom > visibleBottom) {
+      nextScrollTop = Math.max(0, rowBottom - visibleHeight);
     }
-  }, [scrollRequest]);
+
+    list.scrollTop = nextScrollTop;
+    setScrollTop(nextScrollTop);
+  }, [scrollRequest, scrollTopForIndex, slots.length, viewportHeight]);
 
   useEffect(() => {
     if (!menu) return;
@@ -73,6 +160,30 @@ export default function TimelinePanel({
       window.removeEventListener('keydown', close);
     };
   }, [menu]);
+
+  const measureSlotGroup = useCallback(
+    (idx: number, el: HTMLDivElement | null) => {
+      if (!el) return;
+      setMeasuredHeight(idx, el.offsetHeight || el.getBoundingClientRect().height);
+    },
+    [setMeasuredHeight],
+  );
+
+  const handleScroll = (event: UIEvent<HTMLDivElement>) => {
+    setScrollTop(event.currentTarget.scrollTop);
+  };
+
+  const insertIndexFromPointer = (event: DragEvent<HTMLElement>) => {
+    const list = listRef.current;
+    if (!list) return slots.length;
+
+    const rect = list.getBoundingClientRect();
+    const pointerTop = event.clientY - rect.top + list.scrollTop;
+    const insertIdx =
+      pointerTop >= totalHeight ? slots.length : indexFromScrollTop(pointerTop);
+
+    return Math.max(0, Math.min(slots.length, insertIdx));
+  };
 
   const markPoolTrackDrop = (event: DragEvent<HTMLElement>, insertIdx: number) => {
     event.preventDefault();
@@ -87,6 +198,14 @@ export default function TimelinePanel({
     const payload = readPoolTrackDragPayload(event.dataTransfer);
     if (!payload) return;
     void onPoolTrackDrop?.(payload.poolTrackId, insertIdx);
+  };
+
+  const markPoolTrackDropAtPointer = (event: DragEvent<HTMLElement>) => {
+    markPoolTrackDrop(event, insertIndexFromPointer(event));
+  };
+
+  const handlePoolTrackDropAtPointer = (event: DragEvent<HTMLElement>) => {
+    handlePoolTrackDrop(event, insertIndexFromPointer(event));
   };
 
   const clearDropIfLeaving = (event: DragEvent<HTMLElement>) => {
@@ -114,152 +233,43 @@ export default function TimelinePanel({
       className={`${styles.timelineList} ${dropIdx === slots.length ? styles.timelineListDrop : ''}`}
       ref={listRef}
       data-testid="timeline-list"
-      onDragOver={(event) => markPoolTrackDrop(event, slots.length)}
+      data-virtualized="true"
+      onScroll={handleScroll}
+      onDragOver={markPoolTrackDropAtPointer}
       onDragLeave={clearDropIfLeaving}
-      onDrop={(event) => handlePoolTrackDrop(event, slots.length)}
+      onDrop={handlePoolTrackDropAtPointer}
     >
-      {slots.map((s, i) => {
-        const prev = i > 0 ? slots[i - 1] : null;
-        const seamScore = prev?.transitionScore ?? s.transitionScore;
-        const isPairedSeam = Boolean(prev?.nextIsDjPairing);
-        const isCurrent = currentIdx === i;
-        const progress =
-          isCurrent && s.track.durationSec > 0
-            ? Math.min(
-                100,
-                Math.max(
-                  0,
-                  (localPositionSec(slots, i, positionSec) / s.track.durationSec) * 100,
-                ),
-              )
-            : 0;
-        const pairingActionLabel = s.nextIsDjPairing
-          ? `Open saved pairing after ${s.track.title}`
-          : `Save ${s.track.title} into ${slots[i + 1]?.track.title ?? 'next track'} as pairing`;
+      <div style={{ height: beforeHeight }} aria-hidden="true" />
+      {items.map(({ idx }) => {
+        const slot = slots[idx];
+        if (!slot) return null;
+
         return (
-          <div key={s.id} className={styles.timelineSlotGroup}>
-            {i > 0 && (isPairedSeam || seamScore != null) && (
-              <div
-                className={`${styles.timelineTransition} ${
-                  isPairedSeam ? styles.timelineTransitionPairing : ''
-                }`}
-                data-testid={`timeline-transition-${i - 1}`}
-              >
-                {seamScore != null && (
-                  <span className={styles.timelineScoreChip}>{Math.round(seamScore)}</span>
-                )}
-                {isPairedSeam && (
-                  <span className={styles.timelinePairingChip}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
-                      <path
-                        d="M10.5 13.5 13.5 10.5M8.5 17.5H7.8a4.8 4.8 0 0 1 0-9.6h3.4M12.8 16.1h3.4a4.8 4.8 0 1 0 0-9.6h-.7"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="1.9"
-                      />
-                    </svg>
-                    DJ pairing
-                  </span>
-                )}
-              </div>
-            )}
-            <div
-              ref={(el) => {
-                rowRefs.current[i] = el;
-              }}
-              className={`${styles.timelineRow} ${hoveredIdx === i ? styles.timelineRowHover : ''} ${
-                isCurrent ? styles.timelineRowNow : ''
-              } ${dropIdx === i ? styles.timelineRowDrop : ''}`}
-              onMouseEnter={() => onHover(i)}
-              onMouseLeave={() => onHover(null)}
-              onDoubleClick={() => onRowDoubleClick?.(i)}
-              onDragOver={(event) => {
-                event.stopPropagation();
-                markPoolTrackDrop(event, i);
-              }}
-              onDragLeave={clearDropIfLeaving}
-              onDrop={(event) => handlePoolTrackDrop(event, i)}
-              onContextMenu={(event) => {
-                if (i >= slots.length - 1) return;
-                event.preventDefault();
-                setMenu({ x: event.clientX, y: event.clientY, idx: i });
-              }}
-              data-testid={`timeline-row-${i}`}
-            >
-              {isCurrent ? (
-                <span
-                  className={styles.timelineRowProgress}
-                  style={{ width: `${progress}%` }}
-                  aria-hidden="true"
-                />
-              ) : null}
-              <span className={styles.timelinePos}>
-                {isCurrent ? (
-                  playing ? (
-                    <span
-                      className={`${styles.rowVu} ${styles.rowVuActive}`}
-                      data-testid={`timeline-vu-${i}`}
-                    >
-                      <span />
-                      <span />
-                      <span />
-                      <span />
-                    </span>
-                  ) : (
-                    <span className={styles.timelinePauseIcon} data-testid={`timeline-pause-${i}`}>
-                      <span />
-                      <span />
-                    </span>
-                  )
-                ) : (
-                  String(i + 1).padStart(2, '0')
-                )}
-              </span>
-              <span className={styles.timelineTitle}>
-                {s.track.title}
-                {s.track.artist ? (
-                  <span className={styles.timelineArtist}> — {s.track.artist}</span>
-                ) : null}
-              </span>
-              <span className={styles.timelineBadge}>{fmtTime(s.track.durationSec)}</span>
-              <span className={styles.timelineBadge}>
-                {s.track.bpm != null ? `${Math.round(s.track.bpm)} BPM` : '— BPM'}
-              </span>
-              <span className={styles.timelineBadge}>{s.track.key ?? '—'}</span>
-              <span className={styles.timelineBadge}>e{s.track.energy}</span>
-              <span className={styles.timelineTarget} title="Target energy">
-                ◎ {effectiveTarget(s).toFixed(1)}
-              </span>
-              {i < slots.length - 1 && (
-                <button
-                  type="button"
-                  className={styles.timelinePairingAction}
-                  aria-label={pairingActionLabel}
-                  title={pairingActionLabel}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    setMenu({ x: rect.left, y: rect.bottom + 4, idx: i });
-                  }}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
-                    <path
-                      d="M10.5 13.5 13.5 10.5M8.5 17.5H7.8a4.8 4.8 0 0 1 0-9.6h3.4M12.8 16.1h3.4a4.8 4.8 0 1 0 0-9.6h-.7"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="1.9"
-                    />
-                  </svg>
-                </button>
-              )}
-            </div>
-          </div>
+          <TimelineRow
+            key={slot.id}
+            slot={slot}
+            prevSlot={idx > 0 ? slots[idx - 1] : null}
+            nextSlot={idx < slots.length - 1 ? slots[idx + 1] : null}
+            idx={idx}
+            slots={slots}
+            hoveredIdx={hoveredIdx}
+            currentIdx={currentIdx}
+            positionSec={positionSec}
+            playing={playing}
+            dropIdx={dropIdx}
+            setDropIdx={setDropIdx}
+            onHover={onHover}
+            onRowDoubleClick={onRowDoubleClick}
+            onPoolTrackDrop={onPoolTrackDrop}
+            setMenu={setMenu}
+            setRowRef={(rowIdx, el) => {
+              rowRefs.current[rowIdx] = el;
+            }}
+            measureRef={measureSlotGroup}
+          />
         );
       })}
+      <div style={{ height: afterHeight }} aria-hidden="true" />
       {menu && (
         <div
           className={styles.timelineContextMenu}

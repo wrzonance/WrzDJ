@@ -10,16 +10,26 @@
  * BPM/Key view modes render tier-colored friction bands at block seams.
  */
 
-import { useEffect, useRef, useState } from 'react';
-import type { MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  ReactNode,
+  SVGProps,
+} from 'react';
 import {
   BPM_TIER_COLORS,
   KEY_TIER_COLORS,
   bpmPercentDelta,
   camelotMixTier,
   fmtTime,
-  slotBlocksFromSlots,
 } from './curveMath';
+import {
+  curveViewportRange,
+  fitPxPerSecond,
+  lodForMedianSlotWidth,
+  visibleBlocksFromSlots,
+} from './curveViewport';
 import { rawTargetSecForSlots } from './targetMath';
 import type { SlotView, VibeWindowView } from './types';
 import styles from './curve.module.css';
@@ -30,12 +40,83 @@ const NEON = '#00f5d4';
 const NEON_PURPLE = '#b78bff';
 const WARNING = '#f59e0b';
 
+interface SvgFixedGroupProps extends SVGProps<SVGGElement> {
+  x: number;
+  y: number;
+  scaleX: number;
+  scaleY: number;
+  children: ReactNode;
+}
+
+interface SvgFixedTextProps extends Omit<SVGProps<SVGTextElement>, 'x' | 'y'> {
+  x: number;
+  y: number;
+  scaleX: number;
+  scaleY: number;
+  testId?: string;
+  children: ReactNode;
+}
+
+function fixedLabelTransform(x: number, y: number, scaleX: number, scaleY: number) {
+  return `translate(${x} ${y}) scale(${scaleX.toFixed(4)} ${scaleY.toFixed(4)})`;
+}
+
+function SvgFixedGroup({
+  x,
+  y,
+  scaleX,
+  scaleY,
+  children,
+  ...props
+}: SvgFixedGroupProps) {
+  return (
+    <g
+      {...props}
+      data-fixed-svg-label="true"
+      transform={fixedLabelTransform(x, y, scaleX, scaleY)}
+    >
+      {children}
+    </g>
+  );
+}
+
+function SvgFixedText({
+  x,
+  y,
+  scaleX,
+  scaleY,
+  testId,
+  children,
+  ...textProps
+}: SvgFixedTextProps) {
+  return (
+    <SvgFixedGroup
+      x={x}
+      y={y}
+      scaleX={scaleX}
+      scaleY={scaleY}
+      data-testid={testId}
+    >
+      <text x={0} y={0} {...textProps}>
+        {children}
+      </text>
+    </SvgFixedGroup>
+  );
+}
+
 interface WindowDrag {
   id: string;
   mode: 'move' | 'left' | 'right';
   startMouseT: number;
   startT0: number;
   startT1: number;
+}
+
+interface ScrollbarDrag {
+  startClientX: number;
+  startScrollLeft: number;
+  trackScrollablePx: number;
+  maxScrollLeft: number;
 }
 
 export interface CurveEditorProps {
@@ -56,6 +137,11 @@ export interface CurveEditorProps {
   onWindowDelete?: (id: string) => void;
   targetDurationSec?: number | null;
   avgTransitionOverlapSec?: number;
+  pxPerSecond?: number;
+  scrollLeft?: number;
+  viewportWidth?: number;
+  onScrollLeftChange?: (scrollLeft: number) => void;
+  onViewportWidthChange?: (width: number) => void;
 }
 
 export default function CurveEditor({
@@ -76,26 +162,91 @@ export default function CurveEditor({
   onWindowDelete,
   targetDurationSec = null,
   avgTransitionOverlapSec = 0,
+  pxPerSecond,
+  scrollLeft,
+  viewportWidth,
+  onScrollLeftChange,
+  onViewportWidthChange,
 }: CurveEditorProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
+  const measureFrameRef = useRef<number | null>(null);
+  const scrollViewportRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [w, setW] = useState(800);
   const [h, setH] = useState(220);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dragEnergy, setDragEnergy] = useState<number | null>(null);
+  const [internalScrollLeft, setInternalScrollLeft] = useState(0);
   const [winDrag, setWinDrag] = useState<WindowDrag | null>(null);
+  const [scrollbarDrag, setScrollbarDrag] = useState<ScrollbarDrag | null>(null);
+  const effectiveScrollLeft = scrollLeft ?? internalScrollLeft;
+
+  const commitMeasuredSize = useCallback(
+    (width: number, height: number) => {
+      if (width <= 0 || height <= 0) return;
+      const nextW = Math.max(1, width);
+      const nextH = Math.max(1, height);
+      setW((prev) => (Math.abs(prev - nextW) < 0.5 ? prev : nextW));
+      setH((prev) => (Math.abs(prev - nextH) < 0.5 ? prev : nextH));
+      onViewportWidthChange?.(nextW);
+    },
+    [onViewportWidthChange],
+  );
+
+  const measureWrap = useCallback(() => {
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    commitMeasuredSize(rect.width, rect.height);
+  }, [commitMeasuredSize]);
+
+  const setWrapNode = useCallback(
+    (node: HTMLDivElement | null) => {
+      wrapRef.current = node;
+      if (measureFrameRef.current != null) {
+        window.cancelAnimationFrame(measureFrameRef.current);
+        measureFrameRef.current = null;
+      }
+      if (!node) return;
+      const measureNode = () => {
+        const rect = node.getBoundingClientRect();
+        commitMeasuredSize(rect.width, rect.height);
+      };
+      measureNode();
+      measureFrameRef.current = window.requestAnimationFrame(measureNode);
+    },
+    [commitMeasuredSize],
+  );
+
+  useLayoutEffect(() => {
+    measureWrap();
+  }, [measureWrap]);
 
   useEffect(() => {
     if (!wrapRef.current) return;
+    const node = wrapRef.current;
+    measureWrap();
     const ro = new ResizeObserver((entries) => {
       for (const e of entries) {
-        setW(Math.max(300, e.contentRect.width));
-        setH(Math.max(140, e.contentRect.height));
+        commitMeasuredSize(e.contentRect.width, e.contentRect.height);
       }
     });
-    ro.observe(wrapRef.current);
-    return () => ro.disconnect();
-  }, []);
+    ro.observe(node);
+    window.addEventListener('resize', measureWrap);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measureWrap);
+      if (measureFrameRef.current != null) {
+        window.cancelAnimationFrame(measureFrameRef.current);
+        measureFrameRef.current = null;
+      }
+    };
+  }, [commitMeasuredSize, measureWrap]);
+
+  useEffect(() => {
+    if (!scrollViewportRef.current) return;
+    if (Math.abs(scrollViewportRef.current.scrollLeft - effectiveScrollLeft) < 1) return;
+    scrollViewportRef.current.scrollLeft = effectiveScrollLeft;
+  }, [effectiveScrollLeft]);
 
   const yOf = (e: number) => h - (e / 10) * h;
   const eOfY = (y: number) => Math.max(0, Math.min(10, (1 - y / h) * 10));
@@ -107,11 +258,155 @@ export default function CurveEditor({
     avgTransitionOverlapSec,
   );
   const domainSec = Math.max(totalSec, rawTargetSec ?? 0, 1);
-  const targetX = rawTargetSec == null ? null : Math.round((rawTargetSec / domainSec) * w);
-  const baseBlocks = slotBlocksFromSlots(slots, w, domainSec);
+  const effectiveViewportWidth = viewportWidth ?? w;
+  const effectivePxPerSecond = pxPerSecond ?? fitPxPerSecond({
+    totalSec: domainSec,
+    viewportWidth: effectiveViewportWidth,
+  });
+  const visibleRange = curveViewportRange({
+    scrollLeft: effectiveScrollLeft,
+    viewportWidth: effectiveViewportWidth,
+    pxPerSecond: effectivePxPerSecond,
+    totalSec: domainSec,
+  });
+  const overscanSec = Math.max(30, effectiveViewportWidth / effectivePxPerSecond);
+  const targetX = rawTargetSec == null
+    ? null
+    : Math.round((rawTargetSec - visibleRange.startSec) * effectivePxPerSecond);
+  const baseBlocks = visibleBlocksFromSlots({
+    slots,
+    visibleStartSec: visibleRange.startSec,
+    visibleEndSec: visibleRange.endSec,
+    pxPerSecond: effectivePxPerSecond,
+    overscanSec,
+  });
   const blocks = baseBlocks.map((b) =>
     dragIdx === b.idx && dragEnergy != null ? { ...b, target: dragEnergy } : b,
   );
+  const lod = lodForMedianSlotWidth(blocks.map((b) => b.width));
+  const showBlocks = lod !== 'overview';
+  const showSlotHandles = lod === 'detail';
+  const showDenseSeams = lod === 'detail';
+  const scrollableWidth = Math.max(effectiveViewportWidth, domainSec * effectivePxPerSecond);
+  const maxScrollLeft = Math.max(0, scrollableWidth - effectiveViewportWidth);
+  const canScrollTimeline = maxScrollLeft > 1;
+  const scrollThumbWidthPct = canScrollTimeline
+    ? Math.min(100, Math.max(8, (effectiveViewportWidth / scrollableWidth) * 100))
+    : 100;
+  const scrollThumbLeftPct = canScrollTimeline
+    ? Math.min(
+        100 - scrollThumbWidthPct,
+        (effectiveScrollLeft / Math.max(1, scrollableWidth)) * 100,
+      )
+    : 0;
+  const viewBoxWidth = effectiveViewportWidth;
+  const viewBoxHeight = h;
+  const renderedSvgWidth = w;
+  const renderedSvgHeight = h;
+  const fixedLabelScaleX = viewBoxWidth / Math.max(1, renderedSvgWidth);
+  const fixedLabelScaleY = viewBoxHeight / Math.max(1, renderedSvgHeight);
+
+  const commitScrollLeft = (next: number) => {
+    const clamped = Math.max(0, Math.min(maxScrollLeft, next));
+    if (scrollLeft == null) setInternalScrollLeft(clamped);
+    onScrollLeftChange?.(clamped);
+    return clamped;
+  };
+
+  const handleScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    commitScrollLeft(event.currentTarget.scrollLeft);
+  };
+
+  const scrollByDelta = (delta: number) => {
+    commitScrollLeft(effectiveScrollLeft + delta);
+  };
+
+  const handleScrollbarPointerDown = (ev: React.PointerEvent<HTMLDivElement>) => {
+    if (!canScrollTimeline) return;
+    ev.preventDefault();
+    const track = ev.currentTarget;
+    const trackRect = track.getBoundingClientRect();
+    const thumb = track.querySelector<HTMLElement>('[data-scrollbar-thumb="1"]');
+    const thumbRect = thumb?.getBoundingClientRect();
+    const thumbWidth = thumbRect?.width ?? 0;
+    const trackScrollablePx = Math.max(1, trackRect.width - thumbWidth);
+    const clickedThumb =
+      ev.target instanceof Element && Boolean(ev.target.closest('[data-scrollbar-thumb="1"]'));
+    let nextScrollLeft = effectiveScrollLeft;
+
+    if (!clickedThumb) {
+      const nextThumbLeft = Math.max(
+        0,
+        Math.min(trackScrollablePx, ev.clientX - trackRect.left - thumbWidth / 2),
+      );
+      nextScrollLeft = (nextThumbLeft / trackScrollablePx) * maxScrollLeft;
+      commitScrollLeft(nextScrollLeft);
+    }
+
+    setScrollbarDrag({
+      startClientX: ev.clientX,
+      startScrollLeft: nextScrollLeft,
+      trackScrollablePx,
+      maxScrollLeft,
+    });
+    track.setPointerCapture(ev.pointerId);
+  };
+
+  const handleScrollbarPointerMove = (ev: React.PointerEvent<HTMLDivElement>) => {
+    if (!scrollbarDrag) return;
+    const dx = ev.clientX - scrollbarDrag.startClientX;
+    const nextScrollLeft =
+      scrollbarDrag.startScrollLeft +
+      (dx / scrollbarDrag.trackScrollablePx) * scrollbarDrag.maxScrollLeft;
+    commitScrollLeft(nextScrollLeft);
+  };
+
+  const endScrollbarDrag = (ev: React.PointerEvent<HTMLDivElement>) => {
+    if (!scrollbarDrag) return;
+    setScrollbarDrag(null);
+    ev.currentTarget.releasePointerCapture(ev.pointerId);
+  };
+
+  const handleScrollbarKeyDown = (ev: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!canScrollTimeline) return;
+    if (ev.key === 'ArrowLeft') {
+      ev.preventDefault();
+      scrollByDelta(-effectiveViewportWidth / 8);
+    } else if (ev.key === 'ArrowRight') {
+      ev.preventDefault();
+      scrollByDelta(effectiveViewportWidth / 8);
+    } else if (ev.key === 'PageUp') {
+      ev.preventDefault();
+      scrollByDelta(-effectiveViewportWidth * 0.8);
+    } else if (ev.key === 'PageDown') {
+      ev.preventDefault();
+      scrollByDelta(effectiveViewportWidth * 0.8);
+    } else if (ev.key === 'Home') {
+      ev.preventDefault();
+      commitScrollLeft(0);
+    } else if (ev.key === 'End') {
+      ev.preventDefault();
+      commitScrollLeft(maxScrollLeft);
+    }
+  };
+
+  const handleWheel = (event: React.WheelEvent<SVGSVGElement>) => {
+    if (!scrollViewportRef.current || maxScrollLeft <= 0) return;
+    const delta = event.deltaX !== 0 ? event.deltaX : event.deltaY;
+    if (delta === 0) return;
+    const next = commitScrollLeft(scrollViewportRef.current.scrollLeft + delta);
+    scrollViewportRef.current.scrollLeft = next;
+    event.preventDefault();
+  };
+
+  const clientXToDomainT = (clientX: number) => {
+    if (!svgRef.current || domainSec <= 0) return 0;
+    const rect = svgRef.current.getBoundingClientRect();
+    const viewportT = (clientX - rect.left) / Math.max(1, rect.width);
+    const sec =
+      visibleRange.startSec + viewportT * (effectiveViewportWidth / effectivePxPerSecond);
+    return Math.max(0, Math.min(1, sec / domainSec));
+  };
 
   // Per-slot handle drag (vertical only)
   useEffect(() => {
@@ -125,14 +420,14 @@ export default function CurveEditor({
     };
     const onUp = () => {
       if (dragEnergy != null && onTargetDragEnd) {
-        const b = blocks[dragIdx];
+        const b = blocks.find((block) => block.idx === dragIdx);
         // Convert SVG-local coords to viewport coords — the popover positions
         // with `position: fixed`.
         const rect = svgRef.current?.getBoundingClientRect();
         const anchor =
           b && rect
             ? {
-                x: rect.left + (b.xMid / Math.max(1, w)) * rect.width,
+                x: rect.left + (b.xMid / Math.max(1, effectiveViewportWidth)) * rect.width,
                 y: rect.top + (yOf(dragEnergy) / Math.max(1, h)) * rect.height,
               }
             : { x: 0, y: 0 };
@@ -154,8 +449,7 @@ export default function CurveEditor({
     if (!winDrag) return;
     const onMove = (ev: PointerEvent) => {
       if (!svgRef.current || !onWindowChange) return;
-      const rect = svgRef.current.getBoundingClientRect();
-      const mouseT = Math.max(0, Math.min(1, (ev.clientX - rect.left) / Math.max(1, rect.width)));
+      const mouseT = clientXToDomainT(ev.clientX);
       const dt = mouseT - winDrag.startMouseT;
       if (winDrag.mode === 'move') {
         const span = winDrag.startT1 - winDrag.startT0;
@@ -187,21 +481,22 @@ export default function CurveEditor({
       if (!svgRef.current || !onWindowChange) return;
       ev.preventDefault();
       ev.stopPropagation();
-      const rect = svgRef.current.getBoundingClientRect();
-      const mouseT = (ev.clientX - rect.left) / Math.max(1, rect.width);
+      const mouseT = clientXToDomainT(ev.clientX);
       setWinDrag({ id, mode, startMouseT: mouseT, startT0: t0, startT1: t1 });
     };
 
   const linePath = blocks
     .map((b, i) => `${i === 0 ? 'M' : 'L'} ${b.xMid.toFixed(2)} ${yOf(b.target).toFixed(2)}`)
     .join(' ');
-  const secToX = (sec: number) => (Math.max(0, Math.min(domainSec, sec)) / domainSec) * w;
+  const secToX = (sec: number) =>
+    (Math.max(0, Math.min(domainSec, sec)) - visibleRange.startSec) * effectivePxPerSecond;
   const playheadX = domainSec > 0 ? secToX(playheadSec) : 0;
   const scrubFromClientX = (clientX: number) => {
     if (!svgRef.current || !scrubEnabled || !onScrub || totalSec <= 0) return;
     const rect = svgRef.current.getBoundingClientRect();
     const t = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
-    onScrub(Math.min(totalSec, t * domainSec));
+    const sec = visibleRange.startSec + t * (effectiveViewportWidth / effectivePxPerSecond);
+    onScrub(Math.min(totalSec, Math.max(0, sec)));
   };
   const handleSvgClickCapture = (ev: ReactMouseEvent<SVGSVGElement>) => {
     if (!scrubEnabled || !onScrub || totalSec <= 0) return;
@@ -224,37 +519,77 @@ export default function CurveEditor({
   }
 
   return (
-    <div className={styles.canvasWrap} ref={wrapRef} data-testid="curve-canvas">
-      <div className={styles.yaxis}>
-        <div>10·peak</div>
-        <div>7</div>
-        <div>5</div>
-        <div>2</div>
-        <div>0</div>
+    <div
+      className={styles.canvasWrap}
+      ref={setWrapNode}
+      data-testid="curve-canvas"
+      data-lod={lod}
+      data-px-per-second={effectivePxPerSecond.toFixed(4)}
+      data-scroll-left={effectiveScrollLeft.toFixed(0)}
+    >
+      <span data-testid="curve-lod" className={styles.srOnly}>
+        {lod}
+      </span>
+      <div
+        ref={scrollViewportRef}
+        className={styles.curveScrollViewport}
+        data-testid="curve-scroll-viewport"
+        data-scrollbar-affordance="true"
+        aria-label="Curve timeline horizontal scroll"
+        onScroll={handleScroll}
+      >
+        <div
+          className={styles.curveScrollInner}
+          style={{ width: scrollableWidth }}
+          aria-hidden="true"
+        />
       </div>
-      <div className={styles.xaxis}>
-        {[0, 0.25, 0.5, 0.75, 1].map((t) => (
-          <div key={t}>{fmtTime(t * domainSec)}</div>
-        ))}
+      <div
+        className={styles.curveScrollbar}
+        data-testid="curve-scrollbar"
+        data-enabled={canScrollTimeline ? 'true' : 'false'}
+        role="scrollbar"
+        aria-label="Curve timeline scroll position"
+        aria-orientation="horizontal"
+        aria-valuemin={0}
+        aria-valuemax={Math.round(maxScrollLeft)}
+        aria-valuenow={Math.round(effectiveScrollLeft)}
+        tabIndex={canScrollTimeline ? 0 : -1}
+        onPointerDown={handleScrollbarPointerDown}
+        onPointerMove={handleScrollbarPointerMove}
+        onPointerUp={endScrollbarDrag}
+        onPointerCancel={endScrollbarDrag}
+        onKeyDown={handleScrollbarKeyDown}
+      >
+        <div
+          className={styles.curveScrollbarThumb}
+          data-testid="curve-scrollbar-thumb"
+          data-scrollbar-thumb="1"
+          style={{
+            left: `${scrollThumbLeftPct}%`,
+            width: `${scrollThumbWidthPct}%`,
+          }}
+        />
       </div>
       <svg
         ref={svgRef}
         className={styles.svg}
-        viewBox={`0 0 ${w} ${h}`}
+        viewBox={`0 0 ${effectiveViewportWidth} ${h}`}
         preserveAspectRatio="none"
         onClickCapture={handleSvgClickCapture}
+        onWheel={handleWheel}
       >
         <defs>
           <pattern
             id="curveGrid"
             x="0"
             y="0"
-            width={w / 8}
+            width={effectiveViewportWidth / 8}
             height={h / 5}
             patternUnits="userSpaceOnUse"
           >
             <path
-              d={`M ${w / 8} 0 L 0 0 0 ${h / 5}`}
+              d={`M ${effectiveViewportWidth / 8} 0 L 0 0 0 ${h / 5}`}
               fill="none"
               stroke="rgba(255,255,255,0.04)"
               strokeWidth="1"
@@ -270,10 +605,10 @@ export default function CurveEditor({
           </pattern>
         </defs>
 
-        <rect width={w} height={h} fill="url(#curveGrid)" />
+        <rect width={effectiveViewportWidth} height={h} fill="url(#curveGrid)" />
         {scrubEnabled && (
           <rect
-            width={w}
+            width={effectiveViewportWidth}
             height={h}
             fill="transparent"
             data-testid="curve-scrub-hit"
@@ -290,7 +625,7 @@ export default function CurveEditor({
                 data-testid="curve-over-region"
                 x={targetX}
                 y={0}
-                width={Math.max(0, ((totalSec - rawTargetSec) / domainSec) * w)}
+                width={Math.max(0, (totalSec - rawTargetSec) * effectivePxPerSecond)}
                 height={h}
                 fill="rgba(245,158,11,0.12)"
               />
@@ -305,16 +640,19 @@ export default function CurveEditor({
               strokeWidth="1.5"
               strokeDasharray="5 4"
             />
-            <text
-              x={Math.min(Math.max((targetX ?? 0) + 6, 34), w - 28)}
+            <SvgFixedText
+              x={Math.min(Math.max((targetX ?? 0) + 6, 34), effectiveViewportWidth - 28)}
               y={13}
+              scaleX={fixedLabelScaleX}
+              scaleY={fixedLabelScaleY}
+              testId="curve-target-label"
               fill="#fbbf24"
               fontSize="9"
               fontWeight="800"
               letterSpacing="0.08em"
             >
               TARGET
-            </text>
+            </SvgFixedText>
           </g>
         )}
 
@@ -322,7 +660,7 @@ export default function CurveEditor({
         <line
           x1="0"
           y1={yOf(8)}
-          x2={w}
+          x2={effectiveViewportWidth}
           y2={yOf(8)}
           stroke="rgba(255,157,63,0.18)"
           strokeDasharray="3 4"
@@ -331,8 +669,10 @@ export default function CurveEditor({
 
         {/* Vibe windows */}
         {windows.map((win) => {
-          const x = win.t0 * w;
-          const width = Math.max(2, (win.t1 - win.t0) * w);
+          const startSec = win.t0 * domainSec;
+          const endSec = win.t1 * domainSec;
+          const x = (startSec - visibleRange.startSec) * effectivePxPerSecond;
+          const width = Math.max(2, (endSec - startSec) * effectivePxPerSecond);
           const isDragging = winDrag?.id === win.id;
           const headerH = 22;
           return (
@@ -367,9 +707,12 @@ export default function CurveEditor({
                 }}
                 onPointerDown={startWindowDrag(win.id, 'move', win.t0, win.t1)}
               />
-              <text
+              <SvgFixedText
                 x={x + 7}
                 y={headerH / 2 + 3.5}
+                scaleX={fixedLabelScaleX}
+                scaleY={fixedLabelScaleY}
+                testId={`vibe-window-label-${win.id}`}
                 fontSize="9.5"
                 fill="rgb(220,200,255)"
                 fontWeight="700"
@@ -377,7 +720,7 @@ export default function CurveEditor({
                 pointerEvents="none"
               >
                 {win.label.toUpperCase()}
-              </text>
+              </SvgFixedText>
               {/* Resize handles */}
               <rect
                 x={x - 5}
@@ -404,30 +747,31 @@ export default function CurveEditor({
         })}
 
         {/* Slot blocks */}
-        {blocks.map((b) => {
-          const isHover = hoveredIdx === b.idx;
-          const isDragging = dragIdx === b.idx;
-          const gap = view === 'normal' ? 1.5 : 4;
-          const blockH = (b.energy / 10) * h;
-          const targetY = yOf(b.target);
-          const targetAbove = b.target > b.energy + 0.5;
-          const targetBelow = b.energy > b.target + 0.5;
-          return (
-            <g
-              key={`sb-${b.idx}`}
-              data-testid={`slot-block-${b.idx}`}
-              onMouseEnter={() => onHover(b.idx)}
-              onMouseLeave={() => onHover(null)}
-              onClick={(ev) => {
-                if ((ev.target as SVGElement).dataset?.handle) return;
-                if (onBlockClick) onBlockClick(b.idx);
-              }}
-              onDoubleClick={(ev) => {
-                ev.preventDefault();
-                if (onBlockDoubleClick) onBlockDoubleClick(b.idx);
-              }}
-              style={{ cursor: 'pointer' }}
-            >
+        {showBlocks &&
+          blocks.map((b) => {
+            const isHover = hoveredIdx === b.idx;
+            const isDragging = dragIdx === b.idx;
+            const gap = view === 'normal' ? 1.5 : 4;
+            const blockH = (b.energy / 10) * h;
+            const targetY = yOf(b.target);
+            const targetAbove = b.target > b.energy + 0.5;
+            const targetBelow = b.energy > b.target + 0.5;
+            return (
+              <g
+                key={`sb-${b.idx}`}
+                data-testid={`slot-block-${b.idx}`}
+                onMouseEnter={() => onHover(b.idx)}
+                onMouseLeave={() => onHover(null)}
+                onClick={(ev) => {
+                  if ((ev.target as SVGElement).dataset?.handle) return;
+                  if (onBlockClick) onBlockClick(b.idx);
+                }}
+                onDoubleClick={(ev) => {
+                  ev.preventDefault();
+                  if (onBlockDoubleClick) onBlockDoubleClick(b.idx);
+                }}
+                style={{ cursor: 'pointer' }}
+              >
               {/* Block (intrinsic energy) */}
               <rect
                 x={b.x0 + gap / 2}
@@ -486,16 +830,17 @@ export default function CurveEditor({
               )}
               {/* Invisible hit-target */}
               <rect x={b.x0} y={0} width={b.width} height={h} fill="transparent" />
-            </g>
-          );
-        })}
+              </g>
+            );
+          })}
 
         {/* Friction seams (BPM / Key views) */}
-        {view !== 'normal' &&
+        {showDenseSeams &&
+          view !== 'normal' &&
           blocks.slice(0, -1).map((b, i) => {
             const next = blocks[i + 1];
-            const a = slots[i].track;
-            const z = slots[i + 1].track;
+            const a = slots[b.idx].track;
+            const z = slots[next.idx].track;
             let color: { stroke: string };
             let chipText: string;
             let isClash: boolean;
@@ -517,11 +862,15 @@ export default function CurveEditor({
             const seamW = Math.max(3, next.x0 - b.x1 - 0.5);
             // Band sized to the SHORTER neighbor block
             const meetTop = h - Math.min((b.energy / 10) * h, (next.energy / 10) * h);
-            const isHovered = hoveredIdx === i || hoveredIdx === i + 1;
+            const isHovered = hoveredIdx === b.idx || hoveredIdx === next.idx;
             return (
-              <g key={`seam-${i}`} pointerEvents="none" data-testid={`seam-${view}-${i}`}>
+              <g
+                key={`seam-${b.idx}`}
+                pointerEvents="none"
+                data-testid={`seam-${view}-${b.idx}`}
+              >
                 <rect
-                  data-testid={`seam-band-${i}`}
+                  data-testid={`seam-band-${b.idx}`}
                   data-stroke={color.stroke}
                   x={seamX - seamW / 2}
                   y={meetTop}
@@ -533,9 +882,15 @@ export default function CurveEditor({
                 />
                 <circle cx={seamX} cy={h - 1} r={isClash ? 3.5 : 3} fill={color.stroke} />
                 {isHovered && (
-                  <g
-                    transform={`translate(${Math.min(Math.max(seamX, 40), w - 40)}, ${h - 18})`}
-                    data-testid={`seam-chip-${i}`}
+                  <SvgFixedGroup
+                    x={Math.min(
+                      Math.max(seamX, 40),
+                      effectiveViewportWidth - 40,
+                    )}
+                    y={h - 18}
+                    scaleX={fixedLabelScaleX}
+                    scaleY={fixedLabelScaleY}
+                    data-testid={`seam-chip-${b.idx}`}
                   >
                     <rect
                       x={-Math.max(30, chipText.length * 3.4 + 7)}
@@ -557,25 +912,29 @@ export default function CurveEditor({
                     >
                       {chipText}
                     </text>
-                  </g>
+                  </SvgFixedGroup>
                 )}
               </g>
             );
           })}
 
         {/* DJ pairing seam markers */}
-        {blocks.slice(0, -1).map((b, i) => {
-          if (!slots[i].nextIsDjPairing) return null;
-          const next = blocks[i + 1];
-          const seamX = (b.x1 + next.x0) / 2;
-          const markerY = Math.max(18, Math.min(h - 28, (yOf(b.target) + yOf(next.target)) / 2 - 18));
-          return (
-            <g
-              key={`pairing-pin-${i}`}
-              transform={`translate(${seamX}, ${markerY})`}
-              pointerEvents="none"
-              data-testid={`pairing-pin-${i}`}
-            >
+        {showDenseSeams &&
+          blocks.slice(0, -1).map((b, i) => {
+            if (!slots[b.idx].nextIsDjPairing) return null;
+            const next = blocks[i + 1];
+            const seamX = (b.x1 + next.x0) / 2;
+            const markerY = Math.max(
+              18,
+              Math.min(h - 28, (yOf(b.target) + yOf(next.target)) / 2 - 18),
+            );
+            return (
+              <g
+                key={`pairing-pin-${b.idx}`}
+                transform={`translate(${seamX}, ${markerY})`}
+                pointerEvents="none"
+                data-testid={`pairing-pin-${b.idx}`}
+              >
               <line y1={10} y2={Math.max(14, h - markerY - 4)} stroke={NEON_PURPLE} strokeOpacity="0.38" strokeDasharray="2 3" />
               <circle r="10" fill="rgba(183,139,255,0.18)" stroke={NEON_PURPLE} strokeWidth="1.4" />
               <path
@@ -586,11 +945,11 @@ export default function CurveEditor({
                 strokeLinejoin="round"
                 strokeWidth="1.3"
               />
-            </g>
-          );
-        })}
+              </g>
+            );
+          })}
 
-        {/* Derived target curve line */}
+        {/* Transport playhead */}
         {totalSec > 0 && (
           <g pointerEvents="none" data-testid="curve-playhead">
             <rect x={0} y={0} width={playheadX} height={h} fill="rgba(0,0,0,0.22)" />
@@ -602,7 +961,16 @@ export default function CurveEditor({
               stroke={isPlaying ? '#00f5d4' : 'rgba(255,255,255,0.7)'}
               strokeWidth={1.5}
             />
-            <g transform={`translate(${Math.min(Math.max(playheadX, 24), w - 24)}, 14)`}>
+            <SvgFixedGroup
+              x={Math.min(
+                Math.max(playheadX, 24),
+                effectiveViewportWidth - 24,
+              )}
+              y={14}
+              scaleX={fixedLabelScaleX}
+              scaleY={fixedLabelScaleY}
+              data-testid="curve-playhead-label"
+            >
               <rect x={-22} y={-10} width={44} height={18} rx={3} fill="var(--bg)" stroke="#00f5d4" strokeOpacity="0.6" />
               <text
                 x="0"
@@ -614,7 +982,7 @@ export default function CurveEditor({
               >
                 {fmtTime(playheadSec)}
               </text>
-            </g>
+            </SvgFixedGroup>
           </g>
         )}
 
@@ -632,13 +1000,14 @@ export default function CurveEditor({
         )}
 
         {/* Drag handles — one per slot at its target energy */}
-        {blocks.map((b) => {
-          const isHover = hoveredIdx === b.idx;
-          const isDragging = dragIdx === b.idx;
-          const r = isDragging ? 7 : isHover ? 6 : 5;
-          const targetY = yOf(b.target);
-          return (
-            <g key={`h-${b.idx}`} transform={`translate(${b.xMid},${targetY})`}>
+        {showSlotHandles &&
+          blocks.map((b) => {
+            const isHover = hoveredIdx === b.idx;
+            const isDragging = dragIdx === b.idx;
+            const r = isDragging ? 7 : isHover ? 6 : 5;
+            const targetY = yOf(b.target);
+            return (
+              <g key={`h-${b.idx}`} transform={`translate(${b.xMid},${targetY})`}>
               <circle
                 r={12}
                 fill="transparent"
@@ -660,7 +1029,14 @@ export default function CurveEditor({
               />
               {/* Live value chip while dragging */}
               {isDragging && (
-                <g transform="translate(0,-22)" pointerEvents="none" data-testid="drag-chip">
+                <SvgFixedGroup
+                  x={0}
+                  y={-22}
+                  scaleX={fixedLabelScaleX}
+                  scaleY={fixedLabelScaleY}
+                  pointerEvents="none"
+                  data-testid="drag-chip"
+                >
                   <rect x={-26} y={-11} width="52" height="20" rx="3" fill="var(--bg)" stroke={NEON} />
                   <text
                     x="0"
@@ -672,14 +1048,26 @@ export default function CurveEditor({
                   >
                     {(dragEnergy ?? b.target).toFixed(1)}
                   </text>
-                </g>
+                </SvgFixedGroup>
               )}
-            </g>
-          );
-        })}
+              </g>
+            );
+          })}
 
         {/* Transport playhead lands with #393. */}
       </svg>
+      <div className={styles.yaxis}>
+        <div>10·peak</div>
+        <div>7</div>
+        <div>5</div>
+        <div>2</div>
+        <div>0</div>
+      </div>
+      <div className={styles.xaxis}>
+        {[0, 0.25, 0.5, 0.75, 1].map((t) => (
+          <div key={t}>{fmtTime(t * domainSec)}</div>
+        ))}
+      </div>
     </div>
   );
 }

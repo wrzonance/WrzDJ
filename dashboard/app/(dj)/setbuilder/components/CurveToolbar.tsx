@@ -17,6 +17,10 @@ export interface CurveToolbarProps {
   onViewChange: (view: CurveViewMode) => void;
   templates: CurveTemplatesResponse | null;
   activeTemplateName: string | null;
+  zoomLabel: string;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onZoomFit: () => void;
   onApplyBuiltin: (name: string) => void;
   onApplyUser: (templateId: number) => void;
   onCreateTemplate: () => void;
@@ -50,6 +54,10 @@ export default function CurveToolbar({
   onViewChange,
   templates,
   activeTemplateName,
+  zoomLabel,
+  onZoomIn,
+  onZoomOut,
+  onZoomFit,
   onApplyBuiltin,
   onApplyUser,
   onCreateTemplate,
@@ -78,6 +86,40 @@ export default function CurveToolbar({
             {VIEW_LABELS[mode]}
           </button>
         ))}
+      </div>
+
+      <div className={styles.zoomControls} role="group" aria-label="Curve zoom controls">
+        <button
+          type="button"
+          className={styles.toolbarIconBtn}
+          onClick={onZoomOut}
+          data-testid="curve-zoom-out"
+          aria-label="Zoom out"
+          title="Zoom out"
+        >
+          -
+        </button>
+        <span className={styles.zoomLabel} data-testid="curve-zoom-label">
+          {zoomLabel}
+        </span>
+        <button
+          type="button"
+          className={styles.toolbarIconBtn}
+          onClick={onZoomIn}
+          data-testid="curve-zoom-in"
+          aria-label="Zoom in"
+          title="Zoom in"
+        >
+          +
+        </button>
+        <button
+          type="button"
+          className={styles.toolbarBtn}
+          onClick={onZoomFit}
+          data-testid="curve-zoom-fit"
+        >
+          Fit
+        </button>
       </div>
 
       {/* Template dropdown */}

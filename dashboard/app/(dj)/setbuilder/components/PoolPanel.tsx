@@ -20,6 +20,7 @@ import type { ConfirmAction } from './ConfirmActionDialog';
 import ImportModal, { type ImportKind } from './ImportModal';
 import { BpmBadge, CamelotBadge, EnergyMini, SourceIcon, sourceColor } from './PoolBadges';
 import VibeTiers from './VibeTiers';
+import { writePoolTrackDragPayload } from './dnd';
 import type { BuilderCommit } from './useSetDocumentHistory';
 
 function buildVibeMap(tracks: TrackVibeState[]): Map<number, TrackVibeState> {
@@ -444,11 +445,20 @@ export default function PoolPanel({
             <div
               key={t.id}
               className={`${styles.poolTrack} ${isSelected ? styles.poolTrackSelected : ''}`}
+              draggable={!selectMode}
               onClick={() => selectMode && toggleSelect(t.id)}
+              onDragStart={(e) => {
+                if (selectMode) {
+                  e.preventDefault();
+                  return;
+                }
+                writePoolTrackDragPayload(e.dataTransfer, t.id);
+              }}
               onContextMenu={(e) => {
                 e.preventDefault();
                 setContextMenu({ x: e.clientX, y: e.clientY, trackId: t.id, sourceId: t.source_id });
               }}
+              data-testid={`pool-track-${t.id}`}
             >
               {selectMode && (
                 <input

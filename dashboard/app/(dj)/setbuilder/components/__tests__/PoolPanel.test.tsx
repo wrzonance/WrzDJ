@@ -145,6 +145,24 @@ describe('PoolPanel', () => {
     expect(screen.getByText('126')).toBeTruthy();
   });
 
+  it('writes a pool-track drag payload when dragging a track row', async () => {
+    // Regression for 75050c04: the production pool row port must preserve drag payloads.
+    render(<PoolPanel setId={1} />);
+    const row = (await screen.findByText('Event Song')).closest('[class*="poolTrack"]');
+    const dataTransfer = {
+      effectAllowed: '',
+      setData: vi.fn(),
+    };
+
+    fireEvent.dragStart(row!, { dataTransfer });
+
+    expect(dataTransfer.effectAllowed).toBe('copy');
+    expect(dataTransfer.setData).toHaveBeenCalledWith(
+      'application/x-wrzdj-pool-track',
+      JSON.stringify({ poolTrackId: 11 }),
+    );
+  });
+
   it('filters the list when a source row is clicked', async () => {
     render(<PoolPanel setId={1} />);
     await screen.findByText('Event Song');

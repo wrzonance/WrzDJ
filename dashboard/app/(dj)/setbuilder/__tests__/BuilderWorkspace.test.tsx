@@ -1,7 +1,7 @@
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import BuilderWorkspace from '../components/BuilderWorkspace';
-import type { PoolTrack, SetSlotOut } from '@/lib/api-types';
+import type { PoolTrack, SetDocumentSnapshot, SetSlotOut } from '@/lib/api-types';
 
 beforeAll(() => {
   globalThis.ResizeObserver = class {
@@ -28,6 +28,8 @@ const mockGetSetSlots = vi.fn();
 const mockGetCurveTemplates = vi.fn();
 const mockGetVibeWindows = vi.fn();
 const mockGetPool = vi.fn();
+const mockGetSetDocument = vi.fn();
+const mockPutSetDocument = vi.fn();
 const mockSavePairing = vi.fn();
 const mockUpdateSlotTarget = vi.fn();
 const mockApplyCurveTemplate = vi.fn();
@@ -39,6 +41,9 @@ vi.mock('@/lib/api', () => ({
   api: {
     getSetSlots: (setId: number) => mockGetSetSlots(setId),
     getPool: (setId: number) => mockGetPool(setId),
+    getSetDocument: (setId: number) => mockGetSetDocument(setId),
+    putSetDocument: (setId: number, snapshot: SetDocumentSnapshot) =>
+      mockPutSetDocument(setId, snapshot),
     savePairing: (setId: number, payload: object) => mockSavePairing(setId, payload),
     getCurveTemplates: () => mockGetCurveTemplates(),
     getVibeWindows: (setId: number) => mockGetVibeWindows(setId),
@@ -173,6 +178,67 @@ const POOL_TRACKS: PoolTrack[] = [
   },
 ];
 
+const EXTRA_POOL_TRACK: PoolTrack = {
+  id: 14,
+  source_id: 1,
+  track_id: 'd',
+  title: 'Track D',
+  artist: 'Artist D',
+  album: null,
+  bpm: 130,
+  camelot: '11A',
+  key: '11A',
+  energy: 8,
+  duration_sec: 231,
+  genre: null,
+  isrc: null,
+  artwork_url: null,
+  created_at: '2026-01-01T00:00:00Z',
+};
+
+function cloneDocument(doc: SetDocumentSnapshot): SetDocumentSnapshot {
+  return JSON.parse(JSON.stringify(doc)) as SetDocumentSnapshot;
+}
+
+function documentSnapshot(): SetDocumentSnapshot {
+  return {
+    settings: {
+      vibe_theme: null,
+      target_duration_sec: null,
+      bpm_floor: null,
+      bpm_ceiling: null,
+      key_strictness: 0.2,
+    },
+    slots: SLOTS.map((slot) => ({
+      id: slot.id,
+      position: slot.position,
+      track_id: slot.track_id,
+      locked: slot.locked,
+      notes: slot.notes,
+      transition_score: slot.transition_score,
+      transition_warnings: slot.transition_warnings,
+      target_energy: slot.target_energy,
+    })),
+    curve_points: [],
+    pool: {
+      sources: [
+        {
+          id: 1,
+          kind: 'tidal',
+          external_ref: 'pl-1',
+          label: 'Friday Warmup',
+          meta: 'Tidal playlist',
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      tracks: [...POOL_TRACKS, EXTRA_POOL_TRACK].map((track) => ({
+        ...track,
+        dedupe_sig: `sig-${track.id}`,
+      })),
+    },
+  } as SetDocumentSnapshot;
+}
+
 const TEMPLATES = {
   builtin: [
     {
@@ -191,6 +257,10 @@ describe('BuilderWorkspace', () => {
     vi.clearAllMocks();
     mockGetSetSlots.mockResolvedValue(SLOTS);
     mockGetPool.mockResolvedValue({ sources: [], tracks: POOL_TRACKS });
+    mockGetSetDocument.mockResolvedValue(cloneDocument(documentSnapshot()));
+    mockPutSetDocument.mockImplementation((_setId: number, snapshot: SetDocumentSnapshot) =>
+      Promise.resolve(cloneDocument(snapshot)),
+    );
     mockGetCurveTemplates.mockResolvedValue(TEMPLATES);
     mockGetVibeWindows.mockResolvedValue({ windows: [] });
     mockUpdateSlotTarget.mockResolvedValue({ slot_id: 1, target_energy: 9 });
@@ -370,6 +440,32 @@ describe('BuilderWorkspace', () => {
     // scrollIntoView only fires when out of view; with jsdom 0-rects rows are
     // "in view", so just assert no crash and the row exists.
     expect(screen.getByTestId('timeline-row-2')).toBeInTheDocument();
+  });
+
+  it('dropping a pool track on a timeline row inserts it before that row', async () => {
+    // Regression for b2f553c4: timeline rows must accept pool drops and persist insertion.
+    render(<BuilderWorkspace setId={5} />);
+    await waitFor(() => expect(screen.getByTestId('timeline-row-1')).toBeInTheDocument());
+    const dataTransfer = {
+      dropEffect: '',
+      getData: vi.fn((type: string) =>
+        type === 'application/x-wrzdj-pool-track'
+          ? JSON.stringify({ poolTrackId: EXTRA_POOL_TRACK.id })
+          : '',
+      ),
+    };
+
+    fireEvent.dragOver(screen.getByTestId('timeline-row-1'), { dataTransfer });
+    fireEvent.drop(screen.getByTestId('timeline-row-1'), { dataTransfer });
+
+    await waitFor(() => expect(mockPutSetDocument).toHaveBeenCalledTimes(1));
+    const [setId, snapshot] = mockPutSetDocument.mock.calls[0] as [
+      number,
+      SetDocumentSnapshot,
+    ];
+    expect(setId).toBe(5);
+    expect(snapshot.slots.map((slot) => slot.track_id)).toEqual(['a', 'd', 'b', 'c']);
+    expect(snapshot.slots.map((slot) => slot.position)).toEqual([0, 1, 2, 3]);
   });
 
   it('adding a vibe preset window persists via PUT', async () => {

@@ -15,6 +15,16 @@ from app.schemas.setbuilder import (
 )
 
 
+def _remap_synthetic_pool_track_id(track_id: str | None, id_map: dict[int, int]) -> str | None:
+    if not track_id or not track_id.startswith("pool:"):
+        return track_id
+    raw_id = track_id.removeprefix("pool:")
+    if not raw_id.isdigit():
+        return track_id
+    restored_id = id_map.get(int(raw_id))
+    return f"pool:{restored_id}" if restored_id is not None else track_id
+
+
 def build_snapshot(set_obj: Set) -> SetDocumentSnapshot:
     """Read the current persisted builder document into a restorable snapshot."""
     return SetDocumentSnapshot(
@@ -121,34 +131,36 @@ def restore_snapshot(
         db.flush()
         source_id_map[source.id] = restored_source.id
 
+    pool_track_id_map: dict[int, int] = {}
     for track in snapshot.pool.tracks:
-        db.add(
-            SetPoolTrack(
-                set_id=set_obj.id,
-                source_id=source_id_map[track.source_id],
-                track_id=track.track_id,
-                title=track.title,
-                artist=track.artist,
-                album=track.album,
-                genre=track.genre,
-                bpm=track.bpm,
-                key=track.key,
-                camelot=track.camelot,
-                energy=track.energy,
-                isrc=track.isrc,
-                duration_sec=track.duration_sec,
-                artwork_url=track.artwork_url,
-                dedupe_sig=track.dedupe_sig,
-                created_at=track.created_at,
-            )
+        restored_track = SetPoolTrack(
+            set_id=set_obj.id,
+            source_id=source_id_map[track.source_id],
+            track_id=track.track_id,
+            title=track.title,
+            artist=track.artist,
+            album=track.album,
+            genre=track.genre,
+            bpm=track.bpm,
+            key=track.key,
+            camelot=track.camelot,
+            energy=track.energy,
+            isrc=track.isrc,
+            duration_sec=track.duration_sec,
+            artwork_url=track.artwork_url,
+            dedupe_sig=track.dedupe_sig,
+            created_at=track.created_at,
         )
+        db.add(restored_track)
+        db.flush()
+        pool_track_id_map[track.id] = restored_track.id
 
     for slot in snapshot.slots:
         db.add(
             SetSlot(
                 set_id=set_obj.id,
                 position=slot.position,
-                track_id=slot.track_id,
+                track_id=_remap_synthetic_pool_track_id(slot.track_id, pool_track_id_map),
                 locked=slot.locked,
                 notes=slot.notes,
                 transition_score=slot.transition_score,

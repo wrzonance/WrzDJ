@@ -8,6 +8,7 @@ missing-or-unowned sets return 404 to avoid leaking existence.
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_active_user, get_db
@@ -262,14 +263,26 @@ def _slots_out(db: Session, set_obj: Set) -> list[SlotOut]:
     """Ordered slots with pool metadata and saved-pairing seam markers."""
     ordered = sorted(set_obj.slots, key=lambda s: s.position)
     track_ids = [s.track_id for s in ordered if s.track_id]
+    pool_track_ids = [
+        int(s.track_id.removeprefix("pool:"))
+        for s in ordered
+        if s.track_id
+        and s.track_id.startswith("pool:")
+        and s.track_id.removeprefix("pool:").isdigit()
+    ]
     tracks_by_id: dict[str, SetPoolTrack] = {}
-    if track_ids:
-        tracks = (
-            db.query(SetPoolTrack)
-            .filter(SetPoolTrack.set_id == set_obj.id, SetPoolTrack.track_id.in_(track_ids))
-            .all()
-        )
-        tracks_by_id = {t.track_id: t for t in tracks if t.track_id}
+    if track_ids or pool_track_ids:
+        query = db.query(SetPoolTrack).filter(SetPoolTrack.set_id == set_obj.id)
+        filters = []
+        if track_ids:
+            filters.append(SetPoolTrack.track_id.in_(track_ids))
+        if pool_track_ids:
+            filters.append(SetPoolTrack.id.in_(pool_track_ids))
+        tracks = query.filter(or_(*filters)).all()
+        for track in tracks:
+            if track.track_id:
+                tracks_by_id[track.track_id] = track
+            tracks_by_id[f"pool:{track.id}"] = track
     by_transition = {(p.from_track_id, p.into_track_id): p.id for p in set_obj.pairings}
     out: list[SlotOut] = []
     for idx, slot in enumerate(ordered):

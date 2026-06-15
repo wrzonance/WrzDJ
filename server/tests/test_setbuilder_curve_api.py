@@ -6,6 +6,7 @@ and vibe-window replace/get round trips.
 """
 
 from app.models.set import SetSlot
+from app.models.set_pool import SetPoolSource, SetPoolTrack
 from app.services.auth import get_password_hash
 
 VALID_POINTS = [
@@ -177,6 +178,44 @@ def test_list_slots(client, auth_headers, db):
     slots = resp.json()
     assert [s["position"] for s in slots] == [0, 1, 2]
     assert all(s["target_energy"] is None for s in slots)
+
+
+def test_list_slots_resolves_synthetic_pool_track_ids(client, auth_headers, db):
+    # Regression for b2f553c4: synthetic pool slot ids must resolve pool metadata.
+    set_obj = _mk_set(client, auth_headers)
+    source = SetPoolSource(
+        set_id=set_obj["id"],
+        kind="manual",
+        external_ref=None,
+        label="Manual",
+        meta=None,
+    )
+    db.add(source)
+    db.flush()
+    track = SetPoolTrack(
+        set_id=set_obj["id"],
+        source_id=source.id,
+        track_id=None,
+        title="Manual Song",
+        artist="Manual Artist",
+        bpm=126,
+        key="A minor",
+        camelot="8A",
+        energy=7,
+        dedupe_sig="manual-song",
+    )
+    db.add(track)
+    db.flush()
+    db.add(SetSlot(set_id=set_obj["id"], position=0, track_id=f"pool:{track.id}"))
+    db.commit()
+
+    resp = client.get(f"/api/setbuilder/sets/{set_obj['id']}/slots", headers=auth_headers)
+
+    assert resp.status_code == 200
+    slot = resp.json()[0]
+    assert slot["pool_track_id"] == track.id
+    assert slot["title"] == "Manual Song"
+    assert slot["artist"] == "Manual Artist"
 
 
 def test_list_slots_owner_isolation(client, auth_headers, db):

@@ -64,6 +64,39 @@ const DEFAULT_TARGET_SETTINGS: TargetSettings = {
   avgTransitionOverlapSec: 8,
 };
 
+type DocumentPoolTrack = SetDocumentSnapshot['pool']['tracks'][number];
+
+function slotTrackIdFromPoolTrack(track: DocumentPoolTrack): string {
+  return track.track_id ?? `pool:${track.id}`;
+}
+
+function insertPoolTrackIntoDocument(
+  snapshot: SetDocumentSnapshot,
+  poolTrackId: number,
+  insertIdx: number,
+): SetDocumentSnapshot {
+  const track = snapshot.pool.tracks.find((candidate) => candidate.id === poolTrackId);
+  if (!track) throw new Error('Pool track not found');
+  const sortedSlots = [...snapshot.slots].sort((a, b) => a.position - b.position || a.id - b.id);
+  const boundedIdx = Math.max(0, Math.min(insertIdx, sortedSlots.length));
+  const nextId = Math.max(0, ...sortedSlots.map((slot) => slot.id)) + 1;
+  const nextSlots = [...sortedSlots];
+  nextSlots.splice(boundedIdx, 0, {
+    id: nextId,
+    position: boundedIdx,
+    track_id: slotTrackIdFromPoolTrack(track),
+    locked: false,
+    notes: null,
+    transition_score: null,
+    transition_warnings: null,
+    target_energy: null,
+  });
+  return {
+    ...snapshot,
+    slots: nextSlots.map((slot, position) => ({ ...slot, position })),
+  };
+}
+
 function TimelineSummary({
   projection,
   overlapSec,
@@ -142,11 +175,11 @@ export default function BuilderWorkspace({
   const loadSlots = useCallback(() => {
     return Promise.all([api.getSetSlots(setId), api.getPool(setId)])
       .then(([rows, poolState]) => {
-        const poolByTrackId = new Map(
-          poolState.tracks
-            .filter((track) => track.track_id)
-            .map((track) => [track.track_id as string, track]),
-        );
+        const poolByTrackId = new Map<string, (typeof poolState.tracks)[number]>();
+        for (const track of poolState.tracks) {
+          if (track.track_id) poolByTrackId.set(track.track_id, track);
+          poolByTrackId.set(`pool:${track.id}`, track);
+        }
         setPool(poolState.tracks.map(trackViewFromPool));
         setSlots(rows.map((slot) => slotViewFromApi(slot, poolByTrackId.get(slot.track_id ?? '') ?? null)));
       })
@@ -320,6 +353,26 @@ export default function BuilderWorkspace({
     sendCommand(idx, 'seek', bounded);
   };
 
+  const handlePoolTrackDrop = useCallback(
+    async (poolTrackId: number, insertIdx: number) => {
+      const save = async () => {
+        const current = await api.getSetDocument(setId);
+        return api.putSetDocument(
+          setId,
+          insertPoolTrackIntoDocument(current, poolTrackId, insertIdx),
+        );
+      };
+      try {
+        const run = commit ? commit('Insert pool track', save) : save();
+        await run;
+        await loadSlots();
+      } catch {
+        // Keep the visible timeline unchanged if the document mutation fails.
+      }
+    },
+    [commit, loadSlots, setId],
+  );
+
   useEffect(() => {
     onProjectionChange?.(projection);
   }, [projection, onProjectionChange]);
@@ -384,6 +437,7 @@ export default function BuilderWorkspace({
           onRowDoubleClick={(idx) => jumpToSlot(idx, true)}
           scrollRequest={scrollRequest}
           onPairingAction={handlePairingAction}
+          onPoolTrackDrop={handlePoolTrackDrop}
         />
       </section>
     </>

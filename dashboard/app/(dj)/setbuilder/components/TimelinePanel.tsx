@@ -7,8 +7,9 @@
  * Full drag-reorder timeline lands with #390/#397.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { type DragEvent, useEffect, useRef, useState } from 'react';
 import { fmtTime } from './curveMath';
+import { readPoolTrackDragPayload } from './dnd';
 import { localPositionSec } from './transportMath';
 import type { SlotView } from './types';
 import { effectiveTarget } from './types';
@@ -30,6 +31,7 @@ export interface TimelinePanelProps {
   onRowDoubleClick?: (idx: number) => void;
   scrollRequest: ScrollRequest | null;
   onPairingAction?: (idx: number) => void | Promise<void>;
+  onPoolTrackDrop?: (poolTrackId: number, insertIdx: number) => void | Promise<void>;
 }
 
 export default function TimelinePanel({
@@ -42,10 +44,12 @@ export default function TimelinePanel({
   onRowDoubleClick,
   scrollRequest,
   onPairingAction,
+  onPoolTrackDrop,
 }: TimelinePanelProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [menu, setMenu] = useState<{ x: number; y: number; idx: number } | null>(null);
+  const [dropIdx, setDropIdx] = useState<number | null>(null);
 
   useEffect(() => {
     if (!scrollRequest || !listRef.current) return;
@@ -70,16 +74,50 @@ export default function TimelinePanel({
     };
   }, [menu]);
 
+  const markPoolTrackDrop = (event: DragEvent<HTMLElement>, insertIdx: number) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    setDropIdx(insertIdx);
+  };
+
+  const handlePoolTrackDrop = (event: DragEvent<HTMLElement>, insertIdx: number) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setDropIdx(null);
+    const payload = readPoolTrackDragPayload(event.dataTransfer);
+    if (!payload) return;
+    void onPoolTrackDrop?.(payload.poolTrackId, insertIdx);
+  };
+
+  const clearDropIfLeaving = (event: DragEvent<HTMLElement>) => {
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+    setDropIdx(null);
+  };
+
   if (slots.length === 0) {
     return (
-      <div className={styles.emptyState} data-testid="timeline-empty">
+      <div
+        className={`${styles.emptyState} ${dropIdx === 0 ? styles.timelineListDrop : ''}`}
+        data-testid="timeline-empty"
+        onDragOver={(event) => markPoolTrackDrop(event, 0)}
+        onDragLeave={clearDropIfLeaving}
+        onDrop={(event) => handlePoolTrackDrop(event, 0)}
+      >
         No tracks in the set yet — fill from the pool to build the timeline.
       </div>
     );
   }
 
   return (
-    <div className={styles.timelineList} ref={listRef} data-testid="timeline-list">
+    <div
+      className={`${styles.timelineList} ${dropIdx === slots.length ? styles.timelineListDrop : ''}`}
+      ref={listRef}
+      data-testid="timeline-list"
+      onDragOver={(event) => markPoolTrackDrop(event, slots.length)}
+      onDragLeave={clearDropIfLeaving}
+      onDrop={(event) => handlePoolTrackDrop(event, slots.length)}
+    >
       {slots.map((s, i) => {
         const prev = i > 0 ? slots[i - 1] : null;
         const seamScore = prev?.transitionScore ?? s.transitionScore;
@@ -133,10 +171,16 @@ export default function TimelinePanel({
               }}
               className={`${styles.timelineRow} ${hoveredIdx === i ? styles.timelineRowHover : ''} ${
                 isCurrent ? styles.timelineRowNow : ''
-              }`}
+              } ${dropIdx === i ? styles.timelineRowDrop : ''}`}
               onMouseEnter={() => onHover(i)}
               onMouseLeave={() => onHover(null)}
               onDoubleClick={() => onRowDoubleClick?.(i)}
+              onDragOver={(event) => {
+                event.stopPropagation();
+                markPoolTrackDrop(event, i);
+              }}
+              onDragLeave={clearDropIfLeaving}
+              onDrop={(event) => handlePoolTrackDrop(event, i)}
               onContextMenu={(event) => {
                 if (i >= slots.length - 1) return;
                 event.preventDefault();

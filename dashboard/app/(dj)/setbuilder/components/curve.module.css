@@ -803,6 +803,12 @@
   position: relative;
 }
 
+.timelineListDrop {
+  outline: 1px solid rgba(0, 245, 212, 0.35);
+  outline-offset: -2px;
+  background: rgba(0, 245, 212, 0.04);
+}
+
 .timelineSlotGroup {
   min-width: 0;
 }
@@ -867,6 +873,11 @@
 .timelineRowHover {
   background: var(--surface-raised);
   border-left-color: rgba(0, 245, 212, 0.6);
+}
+
+.timelineRowDrop {
+  background: rgba(0, 245, 212, 0.1);
+  border-left-color: #00f5d4;
 }
 
 .timelineRowNow {

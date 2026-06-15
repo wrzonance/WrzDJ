@@ -214,6 +214,54 @@ def test_document_snapshot_restore_ignores_client_primary_keys(client, db, auth_
     assert all(track["source_id"] != 9903 for track in restored["pool"]["tracks"])
 
 
+def test_document_snapshot_restore_remaps_synthetic_pool_slot_ids(client, db, auth_headers):
+    # Regression for 09e2ea69: restored pool rows get new ids, so synthetic slot ids remap.
+    created = client.post(
+        "/api/setbuilder/sets", json={"name": "Synthetic Pool Ids"}, headers=auth_headers
+    )
+    assert created.status_code == 201, created.json()
+    set_id = created.json()["id"]
+    source = SetPoolSource(
+        id=9300,
+        set_id=set_id,
+        kind="manual",
+        external_ref=None,
+        label="Manual",
+    )
+    db.add(source)
+    db.flush()
+    track = SetPoolTrack(
+        id=9301,
+        set_id=set_id,
+        source_id=source.id,
+        track_id=None,
+        title="Manual Snapshot",
+        artist="Manual Artist",
+        dedupe_sig="manual-snapshot",
+    )
+    db.add(track)
+    db.add(SetSlot(id=9302, set_id=set_id, position=0, track_id=f"pool:{track.id}"))
+    db.commit()
+
+    payload_resp = client.get(f"/api/setbuilder/sets/{set_id}/document", headers=auth_headers)
+    assert payload_resp.status_code == 200, payload_resp.json()
+
+    restore = client.put(
+        f"/api/setbuilder/sets/{set_id}/document",
+        json=payload_resp.json(),
+        headers=auth_headers,
+    )
+
+    assert restore.status_code == 200, restore.json()
+    restored = restore.json()
+    restored_track_id = restored["pool"]["tracks"][0]["id"]
+    assert restored_track_id != 9301
+    assert restored["slots"][0]["track_id"] == f"pool:{restored_track_id}"
+    slots = client.get(f"/api/setbuilder/sets/{set_id}/slots", headers=auth_headers).json()
+    assert slots[0]["pool_track_id"] == restored_track_id
+    assert slots[0]["title"] == "Manual Snapshot"
+
+
 def test_document_snapshot_owner_isolation(client, db, auth_headers):
     set_id = _create_seeded_set(client, db, auth_headers)
     _make_second_dj(db)

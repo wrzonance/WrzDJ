@@ -314,17 +314,61 @@ describe('BuilderWorkspace', () => {
   it('zooms the curve timeline in, out, and back to fit', async () => {
     render(<BuilderWorkspace setId={5} />);
     await waitFor(() => expect(screen.getByTestId('curve-toolbar')).toBeInTheDocument());
+    expect(screen.getByRole('group', { name: 'Curve zoom controls' })).toBeInTheDocument();
 
     const canvas = screen.getByTestId('curve-canvas');
     const initialScale = canvas.getAttribute('data-px-per-second');
 
     fireEvent.click(screen.getByTestId('curve-zoom-in'));
-    expect(screen.getByTestId('curve-canvas').getAttribute('data-px-per-second')).not.toBe(initialScale);
+    expect(screen.getByTestId('curve-canvas').getAttribute('data-px-per-second')).not.toBe(
+      initialScale,
+    );
 
     fireEvent.click(screen.getByTestId('curve-zoom-out'));
     fireEvent.click(screen.getByTestId('curve-zoom-fit'));
+    fireEvent.scroll(screen.getByTestId('curve-scroll-viewport'), { target: { scrollLeft: 0 } });
 
     expect(screen.getByTestId('curve-zoom-label')).toHaveTextContent('Fit');
+  });
+
+  it('zooms the curve using the overlap-adjusted target domain', async () => {
+    render(
+      <BuilderWorkspace
+        setId={5}
+        targetSettings={{ targetDurationSec: 1000, avgTransitionOverlapSec: 10 }}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('curve-toolbar')).toBeInTheDocument());
+
+    expect(screen.getByTestId('curve-canvas')).toHaveAttribute('data-px-per-second', '0.7843');
+  });
+
+  it('zooms the curve from fit scroll without snapping scale and clamps stale scroll', async () => {
+    const { rerender } = render(
+      <BuilderWorkspace
+        setId={5}
+        targetSettings={{ targetDurationSec: 60_000, avgTransitionOverlapSec: 0 }}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('curve-toolbar')).toBeInTheDocument());
+
+    const initialScale = screen.getByTestId('curve-canvas').getAttribute('data-px-per-second');
+    fireEvent.scroll(screen.getByTestId('curve-scroll-viewport'), { target: { scrollLeft: 120 } });
+
+    await waitFor(() => expect(screen.getByTestId('curve-zoom-label')).toHaveTextContent('1 px/min'));
+    expect(screen.getByTestId('curve-canvas')).toHaveAttribute('data-px-per-second', initialScale);
+    expect(screen.getByTestId('curve-canvas')).toHaveAttribute('data-scroll-left', '120');
+
+    rerender(
+      <BuilderWorkspace
+        setId={5}
+        targetSettings={{ targetDurationSec: 600, avgTransitionOverlapSec: 0 }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId('curve-canvas')).toHaveAttribute('data-scroll-left', '0'),
+    );
   });
 
   it('reports effective target projection from loaded slots', async () => {

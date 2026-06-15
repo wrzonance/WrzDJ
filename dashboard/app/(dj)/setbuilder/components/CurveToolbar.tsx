@@ -88,7 +88,7 @@ export default function CurveToolbar({
         ))}
       </div>
 
-      <div className={styles.zoomControls} aria-label="Curve zoom controls">
+      <div className={styles.zoomControls} role="group" aria-label="Curve zoom controls">
         <button
           type="button"
           className={styles.toolbarIconBtn}

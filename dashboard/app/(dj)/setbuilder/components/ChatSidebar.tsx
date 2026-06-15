@@ -49,7 +49,10 @@ function formatAgentError(error: unknown): string {
 }
 
 function lockSkipReasons(tool: AppliedToolCall): string[] {
-  const skipped = tool.result.skipped_slots ?? tool.result.skippedSlots ?? tool.result.skipped;
+  const result = tool.result;
+  if (!result || typeof result !== 'object') return [];
+  const data = result as Record<string, unknown>;
+  const skipped = data.skipped_slots ?? data.skippedSlots ?? data.skipped;
   if (!Array.isArray(skipped)) return [];
   return skipped
     .map((item) => {

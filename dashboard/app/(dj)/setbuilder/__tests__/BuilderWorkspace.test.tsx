@@ -178,6 +178,41 @@ const POOL_TRACKS: PoolTrack[] = [
   },
 ];
 
+function largeSlots(count: number): SetSlotOut[] {
+  return Array.from({ length: count }, (_, idx) => ({
+    ...SLOTS[idx % SLOTS.length],
+    id: 1_000 + idx,
+    position: idx,
+    track_id: `large-${idx}`,
+    target_energy: idx % 3 === 0 ? null : 5 + (idx % 5),
+    title: null,
+    artist: null,
+    bpm: null,
+    key: null,
+    camelot: null,
+    energy: null,
+    duration_sec: null,
+    next_pairing_id: null,
+    next_is_dj_pairing: false,
+  }));
+}
+
+function largePoolTracks(count: number): PoolTrack[] {
+  return Array.from({ length: count }, (_, idx) => ({
+    ...POOL_TRACKS[idx % POOL_TRACKS.length],
+    id: 2_000 + idx,
+    track_id: `large-${idx}`,
+    title: `Large Track ${idx}`,
+    artist: `Large Artist ${idx}`,
+    bpm: 118 + (idx % 24),
+    camelot: `${(idx % 12) + 1}A`,
+    key: `${(idx % 12) + 1}A`,
+    energy: 4 + (idx % 6),
+    duration_sec: 180 + (idx % 90),
+    created_at: '2026-01-01T00:00:00Z',
+  }));
+}
+
 const EXTRA_POOL_TRACK: PoolTrack = {
   id: 14,
   source_id: 1,
@@ -624,6 +659,32 @@ describe('BuilderWorkspace', () => {
       }),
     );
     expect(screen.getByTestId('timeline-vu-1')).toBeInTheDocument();
+  });
+
+  it('virtualizes hundreds of timeline rows while preserving visible row actions', async () => {
+    // TODO(Task 7): replace with the final bugfix commit SHA once this fix lands.
+    const slots = largeSlots(400);
+    const tracks = largePoolTracks(400);
+    mockGetSetSlots.mockResolvedValue(slots);
+    mockGetPool.mockResolvedValue({ sources: [], tracks });
+
+    render(<BuilderWorkspace setId={5} />);
+    await waitFor(() => expect(screen.getByTestId('timeline-row-0')).toBeInTheDocument());
+
+    expect(screen.getByTestId('timeline-list')).toHaveAttribute('data-virtualized', 'true');
+    expect(screen.queryAllByTestId(/^timeline-row-/).length).toBeLessThan(60);
+
+    fireEvent.doubleClick(screen.getByTestId('timeline-row-1'));
+
+    await waitFor(() => expect(mockSendTransportCommand).toHaveBeenCalledTimes(1));
+    expect(mockSendTransportCommand).toHaveBeenCalledWith(
+      5,
+      expect.objectContaining({
+        action: 'play',
+        slot_index: 1,
+        title: 'Large Track 1',
+      }),
+    );
   });
 
   it('click-to-scrub queues a seek command and keeps the active row in sync', async () => {

@@ -31,6 +31,7 @@ export interface TimelineRowProps {
   onPoolTrackDrop?: (poolTrackId: number, insertIdx: number) => void | Promise<void>;
   setMenu: Dispatch<SetStateAction<TimelineMenu | null>>;
   setRowRef: (idx: number, el: HTMLDivElement | null) => void;
+  measureRef?: (idx: number, el: HTMLDivElement | null) => void;
 }
 
 export default function TimelineRow({
@@ -50,6 +51,7 @@ export default function TimelineRow({
   onPoolTrackDrop,
   setMenu,
   setRowRef,
+  measureRef,
 }: TimelineRowProps) {
   const seamScore = prevSlot?.transitionScore ?? slot.transitionScore;
   const isPairedSeam = Boolean(prevSlot?.nextIsDjPairing);
@@ -90,7 +92,7 @@ export default function TimelineRow({
   };
 
   return (
-    <div className={styles.timelineSlotGroup}>
+    <div className={styles.timelineSlotGroup} ref={(el) => measureRef?.(idx, el)}>
       {idx > 0 && (isPairedSeam || seamScore != null) && (
         <div
           className={`${styles.timelineTransition} ${

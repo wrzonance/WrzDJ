@@ -44,12 +44,16 @@ function formatFlag(type: string): string {
 }
 
 function ToolCard({ tool }: { tool: AppliedToolCall }) {
+  const toolName = tool.name.replaceAll('_', ' ');
+  const rationale = tool.rationale?.trim() ?? '';
+  const summary = tool.display_summary.trim() || rationale || toolName;
+
   return (
     <div className={styles.toolCallCard} data-testid="agent-tool-card">
-      <span className={styles.toolName}>{tool.name.replaceAll('_', ' ')}</span>
+      <span className={styles.toolName}>{toolName}</span>
       <div className={styles.toolBody}>
-        <div className={styles.toolSummary}>{tool.display_summary}</div>
-        {tool.rationale && <div className={styles.toolRationale}>{tool.rationale}</div>}
+        <div className={styles.toolSummary}>{summary}</div>
+        {rationale && rationale !== summary && <div className={styles.toolRationale}>{rationale}</div>}
       </div>
     </div>
   );
@@ -112,6 +116,9 @@ export default function ChatSidebar({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const historyRequestIdRef = useRef(0);
+  const historyErrorRef = useRef<string | null>(null);
+  const hasLocalTurnRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -134,20 +141,30 @@ export default function ChatSidebar({
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+    const requestId = historyRequestIdRef.current + 1;
+    historyRequestIdRef.current = requestId;
+    hasLocalTurnRef.current = false;
+
     api
       .getSetAgentHistory(setId)
       .then((history) => {
-        if (cancelled) return;
-        setEntries(history.messages);
+        if (cancelled || historyRequestIdRef.current !== requestId) return;
+        if (!hasLocalTurnRef.current) {
+          setEntries(history.messages);
+        }
         setHistoryMeta({
           usesCompactContext: history.uses_compact_context,
           recentTurnLimit: history.recent_turn_limit,
         });
+        const staleHistoryError = historyErrorRef.current;
+        setError((current) => (current === staleHistoryError ? null : current));
+        historyErrorRef.current = null;
       })
       .catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Agent history unavailable');
-        }
+        if (cancelled || historyRequestIdRef.current !== requestId) return;
+        const message = err instanceof Error ? err.message : 'Agent history unavailable';
+        historyErrorRef.current = message;
+        setError(message);
       });
     return () => {
       cancelled = true;
@@ -163,6 +180,7 @@ export default function ChatSidebar({
   const send = async (override?: string) => {
     const message = (override ?? input).trim();
     if (!message || busy) return;
+    hasLocalTurnRef.current = true;
     const pendingEntry: ChatEntry = {
       id: -Date.now(),
       role: 'user',
@@ -246,9 +264,9 @@ export default function ChatSidebar({
         {entries.length === 0 && (
           <div className={styles.chatEmpty}>Ask the agent to critique, explain, or edit the timeline.</div>
         )}
-        {entries.map((entry, i) => (
+        {entries.map((entry) => (
           <div
-            key={`${entry.role}-${i}`}
+            key={entry.id}
             className={`${styles.chatMessage} ${entry.role === 'user' ? styles.chatUser : styles.chatAgent}`}
           >
             <div className={styles.chatAuthor}>

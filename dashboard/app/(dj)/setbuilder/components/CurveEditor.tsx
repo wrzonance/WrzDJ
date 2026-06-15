@@ -195,12 +195,13 @@ export default function CurveEditor({
   const linePath = blocks
     .map((b, i) => `${i === 0 ? 'M' : 'L'} ${b.xMid.toFixed(2)} ${yOf(b.target).toFixed(2)}`)
     .join(' ');
-  const playheadX = totalSec > 0 ? Math.max(0, Math.min(1, playheadSec / totalSec)) * w : 0;
+  const secToX = (sec: number) => (Math.max(0, Math.min(domainSec, sec)) / domainSec) * w;
+  const playheadX = domainSec > 0 ? secToX(playheadSec) : 0;
   const scrubFromClientX = (clientX: number) => {
     if (!svgRef.current || !scrubEnabled || !onScrub || totalSec <= 0) return;
     const rect = svgRef.current.getBoundingClientRect();
     const t = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
-    onScrub(t * totalSec);
+    onScrub(Math.min(totalSec, t * domainSec));
   };
   const handleSvgClickCapture = (ev: ReactMouseEvent<SVGSVGElement>) => {
     if (!scrubEnabled || !onScrub || totalSec <= 0) return;

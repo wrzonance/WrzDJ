@@ -99,6 +99,45 @@ describe('CurveEditor', () => {
     expect(screen.getByTestId('curve-target-marker')).toHaveAttribute('x1', '448');
   });
 
+  it('maps playhead and scrub positions against the extended target domain', () => {
+    const onScrub = vi.fn();
+    const { container } = renderEditor({
+      slots: [
+        mkSlot(0, { durationSec: 200 }),
+        mkSlot(1, { durationSec: 200 }),
+        mkSlot(2, { durationSec: 200 }),
+      ],
+      targetDurationSec: 900,
+      avgTransitionOverlapSec: 0,
+      playheadSec: 300,
+      scrubEnabled: true,
+      onScrub,
+    });
+
+    const playheadLine = screen.getByTestId('curve-playhead').querySelector('line');
+    expect(Number(playheadLine?.getAttribute('x1'))).toBeCloseTo(266.67);
+
+    const svg = container.querySelector('svg');
+    expect(svg).not.toBeNull();
+    vi.spyOn(svg as SVGSVGElement, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 800,
+      bottom: 160,
+      width: 800,
+      height: 160,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    fireEvent.click(screen.getByTestId('curve-scrub-hit'), { clientX: 400 });
+    expect(onScrub).toHaveBeenLastCalledWith(450);
+
+    fireEvent.click(screen.getByTestId('curve-scrub-hit'), { clientX: 800 });
+    expect(onScrub).toHaveBeenLastCalledWith(600);
+  });
+
   it('renders amber hatch when target > energy and dashed line when target < energy', () => {
     renderEditor({
       slots: [

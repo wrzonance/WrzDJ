@@ -3,21 +3,80 @@
 .canvasWrap {
   position: relative;
   flex: 1;
-  min-height: 160px;
+  min-height: 120px;
   margin: 0 8px 18px 36px;
+  --curve-scrollbar-height: 14px;
 }
 
 .curveScrollViewport {
   position: absolute;
-  inset: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  z-index: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
+  pointer-events: none;
+  scrollbar-width: none;
 }
 
 .curveScrollInner {
   height: 1px;
   pointer-events: none;
+}
+
+.curveScrollViewport::-webkit-scrollbar {
+  display: none;
+}
+
+.curveScrollbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  height: var(--curve-scrollbar-height);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.curveScrollbar::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 5px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.curveScrollbar:focus-visible {
+  outline: 1px solid #00f5d4;
+  outline-offset: 2px;
+}
+
+.curveScrollbar[data-enabled='false'] {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.curveScrollbarThumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  min-width: 34px;
+  border: 1px solid rgba(0, 245, 212, 0.75);
+  border-radius: 999px;
+  background: rgba(0, 245, 212, 0.45);
+  box-shadow: 0 0 10px rgba(0, 245, 212, 0.18);
+}
+
+.curveScrollbar:hover .curveScrollbarThumb,
+.curveScrollbar:focus-visible .curveScrollbarThumb {
+  background: rgba(0, 245, 212, 0.7);
+  border-color: #00f5d4;
 }
 
 .srOnly {

@@ -239,6 +239,47 @@ describe('CurveEditor', () => {
     expect(screen.getByTestId('curve-scrub-hit')).toBeInTheDocument();
   });
 
+  it('uses the rendered canvas size before ResizeObserver emits', () => {
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 226,
+        bottom: 160,
+        width: 226,
+        height: 160,
+        toJSON: () => ({}),
+      } as DOMRect);
+
+    try {
+      const { container } = renderEditor();
+      expect(container.querySelector('svg')).toHaveAttribute('viewBox', '0 0 226 160');
+    } finally {
+      rectSpy.mockRestore();
+    }
+  });
+
+  it('exposes a dedicated horizontal scroll hit target for the curve timeline', () => {
+    renderEditor({
+      pxPerSecond: 2,
+      viewportWidth: 600,
+    });
+
+    expect(screen.getByTestId('curve-scroll-viewport')).toHaveAttribute(
+      'aria-label',
+      'Curve timeline horizontal scroll',
+    );
+    expect(screen.getByTestId('curve-scroll-viewport')).toHaveAttribute(
+      'data-scrollbar-affordance',
+      'true',
+    );
+    expect(screen.getByTestId('curve-scrollbar')).toBeInTheDocument();
+    expect(screen.getByTestId('curve-scrollbar-thumb')).toBeInTheDocument();
+  });
+
   it('maps vibe-window move and resize through the visible viewport seconds', () => {
     const onWindowChange = vi.fn();
     const onWindowCommit = vi.fn();

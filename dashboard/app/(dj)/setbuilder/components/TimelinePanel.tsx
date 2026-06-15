@@ -39,6 +39,8 @@ export interface TimelinePanelProps {
   scrollRequest: ScrollRequest | null;
   onPairingAction?: (idx: number) => void | Promise<void>;
   onPoolTrackDrop?: (poolTrackId: number, insertIdx: number) => void | Promise<void>;
+  onSlotLockChange?: (slotIds: number[], locked: boolean) => void | Promise<void>;
+  onLockBeforePlayhead?: () => void | Promise<void>;
 }
 
 const ESTIMATED_SLOT_GROUP_HEIGHT = 52;
@@ -67,14 +69,28 @@ export default function TimelinePanel({
   scrollRequest,
   onPairingAction,
   onPoolTrackDrop,
+  onSlotLockChange,
+  onLockBeforePlayhead,
 }: TimelinePanelProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
   const handledScrollRequestNRef = useRef<number | null>(null);
   const [menu, setMenu] = useState<TimelineMenu | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
+  const selectedSlotIds = useMemo(() => [...selectedIds], [selectedIds]);
+  const selectedCount = selectedIds.size;
+  const slotsBeforePlayhead = useMemo(() => {
+    let startSec = 0;
+    const ids: number[] = [];
+    for (const slot of slots) {
+      if (startSec < positionSec && !slot.locked) ids.push(slot.id);
+      startSec += slot.track.durationSec;
+    }
+    return ids;
+  }, [positionSec, slots]);
 
   const measurementKey = useMemo(() => timelineMeasurementKey(slots), [slots]);
   const virtual = useMeasuredVirtualList({
@@ -161,6 +177,14 @@ export default function TimelinePanel({
     };
   }, [menu]);
 
+  useEffect(() => {
+    const visibleIds = new Set(slots.map((slot) => slot.id));
+    setSelectedIds((prev) => {
+      const next = new Set([...prev].filter((id) => visibleIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [slots]);
+
   const measureSlotGroup = useCallback(
     (idx: number, el: HTMLDivElement | null) => {
       if (!el) return;
@@ -187,6 +211,11 @@ export default function TimelinePanel({
 
   const markPoolTrackDrop = (event: DragEvent<HTMLElement>, insertIdx: number) => {
     event.preventDefault();
+    if (slots.some((slot, idx) => slot.locked && idx >= insertIdx)) {
+      event.dataTransfer.dropEffect = 'none';
+      setDropIdx(null);
+      return;
+    }
     event.dataTransfer.dropEffect = 'copy';
     setDropIdx(insertIdx);
   };
@@ -195,9 +224,27 @@ export default function TimelinePanel({
     event.preventDefault();
     event.stopPropagation();
     setDropIdx(null);
+    if (slots.some((slot, idx) => slot.locked && idx >= insertIdx)) return;
     const payload = readPoolTrackDragPayload(event.dataTransfer);
     if (!payload) return;
     void onPoolTrackDrop?.(payload.poolTrackId, insertIdx);
+  };
+
+  const setSlotSelected = (slotId: number, selected: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (selected) next.add(slotId);
+      else next.delete(slotId);
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const changeSelectedLock = (locked: boolean) => {
+    if (selectedSlotIds.length === 0) return;
+    void onSlotLockChange?.(selectedSlotIds, locked);
+    clearSelection();
   };
 
   const markPoolTrackDropAtPointer = (event: DragEvent<HTMLElement>) => {
@@ -229,68 +276,106 @@ export default function TimelinePanel({
   }
 
   return (
-    <div
-      className={`${styles.timelineList} ${dropIdx === slots.length ? styles.timelineListDrop : ''}`}
-      ref={listRef}
-      data-testid="timeline-list"
-      data-virtualized="true"
-      onScroll={handleScroll}
-      onDragOver={markPoolTrackDropAtPointer}
-      onDragLeave={clearDropIfLeaving}
-      onDrop={handlePoolTrackDropAtPointer}
-    >
-      <div style={{ height: beforeHeight }} aria-hidden="true" />
-      {items.map(({ idx }) => {
-        const slot = slots[idx];
-        if (!slot) return null;
-
-        return (
-          <TimelineRow
-            key={slot.id}
-            slot={slot}
-            prevSlot={idx > 0 ? slots[idx - 1] : null}
-            nextSlot={idx < slots.length - 1 ? slots[idx + 1] : null}
-            idx={idx}
-            slots={slots}
-            hoveredIdx={hoveredIdx}
-            currentIdx={currentIdx}
-            positionSec={positionSec}
-            playing={playing}
-            dropIdx={dropIdx}
-            setDropIdx={setDropIdx}
-            onHover={onHover}
-            onRowDoubleClick={onRowDoubleClick}
-            onPoolTrackDrop={onPoolTrackDrop}
-            setMenu={setMenu}
-            setRowRef={(rowIdx, el) => {
-              rowRefs.current[rowIdx] = el;
-            }}
-            measureRef={measureSlotGroup}
-          />
-        );
-      })}
-      <div style={{ height: afterHeight }} aria-hidden="true" />
-      {menu && (
-        <div
-          className={styles.timelineContextMenu}
-          style={{ left: menu.x, top: menu.y }}
-          onClick={(event) => event.stopPropagation()}
-          data-testid="timeline-context-menu"
+    <>
+      <div className={styles.timelineBulkBar} data-testid="timeline-lock-toolbar">
+        <span className={styles.timelineBulkCount}>
+          {selectedCount > 0 ? `${selectedCount} selected` : 'No selection'}
+        </span>
+        <button
+          type="button"
+          className={styles.timelineBulkBtn}
+          onClick={() => changeSelectedLock(true)}
+          disabled={selectedCount === 0}
+          data-testid="timeline-lock-selected"
         >
-          <button
-            type="button"
-            className={styles.timelineContextItem}
-            onClick={() => {
-              onPairingAction?.(menu.idx);
-              setMenu(null);
-            }}
+          Lock selected
+        </button>
+        <button
+          type="button"
+          className={styles.timelineBulkBtn}
+          onClick={() => changeSelectedLock(false)}
+          disabled={selectedCount === 0}
+          data-testid="timeline-unlock-selected"
+        >
+          Unlock selected
+        </button>
+        <button
+          type="button"
+          className={styles.timelineBulkBtn}
+          onClick={() => void onLockBeforePlayhead?.()}
+          disabled={slotsBeforePlayhead.length === 0}
+          data-testid="timeline-lock-before-playhead"
+          title="Lock every unlocked slot whose start time is before the playhead"
+        >
+          Lock before playhead
+        </button>
+      </div>
+      <div
+        className={`${styles.timelineList} ${dropIdx === slots.length ? styles.timelineListDrop : ''}`}
+        ref={listRef}
+        data-testid="timeline-list"
+        data-virtualized="true"
+        onScroll={handleScroll}
+        onDragOver={markPoolTrackDropAtPointer}
+        onDragLeave={clearDropIfLeaving}
+        onDrop={handlePoolTrackDropAtPointer}
+      >
+        <div style={{ height: beforeHeight }} aria-hidden="true" />
+        {items.map(({ idx }) => {
+          const slot = slots[idx];
+          if (!slot) return null;
+
+          return (
+            <TimelineRow
+              key={slot.id}
+              slot={slot}
+              prevSlot={idx > 0 ? slots[idx - 1] : null}
+              nextSlot={idx < slots.length - 1 ? slots[idx + 1] : null}
+              idx={idx}
+              slots={slots}
+              hoveredIdx={hoveredIdx}
+              currentIdx={currentIdx}
+              positionSec={positionSec}
+              playing={playing}
+              selected={selectedIds.has(slot.id)}
+              dropIdx={dropIdx}
+              setDropIdx={setDropIdx}
+              onHover={onHover}
+              onRowDoubleClick={onRowDoubleClick}
+              onPoolTrackDrop={onPoolTrackDrop}
+              onSelectedChange={(selected) => setSlotSelected(slot.id, selected)}
+              onToggleLock={() => void onSlotLockChange?.([slot.id], !slot.locked)}
+              setMenu={setMenu}
+              setRowRef={(rowIdx, el) => {
+                rowRefs.current[rowIdx] = el;
+              }}
+              measureRef={measureSlotGroup}
+            />
+          );
+        })}
+        <div style={{ height: afterHeight }} aria-hidden="true" />
+        {menu && (
+          <div
+            className={styles.timelineContextMenu}
+            style={{ left: menu.x, top: menu.y }}
+            onClick={(event) => event.stopPropagation()}
+            data-testid="timeline-context-menu"
           >
-            {slots[menu.idx]?.nextIsDjPairing
-              ? 'Open saved pairing'
-              : `Save -> ${slots[menu.idx + 1]?.track.title ?? 'next'} as pairing`}
-          </button>
-        </div>
-      )}
-    </div>
+            <button
+              type="button"
+              className={styles.timelineContextItem}
+              onClick={() => {
+                onPairingAction?.(menu.idx);
+                setMenu(null);
+              }}
+            >
+              {slots[menu.idx]?.nextIsDjPairing
+                ? 'Open saved pairing'
+                : `Save -> ${slots[menu.idx + 1]?.track.title ?? 'next'} as pairing`}
+            </button>
+          </div>
+        )}
+      </div>
+    </>
   );
 }

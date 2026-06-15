@@ -40,14 +40,45 @@ function formatFlag(type: string): string {
   return type.replaceAll('_', ' ');
 }
 
+function formatAgentError(error: unknown): string {
+  const message = error instanceof Error ? error.message : 'Agent request failed';
+  if (/locked/i.test(message)) {
+    return 'Skipped because a locked slot would be changed. Unlock that slot before editing it.';
+  }
+  return message;
+}
+
+function lockSkipReasons(tool: AppliedToolCall): string[] {
+  const skipped = tool.result.skipped_slots ?? tool.result.skippedSlots ?? tool.result.skipped;
+  if (!Array.isArray(skipped)) return [];
+  return skipped
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const reason = 'reason' in item ? String(item.reason ?? '') : '';
+      if (!/lock/i.test(reason)) return null;
+      const slot =
+        'slot_position' in item && typeof item.slot_position === 'number'
+          ? `slot ${item.slot_position + 1}`
+          : 'a slot';
+      return `Skipped ${slot} because it is locked.`;
+    })
+    .filter((reason): reason is string => Boolean(reason));
+}
+
 function ToolCard({ tool }: { tool: AppliedToolCall }) {
   const args = JSON.stringify(tool.args);
+  const skippedLocks = lockSkipReasons(tool);
   return (
     <div className={styles.toolCallCard} data-testid="agent-tool-card">
       <span className={styles.toolName}>{tool.name}</span>
       <div className={styles.toolBody}>
         <div className={styles.toolArgs}>{args}</div>
         {tool.rationale && <div className={styles.toolRationale}>&quot;{tool.rationale}&quot;</div>}
+        {skippedLocks.map((reason) => (
+          <div key={reason} className={styles.toolRationale} data-testid="agent-lock-skip">
+            {reason}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -162,7 +193,7 @@ export default function ChatSidebar({
       ]);
       if (result.tool_calls.some((tool) => tool.mutating)) onMutationApplied();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Agent request failed');
+      setError(formatAgentError(err));
     } finally {
       setBusy(false);
     }
@@ -201,7 +232,11 @@ export default function ChatSidebar({
       </div>
 
       {critique && <CritiqueCard critique={critique} persona={persona} />}
-      {error && <div className={styles.chatError}>{error}</div>}
+      {error && (
+        <div className={styles.chatError} role="alert">
+          {error}
+        </div>
+      )}
 
       <div className={styles.chatScroll} ref={scrollRef}>
         {entries.length === 0 && (

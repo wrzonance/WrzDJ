@@ -164,6 +164,8 @@ export default function CurvePanel({
   const zoomLabel = curveFitMode
     ? 'Fit'
     : `${Math.round(effectiveCurvePxPerSecond * 60)} px/min`;
+  const lockedCount = slots.filter((slot) => slot.locked).length;
+  const unlockedCount = Math.max(0, slots.length - lockedCount);
 
   const zoomCurve = (direction: 'in' | 'out') => {
     const next = zoomPxPerSecond({
@@ -278,6 +280,10 @@ export default function CurvePanel({
   const handleTargetDragEnd = (idx: number, energy: number, anchor: { x: number; y: number }) => {
     const slot = slots[idx];
     if (!slot) return;
+    if (slot.locked) {
+      setPrompt(null);
+      return;
+    }
     onSlotsChange((prev) => prev.map((s, i) => (i === idx ? { ...s, targetEnergy: energy } : s)));
     const save = () => api.updateSlotTarget(setId, slot.id, energy);
     const run = commit ? commit(`Retarget slot ${idx + 1}`, save) : save();
@@ -302,8 +308,13 @@ export default function CurvePanel({
           <>
             <p>This reruns builder placement against the current curve, pool, and pairings.</p>
             <ul>
-              <li>Unlocked slots may reorder and overwrite manual order changes.</li>
-              <li>Locked slots stay put.</li>
+              <li>
+                {lockedCount} locked {lockedCount === 1 ? 'slot stays' : 'slots stay'} put.
+              </li>
+              <li>
+                {unlockedCount} unlocked {unlockedCount === 1 ? 'slot may' : 'slots may'} reorder
+                and overwrite manual order changes.
+              </li>
               <li>Saved pairings are weighted during placement.</li>
               <li>The action is undoable from the topbar or with Ctrl/Cmd+Z.</li>
             </ul>

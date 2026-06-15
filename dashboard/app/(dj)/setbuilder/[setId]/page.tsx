@@ -150,6 +150,9 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
 
   const requestBuild = async () => {
     if (builderSettings.confirmRecompute) {
+      const snapshotSlots = history.snapshot?.slots ?? [];
+      const lockedCount = snapshotSlots.filter((slot) => slot.locked).length;
+      const unlockedCount = Math.max(0, snapshotSlots.length - lockedCount);
       const ok = await requestConfirmation({
         title: 'Recompute set order?',
         body: (
@@ -159,8 +162,18 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
               current pool, curve targets, transition scoring, and saved pairings.
             </p>
             <ul>
-              <li>Locked slots stay fixed.</li>
-              <li>Unlocked manual reorders may be replaced.</li>
+              <li>
+                {snapshotSlots.length > 0
+                  ? `${lockedCount} locked ${lockedCount === 1 ? 'slot stays' : 'slots stay'} fixed.`
+                  : 'Locked slots stay fixed.'}
+              </li>
+              <li>
+                {snapshotSlots.length > 0
+                  ? `${unlockedCount} unlocked ${
+                      unlockedCount === 1 ? 'slot may be' : 'slots may be'
+                    } replaced or reordered.`
+                  : 'Unlocked manual reorders may be replaced.'}
+              </li>
               <li>Saved pairings are weighted into scoring.</li>
               <li>The action is undoable from the topbar or with Ctrl/Cmd+Z.</li>
             </ul>

@@ -63,4 +63,19 @@ describe('ChatSidebar', () => {
     expect(screen.getByText(/slot 2: 88/i)).toBeInTheDocument();
     expect(onMutationApplied).toHaveBeenCalledTimes(1);
   });
+
+  it('explains when the agent skips an edit because a slot is locked', async () => {
+    mockApi.chatWithSetAgent.mockRejectedValueOnce(new Error('Locked slots cannot be moved'));
+    render(<ChatSidebar setId={9} open onToggle={vi.fn()} onMutationApplied={vi.fn()} />);
+    await screen.findByTestId('critique-card');
+
+    fireEvent.change(screen.getByPlaceholderText(/tell the agent/i), {
+      target: { value: 'move the locked opener' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Skipped because a locked slot would be changed',
+    );
+  });
 });

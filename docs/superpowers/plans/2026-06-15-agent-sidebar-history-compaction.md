@@ -316,7 +316,7 @@ git add server/app/models/set_agent.py server/app/models/set.py server/app/model
 git commit -m "feat: add setbuilder agent history persistence"
 ```
 
-Expected: commit succeeds. The focused test still fails until Task 3 adds the endpoint.
+Expected: commit succeeds. The focused test still fails until Task 4 adds the endpoint.
 
 ## Task 2: Agent History Service + Compact Context
 
@@ -330,7 +330,6 @@ Expected: commit succeeds. The focused test still fails until Task 3 adds the en
 Append these tests to `server/tests/test_setbuilder_pass2.py`:
 
 ```python
-from app.services.llm.base import ChatRequest
 from app.services.setbuilder import agent_history
 
 
@@ -594,7 +593,7 @@ async def test_agent_swap_returns_readable_tool_summary(monkeypatch, db: Session
 
     result = await chat_with_agent(db, test_user, set_obj, message="Swap the first two")
 
-    assert result.message == "Swapped slot 1 Track 0 with slot 2 Track 1."
+    assert result.message == "Swapped slot 1 Track 0 - Artist 0 with slot 2 Track 1 - Artist 1."
     assert result.tool_calls[0].display_summary == result.message
 ```
 
@@ -1283,7 +1282,7 @@ Replace the mutating-turn test in `ChatSidebar.test.tsx` with expectations for r
     render(<ChatSidebar setId={9} open onToggle={vi.fn()} onMutationApplied={vi.fn()} />);
 
     expect(await screen.findByText('swap the opener')).toBeInTheDocument();
-    expect(screen.getByText('Swapped slot 1 Track A with slot 2 Track B.')).toBeInTheDocument();
+    expect(screen.getAllByText('Swapped slot 1 Track A with slot 2 Track B.')).toHaveLength(2);
     expect(screen.queryByText(/"slot_a_id"/)).not.toBeInTheDocument();
     expect(screen.getByText(/compact context/i)).toBeInTheDocument();
   });

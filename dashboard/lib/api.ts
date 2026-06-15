@@ -22,7 +22,6 @@ import type {
   LlmFeaturePreferenceSet,
   ArchivedEvent,
   AgentChatHistory,
-  AgentChatMessage,
   AgentChatIn,
   AgentChatOut,
   BeatportEventSettings,

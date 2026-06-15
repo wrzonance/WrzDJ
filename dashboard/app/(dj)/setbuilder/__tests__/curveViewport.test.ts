@@ -94,6 +94,15 @@ describe('curveViewport helpers', () => {
     expect(next.pxPerSecond).toBeCloseTo(1.35);
     expect(next.scrollLeft).toBeCloseTo(340);
 
+    const maxZoom = zoomPxPerSecond({
+      currentPxPerSecond: CURVE_LOD_THRESHOLDS.maxPxPerSecond,
+      direction: 'in',
+      scrollLeft: 200,
+      viewportWidth: 400,
+      totalSec: 1000,
+    });
+    expect(maxZoom.pxPerSecond).toBe(CURVE_LOD_THRESHOLDS.maxPxPerSecond);
+
     const clamped = clampPxPerSecond(999);
     expect(clamped).toBe(CURVE_LOD_THRESHOLDS.maxPxPerSecond);
   });

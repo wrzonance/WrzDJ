@@ -90,7 +90,8 @@ def context_messages(
                 ),
             )
         )
-    recent = list_messages(db, session)[-recent_limit:]
+    last_cursor = session.compacted_through_message_id or 0
+    recent = [m for m in list_messages(db, session) if m.id > last_cursor][-recent_limit:]
     budget_used = sum(len(str(m.content)) for m in messages) + len(current_message)
     selected: list[SetAgentMessage] = []
     for item in reversed(recent):
@@ -135,5 +136,10 @@ def compact_if_needed(
 def decode_json_list(raw: str | None) -> list[dict[str, Any]]:
     if not raw:
         return []
-    parsed = json.loads(raw)
-    return parsed if isinstance(parsed, list) else []
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [item for item in parsed if isinstance(item, dict)]

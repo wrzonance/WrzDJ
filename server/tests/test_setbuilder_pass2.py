@@ -195,3 +195,35 @@ def test_agent_compaction_updates_summary_without_gateway(db: Session, test_user
     assert session.context_summary is not None
     assert "Moved Track 0." in session.context_summary
     assert session.compacted_through_message_id is not None
+
+
+def test_agent_decode_json_list_filters_non_dict_entries():
+    raw = '[{"name":"swap_slots"},"x",1,{"name":"analyze_transition"}]'
+
+    decoded = agent_history.decode_json_list(raw)
+
+    assert decoded == [{"name": "swap_slots"}, {"name": "analyze_transition"}]
+
+
+def test_agent_decode_json_list_handles_invalid_payloads():
+    assert agent_history.decode_json_list(None) == []
+    assert agent_history.decode_json_list("{bad json") == []
+    assert agent_history.decode_json_list('{"name":"swap_slots"}') == []
+    assert agent_history.decode_json_list('["x",1]') == []
+
+
+def test_agent_context_excludes_compacted_recent_messages(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    session = agent_history.get_or_create_session(db, set_obj.id, test_user.id)
+    persisted = [
+        agent_history.append_message(db, session, role="user", content=f"turn {idx}")
+        for idx in range(5)
+    ]
+    session.context_summary = "Earlier compacted turns."
+    session.compacted_through_message_id = persisted[2].id
+    db.commit()
+
+    messages = agent_history.context_messages(db, set_obj, session, "current", recent_limit=10)
+
+    assert [m.content for m in messages[-3:]] == ["turn 3", "turn 4", "current"]
+    assert "turn 2" not in [m.content for m in messages]

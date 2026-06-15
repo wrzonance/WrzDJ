@@ -856,7 +856,7 @@ describe('BuilderWorkspace', () => {
   });
 
   it('virtualizes hundreds of timeline rows while preserving visible row actions', async () => {
-    // TODO(Task 7): replace with the final bugfix commit SHA once this fix lands.
+    // Regression for 7459707: large timelines must not mount every row.
     const slots = largeSlots(400);
     const tracks = largePoolTracks(400);
     mockGetSetSlots.mockResolvedValue(slots);

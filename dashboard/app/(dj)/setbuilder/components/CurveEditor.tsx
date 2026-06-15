@@ -87,7 +87,7 @@ export default function CurveEditor({
   targetDurationSec = null,
   avgTransitionOverlapSec = 0,
   pxPerSecond,
-  scrollLeft = 0,
+  scrollLeft,
   viewportWidth,
   onScrollLeftChange,
   onViewportWidthChange,
@@ -99,7 +99,9 @@ export default function CurveEditor({
   const [h, setH] = useState(220);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dragEnergy, setDragEnergy] = useState<number | null>(null);
+  const [internalScrollLeft, setInternalScrollLeft] = useState(0);
   const [winDrag, setWinDrag] = useState<WindowDrag | null>(null);
+  const effectiveScrollLeft = scrollLeft ?? internalScrollLeft;
 
   useEffect(() => {
     if (!wrapRef.current) return;
@@ -118,9 +120,9 @@ export default function CurveEditor({
 
   useEffect(() => {
     if (!scrollViewportRef.current) return;
-    if (Math.abs(scrollViewportRef.current.scrollLeft - scrollLeft) < 1) return;
-    scrollViewportRef.current.scrollLeft = scrollLeft;
-  }, [scrollLeft]);
+    if (Math.abs(scrollViewportRef.current.scrollLeft - effectiveScrollLeft) < 1) return;
+    scrollViewportRef.current.scrollLeft = effectiveScrollLeft;
+  }, [effectiveScrollLeft]);
 
   const yOf = (e: number) => h - (e / 10) * h;
   const eOfY = (y: number) => Math.max(0, Math.min(10, (1 - y / h) * 10));
@@ -138,7 +140,7 @@ export default function CurveEditor({
     viewportWidth: effectiveViewportWidth,
   });
   const visibleRange = curveViewportRange({
-    scrollLeft,
+    scrollLeft: effectiveScrollLeft,
     viewportWidth: effectiveViewportWidth,
     pxPerSecond: effectivePxPerSecond,
     totalSec: domainSec,
@@ -162,6 +164,27 @@ export default function CurveEditor({
   const showSlotHandles = lod === 'detail';
   const showDenseSeams = lod === 'detail';
   const scrollableWidth = Math.max(effectiveViewportWidth, domainSec * effectivePxPerSecond);
+  const maxScrollLeft = Math.max(0, scrollableWidth - effectiveViewportWidth);
+
+  const commitScrollLeft = (next: number) => {
+    const clamped = Math.max(0, Math.min(maxScrollLeft, next));
+    if (scrollLeft == null) setInternalScrollLeft(clamped);
+    onScrollLeftChange?.(clamped);
+    return clamped;
+  };
+
+  const handleScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    commitScrollLeft(event.currentTarget.scrollLeft);
+  };
+
+  const handleWheel = (event: React.WheelEvent<SVGSVGElement>) => {
+    if (!scrollViewportRef.current || maxScrollLeft <= 0) return;
+    const delta = event.deltaX !== 0 ? event.deltaX : event.deltaY;
+    if (delta === 0) return;
+    const next = commitScrollLeft(scrollViewportRef.current.scrollLeft + delta);
+    scrollViewportRef.current.scrollLeft = next;
+    event.preventDefault();
+  };
 
   const clientXToDomainT = (clientX: number) => {
     if (!svgRef.current || domainSec <= 0) return 0;
@@ -296,7 +319,7 @@ export default function CurveEditor({
         ref={scrollViewportRef}
         className={styles.curveScrollViewport}
         data-testid="curve-scroll-viewport"
-        onScroll={(event) => onScrollLeftChange?.(event.currentTarget.scrollLeft)}
+        onScroll={handleScroll}
       >
         <div
           className={styles.curveScrollInner}
@@ -310,6 +333,7 @@ export default function CurveEditor({
         viewBox={`0 0 ${effectiveViewportWidth} ${h}`}
         preserveAspectRatio="none"
         onClickCapture={handleSvgClickCapture}
+        onWheel={handleWheel}
       >
         <defs>
           <pattern

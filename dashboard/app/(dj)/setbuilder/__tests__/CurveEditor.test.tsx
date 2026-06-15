@@ -292,6 +292,54 @@ describe('CurveEditor', () => {
     expect(onWindowChange).toHaveBeenLastCalledWith('w1', {
       t1: expect.closeTo(190 / 600, 5),
     });
+
+    onWindowChange.mockClear();
+    const leftHandle = rectHandles[1];
+    expect(leftHandle).toBeDefined();
+
+    fireEvent.pointerDown(leftHandle, { clientX: 40 });
+    fireEvent.pointerMove(window, { clientX: 20 });
+    expect(onWindowChange).toHaveBeenLastCalledWith('w1', {
+      t0: expect.closeTo(110 / 600, 5),
+    });
+  });
+
+  it('updates visible slots from internal scroll when uncontrolled', () => {
+    const slots = Array.from({ length: 200 }, (_, i) => mkSlot(i, { durationSec: 60 }));
+    renderEditor({
+      slots,
+      pxPerSecond: 2,
+      viewportWidth: 600,
+    });
+
+    expect(screen.getByTestId('slot-block-0')).toBeInTheDocument();
+    expect(screen.queryByTestId('slot-block-50')).not.toBeInTheDocument();
+
+    const scrollViewport = screen.getByTestId('curve-scroll-viewport');
+    fireEvent.scroll(scrollViewport, {
+      target: { scrollLeft: 60 * 50 * 2 },
+    });
+
+    expect(screen.queryByTestId('slot-block-0')).not.toBeInTheDocument();
+    expect(screen.getByTestId('slot-block-50')).toBeInTheDocument();
+  });
+
+  it('forwards wheel input over the svg overlay to horizontal scrolling', () => {
+    const onScrollLeftChange = vi.fn();
+    const slots = Array.from({ length: 200 }, (_, i) => mkSlot(i, { durationSec: 60 }));
+    const { container } = renderEditor({
+      slots,
+      pxPerSecond: 2,
+      viewportWidth: 600,
+      onScrollLeftChange,
+    });
+
+    const svg = container.querySelector('svg');
+    expect(svg).not.toBeNull();
+    fireEvent.wheel(svg as SVGSVGElement, { deltaY: 60 });
+
+    expect(screen.getByTestId('curve-scroll-viewport')).toHaveProperty('scrollLeft', 60);
+    expect(onScrollLeftChange).toHaveBeenLastCalledWith(60);
   });
 
   it('renders only viewport-visible slot blocks in detail zoom', () => {

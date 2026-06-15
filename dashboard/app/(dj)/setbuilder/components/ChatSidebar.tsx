@@ -1,18 +1,21 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
-import type { AppliedToolCall, SetCritique, TransitionScore } from '@/lib/api-types';
+import type {
+  AgentChatMessage,
+  AppliedToolCall,
+  SetCritique,
+  TransitionScore,
+} from '@/lib/api-types';
 import styles from '../setbuilder.module.css';
 
 type Persona = 'peer' | 'pro';
 
-interface ChatEntry {
-  role: 'user' | 'assistant';
-  content: string;
-  toolCalls?: AppliedToolCall[];
-  transitionScores?: TransitionScore[];
-}
+type ChatEntry = Pick<
+  AgentChatMessage,
+  'id' | 'role' | 'content' | 'display_summary' | 'tool_calls' | 'affected_transition_scores'
+> & { pending?: boolean };
 
 const PEER_SUGGESTIONS = [
   'Why is the weakest transition flagged?',
@@ -41,13 +44,12 @@ function formatFlag(type: string): string {
 }
 
 function ToolCard({ tool }: { tool: AppliedToolCall }) {
-  const args = JSON.stringify(tool.args);
   return (
     <div className={styles.toolCallCard} data-testid="agent-tool-card">
-      <span className={styles.toolName}>{tool.name}</span>
+      <span className={styles.toolName}>{tool.name.replaceAll('_', ' ')}</span>
       <div className={styles.toolBody}>
-        <div className={styles.toolArgs}>{args}</div>
-        {tool.rationale && <div className={styles.toolRationale}>&quot;{tool.rationale}&quot;</div>}
+        <div className={styles.toolSummary}>{tool.display_summary}</div>
+        {tool.rationale && <div className={styles.toolRationale}>{tool.rationale}</div>}
       </div>
     </div>
   );
@@ -102,6 +104,10 @@ export default function ChatSidebar({
   const [persona, setPersona] = useState<Persona>('peer');
   const [critique, setCritique] = useState<SetCritique | null>(null);
   const [entries, setEntries] = useState<ChatEntry[]>([]);
+  const [historyMeta, setHistoryMeta] = useState<{
+    usesCompactContext: boolean;
+    recentTurnLimit: number;
+  } | null>(null);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -126,42 +132,68 @@ export default function ChatSidebar({
   }, [setId, refreshToken]);
 
   useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    api
+      .getSetAgentHistory(setId)
+      .then((history) => {
+        if (cancelled) return;
+        setEntries(history.messages);
+        setHistoryMeta({
+          usesCompactContext: history.uses_compact_context,
+          recentTurnLimit: history.recent_turn_limit,
+        });
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Agent history unavailable');
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, setId]);
+
+  useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [entries, busy]);
 
   const suggestions = persona === 'peer' ? PEER_SUGGESTIONS : PRO_SUGGESTIONS;
-  const history = useMemo(
-    () =>
-      entries
-        .filter((entry) => entry.content.trim())
-        .slice(-30)
-        .map((entry) => ({ role: entry.role, content: entry.content })),
-    [entries],
-  );
 
   const send = async (override?: string) => {
     const message = (override ?? input).trim();
     if (!message || busy) return;
-    setEntries((prev) => [...prev, { role: 'user', content: message }]);
+    const pendingEntry: ChatEntry = {
+      id: -Date.now(),
+      role: 'user',
+      content: message,
+      display_summary: null,
+      tool_calls: [],
+      affected_transition_scores: [],
+      pending: true,
+    };
+    setEntries((prev) => [...prev, pendingEntry]);
     setInput('');
     setBusy(true);
     setError(null);
     try {
-      const result = await api.chatWithSetAgent(setId, {
-        message,
-        history,
-      });
+      const result = await api.chatWithSetAgent(setId, { message });
       setEntries((prev) => [
-        ...prev,
+        ...prev.filter((entry) => entry.id !== pendingEntry.id),
         {
-          role: 'assistant',
-          content: result.message || 'Applied tool call.',
-          toolCalls: result.tool_calls,
-          transitionScores: result.affected_transition_scores,
+          id: pendingEntry.id,
+          role: 'user',
+          content: message,
+          display_summary: null,
+          tool_calls: [],
+          affected_transition_scores: [],
         },
+        result.assistant_message,
       ]);
-      if (result.tool_calls.some((tool) => tool.mutating)) onMutationApplied();
+      const mutatingTools = [...result.tool_calls, ...result.assistant_message.tool_calls];
+      if (mutatingTools.some((tool) => tool.mutating)) onMutationApplied();
     } catch (err) {
+      setEntries((prev) => prev.filter((entry) => entry.id !== pendingEntry.id));
       setError(err instanceof Error ? err.message : 'Agent request failed');
     } finally {
       setBusy(false);
@@ -200,6 +232,13 @@ export default function ChatSidebar({
         </button>
       </div>
 
+      {historyMeta && (
+        <div className={styles.chatContextMeta}>
+          {historyMeta.usesCompactContext
+            ? `Uses compact context + last ${historyMeta.recentTurnLimit} turns`
+            : 'Uses recent turns'}
+        </div>
+      )}
       {critique && <CritiqueCard critique={critique} persona={persona} />}
       {error && <div className={styles.chatError}>{error}</div>}
 
@@ -219,11 +258,11 @@ export default function ChatSidebar({
                   ? 'WrzDJ Agent'
                   : 'WrzDJSet Assistant'}
             </div>
-            <div className={styles.chatBubble}>{entry.content}</div>
-            {entry.toolCalls?.map((tool) => <ToolCard key={tool.id} tool={tool} />)}
-            {entry.transitionScores && entry.transitionScores.length > 0 && (
+            <div className={styles.chatBubble}>{entry.display_summary || entry.content}</div>
+            {entry.tool_calls?.map((tool) => <ToolCard key={tool.id} tool={tool} />)}
+            {entry.affected_transition_scores && entry.affected_transition_scores.length > 0 && (
               <div className={styles.scoreUpdate}>
-                {entry.transitionScores.map((score) => (
+                {entry.affected_transition_scores.map((score: TransitionScore) => (
                   <span key={score.slot_id}>
                     slot {score.position + 1}: {Math.round(score.score)}
                   </span>

@@ -408,6 +408,28 @@ describe('BuilderWorkspace', () => {
     );
   });
 
+  it('uses overview curve LOD for hundreds of tracks at fit zoom', async () => {
+    // Regression for b2d595a: fit zoom must not render hundreds of target handles.
+    mockGetSetSlots.mockResolvedValue(largeSlots(400));
+    mockGetPool.mockResolvedValue({ sources: [], tracks: largePoolTracks(400) });
+
+    render(<BuilderWorkspace setId={5} />);
+    await waitFor(() => expect(screen.getByTestId('curve-canvas')).toBeInTheDocument());
+
+    expect(screen.getByTestId('curve-lod')).toHaveTextContent('overview');
+    expect(screen.queryAllByTestId(/^target-handle-/)).toHaveLength(0);
+    expect(screen.getByTestId('curve-line')).toBeInTheDocument();
+
+    const initialScale = screen.getByTestId('curve-canvas').getAttribute('data-px-per-second');
+    fireEvent.click(screen.getByTestId('curve-zoom-in'));
+    fireEvent.click(screen.getByTestId('curve-zoom-in'));
+    fireEvent.click(screen.getByTestId('curve-zoom-in'));
+
+    expect(screen.getByTestId('curve-canvas').getAttribute('data-px-per-second')).not.toBe(
+      initialScale,
+    );
+  });
+
   it('reports effective target projection from loaded slots', async () => {
     const onProjectionChange = vi.fn();
     render(

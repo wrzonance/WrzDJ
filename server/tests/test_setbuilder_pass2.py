@@ -7,6 +7,7 @@ from app.models.set import Set, SetSlot
 from app.models.set_pool import SetPoolSource, SetPoolTrack
 from app.models.user import User
 from app.services.llm.base import ChatResponse, ToolCall
+from app.services.setbuilder import agent_history
 from app.services.setbuilder.pass2_agent import (
     AgentToolError,
     chat_with_agent,
@@ -156,3 +157,41 @@ async def test_agent_remove_does_not_shift_locked_slots(monkeypatch, db: Session
 
     with pytest.raises(AgentToolError, match="locked"):
         await chat_with_agent(db, test_user, set_obj, message="Remove the opener")
+
+
+def test_agent_context_uses_summary_and_recent_messages(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    session = agent_history.get_or_create_session(db, set_obj.id, test_user.id)
+    session.context_summary = "Earlier: user asked for a softer cocktail section."
+    for idx in range(8):
+        agent_history.append_message(
+            db,
+            session,
+            role="user" if idx % 2 == 0 else "assistant",
+            content=f"turn {idx}",
+        )
+
+    messages = agent_history.context_messages(db, set_obj, session, "new request", recent_limit=3)
+
+    assert "Earlier: user asked" in messages[1].content
+    assert [m.content for m in messages[-4:]] == ["turn 5", "turn 6", "turn 7", "new request"]
+
+
+def test_agent_compaction_updates_summary_without_gateway(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    session = agent_history.get_or_create_session(db, set_obj.id, test_user.id)
+    for idx in range(agent_history.COMPACTION_TURN_THRESHOLD + 1):
+        agent_history.append_message(
+            db,
+            session,
+            role="assistant",
+            content=f"assistant turn {idx}",
+            display_summary=f"Moved Track {idx}.",
+        )
+
+    changed = agent_history.compact_if_needed(db, session)
+
+    assert changed is True
+    assert session.context_summary is not None
+    assert "Moved Track 0." in session.context_summary
+    assert session.compacted_through_message_id is not None

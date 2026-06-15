@@ -24,6 +24,7 @@ import {
   slotMidpoints,
   type VibePreset,
 } from './curveMath';
+import { fitPxPerSecond, zoomPxPerSecond } from './curveViewport';
 import type { SlotView, TrackView, VibeWindowView } from './types';
 import type { BuilderCommit } from './useSetDocumentHistory';
 
@@ -134,8 +135,39 @@ export default function CurvePanel({
   const [overlay, setOverlay] = useState<OverlayState>(OVERLAY_CLOSED);
   const [prompt, setPrompt] = useState<ReplacePrompt | null>(null);
   const [suggestReplacements, setSuggestReplacements] = useState(true);
+  const [curveViewportWidth, setCurveViewportWidth] = useState(800);
+  const [curvePxPerSecond, setCurvePxPerSecond] = useState(0.08);
+  const [curveScrollLeft, setCurveScrollLeft] = useState(0);
+  const [curveFitMode, setCurveFitMode] = useState(true);
 
   const totalSec = slots.reduce((acc, s) => acc + s.track.durationSec, 0);
+  const curveDomainSec = Math.max(totalSec, targetDurationSec ?? 0, 1);
+  const fitScale = fitPxPerSecond({
+    totalSec: curveDomainSec,
+    viewportWidth: curveViewportWidth,
+  });
+  const effectiveCurvePxPerSecond = curveFitMode ? fitScale : curvePxPerSecond;
+  const zoomLabel = curveFitMode
+    ? 'Fit'
+    : `${Math.round(effectiveCurvePxPerSecond * 60)} px/min`;
+
+  const zoomCurve = (direction: 'in' | 'out') => {
+    const next = zoomPxPerSecond({
+      currentPxPerSecond: effectiveCurvePxPerSecond,
+      direction,
+      scrollLeft: curveScrollLeft,
+      viewportWidth: curveViewportWidth,
+      totalSec: curveDomainSec,
+    });
+    setCurveFitMode(false);
+    setCurvePxPerSecond(next.pxPerSecond);
+    setCurveScrollLeft(next.scrollLeft);
+  };
+
+  const fitCurve = () => {
+    setCurveFitMode(true);
+    setCurveScrollLeft(0);
+  };
 
   // Settings toggle persists per browser
   useEffect(() => {
@@ -414,6 +446,10 @@ export default function CurvePanel({
         onViewChange={setView}
         templates={templates}
         activeTemplateName={activeTemplateName}
+        zoomLabel={zoomLabel}
+        onZoomIn={() => zoomCurve('in')}
+        onZoomOut={() => zoomCurve('out')}
+        onZoomFit={fitCurve}
         onApplyBuiltin={(name) => applyTemplate({ builtin: name }, name)}
         onApplyUser={(id) => {
           const tpl = templates?.user.find((t) => t.id === id);
@@ -443,6 +479,14 @@ export default function CurvePanel({
         onWindowDelete={deleteWindow}
         targetDurationSec={targetDurationSec}
         avgTransitionOverlapSec={avgTransitionOverlapSec}
+        pxPerSecond={effectiveCurvePxPerSecond}
+        scrollLeft={curveScrollLeft}
+        viewportWidth={curveViewportWidth}
+        onScrollLeftChange={(next) => {
+          setCurveFitMode(false);
+          setCurveScrollLeft(next);
+        }}
+        onViewportWidthChange={setCurveViewportWidth}
       />
       <CurveTemplateEditorOverlay
         open={overlay.open}

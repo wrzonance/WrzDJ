@@ -311,6 +311,22 @@ describe('BuilderWorkspace', () => {
     expect(mockGetSetSlots).toHaveBeenCalledWith(5);
   });
 
+  it('zooms the curve timeline in, out, and back to fit', async () => {
+    render(<BuilderWorkspace setId={5} />);
+    await waitFor(() => expect(screen.getByTestId('curve-toolbar')).toBeInTheDocument());
+
+    const canvas = screen.getByTestId('curve-canvas');
+    const initialScale = canvas.getAttribute('data-px-per-second');
+
+    fireEvent.click(screen.getByTestId('curve-zoom-in'));
+    expect(screen.getByTestId('curve-canvas').getAttribute('data-px-per-second')).not.toBe(initialScale);
+
+    fireEvent.click(screen.getByTestId('curve-zoom-out'));
+    fireEvent.click(screen.getByTestId('curve-zoom-fit'));
+
+    expect(screen.getByTestId('curve-zoom-label')).toHaveTextContent('Fit');
+  });
+
   it('reports effective target projection from loaded slots', async () => {
     const onProjectionChange = vi.fn();
     render(

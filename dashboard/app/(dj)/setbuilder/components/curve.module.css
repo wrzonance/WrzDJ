@@ -391,6 +391,41 @@
   color: var(--color-curve-accent);
 }
 
+.zoomControls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding-left: 0.25rem;
+}
+
+.toolbarIconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.875rem;
+}
+
+.toolbarIconBtn:hover {
+  color: var(--text);
+  border-color: var(--text-tertiary);
+}
+
+.zoomLabel {
+  min-width: 2.75rem;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.625rem;
+  text-align: center;
+}
+
 .toolbarBtn {
   background: var(--surface-raised);
   border: 1px solid var(--border);

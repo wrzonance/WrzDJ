@@ -311,6 +311,8 @@ export default function CurveEditor({
       ref={wrapRef}
       data-testid="curve-canvas"
       data-lod={lod}
+      data-px-per-second={effectivePxPerSecond.toFixed(4)}
+      data-scroll-left={effectiveScrollLeft.toFixed(0)}
     >
       <span data-testid="curve-lod" className={styles.srOnly}>
         {lod}

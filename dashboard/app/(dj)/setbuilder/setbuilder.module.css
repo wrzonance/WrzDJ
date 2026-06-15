@@ -2161,8 +2161,8 @@
   min-height: 18px;
   padding: 1px 6px;
   border-radius: 4px;
-  border: 1px solid #4b5563;
-  color: #d1d5db;
+  border: 1px solid var(--border);
+  color: var(--text);
   font-size: 10px;
   font-weight: 700;
 }
@@ -2180,7 +2180,7 @@
   font-size: 10px;
   padding: 1px 6px;
   border-radius: 4px;
-  border: 1px solid var(--border, #3a3a3a);
+  border: 1px solid var(--border);
   color: var(--text-secondary);
 }
 
@@ -2194,13 +2194,13 @@
 }
 
 .vibeLow {
-  border-color: #f59e0b;
+  border-color: var(--color-warning);
   border-style: dashed;
-  color: #f59e0b;
+  color: var(--color-warning);
 }
 
 .vibeWinner {
-  border-color: var(--color-primary, #8b5cf6);
+  border-color: var(--color-primary);
 }
 
 .vibeActions {
@@ -2213,8 +2213,8 @@
   min-height: 20px;
   padding: 1px 7px;
   border-radius: 4px;
-  border: 1px solid var(--border, #3a3a3a);
-  background: #202020;
+  border: 1px solid var(--border);
+  background: var(--card);
   color: var(--text-secondary);
   font-size: 10px;
   line-height: 1.2;
@@ -2222,8 +2222,8 @@
 }
 
 .vibeActionBtn:hover:not(:disabled) {
-  border-color: #6b7280;
-  color: var(--text-primary, #ededed);
+  border-color: var(--text-tertiary);
+  color: var(--text);
 }
 
 .vibeActionBtn:disabled {
@@ -2249,10 +2249,10 @@
 .vibeNumber,
 .vibeMood {
   min-height: 24px;
-  border: 1px solid var(--border, #3a3a3a);
+  border: 1px solid var(--border);
   border-radius: 4px;
-  background: #111;
-  color: var(--text-primary, #ededed);
+  background: var(--bg);
+  color: var(--text);
   font-size: 12px;
   padding: 2px 6px;
 }

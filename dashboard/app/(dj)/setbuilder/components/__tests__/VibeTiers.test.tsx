@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import type { TrackVibeState } from '@/lib/api-types';
 import styles from '../../setbuilder.module.css';
 import VibeTiers from '../VibeTiers';
@@ -147,5 +147,39 @@ describe('VibeTiers', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(onSaveOverride).toHaveBeenCalledWith({ energy: 8, mood: 'gritty' });
+  });
+
+  it('keeps the tweak form open when the save callback reports failure', async () => {
+    const onSaveOverride = vi.fn().mockResolvedValue(false);
+    render(<VibeTiers state={makeState({ own: null })} onSaveOverride={onSaveOverride} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tweak' }));
+    fireEvent.change(screen.getByLabelText('Energy'), { target: { value: '8' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(onSaveOverride).toHaveBeenCalledWith({ energy: 8, mood: 'dark' }));
+    expect(screen.getByLabelText('Energy')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
+  });
+
+  it('does not submit an empty tweak payload', () => {
+    const onSaveOverride = vi.fn();
+    render(
+      <VibeTiers
+        state={makeState({
+          own: null,
+          community: null,
+          llm: null,
+          resolved: { energy: null, energy_source: null, mood: null, mood_source: null },
+        })}
+        onSaveOverride={onSaveOverride}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tweak' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(onSaveOverride).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Energy')).toBeTruthy();
   });
 });

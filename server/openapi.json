@@ -6427,7 +6427,80 @@
         "type": "object"
       },
       "PoolVibeOverrideIn": {
+        "allOf": [
+          {
+            "anyOf": [
+              {
+                "properties": {
+                  "energy": {
+                    "anyOf": [
+                      {
+                        "maximum": 10.0,
+                        "minimum": 0.0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Energy"
+                  },
+                  "mood": {
+                    "anyOf": [
+                      {
+                        "maxLength": 50,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Mood"
+                  }
+                },
+                "required": [
+                  "energy"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "energy": {
+                    "anyOf": [
+                      {
+                        "maximum": 10.0,
+                        "minimum": 0.0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Energy"
+                  },
+                  "mood": {
+                    "anyOf": [
+                      {
+                        "maxLength": 50,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Mood"
+                  }
+                },
+                "required": [
+                  "mood"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        ],
         "description": "Explicit DJ edit for one pool track's vibe fields.",
+        "minProperties": 1,
         "properties": {
           "energy": {
             "anyOf": [
@@ -18998,6 +19071,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "description": "No non-own vibe signal available for this pool track."
           },
           "422": {
             "content": {

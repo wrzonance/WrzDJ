@@ -11,6 +11,7 @@ from app.models.track_vibe import TrackVibe, TrackVibeOverride
 from app.models.user import User
 from app.services.llm.base import ChatResponse, ToolCall
 from app.services.llm.exceptions import NoLlmConfigured, ProviderUnavailable
+from app.services.setbuilder import vibe_resolver
 from app.services.setbuilder.vibe_enrichment import PROMPT_VERSION, SCHEMA_VERSION
 
 DISPATCH_TARGET = "app.services.setbuilder.vibe_enrichment.Gateway.dispatch"
@@ -212,6 +213,23 @@ class TestGetPoolVibes:
 
 
 class TestWritePoolVibes:
+    def test_openapi_documents_pool_vibe_write_contract(self, client):
+        schema = client.app.openapi()
+        override = schema["components"]["schemas"]["PoolVibeOverrideIn"]
+
+        assert override["minProperties"] == 1
+        any_of = override.get("anyOf") or override.get("allOf", [{}])[0].get("anyOf", [])
+        required_sets = {tuple(item["required"]) for item in any_of}
+        assert ("energy",) in required_sets
+        assert ("mood",) in required_sets
+
+        responses = schema["paths"][
+            "/api/setbuilder/sets/{set_id}/pool/vibes/{pool_track_id}/agree"
+        ]["post"]["responses"]
+        assert responses["400"]["description"] == (
+            "No non-own vibe signal available for this pool track."
+        )
+
     def test_agree_upvotes_consensus_without_own_override(
         self, client, db, auth_headers, set_id, test_user
     ):
@@ -250,6 +268,26 @@ class TestWritePoolVibes:
         assert row.mood_override == "dark"
         assert row.energy_was is None
         assert row.mood_was is None
+
+    def test_agree_uses_targeted_pre_write_lookup(
+        self, client, db, auth_headers, set_id, test_user
+    ):
+        _seed_pool_tracks(db, set_id, 3)
+        pool_track_id = _pool_track_id(db, set_id)
+        for voter in _make_voters(db, 3):
+            _vote(db, "tidal:0", voter.id, energy=7, mood="dark")
+
+        with patch(
+            "app.api.setbuilder.vibe_resolver.build_pool_vibe_states",
+            wraps=vibe_resolver.build_pool_vibe_states,
+        ) as build_states:
+            resp = client.post(
+                f"/api/setbuilder/sets/{set_id}/pool/vibes/{pool_track_id}/agree",
+                headers=auth_headers,
+            )
+
+        assert resp.status_code == 200
+        assert build_states.call_count == 1
 
     def test_agree_rejects_track_with_no_vibe_to_upvote(self, client, db, auth_headers, set_id):
         _seed_pool_tracks(db, set_id, 1)

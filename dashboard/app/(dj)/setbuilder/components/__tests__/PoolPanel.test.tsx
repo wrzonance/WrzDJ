@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { act, render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { ApiError } from '@/lib/api';
 import type {
   PoolState,
@@ -142,6 +142,16 @@ const OVERRIDDEN_VIBE_STATE: TrackVibeState = {
   own: { energy: 8, mood: 'gritty' },
   resolved: { energy: 8, energy_source: 'own', mood: 'gritty', mood_source: 'own' },
 };
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -382,6 +392,70 @@ describe('PoolPanel', () => {
       })
     );
     expect(await screen.findByLabelText('Your vibe: energy 8, mood gritty')).toBeTruthy();
+  });
+
+  it('tracks overlapping vibe writes per pool track', async () => {
+    const secondCommunityVibe: TrackVibeState = {
+      ...COMMUNITY_VIBE_STATE,
+      pool_track_id: 12,
+      vibe_key: 'tidal artist|tidal song',
+    };
+    const firstWrite = deferred<PoolVibesState>();
+    const secondWrite = deferred<PoolVibesState>();
+    mockApi.getPoolVibes.mockResolvedValue({
+      tracks: [COMMUNITY_VIBE_STATE, secondCommunityVibe],
+    });
+    mockApi.agreePoolVibe
+      .mockReturnValueOnce(firstWrite.promise)
+      .mockReturnValueOnce(secondWrite.promise);
+    render(<PoolPanel setId={1} />);
+    await screen.findByText('Event Song');
+
+    fireEvent.click(screen.getByText('Vibes'));
+    const eventRow = await screen.findByTestId('pool-track-11');
+    const tidalRow = screen.getByTestId('pool-track-12');
+    const eventAgree = within(eventRow).getByRole('button', { name: 'Agree' });
+    const tidalAgree = within(tidalRow).getByRole('button', { name: 'Agree' });
+
+    fireEvent.click(eventAgree);
+    await waitFor(() => expect((eventAgree as HTMLButtonElement).disabled).toBe(true));
+    fireEvent.click(tidalAgree);
+
+    await waitFor(() => expect((tidalAgree as HTMLButtonElement).disabled).toBe(true));
+    expect((eventAgree as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      firstWrite.resolve({ tracks: [COMMUNITY_VIBE_STATE, secondCommunityVibe] });
+      await firstWrite.promise;
+    });
+
+    await waitFor(() => expect((eventAgree as HTMLButtonElement).disabled).toBe(false));
+    expect((tidalAgree as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      secondWrite.resolve({ tracks: [COMMUNITY_VIBE_STATE, secondCommunityVibe] });
+      await secondWrite.promise;
+    });
+    await waitFor(() => expect((tidalAgree as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  it('keeps the tweak form open when override save fails', async () => {
+    mockApi.getPoolVibes.mockResolvedValue({ tracks: [COMMUNITY_VIBE_STATE] });
+    mockApi.overridePoolVibe.mockRejectedValueOnce(new ApiError('Invalid vibe override', 422));
+    render(<PoolPanel setId={1} />);
+    await screen.findByText('Event Song');
+
+    fireEvent.click(screen.getByText('Vibes'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Tweak' }));
+    fireEvent.change(screen.getByLabelText('Energy'), { target: { value: '8' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(mockApi.overridePoolVibe).toHaveBeenCalledWith(1, 11, {
+      energy: 8,
+      mood: 'dark',
+    }));
+    expect(await screen.findByText('Invalid vibe override')).toBeTruthy();
+    expect(screen.getByLabelText('Energy')).toBeTruthy();
   });
 
   it('analyze failure surfaces ApiError 400 message, generic text otherwise', async () => {

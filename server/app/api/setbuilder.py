@@ -1110,10 +1110,10 @@ def _pool_vibe_state_for_track(
     set_obj: Set,
     pool_track_id: int,
 ) -> vibe_resolver.TrackVibeState:
-    for state in vibe_resolver.build_pool_vibe_states(db, actor, set_obj):
-        if state.pool_track_id == pool_track_id:
-            return state
-    raise HTTPException(status_code=404, detail="Pool track not found")
+    state = vibe_resolver.build_pool_vibe_state(db, actor, set_obj, pool_track_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="Pool track not found")
+    return state
 
 
 def _agree_values(state: vibe_resolver.TrackVibeState) -> tuple[int | None, str | None]:
@@ -1185,7 +1185,11 @@ def get_pool_vibes(
     return _pool_vibes_state(db, current_user, set_obj)
 
 
-@router.post("/sets/{set_id}/pool/vibes/{pool_track_id}/agree", response_model=PoolVibesState)
+@router.post(
+    "/sets/{set_id}/pool/vibes/{pool_track_id}/agree",
+    response_model=PoolVibesState,
+    responses={400: {"description": "No non-own vibe signal available for this pool track."}},
+)
 @limiter.limit("30/minute")
 def agree_pool_vibe(
     set_id: int,

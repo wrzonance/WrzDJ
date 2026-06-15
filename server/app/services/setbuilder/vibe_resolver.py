@@ -161,3 +161,40 @@ def build_pool_vibe_states(db: Session, actor: User, set_obj: Set) -> list[Track
         )
         for track, key in zip(tracks, keys, strict=True)
     ]
+
+
+def build_pool_vibe_state(
+    db: Session,
+    actor: User,
+    set_obj: Set,
+    pool_track_id: int,
+) -> TrackVibeState | None:
+    """Targeted TrackVibeState lookup for write paths."""
+    track = (
+        db.query(SetPoolTrack)
+        .filter(SetPoolTrack.set_id == set_obj.id, SetPoolTrack.id == pool_track_id)
+        .first()
+    )
+    if track is None:
+        return None
+
+    key = vibe_key(track)
+    settings = get_system_settings(db)
+    own = _own_overrides(db, actor.id, [key]).get(key)
+    community = community_consensus(
+        db,
+        [key],
+        min_sample=settings.vibe_consensus_min_sample,
+        max_stddev=settings.vibe_consensus_max_stddev,
+        exclude_user_id=actor.id,
+    ).get(key)
+    llm = _llm_vibes(db, [key]).get(key)
+
+    return TrackVibeState(
+        pool_track_id=track.id,
+        vibe_key=key,
+        own=own,
+        community=community,
+        llm=llm,
+        resolved=resolve_vibe(own, community, llm),
+    )

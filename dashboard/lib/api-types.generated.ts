@@ -5757,7 +5757,17 @@ export interface components {
             energy?: number | null;
             /** Mood */
             mood?: string | null;
-        };
+        } & ({
+            /** Energy */
+            energy: number | null;
+            /** Mood */
+            mood?: string | null;
+        } | {
+            /** Energy */
+            energy?: number | null;
+            /** Mood */
+            mood: string | null;
+        });
         /**
          * PoolVibesState
          * @description Vibe state for every track in a set's pool.
@@ -12681,6 +12691,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PoolVibesState"];
                 };
+            };
+            /** @description No non-own vibe signal available for this pool track. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

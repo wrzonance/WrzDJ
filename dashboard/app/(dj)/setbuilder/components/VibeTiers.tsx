@@ -34,7 +34,7 @@ interface VibeTiersProps {
   state: TrackVibeState;
   busy?: boolean;
   onAgree?: () => void;
-  onSaveOverride?: (payload: OverridePayload) => void;
+  onSaveOverride?: (payload: OverridePayload) => boolean | Promise<boolean>;
 }
 
 function buildTiers(state: TrackVibeState): TierView[] {
@@ -118,14 +118,16 @@ export default function VibeTiers({
     setMood(state.own?.mood ?? state.resolved.mood ?? '');
   }, [editing, state]);
 
-  const saveOverride = () => {
+  const saveOverride = async () => {
     const trimmedEnergy = energy.trim();
     const parsedEnergy = trimmedEnergy === '' ? null : Math.round(Number(trimmedEnergy));
-    onSaveOverride?.({
+    const payload = {
       energy: Number.isFinite(parsedEnergy) ? parsedEnergy : null,
       mood: mood.trim() || null,
-    });
-    setEditing(false);
+    };
+    if (payload.energy == null && payload.mood == null) return;
+    const ok = (await onSaveOverride?.(payload)) ?? true;
+    if (ok) setEditing(false);
   };
 
   return (
@@ -218,7 +220,7 @@ export default function VibeTiers({
               onChange={(e) => setMood(e.target.value)}
             />
           </label>
-          <button type="button" className={styles.vibeActionBtn} onClick={saveOverride}>
+          <button type="button" className={styles.vibeActionBtn} onClick={saveOverride} disabled={busy}>
             Save
           </button>
           <button type="button" className={styles.vibeActionBtn} onClick={() => setEditing(false)}>

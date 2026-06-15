@@ -196,6 +196,24 @@ const EXTRA_POOL_TRACK: PoolTrack = {
   created_at: '2026-01-01T00:00:00Z',
 };
 
+const SYNTHETIC_POOL_TRACK: PoolTrack = {
+  id: 15,
+  source_id: 1,
+  track_id: null,
+  title: 'Manual Track',
+  artist: 'Manual Artist',
+  album: null,
+  bpm: 124,
+  camelot: null,
+  key: null,
+  energy: null,
+  duration_sec: null,
+  genre: null,
+  isrc: null,
+  artwork_url: null,
+  created_at: '2026-01-01T00:00:00Z',
+};
+
 function cloneDocument(doc: SetDocumentSnapshot): SetDocumentSnapshot {
   return JSON.parse(JSON.stringify(doc)) as SetDocumentSnapshot;
 }
@@ -231,7 +249,7 @@ function documentSnapshot(): SetDocumentSnapshot {
           created_at: '2026-01-01T00:00:00Z',
         },
       ],
-      tracks: [...POOL_TRACKS, EXTRA_POOL_TRACK].map((track) => ({
+      tracks: [...POOL_TRACKS, EXTRA_POOL_TRACK, SYNTHETIC_POOL_TRACK].map((track) => ({
         ...track,
         dedupe_sig: `sig-${track.id}`,
       })),
@@ -465,6 +483,33 @@ describe('BuilderWorkspace', () => {
     ];
     expect(setId).toBe(5);
     expect(snapshot.slots.map((slot) => slot.track_id)).toEqual(['a', 'd', 'b', 'c']);
+    expect(snapshot.slots.map((slot) => slot.position)).toEqual([0, 1, 2, 3]);
+  });
+
+  it('dropping a pool track without track_id inserts its synthetic pool id', async () => {
+    // Regression for b2f553c4: manual pool tracks use synthetic slot ids.
+    render(<BuilderWorkspace setId={5} />);
+    await waitFor(() => expect(screen.getByTestId('timeline-row-1')).toBeInTheDocument());
+    const dataTransfer = {
+      dropEffect: '',
+      getData: vi.fn((type: string) =>
+        type === 'application/x-wrzdj-pool-track'
+          ? JSON.stringify({ poolTrackId: SYNTHETIC_POOL_TRACK.id })
+          : '',
+      ),
+    };
+
+    fireEvent.dragOver(screen.getByTestId('timeline-row-1'), { dataTransfer });
+    fireEvent.drop(screen.getByTestId('timeline-row-1'), { dataTransfer });
+
+    await waitFor(() => expect(mockPutSetDocument).toHaveBeenCalledTimes(1));
+    const [, snapshot] = mockPutSetDocument.mock.calls[0] as [number, SetDocumentSnapshot];
+    expect(snapshot.slots.map((slot) => slot.track_id)).toEqual([
+      'a',
+      `pool:${SYNTHETIC_POOL_TRACK.id}`,
+      'b',
+      'c',
+    ]);
     expect(snapshot.slots.map((slot) => slot.position)).toEqual([0, 1, 2, 3]);
   });
 

@@ -148,13 +148,14 @@ describe('PoolPanel', () => {
   it('writes a pool-track drag payload when dragging a track row', async () => {
     // Regression for 75050c04: the production pool row port must preserve drag payloads.
     render(<PoolPanel setId={1} />);
-    const row = (await screen.findByText('Event Song')).closest('[class*="poolTrack"]');
+    await screen.findByText('Event Song');
+    const row = screen.getByTestId('pool-track-11');
     const dataTransfer = {
       effectAllowed: '',
       setData: vi.fn(),
     };
 
-    fireEvent.dragStart(row!, { dataTransfer });
+    fireEvent.dragStart(row, { dataTransfer });
 
     expect(dataTransfer.effectAllowed).toBe('copy');
     expect(dataTransfer.setData).toHaveBeenCalledWith(

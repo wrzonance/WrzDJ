@@ -483,6 +483,59 @@ describe('BuilderWorkspace', () => {
     expect(typeof energy).toBe('number');
   });
 
+  it('renders locked timeline and curve affordances while disabling target drag', async () => {
+    mockGetSetSlots.mockResolvedValue(
+      SLOTS.map((slot) => (slot.id === 2 ? { ...slot, locked: true } : slot)),
+    );
+
+    render(<BuilderWorkspace setId={5} />);
+    await waitFor(() => expect(screen.getByTestId('timeline-row-1')).toBeInTheDocument());
+
+    expect(screen.getByTestId('timeline-row-1')).toHaveAttribute('data-locked', 'true');
+    expect(screen.getByTestId('timeline-lock-badge-1')).toHaveTextContent('Locked');
+    expect(screen.getByTestId('slot-block-1')).toHaveAttribute('data-locked', 'true');
+    expect(screen.getByTestId('slot-lock-icon-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('target-handle-1')).not.toBeInTheDocument();
+  });
+
+  it('bulk locks selected timeline rows through the document snapshot', async () => {
+    render(<BuilderWorkspace setId={5} />);
+    await waitFor(() => expect(screen.getByTestId('timeline-row-2')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('timeline-select-0'));
+    fireEvent.click(screen.getByTestId('timeline-select-2'));
+    fireEvent.click(screen.getByTestId('timeline-lock-selected'));
+
+    await waitFor(() => expect(mockPutSetDocument).toHaveBeenCalledTimes(1));
+    const [setId, snapshot] = mockPutSetDocument.mock.calls[0] as [
+      number,
+      SetDocumentSnapshot,
+    ];
+    expect(setId).toBe(5);
+    expect(snapshot.slots.map((slot) => [slot.id, slot.locked])).toEqual([
+      [1, true],
+      [2, false],
+      [3, true],
+    ]);
+  });
+
+  it('locks every slot that starts before the playhead', async () => {
+    render(<BuilderWorkspace setId={5} />);
+    await waitFor(() => expect(screen.getByTestId('timeline-row-1')).toBeInTheDocument());
+
+    fireEvent.doubleClick(screen.getByTestId('timeline-row-1'));
+    await waitFor(() => expect(mockSendTransportCommand).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByTestId('timeline-lock-before-playhead'));
+
+    await waitFor(() => expect(mockPutSetDocument).toHaveBeenCalledTimes(1));
+    const [, snapshot] = mockPutSetDocument.mock.calls[0] as [number, SetDocumentSnapshot];
+    expect(snapshot.slots.map((slot) => [slot.id, slot.locked])).toEqual([
+      [1, true],
+      [2, false],
+      [3, false],
+    ]);
+  });
+
   it('drag-release with big mismatch opens the replacement popover (gated)', async () => {
     render(<BuilderWorkspace setId={5} />);
     await waitFor(() => expect(screen.getByTestId('target-handle-0')).toBeInTheDocument());

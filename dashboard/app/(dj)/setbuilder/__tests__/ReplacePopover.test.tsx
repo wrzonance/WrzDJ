@@ -54,6 +54,33 @@ describe('ReplacePopover', () => {
     expect(onReplace).toHaveBeenCalledWith(11, 'a');
   });
 
+  it('shows locked-slot state and skips replacement actions', () => {
+    const lockedSlot = { ...slot, locked: true };
+    const candidates = rankReplacementCandidates(
+      8,
+      null,
+      [mkTrack({ id: 'a', title: 'Fit A', energy: 8, bpm: 121, key: '8A' })],
+      new Set(),
+    );
+    const onReplace = vi.fn();
+    render(
+      <ReplacePopover
+        prompt={prompt}
+        slot={lockedSlot}
+        candidates={candidates}
+        onReplace={onReplace}
+        onKeep={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('replace-locked')).toHaveTextContent(
+      'Skipped because this slot is locked',
+    );
+    fireEvent.click(screen.getByTestId('replace-candidate-a'));
+    expect(onReplace).not.toHaveBeenCalled();
+  });
+
   it('shows the empty state when no candidates fit', () => {
     render(
       <ReplacePopover

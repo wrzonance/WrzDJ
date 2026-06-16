@@ -38,6 +38,7 @@ export default function ReplacePopover({
   const cur = slot.track;
   const target = prompt.targetEnergy;
   const dir = target - cur.energy > 0 ? 'higher' : 'lower';
+  const replacementDisabled = slot.locked;
 
   return (
     <>
@@ -65,13 +66,22 @@ export default function ReplacePopover({
             </div>
             <div className={styles.popoverSub}>
               &ldquo;{cur.title}&rdquo; is energy {cur.energy} — you&rsquo;ve dialed the target{' '}
-              {dir}. Replace with a track that fits?
+              {dir}.{' '}
+              {replacementDisabled
+                ? 'Replacement was skipped because locked slots are protected.'
+                : 'Replace with a track that fits?'}
             </div>
           </div>
           <button className="btn btn-sm" onClick={onDismiss} title="Keep current track">
             ✕
           </button>
         </div>
+
+        {replacementDisabled && (
+          <div className={styles.popoverLocked} data-testid="replace-locked">
+            Skipped because this slot is locked. Unlock the slot before replacing its track.
+          </div>
+        )}
 
         {candidates.length === 0 && (
           <div className={styles.popoverEmpty} data-testid="replace-empty">
@@ -84,8 +94,13 @@ export default function ReplacePopover({
           {candidates.map((c) => (
             <button
               key={c.track.id}
-              className={styles.candidate}
-              onClick={() => onReplace(slot.id, c.track.id)}
+              className={`${styles.candidate} ${
+                replacementDisabled ? styles.candidateDisabled : ''
+              }`}
+              onClick={() => {
+                if (!replacementDisabled) onReplace(slot.id, c.track.id);
+              }}
+              disabled={replacementDisabled}
               data-testid={`replace-candidate-${c.track.id}`}
             >
               <div style={{ flex: 1, minWidth: 0 }}>

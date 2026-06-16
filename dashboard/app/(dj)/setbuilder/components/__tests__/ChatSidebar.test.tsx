@@ -361,4 +361,46 @@ describe('ChatSidebar', () => {
 
     await waitFor(() => expect(onMutationApplied).toHaveBeenCalledTimes(1));
   });
+
+  it('renders tool calls when an agent result is null', async () => {
+    mockApi.chatWithSetAgent.mockResolvedValueOnce({
+      message: 'Skipped locked slots.',
+      tool_calls: [
+        {
+          id: 'lock-1',
+          name: 'lock_slots',
+          args: { slot_ids: [1] },
+          rationale: null,
+          result: null,
+          mutating: false,
+        },
+      ],
+      slots: [],
+      affected_transition_scores: [],
+    });
+    render(<ChatSidebar setId={9} open onToggle={vi.fn()} onMutationApplied={vi.fn()} />);
+    await screen.findByTestId('critique-card');
+
+    fireEvent.change(screen.getByPlaceholderText(/tell the agent/i), {
+      target: { value: 'lock the opener' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    expect(await screen.findByTestId('agent-tool-card')).toHaveTextContent('lock_slots');
+  });
+
+  it('explains when the agent skips an edit because a slot is locked', async () => {
+    mockApi.chatWithSetAgent.mockRejectedValueOnce(new Error('Locked slots cannot be moved'));
+    render(<ChatSidebar setId={9} open onToggle={vi.fn()} onMutationApplied={vi.fn()} />);
+    await screen.findByTestId('critique-card');
+
+    fireEvent.change(screen.getByPlaceholderText(/tell the agent/i), {
+      target: { value: 'move the locked opener' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Skipped because a locked slot would be changed',
+    );
+  });
 });

@@ -2161,10 +2161,36 @@
 
 /* Three-tier vibe chips (issue #391) */
 
+.vibeBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.vibeTopRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.vibeSource {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 700;
+}
+
 .vibeTiers {
   display: flex;
   gap: 6px;
-  margin-top: 4px;
+  flex-wrap: wrap;
 }
 
 .vibeChip {
@@ -2174,7 +2200,7 @@
   font-size: 10px;
   padding: 1px 6px;
   border-radius: 4px;
-  border: 1px solid var(--border, #3a3a3a);
+  border: 1px solid var(--border);
   color: var(--text-secondary);
 }
 
@@ -2188,13 +2214,75 @@
 }
 
 .vibeLow {
-  border-color: #f59e0b;
+  border-color: var(--color-warning);
   border-style: dashed;
-  color: #f59e0b;
+  color: var(--color-warning);
 }
 
 .vibeWinner {
-  border-color: var(--color-primary, #8b5cf6);
+  border-color: var(--color-primary);
+}
+
+.vibeActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.vibeActionBtn {
+  min-height: 20px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.vibeActionBtn:hover:not(:disabled) {
+  border-color: var(--text-tertiary);
+  color: var(--text);
+}
+
+.vibeActionBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.vibeEditForm {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.vibeEditLabel {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.vibeNumber,
+.vibeMood {
+  min-height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  padding: 2px 6px;
+}
+
+.vibeNumber {
+  width: 54px;
+}
+
+.vibeMood {
+  width: 110px;
 }
 
 @media (max-width: 980px) {

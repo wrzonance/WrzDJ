@@ -382,13 +382,14 @@ def _vote(
     *,
     energy: int | None = None,
     mood: str | None = None,
+    source: str = "explicit_edit",
 ) -> TrackVibeOverride:
     row = TrackVibeOverride(
         track_id=track_id,
         user_id=user_id,
         energy_override=energy,
         mood_override=mood,
-        source="explicit_edit",
+        source=source,
     )
     db.add(row)
     db.commit()
@@ -424,6 +425,17 @@ class TestCommunityConsensus:
         _vote(db, "tidal:1", users[2].id, energy=8)
         result = community_consensus(db, ["tidal:1"], min_sample=3, max_stddev=1.5)
         assert result["tidal:1"].energy == 8
+        assert result["tidal:1"].sample_size == 3
+
+    def test_upvote_source_counts_as_community_vote(self, db):
+        users = _make_users(db, 3)
+        for user in users:
+            _vote(db, "tidal:1", user.id, energy=8, mood="dark", source="upvote")
+
+        result = community_consensus(db, ["tidal:1"], min_sample=3, max_stddev=1.5)
+
+        assert result["tidal:1"].energy == 8
+        assert result["tidal:1"].mood == "dark"
         assert result["tidal:1"].sample_size == 3
 
     def test_mood_majority(self, db):
@@ -519,6 +531,27 @@ class TestVibeResolver:
         resolved = resolve_vibe(own, community, llm)
         assert (resolved.energy, resolved.energy_source) == (9, "own")
         assert (resolved.mood, resolved.mood_source) == ("gritty", "own")
+
+    def test_upvote_does_not_become_own_override(self, db, test_user):
+        s = _seed_pool(db, test_user.id, 1)
+        _vote(db, "tidal:0", test_user.id, energy=8, mood="dark", source="upvote")
+
+        states = build_pool_vibe_states(db, test_user, s)
+
+        assert len(states) == 1
+        assert states[0].own is None
+        assert states[0].community is None
+        assert states[0].resolved == ResolvedVibe(None, None, None, None)
+
+    def test_latest_upvote_retracts_prior_explicit_own_tier(self, db, test_user):
+        s = _seed_pool(db, test_user.id, 1)
+        _vote(db, "tidal:0", test_user.id, energy=9, mood="gritty", source="explicit_edit")
+        _vote(db, "tidal:0", test_user.id, energy=7, mood="dark", source="upvote")
+
+        states = build_pool_vibe_states(db, test_user, s)
+
+        assert states[0].own is None
+        assert states[0].resolved == ResolvedVibe(None, None, None, None)
 
     def test_community_beats_llm(self):
         community = CommunityVibe(energy=5, mood="dark", sample_size=4)

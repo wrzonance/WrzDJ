@@ -43,17 +43,50 @@ function formatFlag(type: string): string {
   return type.replaceAll('_', ' ');
 }
 
+function formatAgentError(error: unknown): string {
+  const message = error instanceof Error ? error.message : 'Agent request failed';
+  if (/locked/i.test(message)) {
+    return 'Skipped because a locked slot would be changed. Unlock that slot before editing it.';
+  }
+  return message;
+}
+
+function lockSkipReasons(tool: AppliedToolCall): string[] {
+  const result = tool.result;
+  if (!result || typeof result !== 'object') return [];
+  const data = result as Record<string, unknown>;
+  const skipped = data.skipped_slots ?? data.skippedSlots ?? data.skipped;
+  if (!Array.isArray(skipped)) return [];
+  return skipped
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const reason = 'reason' in item ? String(item.reason ?? '') : '';
+      if (!/lock/i.test(reason)) return null;
+      const slot =
+        'slot_position' in item && typeof item.slot_position === 'number'
+          ? `slot ${item.slot_position + 1}`
+          : 'a slot';
+      return `Skipped ${slot} because it is locked.`;
+    })
+    .filter((reason): reason is string => Boolean(reason));
+}
+
 function ToolCard({ tool }: { tool: AppliedToolCall }) {
   const toolName = tool.name.replaceAll('_', ' ');
   const rationale = tool.rationale?.trim() ?? '';
   const summary = tool.display_summary.trim() || rationale || toolName;
-
+  const skippedLocks = lockSkipReasons(tool);
   return (
     <div className={styles.toolCallCard} data-testid="agent-tool-card">
       <span className={styles.toolName}>{toolName}</span>
       <div className={styles.toolBody}>
         <div className={styles.toolSummary}>{summary}</div>
         {rationale && rationale !== summary && <div className={styles.toolRationale}>{rationale}</div>}
+        {skippedLocks.map((reason) => (
+          <div key={reason} className={styles.toolRationale} data-testid="agent-lock-skip">
+            {reason}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -212,7 +245,7 @@ export default function ChatSidebar({
       if (mutatingTools.some((tool) => tool.mutating)) onMutationApplied();
     } catch (err) {
       setEntries((prev) => prev.filter((entry) => entry.id !== pendingEntry.id));
-      setError(err instanceof Error ? err.message : 'Agent request failed');
+      setError(formatAgentError(err));
     } finally {
       setBusy(false);
     }
@@ -258,7 +291,11 @@ export default function ChatSidebar({
         </div>
       )}
       {critique && <CritiqueCard critique={critique} persona={persona} />}
-      {error && <div className={styles.chatError}>{error}</div>}
+      {error && (
+        <div className={styles.chatError} role="alert">
+          {error}
+        </div>
+      )}
 
       <div className={styles.chatScroll} ref={scrollRef}>
         {entries.length === 0 && (

@@ -15,6 +15,11 @@ from app.api.deps import get_current_active_user, get_db
 from app.core.rate_limit import limiter
 from app.models.set import Set
 from app.models.set_pool import SetPoolTrack
+from app.models.track_vibe import (
+    TRACK_VIBE_SOURCE_EXPLICIT_EDIT,
+    TRACK_VIBE_SOURCE_UPVOTE,
+    TrackVibeOverride,
+)
 from app.models.user import User
 from app.schemas.setbuilder import (
     AgentChatHistoryOut,
@@ -56,6 +61,7 @@ from app.schemas.setbuilder import (
     PoolState,
     PoolTrackOut,
     PoolUrlPreview,
+    PoolVibeOverrideIn,
     PoolVibesState,
     ResolvedVibeOut,
     SetCreate,
@@ -1179,6 +1185,74 @@ def _pool_vibes_state(db: Session, actor: User, set_obj: Set) -> PoolVibesState:
     return PoolVibesState(tracks=out)
 
 
+def _pool_vibe_state_for_track(
+    db: Session,
+    actor: User,
+    set_obj: Set,
+    pool_track_id: int,
+) -> vibe_resolver.TrackVibeState:
+    state = vibe_resolver.build_pool_vibe_state(db, actor, set_obj, pool_track_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="Pool track not found")
+    return state
+
+
+def _agree_values(state: vibe_resolver.TrackVibeState) -> tuple[int | None, str | None]:
+    energy = (
+        state.community.energy
+        if state.community and state.community.energy is not None
+        else state.llm.energy
+        if state.llm
+        else None
+    )
+    mood = (
+        state.community.mood
+        if state.community and state.community.mood is not None
+        else state.llm.mood
+        if state.llm
+        else None
+    )
+    if energy is None and mood is None:
+        raise HTTPException(status_code=400, detail="No vibe available to agree with")
+    return energy, mood
+
+
+def _overridden_from_vibe_id(state: vibe_resolver.TrackVibeState) -> int | None:
+    if state.llm is None:
+        return None
+    if "llm" in {state.resolved.energy_source, state.resolved.mood_source}:
+        return state.llm.id
+    return None
+
+
+def _write_vibe_override(
+    db: Session,
+    actor: User,
+    state: vibe_resolver.TrackVibeState,
+    *,
+    energy: int | None,
+    mood: str | None,
+    source: str,
+    energy_was: int | None = None,
+    mood_was: str | None = None,
+    overridden_from_vibe_id: int | None = None,
+) -> TrackVibeOverride:
+    row = TrackVibeOverride(
+        track_id=state.vibe_key,
+        user_id=actor.id,
+        energy_override=energy,
+        mood_override=mood,
+        overridden_from_vibe_id=overridden_from_vibe_id,
+        energy_was=energy_was,
+        mood_was=mood_was,
+        source=source,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
 @router.get("/sets/{set_id}/pool/vibes", response_model=PoolVibesState)
 @limiter.limit("60/minute")
 def get_pool_vibes(
@@ -1189,6 +1263,76 @@ def get_pool_vibes(
 ) -> PoolVibesState:
     """Three-tier vibe state (own / community / LLM) for the set's pool."""
     set_obj = _get_owned_or_404(db, set_id, current_user)
+    return _pool_vibes_state(db, current_user, set_obj)
+
+
+@router.post(
+    "/sets/{set_id}/pool/vibes/{pool_track_id}/agree",
+    response_model=PoolVibesState,
+    responses={400: {"description": "No non-own vibe signal available for this pool track."}},
+)
+@limiter.limit("30/minute")
+def agree_pool_vibe(
+    set_id: int,
+    pool_track_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> PoolVibesState:
+    """Upvote the best non-own vibe signal for one pool track without creating an own tier."""
+    set_obj = _get_owned_or_404(db, set_id, current_user)
+    state = _pool_vibe_state_for_track(db, current_user, set_obj, pool_track_id)
+    energy, mood = _agree_values(state)
+    _write_vibe_override(
+        db,
+        current_user,
+        state,
+        energy=energy,
+        mood=mood,
+        source=TRACK_VIBE_SOURCE_UPVOTE,
+    )
+    return _pool_vibes_state(db, current_user, set_obj)
+
+
+@router.patch("/sets/{set_id}/pool/vibes/{pool_track_id}/override", response_model=PoolVibesState)
+@limiter.limit("30/minute")
+def override_pool_vibe(
+    set_id: int,
+    pool_track_id: int,
+    payload: PoolVibeOverrideIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> PoolVibesState:
+    """Write an explicit DJ vibe edit, preserving omitted fields from their latest vote."""
+    set_obj = _get_owned_or_404(db, set_id, current_user)
+    state = _pool_vibe_state_for_track(db, current_user, set_obj, pool_track_id)
+    latest = vibe_resolver.latest_override_row(db, current_user.id, state.vibe_key)
+    energy = (
+        payload.energy
+        if "energy" in payload.model_fields_set
+        else latest.energy_override
+        if latest
+        else None
+    )
+    mood = (
+        payload.mood
+        if "mood" in payload.model_fields_set
+        else latest.mood_override
+        if latest
+        else None
+    )
+    _write_vibe_override(
+        db,
+        current_user,
+        state,
+        energy=energy,
+        mood=mood,
+        source=TRACK_VIBE_SOURCE_EXPLICIT_EDIT,
+        energy_was=state.resolved.energy,
+        mood_was=state.resolved.mood,
+        overridden_from_vibe_id=_overridden_from_vibe_id(state),
+    )
     return _pool_vibes_state(db, current_user, set_obj)
 
 

@@ -23,10 +23,13 @@ Request-body schemas (EventCreate, EventUpdate, etc.) keep their original
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
-from app.main import app
+SERVER_ROOT = Path(__file__).resolve().parent.parent
+if str(SERVER_ROOT) not in sys.path:
+    sys.path.insert(0, str(SERVER_ROOT))
 
 
 def _collect_refs(node: Any) -> set[str]:
@@ -83,7 +86,9 @@ def _promote_response_fields_to_required(spec: dict[str, Any]) -> None:
 
 
 def export() -> Path:
-    output = Path(__file__).resolve().parent.parent / "openapi.json"
+    from app.main import app
+
+    output = SERVER_ROOT / "openapi.json"
     # Force fresh generation — FastAPI caches the schema on `app.openapi_schema`,
     # which can hide newly-added routes when this script is invoked from a
     # long-running process.

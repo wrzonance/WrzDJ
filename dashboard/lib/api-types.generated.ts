@@ -3098,6 +3098,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setbuilder/sets/{set_id}/pool/vibes/{pool_track_id}/agree": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Agree Pool Vibe
+         * @description Upvote the best non-own vibe signal for one pool track without creating an own tier.
+         */
+        post: operations["agree_pool_vibe_api_setbuilder_sets__set_id__pool_vibes__pool_track_id__agree_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/pool/vibes/{pool_track_id}/override": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Override Pool Vibe
+         * @description Write an explicit DJ vibe edit, preserving omitted fields from their latest vote.
+         */
+        patch: operations["override_pool_vibe_api_setbuilder_sets__set_id__pool_vibes__pool_track_id__override_patch"];
+        trace?: never;
+    };
     "/api/setbuilder/sets/{set_id}/share": {
         parameters: {
             query?: never;
@@ -5708,6 +5748,26 @@ export interface components {
             /** Track Count */
             track_count: number | null;
         };
+        /**
+         * PoolVibeOverrideIn
+         * @description Explicit DJ edit for one pool track's vibe fields.
+         */
+        PoolVibeOverrideIn: {
+            /** Energy */
+            energy?: number | null;
+            /** Mood */
+            mood?: string | null;
+        } & ({
+            /** Energy */
+            energy: number | null;
+            /** Mood */
+            mood?: string | null;
+        } | {
+            /** Energy */
+            energy?: number | null;
+            /** Mood */
+            mood: string | null;
+        });
         /**
          * PoolVibesState
          * @description Vibe state for every track in a set's pool.
@@ -12599,6 +12659,81 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agree_pool_vibe_api_setbuilder_sets__set_id__pool_vibes__pool_track_id__agree_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+                pool_track_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolVibesState"];
+                };
+            };
+            /** @description No non-own vibe signal available for this pool track. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    override_pool_vibe_api_setbuilder_sets__set_id__pool_vibes__pool_track_id__override_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+                pool_track_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PoolVibeOverrideIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolVibesState"];
+                };
             };
             /** @description Validation Error */
             422: {

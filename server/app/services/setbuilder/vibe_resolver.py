@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models.set import Set
 from app.models.set_pool import SetPoolTrack
-from app.models.track_vibe import TrackVibe, TrackVibeOverride
+from app.models.track_vibe import TRACK_VIBE_SOURCE_EXPLICIT_EDIT, TrackVibe, TrackVibeOverride
 from app.models.user import User
 from app.services.setbuilder.community_vibe import CommunityVibe, community_consensus
 from app.services.setbuilder.vibe_enrichment import PROMPT_VERSION, SCHEMA_VERSION, vibe_key
@@ -79,7 +79,7 @@ class TrackVibeState:
 
 
 def _own_overrides(db: Session, user_id: int, keys: list[str]) -> dict[str, OwnVibe]:
-    """Latest override per track for one user; rows with both fields null count as no override."""
+    """Latest explicit edit per track; upvotes are community votes, not own overrides."""
     unique_keys = list(dict.fromkeys(keys))
     rows = (
         db.query(TrackVibeOverride)
@@ -93,8 +93,19 @@ def _own_overrides(db: Session, user_id: int, keys: list[str]) -> dict[str, OwnV
     return {
         key: OwnVibe(energy=row.energy_override, mood=row.mood_override)
         for key, row in latest.items()
-        if row.energy_override is not None or row.mood_override is not None
+        if row.source == TRACK_VIBE_SOURCE_EXPLICIT_EDIT
+        and (row.energy_override is not None or row.mood_override is not None)
     }
+
+
+def latest_override_row(db: Session, user_id: int, track_id: str) -> TrackVibeOverride | None:
+    """Latest vote snapshot for one user+track, regardless of source."""
+    return (
+        db.query(TrackVibeOverride)
+        .filter(TrackVibeOverride.user_id == user_id, TrackVibeOverride.track_id == track_id)
+        .order_by(TrackVibeOverride.id.desc())
+        .first()
+    )
 
 
 def _llm_vibes(db: Session, keys: list[str]) -> dict[str, TrackVibe]:
@@ -150,3 +161,40 @@ def build_pool_vibe_states(db: Session, actor: User, set_obj: Set) -> list[Track
         )
         for track, key in zip(tracks, keys, strict=True)
     ]
+
+
+def build_pool_vibe_state(
+    db: Session,
+    actor: User,
+    set_obj: Set,
+    pool_track_id: int,
+) -> TrackVibeState | None:
+    """Targeted TrackVibeState lookup for write paths."""
+    track = (
+        db.query(SetPoolTrack)
+        .filter(SetPoolTrack.set_id == set_obj.id, SetPoolTrack.id == pool_track_id)
+        .first()
+    )
+    if track is None:
+        return None
+
+    key = vibe_key(track)
+    settings = get_system_settings(db)
+    own = _own_overrides(db, actor.id, [key]).get(key)
+    community = community_consensus(
+        db,
+        [key],
+        min_sample=settings.vibe_consensus_min_sample,
+        max_stddev=settings.vibe_consensus_max_stddev,
+        exclude_user_id=actor.id,
+    ).get(key)
+    llm = _llm_vibes(db, [key]).get(key)
+
+    return TrackVibeState(
+        pool_track_id=track.id,
+        vibe_key=key,
+        own=own,
+        community=community,
+        llm=llm,
+        resolved=resolve_vibe(own, community, llm),
+    )

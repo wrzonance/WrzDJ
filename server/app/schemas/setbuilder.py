@@ -767,6 +767,79 @@ class PoolVibesState(BaseModel):
     tracks: list[TrackVibeStateOut]
 
 
+class PoolVibeOverrideIn(BaseModel):
+    """Explicit DJ edit for one pool track's vibe fields."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "allOf": [
+                {
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "energy": {
+                                    "anyOf": [
+                                        {"maximum": 10.0, "minimum": 0.0, "type": "integer"},
+                                        {"type": "null"},
+                                    ],
+                                    "title": "Energy",
+                                },
+                                "mood": {
+                                    "anyOf": [
+                                        {"maxLength": 50, "type": "string"},
+                                        {"type": "null"},
+                                    ],
+                                    "title": "Mood",
+                                },
+                            },
+                            "required": ["energy"],
+                            "type": "object",
+                        },
+                        {
+                            "properties": {
+                                "energy": {
+                                    "anyOf": [
+                                        {"maximum": 10.0, "minimum": 0.0, "type": "integer"},
+                                        {"type": "null"},
+                                    ],
+                                    "title": "Energy",
+                                },
+                                "mood": {
+                                    "anyOf": [
+                                        {"maxLength": 50, "type": "string"},
+                                        {"type": "null"},
+                                    ],
+                                    "title": "Mood",
+                                },
+                            },
+                            "required": ["mood"],
+                            "type": "object",
+                        },
+                    ]
+                }
+            ],
+            "minProperties": 1,
+        }
+    )
+
+    energy: int | None = Field(default=None, ge=0, le=10)
+    mood: str | None = Field(default=None, max_length=50)
+
+    @field_validator("mood")
+    @classmethod
+    def _normalize_mood(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        trimmed = value.strip()
+        return trimmed or None
+
+    @model_validator(mode="after")
+    def _requires_touched_field(self) -> "PoolVibeOverrideIn":
+        if not {"energy", "mood"} & self.model_fields_set:
+            raise ValueError("energy or mood is required")
+        return self
+
+
 class VibeEnrichmentResult(BaseModel):
     """Result of an enrichment run, plus the refreshed vibe state."""
 

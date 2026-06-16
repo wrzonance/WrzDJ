@@ -12,6 +12,7 @@ import type {
   PoolImportResult,
   PoolSource,
   PoolState,
+  PoolVibeOverrideIn,
   SetDocumentSnapshot,
   TrackVibeState,
 } from '@/lib/api-types';
@@ -84,6 +85,7 @@ export default function PoolPanel({
   const [showVibes, setShowVibes] = useState(false);
   const [vibesLoaded, setVibesLoaded] = useState(false);
   const [vibesBusy, setVibesBusy] = useState(false);
+  const [vibeWriteBusyIds, setVibeWriteBusyIds] = useState<Set<number>>(new Set());
   const addMenuRef = useRef<HTMLSpanElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -263,6 +265,52 @@ export default function PoolPanel({
       setVibesBusy(false);
     }
   }, [setId]);
+
+  const agreeVibe = useCallback(
+    async (poolTrackId: number) => {
+      setVibeWriteBusyIds((prev) => new Set(prev).add(poolTrackId));
+      try {
+        const result = await api.agreePoolVibe(setId, poolTrackId);
+        setVibes(buildVibeMap(result.tracks));
+        setVibesLoaded(true);
+        setToast('Vibe upvoted');
+        return true;
+      } catch (err) {
+        setToast(err instanceof ApiError ? err.message : 'Vibe upvote failed');
+        return false;
+      } finally {
+        setVibeWriteBusyIds((prev) => {
+          const next = new Set(prev);
+          next.delete(poolTrackId);
+          return next;
+        });
+      }
+    },
+    [setId],
+  );
+
+  const saveVibeOverride = useCallback(
+    async (poolTrackId: number, payload: PoolVibeOverrideIn) => {
+      setVibeWriteBusyIds((prev) => new Set(prev).add(poolTrackId));
+      try {
+        const result = await api.overridePoolVibe(setId, poolTrackId, payload);
+        setVibes(buildVibeMap(result.tracks));
+        setVibesLoaded(true);
+        setToast('Vibe override saved');
+        return true;
+      } catch (err) {
+        setToast(err instanceof ApiError ? err.message : 'Vibe override failed');
+        return false;
+      } finally {
+        setVibeWriteBusyIds((prev) => {
+          const next = new Set(prev);
+          next.delete(poolTrackId);
+          return next;
+        });
+      }
+    },
+    [setId],
+  );
 
   const toggleSelect = (id: number) => {
     setSelected((prev) => {
@@ -489,7 +537,14 @@ export default function PoolPanel({
                     </span>
                   )}
                 </div>
-                {vibe && <VibeTiers state={vibe} />}
+                {vibe && (
+                  <VibeTiers
+                    state={vibe}
+                    busy={vibeWriteBusyIds.has(t.id)}
+                    onAgree={() => agreeVibe(t.id)}
+                    onSaveOverride={(payload) => saveVibeOverride(t.id, payload)}
+                  />
+                )}
               </div>
               <div
                 className={styles.poolTrackStripe}

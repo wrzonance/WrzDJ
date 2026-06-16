@@ -365,16 +365,26 @@ describe('ChatSidebar', () => {
   it('renders tool calls when an agent result is null', async () => {
     mockApi.chatWithSetAgent.mockResolvedValueOnce({
       message: 'Skipped locked slots.',
-      tool_calls: [
-        {
-          id: 'lock-1',
-          name: 'lock_slots',
-          args: { slot_ids: [1] },
-          rationale: null,
-          result: null,
-          mutating: false,
-        },
-      ],
+      assistant_message: {
+        id: 2,
+        role: 'assistant',
+        content: 'Skipped locked slots.',
+        display_summary: 'Skipped locked slots.',
+        tool_calls: [
+          {
+            id: 'lock-1',
+            name: 'lock_slots',
+            args: { slot_ids: [1] },
+            rationale: null,
+            result: null,
+            mutating: false,
+            display_summary: 'Locked slot 1.',
+          },
+        ],
+        affected_transition_scores: [],
+        created_at: '2026-06-15T00:00:01Z',
+      },
+      tool_calls: [],
       slots: [],
       affected_transition_scores: [],
     });
@@ -386,7 +396,9 @@ describe('ChatSidebar', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
-    expect(await screen.findByTestId('agent-tool-card')).toHaveTextContent('lock_slots');
+    const card = await screen.findByTestId('agent-tool-card');
+    expect(card).toHaveTextContent('lock slots');
+    expect(card).toHaveTextContent('Locked slot 1.');
   });
 
   it('explains when the agent skips an edit because a slot is locked', async () => {

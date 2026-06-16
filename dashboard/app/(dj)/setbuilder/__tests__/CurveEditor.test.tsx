@@ -65,6 +65,17 @@ describe('CurveEditor', () => {
     expect(screen.getByTestId('curve-line')).toBeInTheDocument();
   });
 
+  it('tints locked blocks and disables their target drag handle', () => {
+    const locked = mkSlot(0);
+    locked.locked = true;
+    renderEditor({ slots: [locked, mkSlot(1)] });
+
+    expect(screen.getByTestId('slot-block-0')).toHaveAttribute('data-locked', 'true');
+    expect(screen.getByTestId('slot-lock-icon-0')).toBeInTheDocument();
+    expect(screen.queryByTestId('target-handle-0')).not.toBeInTheDocument();
+    expect(screen.getByTestId('target-handle-1')).toBeInTheDocument();
+  });
+
   it('renders a purple seam pin for saved DJ pairings', () => {
     const paired = mkSlot(0);
     paired.nextPairingId = 42;

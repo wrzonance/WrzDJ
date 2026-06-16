@@ -24,11 +24,14 @@ export interface TimelineRowProps {
   currentIdx: number;
   positionSec: number;
   playing: boolean;
+  selected: boolean;
   dropIdx: number | null;
   setDropIdx: Dispatch<SetStateAction<number | null>>;
   onHover: (idx: number | null) => void;
   onRowDoubleClick?: (idx: number) => void;
   onPoolTrackDrop?: (poolTrackId: number, insertIdx: number) => void | Promise<void>;
+  onSelectedChange: (selected: boolean) => void;
+  onToggleLock?: () => void | Promise<void>;
   setMenu: Dispatch<SetStateAction<TimelineMenu | null>>;
   setRowRef?: (idx: number, el: HTMLDivElement | null) => void;
   measureRef?: (idx: number, el: HTMLDivElement | null) => void;
@@ -44,11 +47,14 @@ export default function TimelineRow({
   currentIdx,
   positionSec,
   playing,
+  selected,
   dropIdx,
   setDropIdx,
   onHover,
   onRowDoubleClick,
   onPoolTrackDrop,
+  onSelectedChange,
+  onToggleLock,
   setMenu,
   setRowRef,
   measureRef,
@@ -69,6 +75,9 @@ export default function TimelineRow({
   const pairingActionLabel = slot.nextIsDjPairing
     ? `Open saved pairing after ${slot.track.title}`
     : `Save ${slot.track.title} into ${nextSlot?.track.title ?? 'next track'} as pairing`;
+  const dropWouldMoveLockedSlot = slots.some(
+    (candidate, candidateIdx) => candidate.locked && candidateIdx >= idx,
+  );
   const handleMeasureRef = useCallback(
     (el: HTMLDivElement | null) => {
       measureRef?.(idx, el);
@@ -84,6 +93,11 @@ export default function TimelineRow({
 
   const markPoolTrackDrop = (event: DragEvent<HTMLElement>, insertIdx: number) => {
     event.preventDefault();
+    if (dropWouldMoveLockedSlot) {
+      event.dataTransfer.dropEffect = 'none';
+      setDropIdx(null);
+      return;
+    }
     event.dataTransfer.dropEffect = 'copy';
     setDropIdx(insertIdx);
   };
@@ -92,6 +106,7 @@ export default function TimelineRow({
     event.preventDefault();
     event.stopPropagation();
     setDropIdx(null);
+    if (dropWouldMoveLockedSlot) return;
     const payload = readPoolTrackDragPayload(event.dataTransfer);
     if (!payload) return;
     void onPoolTrackDrop?.(payload.poolTrackId, insertIdx);
@@ -136,7 +151,11 @@ export default function TimelineRow({
         ref={handleRowRef}
         className={`${styles.timelineRow} ${hoveredIdx === idx ? styles.timelineRowHover : ''} ${
           isCurrent ? styles.timelineRowNow : ''
-        } ${dropIdx === idx ? styles.timelineRowDrop : ''}`}
+        } ${dropIdx === idx ? styles.timelineRowDrop : ''} ${
+          slot.locked ? styles.timelineRowLocked : ''
+        }`}
+        data-locked={slot.locked ? 'true' : 'false'}
+        draggable={false}
         onMouseEnter={() => onHover(idx)}
         onMouseLeave={() => onHover(null)}
         onDoubleClick={() => onRowDoubleClick?.(idx)}
@@ -182,6 +201,20 @@ export default function TimelineRow({
             String(idx + 1).padStart(2, '0')
           )}
         </span>
+        <label
+          className={styles.timelineSelect}
+          title={`Select slot ${idx + 1}`}
+          onClick={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => event.stopPropagation()}
+        >
+          <input
+            type="checkbox"
+            checked={selected}
+            aria-label={`Select slot ${idx + 1}`}
+            data-testid={`timeline-select-${idx}`}
+            onChange={(event) => onSelectedChange(event.currentTarget.checked)}
+          />
+        </label>
         <span className={styles.timelineTitle}>
           {slot.track.title}
           {slot.track.artist ? (
@@ -197,6 +230,56 @@ export default function TimelineRow({
         <span className={styles.timelineTarget} title="Target energy">
           ◎ {effectiveTarget(slot).toFixed(1)}
         </span>
+        {slot.locked ? (
+          <span className={styles.timelineLockBadge} data-testid={`timeline-lock-badge-${idx}`}>
+            <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M7 10V8a5 5 0 0 1 10 0v2M6.5 10h11a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 17.5 20h-11A1.5 1.5 0 0 1 5 18.5v-7A1.5 1.5 0 0 1 6.5 10Z"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.8"
+              />
+            </svg>
+            Locked
+          </span>
+        ) : null}
+        <button
+          type="button"
+          className={styles.timelineLockToggle}
+          aria-label={`${slot.locked ? 'Unlock' : 'Lock'} slot ${idx + 1}`}
+          title={`${slot.locked ? 'Unlock' : 'Lock'} slot ${idx + 1}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            void onToggleLock?.();
+          }}
+          data-testid={`timeline-lock-toggle-${idx}`}
+        >
+          {slot.locked ? (
+            <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M8 10V8a4 4 0 0 1 7.6-1.8M6.5 10h11a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 17.5 20h-11A1.5 1.5 0 0 1 5 18.5v-7A1.5 1.5 0 0 1 6.5 10Z"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.8"
+              />
+            </svg>
+          ) : (
+            <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M7 10V8a5 5 0 0 1 10 0v2M6.5 10h11a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 17.5 20h-11A1.5 1.5 0 0 1 5 18.5v-7A1.5 1.5 0 0 1 6.5 10Z"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.8"
+              />
+            </svg>
+          )}
+        </button>
         {idx < slots.length - 1 && (
           <button
             type="button"

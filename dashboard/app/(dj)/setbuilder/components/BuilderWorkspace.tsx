@@ -97,6 +97,20 @@ function insertPoolTrackIntoDocument(
   };
 }
 
+function lockSlotsInDocument(
+  snapshot: SetDocumentSnapshot,
+  slotIds: number[],
+  locked: boolean,
+): SetDocumentSnapshot {
+  const idSet = new Set(slotIds);
+  return {
+    ...snapshot,
+    slots: snapshot.slots.map((slot) =>
+      idSet.has(slot.id) ? { ...slot, locked } : slot,
+    ),
+  };
+}
+
 function TimelineSummary({
   projection,
   overlapSec,
@@ -355,6 +369,7 @@ export default function BuilderWorkspace({
 
   const handlePoolTrackDrop = useCallback(
     async (poolTrackId: number, insertIdx: number) => {
+      if (slots.some((slot, idx) => slot.locked && idx >= insertIdx)) return;
       const save = async () => {
         const current = await api.getSetDocument(setId);
         return api.putSetDocument(
@@ -370,8 +385,43 @@ export default function BuilderWorkspace({
         // Keep the visible timeline unchanged if the document mutation fails.
       }
     },
+    [commit, loadSlots, setId, slots],
+  );
+
+  const handleSlotLockChange = useCallback(
+    async (slotIds: number[], locked: boolean, label?: string) => {
+      if (slotIds.length === 0) return;
+      const slotIdSet = new Set(slotIds);
+      setSlots((prev) =>
+        prev.map((slot) => (slotIdSet.has(slot.id) ? { ...slot, locked } : slot)),
+      );
+      const actionLabel =
+        label ??
+        `${locked ? 'Lock' : 'Unlock'} ${slotIds.length === 1 ? 'slot' : `${slotIds.length} slots`}`;
+      const save = async () => {
+        const current = await api.getSetDocument(setId);
+        return api.putSetDocument(setId, lockSlotsInDocument(current, slotIds, locked));
+      };
+      try {
+        const run = commit ? commit(actionLabel, save) : save();
+        await run;
+        await loadSlots();
+      } catch {
+        await loadSlots();
+      }
+    },
     [commit, loadSlots, setId],
   );
+
+  const handleLockBeforePlayhead = useCallback(async () => {
+    let startSec = 0;
+    const ids: number[] = [];
+    for (const slot of slots) {
+      if (startSec < positionSec && !slot.locked) ids.push(slot.id);
+      startSec += slot.track.durationSec;
+    }
+    await handleSlotLockChange(ids, true, 'Lock slots before playhead');
+  }, [handleSlotLockChange, positionSec, slots]);
 
   useEffect(() => {
     onProjectionChange?.(projection);
@@ -438,6 +488,8 @@ export default function BuilderWorkspace({
           scrollRequest={scrollRequest}
           onPairingAction={handlePairingAction}
           onPoolTrackDrop={handlePoolTrackDrop}
+          onSlotLockChange={handleSlotLockChange}
+          onLockBeforePlayhead={handleLockBeforePlayhead}
         />
       </section>
     </>

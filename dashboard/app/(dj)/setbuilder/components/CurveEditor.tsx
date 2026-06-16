@@ -749,6 +749,8 @@ export default function CurveEditor({
         {/* Slot blocks */}
         {showBlocks &&
           blocks.map((b) => {
+            const slot = slots[b.idx];
+            const isLocked = Boolean(slot?.locked);
             const isHover = hoveredIdx === b.idx;
             const isDragging = dragIdx === b.idx;
             const gap = view === 'normal' ? 1.5 : 4;
@@ -760,6 +762,7 @@ export default function CurveEditor({
               <g
                 key={`sb-${b.idx}`}
                 data-testid={`slot-block-${b.idx}`}
+                data-locked={isLocked ? 'true' : 'false'}
                 onMouseEnter={() => onHover(b.idx)}
                 onMouseLeave={() => onHover(null)}
                 onClick={(ev) => {
@@ -779,10 +782,50 @@ export default function CurveEditor({
                 width={Math.max(1, b.width - gap)}
                 height={blockH}
                 fill={NEON}
-                fillOpacity={isHover ? 0.55 : 0.13}
-                stroke={isHover || isDragging ? NEON : 'transparent'}
+                fillOpacity={isLocked ? (isHover ? 0.28 : 0.18) : isHover ? 0.55 : 0.13}
+                stroke={isLocked ? '#fbbf24' : isHover || isDragging ? NEON : 'transparent'}
                 strokeWidth={isHover || isDragging ? 1.5 : 1}
               />
+              {isLocked && (
+                <>
+                  <rect
+                    x={b.x0 + gap / 2}
+                    y={0}
+                    width={Math.max(1, b.width - gap)}
+                    height={h}
+                    fill="#fbbf24"
+                    fillOpacity={isHover ? 0.08 : 0.045}
+                    pointerEvents="none"
+                  />
+                  <SvgFixedGroup
+                    x={Math.min(Math.max(b.xMid, 12), effectiveViewportWidth - 12)}
+                    y={Math.max(16, h - blockH - 10)}
+                    scaleX={fixedLabelScaleX}
+                    scaleY={fixedLabelScaleY}
+                    pointerEvents="none"
+                    data-testid={`slot-lock-icon-${b.idx}`}
+                  >
+                    <rect
+                      x={-9}
+                      y={-9}
+                      width={18}
+                      height={18}
+                      rx={3}
+                      fill="var(--bg)"
+                      stroke="#fbbf24"
+                      strokeOpacity={0.75}
+                    />
+                    <path
+                      d="M-4 -1v-2.2a4 4 0 0 1 8 0V-1M-5 -1h10v7H-5Z"
+                      fill="none"
+                      stroke="#fbbf24"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="1.3"
+                    />
+                  </SvgFixedGroup>
+                </>
+              )}
               {/* Peak cap */}
               {b.energy >= 8 && (
                 <rect
@@ -1002,6 +1045,7 @@ export default function CurveEditor({
         {/* Drag handles — one per slot at its target energy */}
         {showSlotHandles &&
           blocks.map((b) => {
+            if (slots[b.idx]?.locked) return null;
             const isHover = hoveredIdx === b.idx;
             const isDragging = dragIdx === b.idx;
             const r = isDragging ? 7 : isHover ? 6 : 5;

@@ -16,7 +16,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { readPoolTrackDragPayload } from './dnd';
+import { readPoolTrackDragPayload, readSlotReorderDragPayload, SLOT_REORDER_DND_TYPE } from './dnd';
 import TimelineRow, { type TimelineMenu } from './TimelineRow';
 import type { SlotView } from './types';
 import { useMeasuredVirtualList } from './useMeasuredVirtualList';
@@ -41,6 +41,7 @@ export interface TimelinePanelProps {
   onPoolTrackDrop?: (poolTrackId: number, insertIdx: number) => void | Promise<void>;
   onSlotLockChange?: (slotIds: number[], locked: boolean) => void | Promise<void>;
   onLockBeforePlayhead?: () => void | Promise<void>;
+  onSlotReorder?: (slotId: number, insertIdx: number) => void | Promise<void>;
 }
 
 const ESTIMATED_SLOT_GROUP_HEIGHT = 52;
@@ -71,10 +72,12 @@ export default function TimelinePanel({
   onPoolTrackDrop,
   onSlotLockChange,
   onLockBeforePlayhead,
+  onSlotReorder,
 }: TimelinePanelProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
   const handledScrollRequestNRef = useRef<number | null>(null);
+  const reorderSourceRef = useRef<number | null>(null);
   const [menu, setMenu] = useState<TimelineMenu | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -203,6 +206,7 @@ export default function TimelinePanel({
 
     const rect = list.getBoundingClientRect();
     const pointerTop = event.clientY - rect.top + list.scrollTop;
+    if (!Number.isFinite(pointerTop)) return slots.length;
     const insertIdx =
       pointerTop >= totalHeight ? slots.length : indexFromScrollTop(pointerTop);
 
@@ -253,6 +257,55 @@ export default function TimelinePanel({
 
   const handlePoolTrackDropAtPointer = (event: DragEvent<HTMLElement>) => {
     handlePoolTrackDrop(event, insertIndexFromPointer(event));
+  };
+
+  const dragIsReorder = (event: DragEvent<HTMLElement>) =>
+    event.dataTransfer.types.includes(SLOT_REORDER_DND_TYPE);
+
+  const reorderWouldCrossLock = (fromIdx: number, insertIdx: number) => {
+    const target = insertIdx > fromIdx ? insertIdx - 1 : insertIdx;
+    const lo = Math.min(fromIdx, target);
+    const hi = Math.max(fromIdx, target);
+    return slots.some((s, i) => s.locked && i !== fromIdx && i >= lo && i <= hi);
+  };
+
+  const handleListDragStart = (event: DragEvent<HTMLElement>) => {
+    const payload = readSlotReorderDragPayload(event.dataTransfer);
+    reorderSourceRef.current = payload ? payload.slotId : null;
+  };
+
+  const clearReorderSource = () => {
+    reorderSourceRef.current = null;
+  };
+
+  const resolveReorder = (event: DragEvent<HTMLElement>) => {
+    const slotId = reorderSourceRef.current;
+    const fromIdx = slotId == null ? -1 : slots.findIndex((s) => s.id === slotId);
+    const insertIdx = insertIndexFromPointer(event);
+    const valid = fromIdx >= 0 && !reorderWouldCrossLock(fromIdx, insertIdx);
+    return { slotId, insertIdx, valid };
+  };
+
+  const markReorderDrop = (event: DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    const { insertIdx, valid } = resolveReorder(event);
+    if (!valid) {
+      event.dataTransfer.dropEffect = 'none';
+      setDropIdx(null);
+      return;
+    }
+    event.dataTransfer.dropEffect = 'move';
+    setDropIdx(insertIdx);
+  };
+
+  const handleReorderDrop = (event: DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setDropIdx(null);
+    const { slotId, insertIdx, valid } = resolveReorder(event);
+    clearReorderSource();
+    if (!valid || slotId == null) return;
+    void onSlotReorder?.(slotId, insertIdx);
   };
 
   const clearDropIfLeaving = (event: DragEvent<HTMLElement>) => {
@@ -316,9 +369,15 @@ export default function TimelinePanel({
         data-testid="timeline-list"
         data-virtualized="true"
         onScroll={handleScroll}
-        onDragOver={markPoolTrackDropAtPointer}
+        onDragStart={handleListDragStart}
+        onDragEnd={clearReorderSource}
+        onDragOver={(event) =>
+          dragIsReorder(event) ? markReorderDrop(event) : markPoolTrackDropAtPointer(event)
+        }
         onDragLeave={clearDropIfLeaving}
-        onDrop={handlePoolTrackDropAtPointer}
+        onDrop={(event) =>
+          dragIsReorder(event) ? handleReorderDrop(event) : handlePoolTrackDropAtPointer(event)
+        }
       >
         <div style={{ height: beforeHeight }} aria-hidden="true" />
         {items.map(({ idx }) => {

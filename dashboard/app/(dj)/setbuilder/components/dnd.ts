@@ -22,3 +22,30 @@ export function readPoolTrackDragPayload(dataTransfer: DataTransfer): PoolTrackD
     return null;
   }
 }
+
+export const SLOT_REORDER_DND_TYPE = 'application/x-wrzdj-slot-reorder';
+
+export interface SlotReorderDragPayload {
+  slotId: number;
+}
+
+export function writeSlotReorderDragPayload(dataTransfer: DataTransfer, slotId: number): void {
+  dataTransfer.effectAllowed = 'move';
+  dataTransfer.setData(SLOT_REORDER_DND_TYPE, JSON.stringify({ slotId }));
+  dataTransfer.setData('text/plain', String(slotId));
+}
+
+export function readSlotReorderDragPayload(
+  dataTransfer: DataTransfer,
+): SlotReorderDragPayload | null {
+  const raw = dataTransfer.getData(SLOT_REORDER_DND_TYPE);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { slotId?: unknown };
+    return typeof parsed.slotId === 'number' && Number.isInteger(parsed.slotId)
+      ? { slotId: parsed.slotId }
+      : null;
+  } catch {
+    return null;
+  }
+}

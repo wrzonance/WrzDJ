@@ -31,6 +31,28 @@ import {
 } from './transportMath';
 import sbStyles from '../setbuilder.module.css';
 
+/**
+ * Pure helper: given the current ordered slots, a slot id being dragged, and
+ * an insertion index, return the new ordered id array — or null if the move is
+ * a no-op, targets an unknown slot, or would displace a locked slot anchor.
+ */
+export function buildReorderedIds(
+  slots: SlotView[],
+  slotId: number,
+  insertIdx: number,
+): number[] | null {
+  const fromIdx = slots.findIndex((s) => s.id === slotId);
+  if (fromIdx < 0) return null;
+  const target = insertIdx > fromIdx ? insertIdx - 1 : insertIdx;
+  if (target === fromIdx) return null; // no-op
+  const ids = slots.map((s) => s.id);
+  const without = ids.filter((id) => id !== slotId);
+  without.splice(target, 0, slotId);
+  // Locked slots are immovable anchors — reject any move that shifts one.
+  if (slots.some((s, idx) => s.locked && without[idx] !== s.id)) return null;
+  return without;
+}
+
 const SCRUB_KEY = 'wrzdj.transport.scrubEnabled';
 
 function readScrubSetting(): boolean {
@@ -388,6 +410,22 @@ export default function BuilderWorkspace({
     [commit, loadSlots, setId, slots],
   );
 
+  const handleSlotReorder = useCallback(
+    async (slotId: number, insertIdx: number) => {
+      const orderedIds = buildReorderedIds(slots, slotId, insertIdx);
+      if (!orderedIds) return;
+      const save = async () => api.reorderSlots(setId, orderedIds);
+      try {
+        const run = commit ? commit('Reorder slot', save) : save();
+        await run;
+        await loadSlots();
+      } catch {
+        await loadSlots();
+      }
+    },
+    [commit, loadSlots, setId, slots],
+  );
+
   const handleSlotLockChange = useCallback(
     async (slotIds: number[], locked: boolean, label?: string) => {
       if (slotIds.length === 0) return;
@@ -488,6 +526,7 @@ export default function BuilderWorkspace({
           scrollRequest={scrollRequest}
           onPairingAction={handlePairingAction}
           onPoolTrackDrop={handlePoolTrackDrop}
+          onSlotReorder={handleSlotReorder}
           onSlotLockChange={handleSlotLockChange}
           onLockBeforePlayhead={handleLockBeforePlayhead}
         />

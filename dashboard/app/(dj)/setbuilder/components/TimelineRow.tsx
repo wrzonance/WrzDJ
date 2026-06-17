@@ -2,7 +2,7 @@
 
 import { type Dispatch, type DragEvent, type SetStateAction, useCallback } from 'react';
 import { fmtTime } from './curveMath';
-import { readPoolTrackDragPayload } from './dnd';
+import { readPoolTrackDragPayload, writeSlotReorderDragPayload } from './dnd';
 import { localPositionSec } from './transportMath';
 import type { SlotView } from './types';
 import { effectiveTarget } from './types';
@@ -155,7 +155,14 @@ export default function TimelineRow({
           slot.locked ? styles.timelineRowLocked : ''
         }`}
         data-locked={slot.locked ? 'true' : 'false'}
-        draggable={false}
+        draggable={!slot.locked}
+        onDragStart={(event) => {
+          if (slot.locked) {
+            event.preventDefault();
+            return;
+          }
+          writeSlotReorderDragPayload(event.dataTransfer, slot.id);
+        }}
         onMouseEnter={() => onHover(idx)}
         onMouseLeave={() => onHover(null)}
         onDoubleClick={() => onRowDoubleClick?.(idx)}

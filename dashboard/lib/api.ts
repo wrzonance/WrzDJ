@@ -82,6 +82,7 @@ import type {
   TidalSearchResult,
   TidalSyncResult,
   TidalStatus,
+  TransitionScore,
   TransportCommandIn,
   TransportCommandOut,
   TransportStatusOut,
@@ -713,6 +714,12 @@ class ApiClient {
     return this.fetch(`/api/setbuilder/sets/${setId}/document`, {
       method: 'PUT',
       body: JSON.stringify(snapshot),
+    });
+  }
+  async reorderSlots(setId: number, slotIds: number[]): Promise<TransitionScore[]> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/slots/order`, {
+      method: 'PUT',
+      body: JSON.stringify({ slot_ids: slotIds }),
     });
   }
   async renameSet(setId: number, name: string): Promise<SetDetail> {

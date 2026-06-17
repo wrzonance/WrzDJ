@@ -3202,6 +3202,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setbuilder/sets/{set_id}/slots/order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Reorder Slots
+         * @description Reassign the set's slot order by hand and recompute transition scores (#437).
+         */
+        put: operations["reorder_slots_api_setbuilder_sets__set_id__slots_order_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setbuilder/sets/{set_id}/slots/{slot_id}/target": {
         parameters: {
             query?: never;
@@ -4045,10 +4065,7 @@ export interface components {
         };
         /** Body_upload_banner_api_events__code__banner_post */
         Body_upload_banner_api_events__code__banner_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
         };
         /** BridgeApiKeyResponse */
@@ -6513,6 +6530,14 @@ export interface components {
             track_id: string | null;
             /** Transition Score */
             transition_score: number | null;
+        };
+        /**
+         * SlotOrderRequest
+         * @description Full desired slot order for a set (hand-drag reorder, #437).
+         */
+        SlotOrderRequest: {
+            /** Slot Ids */
+            slot_ids: number[];
         };
         /**
          * SlotOut
@@ -12927,6 +12952,48 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SlotOut"][];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reorder_slots_api_setbuilder_sets__set_id__slots_order_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SlotOrderRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransitionScoreOut"][];
+                };
+            };
+            /** @description Invalid reorder (not a permutation, or would move a locked slot) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

@@ -71,6 +71,7 @@ from app.schemas.setbuilder import (
     SetRename,
     SetSummary,
     SetTargetUpdate,
+    SlotOrderRequest,
     SlotOut,
     SlotTargetOut,
     SlotTargetUpdate,
@@ -101,6 +102,7 @@ from app.services.setbuilder import (
     pass1_deterministic,
     pass2_agent,
     pool,
+    reorder,
     set_service,
     vibe_enrichment,
     vibe_resolver,
@@ -527,6 +529,30 @@ def update_slot_target(
         raise HTTPException(status_code=404, detail="Slot not found")
     slot = curve.set_slot_target(db, slot, payload.target_energy)
     return SlotTargetOut(slot_id=slot.id, target_energy=slot.target_energy)
+
+
+@router.put(
+    "/sets/{set_id}/slots/order",
+    response_model=list[TransitionScoreOut],
+    responses={
+        400: {"description": "Invalid reorder (not a permutation, or would move a locked slot)"}
+    },
+)
+@limiter.limit("30/minute")
+def reorder_slots(
+    set_id: int,
+    payload: SlotOrderRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> list[TransitionScoreOut]:
+    """Reassign the set's slot order by hand and recompute transition scores (#437)."""
+    set_obj = _get_owned_or_404(db, set_id, current_user)
+    try:
+        scores = reorder.apply_slot_order(db, set_obj, payload.slot_ids)
+    except reorder.ReorderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _transition_scores_out(scores)
 
 
 @router.post(

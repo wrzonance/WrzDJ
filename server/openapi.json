@@ -1390,7 +1390,7 @@
       "Body_upload_banner_api_events__code__banner_post": {
         "properties": {
           "file": {
-            "format": "binary",
+            "contentMediaType": "application/octet-stream",
             "title": "File",
             "type": "string"
           }
@@ -8769,6 +8769,25 @@
           "transition_score"
         ],
         "title": "SharedSlotView",
+        "type": "object"
+      },
+      "SlotOrderRequest": {
+        "description": "Full desired slot order for a set (hand-drag reorder, #437).",
+        "properties": {
+          "slot_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Slot Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "slot_ids"
+        ],
+        "title": "SlotOrderRequest",
         "type": "object"
       },
       "SlotOut": {
@@ -19470,6 +19489,71 @@
           }
         ],
         "summary": "List Set Slots",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/slots/order": {
+      "put": {
+        "description": "Reassign the set's slot order by hand and recompute transition scores (#437).",
+        "operationId": "reorder_slots_api_setbuilder_sets__set_id__slots_order_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlotOrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TransitionScoreOut"
+                  },
+                  "title": "Response Reorder Slots Api Setbuilder Sets  Set Id  Slots Order Put",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Invalid reorder (not a permutation, or would move a locked slot)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Reorder Slots",
         "tags": [
           "setbuilder"
         ]

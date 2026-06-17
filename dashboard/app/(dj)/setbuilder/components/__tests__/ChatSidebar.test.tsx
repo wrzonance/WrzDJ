@@ -415,4 +415,49 @@ describe('ChatSidebar', () => {
       'Skipped because a locked slot would be changed',
     );
   });
+
+  it('renders critique flags from an agent critique_set tool result', async () => {
+    mockApi.chatWithSetAgent.mockResolvedValue({
+      message: 'Critique grade A-. Tight arc.',
+      assistant_message: {
+        id: 2,
+        role: 'assistant',
+        content: 'Critique grade A-. Tight arc.',
+        display_summary: 'Critique grade A-. Tight arc.',
+        tool_calls: [
+          {
+            id: 'crit-1',
+            name: 'critique_set',
+            args: {},
+            rationale: null,
+            result: {
+              available: true,
+              overall_grade: 'A-',
+              summary: 'Tight arc.',
+              flags: [{ type: 'banger_buried', slot_position: 1, message: null }],
+            },
+            mutating: false,
+            display_summary: 'Critique grade A-. Tight arc.',
+          },
+        ],
+        affected_transition_scores: [],
+        created_at: '2026-06-15T00:00:01Z',
+      },
+      tool_calls: [],
+      slots: [],
+      affected_transition_scores: [],
+    });
+
+    render(<ChatSidebar setId={9} open onToggle={vi.fn()} onMutationApplied={vi.fn()} />);
+    await screen.findByTestId('critique-card');
+
+    fireEvent.change(screen.getByPlaceholderText(/tell the agent/i), {
+      target: { value: 'critique the set' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    const card = await screen.findByTestId('agent-tool-card');
+    expect(card).toHaveTextContent('Critique grade A-.');
+    expect(card).toHaveTextContent(/banger buried/i);
+  });
 });

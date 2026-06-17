@@ -1332,7 +1332,7 @@
 .timelineMoveBtn:hover:not(:disabled) {
   color: #ededed;
   border-color: rgba(0, 245, 212, 0.45);
-  background: #222;
+  background: #1a1a1a;
 }
 
 .timelineMoveBtn:disabled {

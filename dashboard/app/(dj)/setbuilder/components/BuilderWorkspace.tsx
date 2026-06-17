@@ -29,6 +29,7 @@ import {
   slotStartSec,
   totalDuration,
 } from './transportMath';
+import { buildMovedIds } from './reorderMath';
 import sbStyles from '../setbuilder.module.css';
 
 /**
@@ -426,6 +427,22 @@ export default function BuilderWorkspace({
     [commit, loadSlots, setId, slots],
   );
 
+  const handleMoveSlot = useCallback(
+    async (slotId: number, direction: 'up' | 'down') => {
+      const orderedIds = buildMovedIds(slots, slotId, direction);
+      if (!orderedIds) return;
+      const save = async () => api.reorderSlots(setId, orderedIds);
+      try {
+        const run = commit ? commit('Move slot', save) : save();
+        await run;
+        await loadSlots();
+      } catch {
+        await loadSlots();
+      }
+    },
+    [commit, loadSlots, setId, slots],
+  );
+
   const handleSlotLockChange = useCallback(
     async (slotIds: number[], locked: boolean, label?: string) => {
       if (slotIds.length === 0) return;
@@ -527,6 +544,7 @@ export default function BuilderWorkspace({
           onPairingAction={handlePairingAction}
           onPoolTrackDrop={handlePoolTrackDrop}
           onSlotReorder={handleSlotReorder}
+          onMoveSlot={handleMoveSlot}
           onSlotLockChange={handleSlotLockChange}
           onLockBeforePlayhead={handleLockBeforePlayhead}
         />

@@ -266,6 +266,7 @@ export default function TimelineRow({
             <button
               type="button"
               className={styles.timelineMoveBtn}
+              draggable={false}
               aria-label={`Move ${slot.track.title} up`}
               title="Move up"
               disabled={buildMovedIds(slots, slot.id, 'up') === null}
@@ -283,6 +284,7 @@ export default function TimelineRow({
             <button
               type="button"
               className={styles.timelineMoveBtn}
+              draggable={false}
               aria-label={`Move ${slot.track.title} down`}
               title="Move down"
               disabled={buildMovedIds(slots, slot.id, 'down') === null}

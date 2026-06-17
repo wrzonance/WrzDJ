@@ -43,6 +43,7 @@ export interface TimelinePanelProps {
   onSlotLockChange?: (slotIds: number[], locked: boolean) => void | Promise<void>;
   onLockBeforePlayhead?: () => void | Promise<void>;
   onSlotReorder?: (slotId: number, insertIdx: number) => void | Promise<void>;
+  onMoveSlot?: (slotId: number, direction: 'up' | 'down') => void | Promise<void>;
 }
 
 const ESTIMATED_SLOT_GROUP_HEIGHT = 52;
@@ -74,6 +75,7 @@ export default function TimelinePanel({
   onSlotLockChange,
   onLockBeforePlayhead,
   onSlotReorder,
+  onMoveSlot,
 }: TimelinePanelProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -405,6 +407,7 @@ export default function TimelinePanel({
               onPoolTrackDrop={onPoolTrackDrop}
               onSelectedChange={(selected) => setSlotSelected(slot.id, selected)}
               onToggleLock={() => void onSlotLockChange?.([slot.id], !slot.locked)}
+              onMoveSlot={onMoveSlot}
               setMenu={setMenu}
               setRowRef={(rowIdx, el) => {
                 rowRefs.current[rowIdx] = el;

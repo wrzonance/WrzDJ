@@ -1302,3 +1302,69 @@
   font-size: 0.8125rem;
   text-align: center;
 }
+
+/* ── Move controls (▲/▼ reorder buttons) ─────────────────────────── */
+
+.timelineMoveControls {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  position: relative;
+  z-index: 1;
+}
+
+.timelineMoveBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  position: relative;
+  z-index: 1;
+}
+
+.timelineMoveBtn:hover:not(:disabled) {
+  color: #ededed;
+  border-color: rgba(0, 245, 212, 0.45);
+  background: #1a1a1a;
+}
+
+.timelineMoveBtn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.timelineMoveBtn:focus-visible {
+  outline: 2px solid #4a9eff;
+  outline-offset: 1px;
+}
+
+/* ── Mobile: single-column-feeling timeline row (≤640 px) ─────────── */
+
+@media (max-width: 640px) {
+  .timelineRow {
+    /* flex row already; allow wrapping so controls + title can stack */
+    flex-wrap: wrap;
+    align-items: flex-start;
+    row-gap: 4px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  .timelineMoveBtn {
+    /* ≥44 px tap target per WCAG 2.5.5 */
+    width: 44px;
+    height: 44px;
+  }
+
+  .timelineTarget {
+    /* de-emphasise non-essential BPM/key metadata on narrow viewports */
+    display: none;
+  }
+}

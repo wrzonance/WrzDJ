@@ -3,6 +3,7 @@
 import { type Dispatch, type DragEvent, type SetStateAction, useCallback } from 'react';
 import { fmtTime } from './curveMath';
 import { readPoolTrackDragPayload, SLOT_REORDER_DND_TYPE, writeSlotReorderDragPayload } from './dnd';
+import { buildMovedIds } from './reorderMath';
 import { localPositionSec } from './transportMath';
 import type { SlotView } from './types';
 import { effectiveTarget } from './types';
@@ -32,6 +33,7 @@ export interface TimelineRowProps {
   onPoolTrackDrop?: (poolTrackId: number, insertIdx: number) => void | Promise<void>;
   onSelectedChange: (selected: boolean) => void;
   onToggleLock?: () => void | Promise<void>;
+  onMoveSlot?: (slotId: number, direction: 'up' | 'down') => void | Promise<void>;
   setMenu: Dispatch<SetStateAction<TimelineMenu | null>>;
   setRowRef?: (idx: number, el: HTMLDivElement | null) => void;
   measureRef?: (idx: number, el: HTMLDivElement | null) => void;
@@ -55,6 +57,7 @@ export default function TimelineRow({
   onPoolTrackDrop,
   onSelectedChange,
   onToggleLock,
+  onMoveSlot,
   setMenu,
   setRowRef,
   measureRef,
@@ -258,6 +261,46 @@ export default function TimelineRow({
             Locked
           </span>
         ) : null}
+        {!slot.locked && (
+          <span className={styles.timelineMoveControls}>
+            <button
+              type="button"
+              className={styles.timelineMoveBtn}
+              draggable={false}
+              aria-label={`Move ${slot.track.title} up`}
+              title="Move up"
+              disabled={buildMovedIds(slots, slot.id, 'up') === null}
+              onClick={(event) => {
+                event.stopPropagation();
+                void onMoveSlot?.(slot.id, 'up');
+              }}
+              data-testid={`timeline-move-up-${idx}`}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 19V5M5 12l7-7 7 7" fill="none" stroke="currentColor"
+                  strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className={styles.timelineMoveBtn}
+              draggable={false}
+              aria-label={`Move ${slot.track.title} down`}
+              title="Move down"
+              disabled={buildMovedIds(slots, slot.id, 'down') === null}
+              onClick={(event) => {
+                event.stopPropagation();
+                void onMoveSlot?.(slot.id, 'down');
+              }}
+              data-testid={`timeline-move-down-${idx}`}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 5v14M5 12l7 7 7-7" fill="none" stroke="currentColor"
+                  strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+              </svg>
+            </button>
+          </span>
+        )}
         <button
           type="button"
           className={styles.timelineLockToggle}

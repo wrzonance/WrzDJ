@@ -51,3 +51,48 @@ describe('TimelineRow drag source', () => {
     expect(readSlotReorderDragPayload(dt)).toEqual({ slotId: 7 });
   });
 });
+
+function renderRowAt(slots: SlotView[], idx: number, onMoveSlot = vi.fn()) {
+  render(
+    <TimelineRow
+      slot={slots[idx]} prevSlot={idx > 0 ? slots[idx - 1] : null}
+      nextSlot={idx < slots.length - 1 ? slots[idx + 1] : null}
+      idx={idx} slots={slots}
+      hoveredIdx={null} currentIdx={-1} positionSec={0} playing={false}
+      selected={false} dropIdx={null} setDropIdx={vi.fn()} onHover={vi.fn()}
+      onSelectedChange={vi.fn()} setMenu={vi.fn()} onMoveSlot={onMoveSlot}
+    />,
+  );
+  return onMoveSlot;
+}
+
+describe('TimelineRow move controls', () => {
+  it('renders up/down controls for an unlocked slot', () => {
+    renderRowAt([slot(1), slot(2), slot(3)], 1);
+    expect(screen.getByTestId('timeline-move-up-1')).toBeTruthy();
+    expect(screen.getByTestId('timeline-move-down-1')).toBeTruthy();
+  });
+
+  it('renders no move controls for a locked slot', () => {
+    renderRowAt([slot(1), slot(2, true), slot(3)], 1);
+    expect(screen.queryByTestId('timeline-move-up-1')).toBeNull();
+    expect(screen.queryByTestId('timeline-move-down-1')).toBeNull();
+  });
+
+  it('disables up on the first slot and down on the last slot', () => {
+    renderRowAt([slot(1), slot(2), slot(3)], 0);
+    expect(screen.getByTestId('timeline-move-up-0').hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('timeline-move-down-0').hasAttribute('disabled')).toBe(false);
+  });
+
+  it('calls onMoveSlot with the slot id and direction on click', () => {
+    const onMoveSlot = renderRowAt([slot(1), slot(2), slot(3)], 1);
+    fireEvent.click(screen.getByTestId('timeline-move-down-1'));
+    expect(onMoveSlot).toHaveBeenCalledWith(2, 'down');
+  });
+
+  it('disables a move that would displace a locked slot', () => {
+    renderRowAt([slot(1), slot(2, true), slot(3)], 2); // slot 3; moving up crosses the lock
+    expect(screen.getByTestId('timeline-move-up-2').hasAttribute('disabled')).toBe(true);
+  });
+});

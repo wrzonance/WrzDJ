@@ -76,6 +76,22 @@ function renderPanel(slots: SlotView[], onSlotReorder = vi.fn()) {
   return onSlotReorder;
 }
 
+describe('TimelinePanel move controls', () => {
+  it('threads onMoveSlot to rows so a control click reports slot id + direction', () => {
+    const slots = [slot(1), slot(2), slot(3)];
+    const onMoveSlot = vi.fn();
+    render(
+      <TimelinePanel
+        slots={slots} hoveredIdx={null} currentIdx={-1} positionSec={0}
+        playing={false} onHover={vi.fn()} scrollRequest={null}
+        onMoveSlot={onMoveSlot}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('timeline-move-down-0'));
+    expect(onMoveSlot).toHaveBeenCalledWith(1, 'down');
+  });
+});
+
 describe('TimelinePanel reorder drop', () => {
   it('calls onSlotReorder with the source slot id and resolved target index', () => {
     const slots = [slot(1), slot(2), slot(3)];

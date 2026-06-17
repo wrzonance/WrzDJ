@@ -43,6 +43,9 @@
     "vitest": "^4.0.18"
   },
   "overrides": {
-    "postcss": "^8.5.10"
+    "postcss": "^8.5.10",
+    "vite": "^8.0.16",
+    "js-yaml": "^4.2.0",
+    "@babel/core": "^7.29.6"
   }
 }

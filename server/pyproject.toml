@@ -13,16 +13,16 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "bcrypt>=4.0.0",
     "httpx>=0.26.0",
-    "python-multipart>=0.0.27",
+    "python-multipart>=0.0.31",  # GHSA-5rvq/v9pg/6jv3/vffw (querystring DoS, neg Content-Length, smuggling)
     "spotipy>=2.23.0",
     "slowapi>=0.1.9",
     "tidalapi>=0.7.0",
     # SECURITY: minimum versions per 2026-04-08 audit P0 CVEs.
     # Bumping transitives to direct deps to enforce floor.
     "Pillow>=12.1.1",        # CVE-2026-25990 (banner upload)
-    "cryptography>=46.0.7",  # CVE-2026-26007, 34073, 39892 (Fernet + JWT)
-    "PyJWT>=2.12.0",         # CVE-2026-32597 (auth lib)
-    "aiohttp>=3.13.4",       # 10x CVE-2026-* (HTTP client)
+    "cryptography>=48.0.1",  # GHSA-537c-gmf6-5ccf / CVE-2026-34180 (vulnerable OpenSSL in wheels)
+    "PyJWT>=2.13.0",         # GHSA-xgmm/993g/w7vc/jq35/fhv5 (HS256 forgery, alg-allowlist bypass, SSRF, DoS)
+    "aiohttp>=3.14.1",       # GHSA cluster (ws memory bypass, HTTP/1 pipeline DoS, CRLF, x-origin cookies)
     "requests>=2.33.0",      # CVE-2026-25645 (URL parsing)
     # SECURITY: minimum versions per 2026-05-07 audit.
     "python-dotenv>=1.2.2",  # CVE-2026-28684 (transitive from pydantic-settings chain)

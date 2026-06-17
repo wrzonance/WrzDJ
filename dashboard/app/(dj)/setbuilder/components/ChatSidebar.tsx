@@ -71,11 +71,30 @@ function lockSkipReasons(tool: AppliedToolCall): string[] {
     .filter((reason): reason is string => Boolean(reason));
 }
 
+function critiqueFlags(tool: AppliedToolCall): { type: string; slotPosition: number | null }[] {
+  if (tool.name !== 'critique_set') return [];
+  const result = tool.result;
+  if (!result || typeof result !== 'object') return [];
+  const flags = (result as Record<string, unknown>).flags;
+  if (!Array.isArray(flags)) return [];
+  return flags
+    .map((item) => {
+      if (!item || typeof item !== 'object' || !('type' in item)) return null;
+      const data = item as Record<string, unknown>;
+      const type = typeof data.type === 'string' ? data.type : '';
+      if (!type) return null;
+      const slotPosition = typeof data.slot_position === 'number' ? data.slot_position : null;
+      return { type, slotPosition };
+    })
+    .filter((flag): flag is { type: string; slotPosition: number | null } => Boolean(flag));
+}
+
 function ToolCard({ tool }: { tool: AppliedToolCall }) {
   const toolName = tool.name.replaceAll('_', ' ');
   const rationale = tool.rationale?.trim() ?? '';
   const summary = tool.display_summary?.trim() || rationale || toolName;
   const skippedLocks = lockSkipReasons(tool);
+  const flags = critiqueFlags(tool);
   return (
     <div className={styles.toolCallCard} data-testid="agent-tool-card">
       <span className={styles.toolName}>{toolName}</span>
@@ -87,6 +106,16 @@ function ToolCard({ tool }: { tool: AppliedToolCall }) {
             {reason}
           </div>
         ))}
+        {flags.length > 0 && (
+          <div className={styles.critiqueFlags}>
+            {flags.map((flag, i) => (
+              <span key={`${flag.type}-${i}`} className={`${styles.flagChip} ${flagTone(flag.type)}`}>
+                {formatFlag(flag.type)}
+                {flag.slotPosition != null ? ` · ${flag.slotPosition + 1}` : ''}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -12,6 +13,7 @@ from app.models.set import Set, SetSlot
 from app.models.set_pool import SetPoolTrack
 from app.models.user import User
 from app.services.llm.base import ChatRequest, Message, ToolSpec
+from app.services.llm.exceptions import NoLlmConfigured
 from app.services.llm.gateway import Gateway
 from app.services.setbuilder import curve
 from app.services.setbuilder.pass1_deterministic import (
@@ -20,6 +22,8 @@ from app.services.setbuilder.pass1_deterministic import (
     transition_score,
 )
 from app.services.setbuilder.pass1_deterministic import _track_meta as _pass1_track_meta
+
+logger = logging.getLogger(__name__)
 
 CritiqueFlagType = Literal[
     "energy_dip",
@@ -117,6 +121,32 @@ async def critique_set(db: Session, actor: User, set_obj: Set) -> SetCritique:
     return _critique_from_payload(payload)
 
 
+async def _chat_critique_result(
+    db: Session, actor: User, set_obj: Set, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Resolve an in-chat ``critique_set`` call to the strong LLM critique.
+
+    Falls back to the deterministic static critique when no connector is
+    configured, so a chat turn degrades gracefully instead of hard-failing.
+    """
+    try:
+        critique = await critique_set(db, actor, set_obj)
+    except NoLlmConfigured:
+        logger.info("Set %s chat critique: no LLM connector, using static fallback", set_obj.id)
+        static_result, _ = _tool_static_critique(db, set_obj, payload)
+        return {**static_result, "available": False}
+    logger.debug("Set %s chat critique: used strong LLM pass", set_obj.id)
+    return {
+        "available": True,
+        "overall_grade": critique.overall_grade,
+        "summary": critique.summary,
+        "flags": [
+            {"type": flag.type, "slot_position": flag.slot_position, "message": flag.message}
+            for flag in critique.flags
+        ],
+    }
+
+
 async def chat_with_agent(
     db: Session,
     actor: User,
@@ -157,10 +187,18 @@ async def chat_with_agent(
     )
     applied: list[AppliedToolCall] = []
     affected: set[int] = set()
+    critique_result: dict[str, Any] | None = None
     try:
         for call in response.tool_calls:
             before = _slot_snapshots(db, set_obj)
-            result, positions = apply_tool_call(db, set_obj, call.name, call.input)
+            if call.name == "critique_set":
+                # Run the strong LLM critique once per turn; reuse it for
+                # duplicate calls so a chat turn never doubles the dispatch.
+                if critique_result is None:
+                    critique_result = await _chat_critique_result(db, actor, set_obj, call.input)
+                result, positions = critique_result, set()
+            else:
+                result, positions = apply_tool_call(db, set_obj, call.name, call.input)
             after = _slot_snapshots(db, set_obj)
             mutating = call.name in MUTATION_TOOLS
             summary = _tool_display_summary(call.name, call.input, result, before, after)
@@ -614,11 +652,21 @@ def _tool_display_summary(
             f"Added slow window {label} from {int(result['t0_sec'])}s to {int(result['t1_sec'])}s."
         )
     if name == "analyze_transition":
-        return (
+        base = (
             f"Analyzed transition into {_position_label(int(result['position']))}: "
             f"{round(float(result['score']))}."
         )
+        warnings = result.get("warnings") or []
+        if warnings:
+            readable = ", ".join(str(warning).replace("_", " ") for warning in warnings)
+            return f"{base} Warnings: {readable}."
+        return base
     if name == "critique_set":
+        grade = result.get("overall_grade")
+        if grade:
+            summary = str(result.get("summary") or "").strip()
+            head = f"Critique grade {grade}."
+            return f"{head} {summary}" if summary else head
         return "Recomputed critique context."
     return name.replace("_", " ").capitalize() + "."
 

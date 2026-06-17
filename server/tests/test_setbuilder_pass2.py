@@ -3,10 +3,12 @@
 import pytest
 from sqlalchemy.orm import Session
 
+from app.models.request import Request
 from app.models.set import Set, SetSlot
 from app.models.set_pool import SetPoolSource, SetPoolTrack
 from app.models.user import User
 from app.services.llm.base import ChatResponse, ToolCall
+from app.services.llm.exceptions import NoLlmConfigured
 from app.services.setbuilder import agent_history
 from app.services.setbuilder.pass2_agent import (
     AgentToolError,
@@ -14,6 +16,23 @@ from app.services.setbuilder.pass2_agent import (
     chat_with_agent,
     critique_set,
 )
+
+
+def _chat_then_critique(chat_calls, critique_input, counter=None):
+    """Fake Gateway.dispatch: chat turn first, real critique on force_tool."""
+
+    async def fake_dispatch(*args, **kwargs):
+        if counter is not None:
+            counter["count"] += 1
+        request = args[2]
+        if getattr(request, "force_tool", None) == "critique_set":
+            return ChatResponse(
+                stop_reason="tool_use",
+                tool_calls=[ToolCall(id="real-crit", name="critique_set", input=critique_input)],
+            )
+        return ChatResponse(text="", stop_reason="tool_use", tool_calls=chat_calls)
+
+    return fake_dispatch
 
 
 def _mk_set_with_tracks(db: Session, user: User) -> Set:
@@ -311,3 +330,120 @@ def test_agent_context_excludes_compacted_recent_messages(db: Session, test_user
 
     assert [m.content for m in messages[-3:]] == ["turn 3", "turn 4", "current"]
     assert "turn 2" not in [m.content for m in messages]
+
+
+@pytest.mark.asyncio
+async def test_agent_critique_set_returns_real_llm_critique(
+    monkeypatch, db: Session, test_user: User
+):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    fake = _chat_then_critique(
+        chat_calls=[ToolCall(id="chat-crit", name="critique_set", input={})],
+        critique_input={
+            "overall_grade": "A-",
+            "summary": "Tight arc, strong peak.",
+            "flags": [{"type": "banger_buried", "slot_position": 1}],
+        },
+    )
+    monkeypatch.setattr("app.services.setbuilder.pass2_agent.Gateway.dispatch", fake)
+
+    result = await chat_with_agent(db, test_user, set_obj, message="Critique this set")
+
+    call = result.tool_calls[0]
+    assert call.name == "critique_set"
+    assert call.result["overall_grade"] == "A-"
+    assert call.result["flags"][0]["type"] == "banger_buried"
+    assert "A-" in call.display_summary
+
+
+@pytest.mark.asyncio
+async def test_agent_critique_dispatches_llm_once_per_turn(
+    monkeypatch, db: Session, test_user: User
+):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    counter = {"count": 0}
+    fake = _chat_then_critique(
+        chat_calls=[
+            ToolCall(id="c1", name="critique_set", input={}),
+            ToolCall(id="c2", name="critique_set", input={}),
+        ],
+        critique_input={"overall_grade": "B", "summary": "", "flags": []},
+        counter=counter,
+    )
+    monkeypatch.setattr("app.services.setbuilder.pass2_agent.Gateway.dispatch", fake)
+
+    result = await chat_with_agent(db, test_user, set_obj, message="Critique twice")
+
+    assert len(result.tool_calls) == 2
+    assert counter["count"] == 2  # one chat dispatch + one critique dispatch (deduped)
+    assert all(c.result["overall_grade"] == "B" for c in result.tool_calls)
+
+
+@pytest.mark.asyncio
+async def test_agent_critique_degrades_when_no_llm(monkeypatch, db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+
+    async def fake_dispatch(*args, **kwargs):
+        request = args[2]
+        if getattr(request, "force_tool", None) == "critique_set":
+            raise NoLlmConfigured("no connector")
+        return ChatResponse(
+            text="",
+            stop_reason="tool_use",
+            tool_calls=[ToolCall(id="chat-crit", name="critique_set", input={})],
+        )
+
+    monkeypatch.setattr("app.services.setbuilder.pass2_agent.Gateway.dispatch", fake_dispatch)
+
+    result = await chat_with_agent(db, test_user, set_obj, message="Critique this set")
+
+    call = result.tool_calls[0]
+    assert call.result["available"] is False
+    assert "slot_count" in call.result  # static fallback fields present
+
+
+@pytest.mark.asyncio
+async def test_agent_critique_leaves_event_requests_untouched(
+    monkeypatch, db: Session, test_user: User, test_request: Request
+):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    before_count = db.query(Request).count()
+    before_title = test_request.song_title
+    fake = _chat_then_critique(
+        chat_calls=[ToolCall(id="chat-crit", name="critique_set", input={})],
+        critique_input={"overall_grade": "C", "summary": "ok", "flags": []},
+    )
+    monkeypatch.setattr("app.services.setbuilder.pass2_agent.Gateway.dispatch", fake)
+
+    await chat_with_agent(db, test_user, set_obj, message="Critique this set")
+
+    db.refresh(test_request)
+    assert db.query(Request).count() == before_count
+    assert test_request.song_title == before_title
+
+
+def test_tool_display_summary_includes_transition_warnings():
+    summary = _tool_display_summary(
+        "analyze_transition",
+        {},
+        {"position": 2, "score": 68.0, "warnings": ["bpm_jump", "key_clash"]},
+        {},
+        {},
+    )
+
+    assert "slot 3" in summary
+    assert "68" in summary
+    assert "bpm jump" in summary
+    assert "key clash" in summary
+
+
+def test_tool_display_summary_transition_omits_empty_warnings():
+    summary = _tool_display_summary(
+        "analyze_transition",
+        {},
+        {"position": 1, "score": 90.0, "warnings": []},
+        {},
+        {},
+    )
+
+    assert summary == "Analyzed transition into slot 2: 90."

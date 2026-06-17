@@ -59,6 +59,12 @@ function fireReorderDrop(el: Element, dataTransfer: DataTransfer, clientY: numbe
   fireEvent(el, event);
 }
 
+function fireReorderDragOver(el: Element, dataTransfer: DataTransfer, clientY: number) {
+  const event = createEvent.dragOver(el, { dataTransfer });
+  Object.defineProperty(event, 'clientY', { value: clientY });
+  fireEvent(el, event);
+}
+
 function renderPanel(slots: SlotView[], onSlotReorder = vi.fn()) {
   render(
     <TimelinePanel
@@ -104,5 +110,26 @@ describe('TimelinePanel reorder drop', () => {
     fireEvent.dragStart(screen.getByTestId('timeline-row-0'), { dataTransfer: dt });
     fireReorderDrop(list, dt, 999);
     expect(onSlotReorder).not.toHaveBeenCalled();
+  });
+
+  it('reorders when the drop lands on a row (bubbles past the row pool handler)', () => {
+    const slots = [slot(1), slot(2), slot(3)];
+    const onSlotReorder = renderPanel(slots);
+    const dt = reorderDataTransfer(1);
+    // Drop ON a row, not the list root — this is where real drops land. The
+    // row must let the reorder drag bubble to the list's reorder handler.
+    fireEvent.dragStart(screen.getByTestId('timeline-row-0'), { dataTransfer: dt });
+    fireReorderDrop(screen.getByTestId('timeline-row-2'), dt, 999);
+    expect(onSlotReorder).toHaveBeenCalledTimes(1);
+    expect(onSlotReorder).toHaveBeenCalledWith(1, 3);
+  });
+
+  it('reports a move dropEffect for a reorder dragover bubbled from a row', () => {
+    const slots = [slot(1), slot(2), slot(3)];
+    renderPanel(slots);
+    const dt = reorderDataTransfer(1);
+    fireEvent.dragStart(screen.getByTestId('timeline-row-0'), { dataTransfer: dt });
+    fireReorderDragOver(screen.getByTestId('timeline-row-1'), dt, 60);
+    expect(dt.dropEffect).toBe('move');
   });
 });

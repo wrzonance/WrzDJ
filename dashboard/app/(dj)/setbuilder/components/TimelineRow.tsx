@@ -2,7 +2,7 @@
 
 import { type Dispatch, type DragEvent, type SetStateAction, useCallback } from 'react';
 import { fmtTime } from './curveMath';
-import { readPoolTrackDragPayload, writeSlotReorderDragPayload } from './dnd';
+import { readPoolTrackDragPayload, SLOT_REORDER_DND_TYPE, writeSlotReorderDragPayload } from './dnd';
 import { localPositionSec } from './transportMath';
 import type { SlotView } from './types';
 import { effectiveTarget } from './types';
@@ -167,11 +167,17 @@ export default function TimelineRow({
         onMouseLeave={() => onHover(null)}
         onDoubleClick={() => onRowDoubleClick?.(idx)}
         onDragOver={(event) => {
+          // Let slot-reorder drags bubble to the list's reorder handler — do
+          // not consume them here (no stopPropagation, no preventDefault).
+          if (event.dataTransfer.types?.includes(SLOT_REORDER_DND_TYPE)) return;
           event.stopPropagation();
           markPoolTrackDrop(event, idx);
         }}
         onDragLeave={clearDropIfLeaving}
-        onDrop={(event) => handlePoolTrackDrop(event, idx)}
+        onDrop={(event) => {
+          if (event.dataTransfer.types?.includes(SLOT_REORDER_DND_TYPE)) return;
+          handlePoolTrackDrop(event, idx);
+        }}
         onContextMenu={(event) => {
           if (idx >= slots.length - 1) return;
           event.preventDefault();

@@ -4,7 +4,8 @@
  * Minimal timeline list (#389) — ordered slot rows with BPM/key/energy
  * badges and bidirectional hover sync with the curve. Clicking a curve
  * block scrolls the matching row into view, including virtualized rows.
- * Full drag-reorder timeline lands with #390/#397.
+ * Hand-drag reorder (#437): unlocked rows are drag sources and the list
+ * accepts slot-reorder drops, blocking any move that crosses a locked slot.
  */
 
 import {
@@ -260,7 +261,7 @@ export default function TimelinePanel({
   };
 
   const dragIsReorder = (event: DragEvent<HTMLElement>) =>
-    event.dataTransfer.types.includes(SLOT_REORDER_DND_TYPE);
+    event.dataTransfer.types?.includes(SLOT_REORDER_DND_TYPE) ?? false;
 
   const reorderWouldCrossLock = (fromIdx: number, insertIdx: number) => {
     const target = insertIdx > fromIdx ? insertIdx - 1 : insertIdx;

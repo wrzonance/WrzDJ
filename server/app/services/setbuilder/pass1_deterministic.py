@@ -107,6 +107,8 @@ def recompute_transition_scores(
     set_obj: Set,
     slots: list[SetSlot] | None = None,
     affected_positions: set[int] | None = None,
+    *,
+    commit: bool = True,
 ) -> list[TransitionScore]:
     """Recompute transition scores for all or affected slots, honoring current order."""
     if slots is None:
@@ -130,7 +132,10 @@ def recompute_transition_scores(
         scores.append(
             TransitionScore(slot_id=slot.id, position=slot.position, score=score, warnings=warnings)
         )
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return scores
 
 

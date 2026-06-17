@@ -21,6 +21,7 @@ import type {
   LlmFeaturePreferences,
   LlmFeaturePreferenceSet,
   ArchivedEvent,
+  AgentChatHistory,
   AgentChatIn,
   AgentChatOut,
   BeatportEventSettings,
@@ -124,6 +125,8 @@ export type {
   LlmFeaturePreferenceSet,
   LlmUsageRow,
   ArchivedEvent,
+  AgentChatHistory,
+  AgentChatMessage,
   AgentChatIn,
   AgentChatOut,
   BeatportEventSettings,
@@ -779,6 +782,9 @@ class ApiClient {
   }
   async critiqueSet(setId: number): Promise<SetCritique> {
     return this.fetch(`/api/setbuilder/sets/${setId}/critique`, { method: 'POST' });
+  }
+  async getSetAgentHistory(setId: number): Promise<AgentChatHistory> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/agent/history`);
   }
   async chatWithSetAgent(setId: number, payload: AgentChatIn): Promise<AgentChatOut> {
     return this.fetch(`/api/setbuilder/sets/${setId}/agent/chat`, {

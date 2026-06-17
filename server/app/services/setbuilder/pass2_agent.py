@@ -76,6 +76,7 @@ class AppliedToolCall:
     rationale: str | None
     result: dict[str, Any]
     mutating: bool
+    display_summary: str
 
 
 @dataclass(frozen=True)
@@ -123,15 +124,18 @@ async def chat_with_agent(
     *,
     message: str,
     history: list[dict[str, str]] | None = None,
+    messages: list[Message] | None = None,
+    commit: bool = True,
 ) -> AgentChatResult:
     """Run one chat turn and apply any requested setbuilder tools."""
-    messages = [Message(role="user", content=_set_context(db, set_obj))]
-    for item in history or []:
-        role = item.get("role")
-        content = item.get("content")
-        if role in {"user", "assistant"} and content:
-            messages.append(Message(role=role, content=content))
-    messages.append(Message(role="user", content=message))
+    if messages is None:
+        messages = [Message(role="user", content=_set_context(db, set_obj))]
+        for item in history or []:
+            role = item.get("role")
+            content = item.get("content")
+            if role in {"user", "assistant"} and content:
+                messages.append(Message(role=role, content=content))
+        messages.append(Message(role="user", content=message))
 
     response = await Gateway.dispatch(
         db,
@@ -153,28 +157,45 @@ async def chat_with_agent(
     )
     applied: list[AppliedToolCall] = []
     affected: set[int] = set()
-    for call in response.tool_calls:
-        result, positions = apply_tool_call(db, set_obj, call.name, call.input)
-        mutating = call.name in MUTATION_TOOLS
-        applied.append(
-            AppliedToolCall(
-                id=call.id,
-                name=call.name,
-                args=call.input,
-                rationale=call.input.get("rationale"),
-                result=result,
-                mutating=mutating,
+    try:
+        for call in response.tool_calls:
+            before = _slot_snapshots(db, set_obj)
+            result, positions = apply_tool_call(db, set_obj, call.name, call.input)
+            after = _slot_snapshots(db, set_obj)
+            mutating = call.name in MUTATION_TOOLS
+            summary = _tool_display_summary(call.name, call.input, result, before, after)
+            applied.append(
+                AppliedToolCall(
+                    id=call.id,
+                    name=call.name,
+                    args=call.input,
+                    rationale=call.input.get("rationale"),
+                    result=result,
+                    mutating=mutating,
+                    display_summary=summary,
+                )
             )
-        )
-        affected.update(positions)
+            affected.update(positions)
 
-    slots = _ordered_slots(db, set_obj.id)
-    transition_scores: list[TransitionScore] = []
-    if affected:
-        affected_with_neighbors = _with_neighbors(affected)
-        transition_scores = recompute_transition_scores(db, set_obj, slots, affected_with_neighbors)
+        message = response.text or ""
+        if not message.strip() and applied:
+            message = " ".join(tool.display_summary for tool in applied)
+
+        slots = _ordered_slots(db, set_obj.id)
+        transition_scores: list[TransitionScore] = []
+        if affected:
+            affected_with_neighbors = _with_neighbors(affected)
+            transition_scores = recompute_transition_scores(
+                db, set_obj, slots, affected_with_neighbors, commit=False
+            )
+    except Exception:
+        if commit:
+            db.rollback()
+        raise
+    if commit:
+        db.commit()
     return AgentChatResult(
-        message=response.text,
+        message=message,
         tool_calls=applied,
         slots=slots,
         affected_transition_scores=transition_scores,
@@ -227,7 +248,7 @@ def _tool_reorder_slot(
     remaining.insert(new_position, moving)
     for idx, row in enumerate(remaining):
         row.position = idx
-    db.commit()
+    db.flush()
     return {"slot_id": slot.id, "position": new_position}, set(range(low, high + 1))
 
 
@@ -240,7 +261,7 @@ def _tool_swap_slots(
         raise AgentToolError("Locked slots cannot be swapped")
     a.track_id, b.track_id = b.track_id, a.track_id
     a.target_energy, b.target_energy = b.target_energy, a.target_energy
-    db.commit()
+    db.flush()
     return {"slot_a_id": a.id, "slot_b_id": b.id}, {a.position, b.position}
 
 
@@ -258,7 +279,7 @@ def _tool_remove_slot(
     for row in slots:
         if row.id != slot.id and row.position > position:
             row.position -= 1
-    db.commit()
+    db.flush()
     return {"removed_slot_id": slot.id}, {position}
 
 
@@ -298,7 +319,7 @@ def _tool_add_slow_window(
         raise AgentToolError("t1_sec must be greater than t0_sec")
     windows = curve.get_vibe_windows(db, set_obj.id)
     windows.append({"t0_sec": t0_sec, "t1_sec": t1_sec, "label": label})
-    curve.replace_vibe_windows(db, set_obj, windows)
+    curve.replace_vibe_windows(db, set_obj, windows, commit=False)
     return {"label": label, "t0_sec": t0_sec, "t1_sec": t1_sec}, set()
 
 
@@ -309,7 +330,7 @@ def _tool_set_peak_at(
     energy = float(payload.get("energy", 10.0))
     slot = _slot_at_position_or_error(db, set_obj.id, position)
     slot.target_energy = round(max(0.0, min(10.0, energy)), 1)
-    db.commit()
+    db.flush()
     return {"slot_id": slot.id, "target_energy": slot.target_energy}, {slot.position}
 
 
@@ -326,7 +347,7 @@ def _tool_bump_energy(
     for slot in slots:
         base = slot.target_energy if slot.target_energy is not None else 5.0
         slot.target_energy = round(max(0.0, min(10.0, base + amount)), 1)
-    db.commit()
+    db.flush()
     return {"updated": len(slots)}, {s.position for s in slots}
 
 
@@ -371,7 +392,7 @@ def _insert_track_at(
             slot.position += 1
     slot_track_id = track.track_id or f"pool:{track.id}"
     db.add(SetSlot(set_id=set_obj.id, position=position, track_id=slot_track_id))
-    db.commit()
+    db.flush()
     return {"pool_track_id": track.id, "position": position}, set(range(position, len(slots) + 1))
 
 
@@ -516,6 +537,90 @@ def _critique_tool() -> ToolSpec:
             "required": ["overall_grade", "flags"],
         },
     )
+
+
+def _slot_snapshots(db: Session, set_obj: Set) -> dict[int, dict[str, Any]]:
+    tracks = {_pass1_track_meta(t).slot_track_id: t for t in _pool_tracks(db, set_obj.id)}
+    snapshots: dict[int, dict[str, Any]] = {}
+    for slot in _ordered_slots(db, set_obj.id):
+        track = tracks.get(slot.track_id or "")
+        title = track.title if track else f"slot {slot.position + 1}"
+        artist = track.artist if track else None
+        label = f"{title} - {artist}" if artist else title
+        snapshots[slot.id] = {
+            "slot_id": slot.id,
+            "position": slot.position,
+            "track_id": slot.track_id,
+            "label": label,
+            "target_energy": slot.target_energy,
+        }
+    return snapshots
+
+
+def _position_label(position: int) -> str:
+    return f"slot {position + 1}"
+
+
+def _tool_display_summary(
+    name: str,
+    payload: dict[str, Any],
+    result: dict[str, Any],
+    before: dict[int, dict[str, Any]],
+    after: dict[int, dict[str, Any]],
+) -> str:
+    if name == "swap_slots":
+        a = before.get(int(payload["slot_a_id"]))
+        b = before.get(int(payload["slot_b_id"]))
+        if a and b:
+            return (
+                f"Swapped {_position_label(a['position'])} {a['label']} with "
+                f"{_position_label(b['position'])} {b['label']}."
+            )
+    if name == "reorder_slot":
+        slot = before.get(int(payload["slot_id"]))
+        if slot:
+            return (
+                f"Moved {slot['label']} from {_position_label(slot['position'])} to "
+                f"{_position_label(int(result['position']))}."
+            )
+    if name == "remove_slot":
+        removed = before.get(int(payload["slot_id"]))
+        if removed:
+            return f"Removed {removed['label']} from {_position_label(removed['position'])}."
+    if name in {"insert_from_pool", "search_and_insert"}:
+        position = int(result["position"])
+        inserted = next((s for s in after.values() if s["position"] == position), None)
+        label = inserted["label"] if inserted else "a pool track"
+        return f"Added {label} at {_position_label(position)}."
+    if name == "bump_energy":
+        updated = int(result.get("updated") or 0)
+        amount = float(payload["amount"])
+        direction = "Raised" if amount >= 0 else "Lowered"
+        return (
+            f"{direction} target energy by {abs(amount):g} across {updated} "
+            f"slot{'s' if updated != 1 else ''}."
+        )
+    if name == "set_peak_at":
+        position = int(payload["position"])
+        slot = next((s for s in after.values() if s["position"] == position), None)
+        label = f" {slot['label']}" if slot else ""
+        return (
+            f"Set {_position_label(position)}{label} as the energy peak at "
+            f"{float(result['target_energy']):g}."
+        )
+    if name == "add_slow_window":
+        label = str(result.get("label") or "Slow window")
+        return (
+            f"Added slow window {label} from {int(result['t0_sec'])}s to {int(result['t1_sec'])}s."
+        )
+    if name == "analyze_transition":
+        return (
+            f"Analyzed transition into {_position_label(int(result['position']))}: "
+            f"{round(float(result['score']))}."
+        )
+    if name == "critique_set":
+        return "Recomputed critique context."
+    return name.replace("_", " ").capitalize() + "."
 
 
 def _agent_tools() -> list[ToolSpec]:

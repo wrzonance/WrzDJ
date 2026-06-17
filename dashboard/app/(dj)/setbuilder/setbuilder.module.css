@@ -464,6 +464,9 @@
 }
 .panelChat {
   grid-area: chat;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .panelHeaderInline {
@@ -595,6 +598,8 @@
 .chatSection {
   min-width: 0;
   min-height: 0;
+  height: 100%;
+  overflow: hidden;
   background: var(--bg);
 }
 
@@ -643,6 +648,15 @@
   padding: 0.65rem 0.75rem;
   border-bottom: 1px solid var(--border-subtle);
   background: var(--card);
+}
+
+.chatContextMeta {
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg);
+  color: var(--text-tertiary, var(--text-secondary));
+  font-size: 0.6875rem;
+  line-height: 1.35;
 }
 
 .personaToggle {
@@ -841,6 +855,12 @@
   font-family: var(--font-mono), monospace;
   font-size: 0.6563rem;
   overflow-wrap: anywhere;
+}
+
+.toolSummary {
+  color: var(--text);
+  font-size: 0.75rem;
+  line-height: 1.4;
 }
 
 .toolRationale {

@@ -254,7 +254,9 @@ def get_vibe_windows(db: Session, set_id: int) -> list[dict]:
     return windows
 
 
-def replace_vibe_windows(db: Session, set_obj: Set, windows: list[dict]) -> list[dict]:
+def replace_vibe_windows(
+    db: Session, set_obj: Set, windows: list[dict], *, commit: bool = True
+) -> list[dict]:
     """Replace-all vibe windows for a set; returns the stored windows."""
     db.query(SetCurvePoint).filter(
         SetCurvePoint.set_id == set_obj.id,
@@ -280,5 +282,8 @@ def replace_vibe_windows(db: Session, set_obj: Set, windows: list[dict]) -> list
                 is_slow_window_end=True,
             )
         )
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return get_vibe_windows(db, set_obj.id)

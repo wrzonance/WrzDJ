@@ -7,8 +7,10 @@ from app.models.set import Set, SetSlot
 from app.models.set_pool import SetPoolSource, SetPoolTrack
 from app.models.user import User
 from app.services.llm.base import ChatResponse, ToolCall
+from app.services.setbuilder import agent_history
 from app.services.setbuilder.pass2_agent import (
     AgentToolError,
+    _tool_display_summary,
     chat_with_agent,
     critique_set,
 )
@@ -131,6 +133,89 @@ async def test_agent_swap_applies_and_returns_rationale(monkeypatch, db: Session
 
 
 @pytest.mark.asyncio
+async def test_agent_swap_returns_readable_tool_summary(monkeypatch, db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    slots = sorted(set_obj.slots, key=lambda s: s.position)
+
+    async def fake_dispatch(*args, **kwargs):
+        return ChatResponse(
+            text="",
+            stop_reason="tool_use",
+            tool_calls=[
+                ToolCall(
+                    id="swap-1",
+                    name="swap_slots",
+                    input={
+                        "slot_a_id": slots[0].id,
+                        "slot_b_id": slots[1].id,
+                        "rationale": "Start with the stronger groove.",
+                    },
+                )
+            ],
+        )
+
+    monkeypatch.setattr("app.services.setbuilder.pass2_agent.Gateway.dispatch", fake_dispatch)
+
+    result = await chat_with_agent(db, test_user, set_obj, message="Swap the first two")
+
+    assert result.message == "Swapped slot 1 Track 0 - Artist 0 with slot 2 Track 1 - Artist 1."
+    assert result.tool_calls[0].display_summary == result.message
+
+
+@pytest.mark.asyncio
+async def test_agent_preserves_non_empty_gateway_text(monkeypatch, db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    slots = sorted(set_obj.slots, key=lambda s: s.position)
+
+    async def fake_dispatch(*args, **kwargs):
+        return ChatResponse(
+            text="  I swapped the opener.\n",
+            stop_reason="tool_use",
+            tool_calls=[
+                ToolCall(
+                    id="swap-1",
+                    name="swap_slots",
+                    input={
+                        "slot_a_id": slots[0].id,
+                        "slot_b_id": slots[1].id,
+                        "rationale": "Start with the stronger groove.",
+                    },
+                )
+            ],
+        )
+
+    monkeypatch.setattr("app.services.setbuilder.pass2_agent.Gateway.dispatch", fake_dispatch)
+
+    result = await chat_with_agent(db, test_user, set_obj, message="Swap the first two")
+
+    assert result.message == "  I swapped the opener.\n"
+
+
+def test_tool_display_summary_handles_reorder_and_fallback():
+    before = {
+        10: {
+            "slot_id": 10,
+            "position": 0,
+            "track_id": "tidal:0",
+            "label": "Track 0 - Artist 0",
+            "target_energy": None,
+        }
+    }
+
+    assert (
+        _tool_display_summary(
+            "reorder_slot",
+            {"slot_id": 10},
+            {"position": 2},
+            before,
+            {},
+        )
+        == "Moved Track 0 - Artist 0 from slot 1 to slot 3."
+    )
+    assert _tool_display_summary("unknown_tool", {}, {}, {}, {}) == "Unknown tool."
+
+
+@pytest.mark.asyncio
 async def test_agent_remove_does_not_shift_locked_slots(monkeypatch, db: Session, test_user: User):
     set_obj = _mk_set_with_tracks(db, test_user)
     slots = sorted(set_obj.slots, key=lambda s: s.position)
@@ -156,3 +241,73 @@ async def test_agent_remove_does_not_shift_locked_slots(monkeypatch, db: Session
 
     with pytest.raises(AgentToolError, match="locked"):
         await chat_with_agent(db, test_user, set_obj, message="Remove the opener")
+
+
+def test_agent_context_uses_summary_and_recent_messages(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    session = agent_history.get_or_create_session(db, set_obj.id, test_user.id)
+    session.context_summary = "Earlier: user asked for a softer cocktail section."
+    for idx in range(8):
+        agent_history.append_message(
+            db,
+            session,
+            role="user" if idx % 2 == 0 else "assistant",
+            content=f"turn {idx}",
+        )
+
+    messages = agent_history.context_messages(db, set_obj, session, "new request", recent_limit=3)
+
+    assert "Earlier: user asked" in messages[1].content
+    assert [m.content for m in messages[-4:]] == ["turn 5", "turn 6", "turn 7", "new request"]
+
+
+def test_agent_compaction_updates_summary_without_gateway(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    session = agent_history.get_or_create_session(db, set_obj.id, test_user.id)
+    for idx in range(agent_history.COMPACTION_TURN_THRESHOLD + 1):
+        agent_history.append_message(
+            db,
+            session,
+            role="assistant",
+            content=f"assistant turn {idx}",
+            display_summary=f"Moved Track {idx}.",
+        )
+
+    changed = agent_history.compact_if_needed(db, session)
+
+    assert changed is True
+    assert session.context_summary is not None
+    assert "Moved Track 0." in session.context_summary
+    assert session.compacted_through_message_id is not None
+
+
+def test_agent_decode_json_list_filters_non_dict_entries():
+    raw = '[{"name":"swap_slots"},"x",1,{"name":"analyze_transition"}]'
+
+    decoded = agent_history.decode_json_list(raw)
+
+    assert decoded == [{"name": "swap_slots"}, {"name": "analyze_transition"}]
+
+
+def test_agent_decode_json_list_handles_invalid_payloads():
+    assert agent_history.decode_json_list(None) == []
+    assert agent_history.decode_json_list("{bad json") == []
+    assert agent_history.decode_json_list('{"name":"swap_slots"}') == []
+    assert agent_history.decode_json_list('["x",1]') == []
+
+
+def test_agent_context_excludes_compacted_recent_messages(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    session = agent_history.get_or_create_session(db, set_obj.id, test_user.id)
+    persisted = [
+        agent_history.append_message(db, session, role="user", content=f"turn {idx}")
+        for idx in range(5)
+    ]
+    session.context_summary = "Earlier compacted turns."
+    session.compacted_through_message_id = persisted[2].id
+    db.commit()
+
+    messages = agent_history.context_messages(db, set_obj, session, "current", recent_limit=10)
+
+    assert [m.content for m in messages[-3:]] == ["turn 3", "turn 4", "current"]
+    assert "turn 2" not in [m.content for m in messages]

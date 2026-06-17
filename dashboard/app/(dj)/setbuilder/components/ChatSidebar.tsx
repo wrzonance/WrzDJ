@@ -1,18 +1,21 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
-import type { AppliedToolCall, SetCritique, TransitionScore } from '@/lib/api-types';
+import type {
+  AgentChatMessage,
+  AppliedToolCall,
+  SetCritique,
+  TransitionScore,
+} from '@/lib/api-types';
 import styles from '../setbuilder.module.css';
 
 type Persona = 'peer' | 'pro';
 
-interface ChatEntry {
-  role: 'user' | 'assistant';
-  content: string;
-  toolCalls?: AppliedToolCall[];
-  transitionScores?: TransitionScore[];
-}
+type ChatEntry = Pick<
+  AgentChatMessage,
+  'id' | 'role' | 'content' | 'display_summary' | 'tool_calls' | 'affected_transition_scores'
+> & { pending?: boolean };
 
 const PEER_SUGGESTIONS = [
   'Why is the weakest transition flagged?',
@@ -69,14 +72,16 @@ function lockSkipReasons(tool: AppliedToolCall): string[] {
 }
 
 function ToolCard({ tool }: { tool: AppliedToolCall }) {
-  const args = JSON.stringify(tool.args);
+  const toolName = tool.name.replaceAll('_', ' ');
+  const rationale = tool.rationale?.trim() ?? '';
+  const summary = tool.display_summary?.trim() || rationale || toolName;
   const skippedLocks = lockSkipReasons(tool);
   return (
     <div className={styles.toolCallCard} data-testid="agent-tool-card">
-      <span className={styles.toolName}>{tool.name}</span>
+      <span className={styles.toolName}>{toolName}</span>
       <div className={styles.toolBody}>
-        <div className={styles.toolArgs}>{args}</div>
-        {tool.rationale && <div className={styles.toolRationale}>&quot;{tool.rationale}&quot;</div>}
+        <div className={styles.toolSummary}>{summary}</div>
+        {rationale && rationale !== summary && <div className={styles.toolRationale}>{rationale}</div>}
         {skippedLocks.map((reason) => (
           <div key={reason} className={styles.toolRationale} data-testid="agent-lock-skip">
             {reason}
@@ -136,10 +141,17 @@ export default function ChatSidebar({
   const [persona, setPersona] = useState<Persona>('peer');
   const [critique, setCritique] = useState<SetCritique | null>(null);
   const [entries, setEntries] = useState<ChatEntry[]>([]);
+  const [historyMeta, setHistoryMeta] = useState<{
+    usesCompactContext: boolean;
+    recentTurnLimit: number;
+  } | null>(null);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const historyRequestIdRef = useRef(0);
+  const historyErrorRef = useRef<string | null>(null);
+  const hasLocalTurnRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -160,42 +172,79 @@ export default function ChatSidebar({
   }, [setId, refreshToken]);
 
   useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const requestId = historyRequestIdRef.current + 1;
+    historyRequestIdRef.current = requestId;
+    hasLocalTurnRef.current = false;
+
+    api
+      .getSetAgentHistory(setId)
+      .then((history) => {
+        if (cancelled || historyRequestIdRef.current !== requestId) return;
+        if (!hasLocalTurnRef.current) {
+          setEntries(history.messages);
+        }
+        setHistoryMeta({
+          usesCompactContext: history.uses_compact_context,
+          recentTurnLimit: history.recent_turn_limit,
+        });
+        const staleHistoryError = historyErrorRef.current;
+        setError((current) => (current === staleHistoryError ? null : current));
+        historyErrorRef.current = null;
+      })
+      .catch((err) => {
+        if (cancelled || historyRequestIdRef.current !== requestId) return;
+        const message = err instanceof Error ? err.message : 'Agent history unavailable';
+        historyErrorRef.current = message;
+        setError(message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, setId]);
+
+  useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [entries, busy]);
 
   const suggestions = persona === 'peer' ? PEER_SUGGESTIONS : PRO_SUGGESTIONS;
-  const history = useMemo(
-    () =>
-      entries
-        .filter((entry) => entry.content.trim())
-        .slice(-30)
-        .map((entry) => ({ role: entry.role, content: entry.content })),
-    [entries],
-  );
 
   const send = async (override?: string) => {
     const message = (override ?? input).trim();
     if (!message || busy) return;
-    setEntries((prev) => [...prev, { role: 'user', content: message }]);
+    hasLocalTurnRef.current = true;
+    const pendingEntry: ChatEntry = {
+      id: -Date.now(),
+      role: 'user',
+      content: message,
+      display_summary: null,
+      tool_calls: [],
+      affected_transition_scores: [],
+      pending: true,
+    };
+    setEntries((prev) => [...prev, pendingEntry]);
     setInput('');
     setBusy(true);
     setError(null);
     try {
-      const result = await api.chatWithSetAgent(setId, {
-        message,
-        history,
-      });
+      const result = await api.chatWithSetAgent(setId, { message });
       setEntries((prev) => [
-        ...prev,
+        ...prev.filter((entry) => entry.id !== pendingEntry.id),
         {
-          role: 'assistant',
-          content: result.message || 'Applied tool call.',
-          toolCalls: result.tool_calls,
-          transitionScores: result.affected_transition_scores,
+          id: pendingEntry.id,
+          role: 'user',
+          content: message,
+          display_summary: null,
+          tool_calls: [],
+          affected_transition_scores: [],
         },
+        result.assistant_message,
       ]);
-      if (result.tool_calls.some((tool) => tool.mutating)) onMutationApplied();
+      const mutatingTools = [...result.tool_calls, ...result.assistant_message.tool_calls];
+      if (mutatingTools.some((tool) => tool.mutating)) onMutationApplied();
     } catch (err) {
+      setEntries((prev) => prev.filter((entry) => entry.id !== pendingEntry.id));
       setError(formatAgentError(err));
     } finally {
       setBusy(false);
@@ -234,6 +283,13 @@ export default function ChatSidebar({
         </button>
       </div>
 
+      {historyMeta && (
+        <div className={styles.chatContextMeta}>
+          {historyMeta.usesCompactContext
+            ? `Uses compact context + last ${historyMeta.recentTurnLimit} turns`
+            : 'Uses recent turns'}
+        </div>
+      )}
       {critique && <CritiqueCard critique={critique} persona={persona} />}
       {error && (
         <div className={styles.chatError} role="alert">
@@ -245,9 +301,9 @@ export default function ChatSidebar({
         {entries.length === 0 && (
           <div className={styles.chatEmpty}>Ask the agent to critique, explain, or edit the timeline.</div>
         )}
-        {entries.map((entry, i) => (
+        {entries.map((entry) => (
           <div
-            key={`${entry.role}-${i}`}
+            key={entry.id}
             className={`${styles.chatMessage} ${entry.role === 'user' ? styles.chatUser : styles.chatAgent}`}
           >
             <div className={styles.chatAuthor}>
@@ -257,11 +313,11 @@ export default function ChatSidebar({
                   ? 'WrzDJ Agent'
                   : 'WrzDJSet Assistant'}
             </div>
-            <div className={styles.chatBubble}>{entry.content}</div>
-            {entry.toolCalls?.map((tool) => <ToolCard key={tool.id} tool={tool} />)}
-            {entry.transitionScores && entry.transitionScores.length > 0 && (
+            <div className={styles.chatBubble}>{entry.display_summary || entry.content}</div>
+            {entry.tool_calls?.map((tool) => <ToolCard key={tool.id} tool={tool} />)}
+            {entry.affected_transition_scores && entry.affected_transition_scores.length > 0 && (
               <div className={styles.scoreUpdate}>
-                {entry.transitionScores.map((score) => (
+                {entry.affected_transition_scores.map((score: TransitionScore) => (
                   <span key={score.slot_id}>
                     slot {score.position + 1}: {Math.round(score.score)}
                   </span>

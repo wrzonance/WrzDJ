@@ -501,6 +501,29 @@ class AppliedToolCallOut(BaseModel):
     rationale: str | None
     result: dict
     mutating: bool
+    display_summary: str = ""
+
+
+class AgentChatMessageOut(BaseModel):
+    """One persisted agent sidebar message."""
+
+    id: int
+    role: Literal["user", "assistant"]
+    content: str
+    display_summary: str | None = None
+    tool_calls: list[AppliedToolCallOut] = Field(default_factory=list)
+    affected_transition_scores: list[TransitionScoreOut] = Field(default_factory=list)
+    created_at: datetime
+
+
+class AgentChatHistoryOut(BaseModel):
+    """Persisted agent sidebar transcript and compact context metadata."""
+
+    messages: list[AgentChatMessageOut]
+    context_summary: str | None = None
+    compacted_through_message_id: int | None = None
+    uses_compact_context: bool = True
+    recent_turn_limit: int
 
 
 class AgentChatOut(BaseModel):
@@ -510,6 +533,7 @@ class AgentChatOut(BaseModel):
     tool_calls: list[AppliedToolCallOut]
     slots: list[SlotOut]
     affected_transition_scores: list[TransitionScoreOut]
+    assistant_message: AgentChatMessageOut
 
 
 # ---------------------------------------------------------------------------

@@ -78,52 +78,59 @@ describe('ApiClient', () => {
       expect(JSON.parse(options.body)).toEqual({ confirmed: true });
     });
 
-    it('requests structured critique and sends chat turns', async () => {
+    it('requests structured critique', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ overall_grade: 'B+', summary: 'Good arc', flags: [] }),
+      });
+
+      const critique = await api.critiqueSet(42);
+
+      expect(critique.overall_grade).toBe('B+');
+      expect(mockFetch.mock.calls[0][0]).toContain('/api/setbuilder/sets/42/critique');
+    });
+
+    it('loads agent history and sends chat turns without client history', async () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => ({ overall_grade: 'B+', summary: 'Good arc', flags: [] }),
+          json: async () => ({
+            messages: [],
+            context_summary: null,
+            compacted_through_message_id: null,
+            uses_compact_context: true,
+            recent_turn_limit: 12,
+          }),
         })
         .mockResolvedValueOnce({
           ok: true,
           json: async () => ({
-            message: 'Swapped.',
-            tool_calls: [
-              {
-                id: 'swap-1',
-                name: 'swap_slots',
-                args: { slot_a_id: 1, slot_b_id: 2, rationale: 'Better opener' },
-                rationale: 'Better opener',
-                result: {},
-                mutating: true,
-              },
-            ],
+            message: 'Swapped slot 1 Track A with slot 2 Track B.',
+            assistant_message: {
+              id: 2,
+              role: 'assistant',
+              content: 'Swapped slot 1 Track A with slot 2 Track B.',
+              display_summary: 'Swapped slot 1 Track A with slot 2 Track B.',
+              tool_calls: [],
+              affected_transition_scores: [],
+              created_at: '2026-06-15T00:00:00Z',
+            },
+            tool_calls: [],
             slots: [],
             affected_transition_scores: [],
           }),
         });
 
-      const critique = await api.critiqueSet(42);
-      const chat = await api.chatWithSetAgent(42, {
-        message: 'Swap these',
-        history: [{ role: 'user', content: 'Earlier turn' }],
-      });
+      const history = await api.getSetAgentHistory(42);
+      const chat = await api.chatWithSetAgent(42, { message: 'Swap these' });
 
-      expect(critique.overall_grade).toBe('B+');
-      expect(chat.message).toBe('Swapped.');
-      expect(chat.tool_calls[0].args).toEqual({
-        slot_a_id: 1,
-        slot_b_id: 2,
-        rationale: 'Better opener',
-      });
-      expect(mockFetch.mock.calls[0][0]).toContain('/api/setbuilder/sets/42/critique');
+      expect(history.uses_compact_context).toBe(true);
+      expect(chat.message).toContain('Swapped slot 1');
+      const [historyUrl] = mockFetch.mock.calls[0];
+      expect(historyUrl).toContain('/api/setbuilder/sets/42/agent/history');
       const [chatUrl, chatOptions] = mockFetch.mock.calls[1];
       expect(chatUrl).toContain('/api/setbuilder/sets/42/agent/chat');
-      expect(chatOptions.method).toBe('POST');
-      expect(JSON.parse(chatOptions.body)).toEqual({
-        message: 'Swap these',
-        history: [{ role: 'user', content: 'Earlier turn' }],
-      });
+      expect(JSON.parse(chatOptions.body)).toEqual({ message: 'Swap these' });
     });
   });
 

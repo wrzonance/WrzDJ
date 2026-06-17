@@ -22,7 +22,9 @@ from app.models.track_vibe import (
 )
 from app.models.user import User
 from app.schemas.setbuilder import (
+    AgentChatHistoryOut,
     AgentChatIn,
+    AgentChatMessageOut,
     AgentChatOut,
     AppliedToolCallOut,
     ApplyTemplateRequest,
@@ -89,6 +91,7 @@ from app.services.bridge_integration import queue_command
 from app.services.llm.exceptions import NoLlmConfigured
 from app.services.now_playing import get_now_playing
 from app.services.setbuilder import (
+    agent_history,
     curve,
     document_snapshot,
     export_common,
@@ -126,6 +129,24 @@ def _transition_scores_out(
         )
         for s in scores
     ]
+
+
+def _agent_message_out(message) -> AgentChatMessageOut:  # noqa: ANN001
+    return AgentChatMessageOut(
+        id=message.id,
+        role=message.role,
+        content=message.content,
+        display_summary=message.display_summary,
+        tool_calls=[
+            AppliedToolCallOut(**tool)
+            for tool in agent_history.decode_json_list(message.tool_calls_json)
+        ],
+        affected_transition_scores=[
+            TransitionScoreOut(**score)
+            for score in agent_history.decode_json_list(message.affected_transition_scores_json)
+        ],
+        created_at=message.created_at,
+    )
 
 
 @router.post("/sets", response_model=SetDetail, status_code=status.HTTP_201_CREATED)
@@ -570,6 +591,25 @@ async def critique_set(
     )
 
 
+@router.get("/sets/{set_id}/agent/history", response_model=AgentChatHistoryOut)
+@limiter.limit("60/minute")
+def get_set_agent_history(
+    set_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> AgentChatHistoryOut:
+    """Load persisted agent sidebar history without dispatching an LLM call."""
+    set_obj = _get_owned_or_404(db, set_id, current_user)
+    session = agent_history.get_or_create_session(db, set_obj.id, current_user.id)
+    return AgentChatHistoryOut(
+        messages=[_agent_message_out(m) for m in agent_history.list_messages(db, session)],
+        context_summary=session.context_summary,
+        compacted_through_message_id=session.compacted_through_message_id,
+        recent_turn_limit=agent_history.RECENT_CONTEXT_TURN_LIMIT,
+    )
+
+
 @router.post(
     "/sets/{set_id}/agent/chat",
     response_model=AgentChatOut,
@@ -587,21 +627,60 @@ async def chat_with_set_agent(
 ) -> AgentChatOut:
     """Run one agent chat turn and apply validated tool calls."""
     set_obj = _get_owned_or_404(db, set_id, current_user)
+    session = agent_history.get_or_create_session(db, set_obj.id, current_user.id, commit=False)
     try:
         result = await pass2_agent.chat_with_agent(
             db,
             current_user,
             set_obj,
             message=payload.message,
-            history=[h.model_dump() for h in payload.history],
+            messages=agent_history.context_messages(db, set_obj, session, payload.message),
+            commit=False,
         )
     except NoLlmConfigured:
+        db.rollback()
         raise HTTPException(
             status_code=400,
             detail="No AI connector configured — connect one in Settings → AI.",
         ) from None
     except pass2_agent.AgentToolError as exc:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    agent_history.append_message(db, session, role="user", content=payload.message, commit=False)
+    tool_call_payloads = [
+        {
+            "id": t.id,
+            "name": t.name,
+            "args": t.args,
+            "rationale": t.rationale,
+            "result": t.result,
+            "mutating": t.mutating,
+            "display_summary": t.display_summary,
+        }
+        for t in result.tool_calls
+    ]
+    score_payloads = [
+        {
+            "slot_id": s.slot_id,
+            "position": s.position,
+            "score": s.score,
+            "warnings": s.warnings,
+        }
+        for s in result.affected_transition_scores
+    ]
+    assistant_message = agent_history.append_message(
+        db,
+        session,
+        role="assistant",
+        content=result.message,
+        display_summary=result.message,
+        tool_calls=tool_call_payloads,
+        affected_transition_scores=score_payloads,
+        commit=False,
+    )
+    agent_history.compact_if_needed(db, session, commit=False)
+    db.commit()
+    db.refresh(assistant_message)
     db.expire(set_obj, ["slots"])
     return AgentChatOut(
         message=result.message,
@@ -613,11 +692,13 @@ async def chat_with_set_agent(
                 rationale=t.rationale,
                 result=t.result,
                 mutating=t.mutating,
+                display_summary=t.display_summary,
             )
             for t in result.tool_calls
         ],
         slots=_slots_out(db, set_obj),
         affected_transition_scores=_transition_scores_out(result.affected_transition_scores),
+        assistant_message=_agent_message_out(assistant_message),
     )
 
 

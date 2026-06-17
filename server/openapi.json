@@ -697,6 +697,58 @@
         "title": "AgentChatHistoryItem",
         "type": "object"
       },
+      "AgentChatHistoryOut": {
+        "description": "Persisted agent sidebar transcript and compact context metadata.",
+        "properties": {
+          "compacted_through_message_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compacted Through Message Id"
+          },
+          "context_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Summary"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/AgentChatMessageOut"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "recent_turn_limit": {
+            "title": "Recent Turn Limit",
+            "type": "integer"
+          },
+          "uses_compact_context": {
+            "default": true,
+            "title": "Uses Compact Context",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "compacted_through_message_id",
+          "context_summary",
+          "messages",
+          "recent_turn_limit",
+          "uses_compact_context"
+        ],
+        "title": "AgentChatHistoryOut",
+        "type": "object"
+      },
       "AgentChatIn": {
         "description": "One chat turn for the setbuilder agent.",
         "properties": {
@@ -721,6 +773,68 @@
         "title": "AgentChatIn",
         "type": "object"
       },
+      "AgentChatMessageOut": {
+        "description": "One persisted agent sidebar message.",
+        "properties": {
+          "affected_transition_scores": {
+            "items": {
+              "$ref": "#/components/schemas/TransitionScoreOut"
+            },
+            "title": "Affected Transition Scores",
+            "type": "array"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "display_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Summary"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "tool_calls": {
+            "items": {
+              "$ref": "#/components/schemas/AppliedToolCallOut"
+            },
+            "title": "Tool Calls",
+            "type": "array"
+          }
+        },
+        "required": [
+          "affected_transition_scores",
+          "content",
+          "created_at",
+          "display_summary",
+          "id",
+          "role",
+          "tool_calls"
+        ],
+        "title": "AgentChatMessageOut",
+        "type": "object"
+      },
       "AgentChatOut": {
         "description": "Agent chat turn result after applying tool calls.",
         "properties": {
@@ -730,6 +844,9 @@
             },
             "title": "Affected Transition Scores",
             "type": "array"
+          },
+          "assistant_message": {
+            "$ref": "#/components/schemas/AgentChatMessageOut"
           },
           "message": {
             "title": "Message",
@@ -752,6 +869,7 @@
         },
         "required": [
           "affected_transition_scores",
+          "assistant_message",
           "message",
           "slots",
           "tool_calls"
@@ -766,6 +884,11 @@
             "additionalProperties": true,
             "title": "Args",
             "type": "object"
+          },
+          "display_summary": {
+            "default": "",
+            "title": "Display Summary",
+            "type": "string"
           },
           "id": {
             "title": "Id",
@@ -798,6 +921,7 @@
         },
         "required": [
           "args",
+          "display_summary",
           "id",
           "mutating",
           "name",
@@ -17632,6 +17756,54 @@
           }
         ],
         "summary": "Chat With Set Agent",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/agent/history": {
+      "get": {
+        "description": "Load persisted agent sidebar history without dispatching an LLM call.",
+        "operationId": "get_set_agent_history_api_setbuilder_sets__set_id__agent_history_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentChatHistoryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Set Agent History",
         "tags": [
           "setbuilder"
         ]

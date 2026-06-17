@@ -219,6 +219,8 @@ export type BuildSetResponse = Schemas['BuildSetResponse'];
 export type SetCritique = Schemas['SetCritiqueOut'];
 export type AgentChatIn = Schemas['AgentChatIn'];
 export type AgentChatOut = Schemas['AgentChatOut'];
+export type AgentChatHistory = Schemas['AgentChatHistoryOut'];
+export type AgentChatMessage = Schemas['AgentChatMessageOut'];
 export type AppliedToolCall = Schemas['AppliedToolCallOut'];
 export type TransitionScore = Schemas['TransitionScoreOut'];
 

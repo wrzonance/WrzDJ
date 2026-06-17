@@ -452,6 +452,12 @@ class BuildSetResponse(BaseModel):
     transition_scores: list[TransitionScoreOut]
 
 
+class SlotOrderRequest(BaseModel):
+    """Full desired slot order for a set (hand-drag reorder, #437)."""
+
+    slot_ids: list[int] = Field(..., min_length=1, max_length=500)
+
+
 AgentCritiqueFlagType = Literal[
     "energy_dip",
     "vibe_clash",

@@ -531,7 +531,13 @@ def update_slot_target(
     return SlotTargetOut(slot_id=slot.id, target_energy=slot.target_energy)
 
 
-@router.put("/sets/{set_id}/slots/order", response_model=list[TransitionScoreOut])
+@router.put(
+    "/sets/{set_id}/slots/order",
+    response_model=list[TransitionScoreOut],
+    responses={
+        400: {"description": "Invalid reorder (not a permutation, or would move a locked slot)"}
+    },
+)
 @limiter.limit("30/minute")
 def reorder_slots(
     set_id: int,

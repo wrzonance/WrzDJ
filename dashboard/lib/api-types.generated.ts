@@ -12988,6 +12988,13 @@ export interface operations {
                     "application/json": components["schemas"]["TransitionScoreOut"][];
                 };
             };
+            /** @description Invalid reorder (not a permutation, or would move a locked slot) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Validation Error */
             422: {
                 headers: {

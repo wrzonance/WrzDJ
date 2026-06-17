@@ -19534,6 +19534,9 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "description": "Invalid reorder (not a permutation, or would move a locked slot)"
+          },
           "422": {
             "content": {
               "application/json": {

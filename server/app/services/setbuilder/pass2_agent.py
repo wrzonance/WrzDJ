@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -21,6 +22,8 @@ from app.services.setbuilder.pass1_deterministic import (
     transition_score,
 )
 from app.services.setbuilder.pass1_deterministic import _track_meta as _pass1_track_meta
+
+logger = logging.getLogger(__name__)
 
 CritiqueFlagType = Literal[
     "energy_dip",
@@ -129,8 +132,10 @@ async def _chat_critique_result(
     try:
         critique = await critique_set(db, actor, set_obj)
     except NoLlmConfigured:
+        logger.info("Set %s chat critique: no LLM connector, using static fallback", set_obj.id)
         static_result, _ = _tool_static_critique(db, set_obj, payload)
         return {**static_result, "available": False}
+    logger.debug("Set %s chat critique: used strong LLM pass", set_obj.id)
     return {
         "available": True,
         "overall_grade": critique.overall_grade,

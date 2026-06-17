@@ -74,7 +74,7 @@ function lockSkipReasons(tool: AppliedToolCall): string[] {
 function ToolCard({ tool }: { tool: AppliedToolCall }) {
   const toolName = tool.name.replaceAll('_', ' ');
   const rationale = tool.rationale?.trim() ?? '';
-  const summary = tool.display_summary.trim() || rationale || toolName;
+  const summary = tool.display_summary?.trim() || rationale || toolName;
   const skippedLocks = lockSkipReasons(tool);
   return (
     <div className={styles.toolCallCard} data-testid="agent-tool-card">

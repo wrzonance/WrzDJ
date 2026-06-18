@@ -14,6 +14,7 @@ from app.models.set_pool import SetPoolTrack
 
 MUTATION_TOOLS = {
     "reorder_slot",
+    "move_range",
     "swap_slots",
     "remove_slot",
     "replace_slot",

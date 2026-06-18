@@ -52,6 +52,44 @@ def _tool_reorder_slot(
     return {"slot_id": slot.id, "position": new_position}, set(range(low, high + 1))
 
 
+def _tool_move_range(
+    db: Session, set_obj: Set, payload: dict[str, Any]
+) -> tuple[dict[str, Any], set[int]]:
+    """Relocate the contiguous slot block ``[start_position, end_position]`` so it
+    begins at ``to_position`` (clamped to a valid insertion index).
+
+    The span analogue of ``_tool_reorder_slot``: a locked slot may never change
+    position (neither dragged inside the block nor displaced by the shift), and
+    the handler returns the touched position window for the orchestrator to
+    rescore — it does not rescore itself.
+    """
+    slots = _ordered_slots(db, set_obj.id)
+    count = len(slots)
+    start = int(payload["start_position"])
+    end = int(payload["end_position"])
+    if not 0 <= start <= end < count:
+        raise AgentToolError("start_position and end_position must be a valid slot range")
+    block = slots[start : end + 1]
+    if any(slot.locked for slot in block):
+        raise AgentToolError("Cannot move a locked slot")
+    remaining = slots[:start] + slots[end + 1 :]
+    to_position = max(0, min(len(remaining), int(payload["to_position"])))
+    new_order = remaining[:to_position] + block + remaining[to_position:]
+    if any(slot.locked and slot.position != idx for idx, slot in enumerate(new_order)):
+        raise AgentToolError("Move would displace a locked slot")
+    for idx, slot in enumerate(new_order):
+        slot.position = idx
+    db.flush()
+    block_len = len(block)
+    affected = set(range(min(start, to_position), max(end, to_position + block_len - 1) + 1))
+    return {
+        "start_position": start,
+        "end_position": end,
+        "to_position": to_position,
+        "moved_count": block_len,
+    }, affected
+
+
 def _tool_swap_slots(
     db: Session, set_obj: Set, payload: dict[str, Any]
 ) -> tuple[dict[str, Any], set[int]]:

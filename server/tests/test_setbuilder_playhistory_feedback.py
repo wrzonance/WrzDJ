@@ -249,13 +249,13 @@ def test_feedback_is_read_only_on_requests_and_play_history(db, test_user, test_
     feedback.apply_outcomes_to_pairings(db, set_obj, report)
     db.expire_all()
 
-    # Requests untouched.
-    assert db.query(Request).count() == 1
+    # Requests untouched (scoped to this test's row so unrelated seed data can't skew it).
+    assert db.query(Request).filter(Request.id == request.id).count() == 1
     refreshed = db.get(Request, request.id)
     assert refreshed.status == RequestStatus.NEW.value
     assert refreshed.song_title == "Alpha"
     # Play history untouched (matched_request_id stays None, count unchanged).
-    assert db.query(PlayHistory).count() == 2
+    assert db.query(PlayHistory).filter(PlayHistory.event_id == test_event.id).count() == 2
     assert db.get(PlayHistory, play_a.id).matched_request_id is None
     assert db.get(PlayHistory, play_b.id).matched_request_id is None
 

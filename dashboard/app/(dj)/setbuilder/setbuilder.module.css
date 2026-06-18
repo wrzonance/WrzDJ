@@ -2417,7 +2417,8 @@
       'pool timeline';
   }
 
-  .topbarPairingsBtn {
+  .topbarPairingsBtn,
+  .topbarReportBtn {
     padding: 0 0.5rem;
     font-size: 0;
   }
@@ -2450,6 +2451,40 @@
   .pairingStatsGrid,
   .pairingAddGrid {
     grid-template-columns: 1fr;
+  }
+
+  /* Playback report rows restack so the 4-column layout never overflows on phones. */
+  .playbackRow {
+    grid-template-columns: 1.9rem minmax(0, 1fr);
+    grid-template-areas:
+      'order track'
+      'order planned'
+      'order outcome';
+    align-items: start;
+  }
+
+  .playbackOrder {
+    grid-area: order;
+    padding-top: 0.1rem;
+  }
+
+  .playbackTrack {
+    grid-area: track;
+  }
+
+  .playbackPlanned {
+    grid-area: planned;
+    white-space: normal;
+  }
+
+  .outcomeBadge {
+    grid-area: outcome;
+    justify-self: start;
+  }
+
+  .playbackFooter {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 

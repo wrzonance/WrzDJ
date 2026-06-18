@@ -140,13 +140,18 @@ export default function PlaybackReportOverlay({
         aria-label="Close playback report"
         onClick={onClose}
       />
-      <div className={styles.pairingsShell} role="dialog" aria-label="Playback report">
+      <div
+        className={styles.pairingsShell}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="playback-report-title"
+      >
         <header className={styles.pairingsHeader}>
           <div className={styles.pairingsIcon}>
             <ReportIcon />
           </div>
           <div className={styles.pairingsHeaderText}>
-            <h2>Playback report</h2>
+            <h2 id="playback-report-title">Playback report</h2>
             <p>What you planned vs. what actually played at the event.</p>
           </div>
           {summary && (

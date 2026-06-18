@@ -121,7 +121,15 @@ export default function KioskDisplayPage() {
 
     const checkSession = async () => {
       try {
-        await api.getKioskAssignment(token);
+        const assignment = await api.getKioskAssignment(token);
+        // A 200 can still be terminal: the assigned event was deleted (legacy/
+        // edge orphan → 'unassigned') or the pairing lapsed ('expired'). Both
+        // mean this device must re-pair (issue #474).
+        if (assignment.status === 'unassigned' || assignment.status === 'expired') {
+          localStorage.removeItem(SESSION_TOKEN_KEY);
+          localStorage.removeItem(PAIR_CODE_KEY);
+          router.push('/kiosk-pair');
+        }
       } catch (err) {
         if (err instanceof ApiError && err.status === 404) {
           localStorage.removeItem(SESSION_TOKEN_KEY);

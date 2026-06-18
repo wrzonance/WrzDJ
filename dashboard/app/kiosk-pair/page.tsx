@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 
 type PairState = 'loading' | 'pairing' | 'expired' | 'error';
 
@@ -44,9 +44,23 @@ export default function KioskPairPage() {
         } else if (status.status === 'expired') {
           stopPolling();
           setState('expired');
+        } else if (status.status === 'unassigned') {
+          // The event was deleted out from under this pairing (issue #474) —
+          // dead session, re-pair with a fresh code.
+          stopPolling();
+          localStorage.removeItem(SESSION_TOKEN_KEY);
+          localStorage.removeItem(PAIR_CODE_KEY);
+          createNewPairing();
         }
-      } catch {
-        // Silently retry on network errors
+      } catch (err) {
+        // A 404 means the pairing record is gone (e.g. its event was deleted
+        // and the kiosk row was cleaned up) — re-pair. Other errors: retry.
+        if (err instanceof ApiError && err.status === 404) {
+          stopPolling();
+          localStorage.removeItem(SESSION_TOKEN_KEY);
+          localStorage.removeItem(PAIR_CODE_KEY);
+          createNewPairing();
+        }
       }
     }, POLL_INTERVAL_MS);
   }, [router, stopPolling]);
@@ -59,7 +73,9 @@ export default function KioskPairPage() {
         router.push(`/e/${status.event_join_code}/display`);
         return;
       }
-      if (status.status === 'expired') {
+      // 'expired' = pair code timed out; 'unassigned' = the paired event was
+      // deleted (issue #474). Both are dead sessions — clear and re-pair.
+      if (status.status === 'expired' || status.status === 'unassigned') {
         localStorage.removeItem(SESSION_TOKEN_KEY);
         localStorage.removeItem(PAIR_CODE_KEY);
         createNewPairing();
@@ -72,7 +88,7 @@ export default function KioskPairPage() {
           if (s.status === 'active' && s.event_join_code) {
             stopPolling();
             router.push(`/e/${s.event_join_code}/display`);
-          } else if (s.status === 'expired') {
+          } else if (s.status === 'expired' || s.status === 'unassigned') {
             stopPolling();
             localStorage.removeItem(SESSION_TOKEN_KEY);
             localStorage.removeItem(PAIR_CODE_KEY);

@@ -27,7 +27,16 @@ vi.mock('@/lib/api', () => ({
     getKioskPairStatus: (...args: unknown[]) => mockGetKioskPairStatus(...args),
     getKioskAssignment: (...args: unknown[]) => mockGetKioskAssignment(...args),
   },
+  ApiError: class ApiError extends Error {
+    status: number;
+    constructor(message: string, status: number) {
+      super(message);
+      this.status = status;
+    }
+  },
 }));
+
+import { ApiError } from '@/lib/api';
 
 // Mock localStorage
 const mockStorage: Record<string, string> = {};
@@ -149,5 +158,57 @@ describe('KioskPairPage', () => {
     await waitFor(() => {
       expect(mockPush).toHaveBeenCalledWith('/e/EVT02J/display');
     });
+  });
+
+  it('re-pairs when assignment returns unassigned (event deleted)', async () => {
+    // Existing paired session whose event has since been deleted (issue #474).
+    mockStorage['kiosk_session_token'] = 'b'.repeat(64);
+    mockStorage['kiosk_pair_code'] = 'OLD123';
+    mockGetKioskAssignment.mockResolvedValue({
+      status: 'unassigned',
+      event_code: null,
+      event_join_code: null,
+      event_name: null,
+    });
+
+    await act(async () => {
+      render(<KioskPairPage />);
+    });
+
+    // Stale session is cleared and a fresh pairing is started…
+    await waitFor(() => {
+      expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('kiosk_session_token');
+      expect(mockCreateKioskPairing).toHaveBeenCalledWith('test-nonce-abc123');
+    });
+    // …and the new, scannable code is shown (not the stale OLD-123).
+    await waitFor(() => {
+      expect(screen.getByText('ABC-234')).toBeInTheDocument();
+    });
+  });
+
+  it('re-pairs when pair-status polling returns unassigned (event deleted mid-pairing)', async () => {
+    // Fresh pairing whose event vanishes between complete and the redirect.
+    mockGetKioskPairStatus
+      .mockResolvedValueOnce({ status: 'unassigned', event_code: null, event_join_code: null, event_name: null })
+      .mockResolvedValue({ status: 'pairing', event_code: null, event_name: null });
+
+    render(<KioskPairPage />);
+
+    await waitFor(() => {
+      // initial pairing + recovery pairing = at least two createKioskPairing calls
+      expect(mockCreateKioskPairing.mock.calls.length).toBeGreaterThanOrEqual(2);
+    }, { timeout: 5000 });
+  });
+
+  it('re-pairs when pair-status polling 404s (pairing record cleaned up)', async () => {
+    mockGetKioskPairStatus
+      .mockRejectedValueOnce(new ApiError('not found', 404))
+      .mockResolvedValue({ status: 'pairing', event_code: null, event_name: null });
+
+    render(<KioskPairPage />);
+
+    await waitFor(() => {
+      expect(mockCreateKioskPairing.mock.calls.length).toBeGreaterThanOrEqual(2);
+    }, { timeout: 5000 });
   });
 });

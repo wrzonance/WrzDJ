@@ -117,6 +117,17 @@ def delete_kiosk(db: Session, kiosk: Kiosk) -> None:
     db.commit()
 
 
+def delete_kiosks_for_event(db: Session, event_code: str) -> int:
+    """Delete all kiosks bound to a given event code (does not commit).
+
+    Called when an event is deleted so kiosks don't dangle pointing at a
+    non-existent event — which previously bricked the device on the pairing
+    screen (issue #474). Returns the number of kiosks removed; the caller is
+    responsible for committing.
+    """
+    return db.query(Kiosk).filter(Kiosk.event_code == event_code).delete(synchronize_session=False)
+
+
 def get_kiosks_for_user(db: Session, user_id: int) -> list[Kiosk]:
     """Get all kiosks paired by a specific user."""
     return (

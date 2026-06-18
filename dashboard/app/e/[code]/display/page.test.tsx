@@ -889,6 +889,27 @@ describe('KioskDisplayPage', () => {
       expect(localStorageMock.getItem('kiosk_pair_code')).toBeNull();
     });
 
+    it('redirects to /kiosk-pair when assignment returns unassigned (event deleted)', async () => {
+      vi.useFakeTimers();
+      setupDefaultMocks();
+      localStorageMock.setItem('kiosk_session_token', 'test-session-token');
+      localStorageMock.setItem('kiosk_pair_code', 'ABC123');
+      vi.mocked(api.getKioskAssignment).mockResolvedValue({
+        status: 'unassigned',
+        event_code: null,
+        event_join_code: null,
+        event_name: null,
+      });
+
+      render(<KioskDisplayPage />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+
+      expect(mockPush).toHaveBeenCalledWith('/kiosk-pair');
+      expect(localStorageMock.getItem('kiosk_session_token')).toBeNull();
+      expect(localStorageMock.getItem('kiosk_pair_code')).toBeNull();
+    });
+
     it('does NOT redirect when session is valid', async () => {
       vi.useFakeTimers();
       setupDefaultMocks();

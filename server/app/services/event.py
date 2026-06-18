@@ -210,11 +210,16 @@ def delete_event(db: Session, event: Event) -> None:
     from app.models.play_history import PlayHistory
     from app.models.request_vote import RequestVote
     from app.services.banner import delete_banner_files
+    from app.services.kiosk import delete_kiosks_for_event
 
     event_id = event.id
+    event_code = event.code
 
     # Clean up banner files before deleting
     delete_banner_files(event.banner_filename)
+
+    # Remove kiosks bound to this event so they don't dangle (issue #474)
+    delete_kiosks_for_event(db, event_code)
 
     # Delete child records in FK-safe order
     db.query(NowPlaying).filter(NowPlaying.event_id == event_id).delete(synchronize_session=False)

@@ -119,7 +119,15 @@ REQUEST_OUT_KEYS = {
 }
 
 # Paginated DJ request-list envelope (issue #478).
-REQUEST_LIST_RESPONSE_KEYS = {"requests", "total", "limit", "offset", "sort", "direction"}
+REQUEST_LIST_RESPONSE_KEYS = {
+    "requests",
+    "total",
+    "limit",
+    "offset",
+    "sort",
+    "direction",
+    "status_counts",
+}
 
 ADMIN_USER_OUT_KEYS = {"id", "username", "is_active", "role", "created_at", "event_count"}
 

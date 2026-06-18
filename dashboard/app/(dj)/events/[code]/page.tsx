@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { QRCodeSVG } from 'qrcode.react';
@@ -22,6 +22,7 @@ import { TidalLoginModal } from './components/TidalLoginModal';
 import { BeatportLoginModal } from './components/BeatportLoginModal';
 import { ServiceTrackPickerModal } from './components/ServiceTrackPickerModal';
 import { RequestQueueSection } from './components/RequestQueueSection';
+import type { StatusFilter } from './components/types';
 import { PlayHistorySection } from './components/PlayHistorySection';
 import { SongManagementTab } from './components/SongManagementTab';
 import { EventManagementTab } from './components/EventManagementTab';
@@ -31,6 +32,23 @@ import type { RecommendedTrack } from '@/lib/api-types';
 function toLocalDateTimeString(date: Date): string {
   const pad = (n: number) => n.toString().padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** Coerce the server's open `status_counts` dict into the strict per-tab shape,
+ *  defaulting any absent status to 0 (issue #478). The backend always returns
+ *  all six keys, but this keeps the type honest at the boundary. */
+function normalizeStatusCounts(
+  counts: Record<string, number> | null | undefined,
+): Record<StatusFilter, number> {
+  const c = counts ?? {};
+  return {
+    all: c.all ?? 0,
+    new: c.new ?? 0,
+    accepted: c.accepted ?? 0,
+    playing: c.playing ?? 0,
+    played: c.played ?? 0,
+    rejected: c.rejected ?? 0,
+  };
 }
 
 /** Read the persisted sort field for an event, falling back to the legacy
@@ -55,8 +73,16 @@ export default function EventQueuePage() {
   const [requests, setRequests] = useState<SongRequest[]>([]);
   // Growing-window pagination (issue #478): every refresh re-fetches
   // [0, displayLimit) so live vote/status changes never drift the offset.
-  const [displayLimit, setDisplayLimit] = useState(100);
+  const INITIAL_DISPLAY_LIMIT = 100;
+  const [displayLimit, setDisplayLimit] = useState(INITIAL_DISPLAY_LIMIT);
   const [requestTotal, setRequestTotal] = useState(0);
+  // Status filtering is server-side (issue #478): the active filter is lifted
+  // here so the 5s poll AND manual reloads fetch with it, and the tab counts
+  // come from the server's true per-status totals (not the loaded window).
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [statusCounts, setStatusCounts] = useState<Record<StatusFilter, number>>({
+    all: 0, new: 0, accepted: 0, playing: 0, played: 0, rejected: 0,
+  });
   const [playHistory, setPlayHistory] = useState<PlayHistoryItem[]>([]);
   const [playHistoryTotal, setPlayHistoryTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -199,14 +225,22 @@ export default function EventQueuePage() {
   sortDirectionRef.current = sortDirection;
   const displayLimitRef = useRef(displayLimit);
   displayLimitRef.current = displayLimit;
+  const statusFilterRef = useRef(statusFilter);
+  statusFilterRef.current = statusFilter;
 
-  // Single growing-window fetch: always [0, displayLimit) with the current
-  // sort field/direction so live reorders never drift the offset (issue #478).
-  // Reads refs so polling/SSE/mutation callbacks pick up current values.
+  // Map the tab filter to the API's `status` param: 'all' → undefined.
+  const filterToStatus = (filter: StatusFilter): string | undefined =>
+    filter === 'all' ? undefined : filter;
+
+  // Single growing-window fetch: always [0, displayLimit) with the current sort
+  // field/direction AND active status filter so the server returns a complete,
+  // honestly-totaled page (issue #478). Reads refs so polling/SSE/mutation
+  // callbacks pick up current values; callers may pass an explicit status to
+  // override the active filter (e.g. right after toggling it).
   const reloadRequests = useCallback(
     async (status?: string): Promise<SongRequest[]> => {
       const resp = await api.getRequests(code, {
-        status,
+        status: status ?? filterToStatus(statusFilterRef.current),
         sort: sortFieldRef.current,
         direction: sortDirectionRef.current,
         limit: displayLimitRef.current,
@@ -214,9 +248,24 @@ export default function EventQueuePage() {
       });
       setRequests(resp.requests);
       setRequestTotal(resp.total);
+      setStatusCounts(normalizeStatusCounts(resp.status_counts));
       return resp.requests;
     },
     [code],
+  );
+
+  // Switching status tabs re-fetches server-side at offset 0 (issue #478),
+  // resetting the growing window so the new filter's total is honest. We pass
+  // the new status explicitly because the ref hasn't flushed this render yet.
+  const handleFilterChange = useCallback(
+    (filter: StatusFilter) => {
+      setStatusFilter(filter);
+      statusFilterRef.current = filter;
+      setDisplayLimit(INITIAL_DISPLAY_LIMIT);
+      displayLimitRef.current = INITIAL_DISPLAY_LIMIT;
+      reloadRequests(filterToStatus(filter));
+    },
+    [reloadRequests],
   );
 
   const toggleCompactMode = useCallback(() => {
@@ -240,12 +289,10 @@ export default function EventQueuePage() {
   // Beatport login modal state
   const [showBeatportLogin, setShowBeatportLogin] = useState(false);
 
-  // Tab title badge: show "(N) Event - WrzDJ" when backgrounded
-  const newRequestCount = useMemo(
-    () => requests.filter((r) => r.status === 'new').length,
-    [requests]
-  );
-  useTabTitle(event?.name ?? null, newRequestCount);
+  // Tab title badge: show "(N) Event - WrzDJ" when backgrounded. Uses the true
+  // server-side new count so it stays correct when a non-'new' filter is active
+  // (the loaded `requests` window no longer contains every new row, issue #478).
+  useTabTitle(event?.name ?? null, statusCounts.new);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -314,6 +361,7 @@ export default function EventQueuePage() {
       const [eventData, requestsData, historyData, displaySettings, tidalStatusData, beatportStatusData, nowPlayingData, bridgeStatusData] = await Promise.all([
         api.getEvent(code),
         api.getRequests(code, {
+          status: filterToStatus(statusFilterRef.current),
           sort: sortFieldRef.current,
           direction: sortDirectionRef.current,
           limit: displayLimitRef.current,
@@ -329,6 +377,7 @@ export default function EventQueuePage() {
       setEvent(eventData);
       setRequests(requestsData.requests);
       setRequestTotal(requestsData.total);
+      setStatusCounts(normalizeStatusCounts(requestsData.status_counts));
       if (historyData !== undefined) {
         setPlayHistory(historyData.items);
         setPlayHistoryTotal(historyData.total);
@@ -368,6 +417,7 @@ export default function EventQueuePage() {
           const [archivedEvents, requestsData] = await Promise.all([
             api.getArchivedEvents(),
             api.getRequests(code, {
+              status: filterToStatus(statusFilterRef.current),
               sort: sortFieldRef.current,
               direction: sortDirectionRef.current,
               limit: displayLimitRef.current,
@@ -379,6 +429,7 @@ export default function EventQueuePage() {
             setEvent(archivedEvent);
             setRequests(requestsData.requests);
             setRequestTotal(requestsData.total);
+            setStatusCounts(normalizeStatusCounts(requestsData.status_counts));
             setEventStatus(archivedEvent.status);
             setError(null);
             return false; // Stop polling - event is expired
@@ -408,6 +459,20 @@ export default function EventQueuePage() {
 
   // Poll every 5 seconds unless stopped (SSE handles real-time updates).
   usePollingLoop(isAuthenticated, loadData, 5_000);
+
+  // Immediate re-fetch when the sort field/direction changes (issue #478, Bug 3)
+  // — otherwise the new order only appears on the next 5s poll. Skip the first
+  // render so we don't double-fetch alongside the initial load.
+  const sortChangeMountRef = useRef(true);
+  useEffect(() => {
+    if (sortChangeMountRef.current) {
+      sortChangeMountRef.current = false;
+      return;
+    }
+    setDisplayLimit(INITIAL_DISPLAY_LIMIT);
+    displayLimitRef.current = INITIAL_DISPLAY_LIMIT;
+    reloadRequests();
+  }, [sortField, sortDirection, reloadRequests]);
 
   // SSE: trigger immediate refresh on real-time events (new requests, bridge updates)
   const loadDataRef = useRef(loadData);
@@ -1074,6 +1139,9 @@ export default function EventQueuePage() {
             onSortDirectionToggle={handleSortDirectionToggle}
             total={requestTotal}
             onLoadMore={handleLoadMore}
+            filter={statusFilter}
+            onFilterChange={handleFilterChange}
+            statusCounts={statusCounts}
           />
           <PlayHistorySection
             items={playHistory}
@@ -1156,6 +1224,9 @@ export default function EventQueuePage() {
               onSortDirectionToggle={handleSortDirectionToggle}
               total={requestTotal}
               onLoadMore={handleLoadMore}
+              filter={statusFilter}
+              onFilterChange={handleFilterChange}
+              statusCounts={statusCounts}
             />
           </div>
 

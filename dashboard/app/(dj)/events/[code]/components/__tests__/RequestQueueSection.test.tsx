@@ -63,6 +63,9 @@ function baseProps(overrides: Record<string, unknown> = {}) {
     onSortDirectionToggle: vi.fn(),
     total: 1,
     onLoadMore: vi.fn().mockResolvedValue(undefined),
+    filter: 'all' as const,
+    onFilterChange: vi.fn(),
+    statusCounts: { all: 1, new: 1, accepted: 0, playing: 0, played: 0, rejected: 0 },
     ...overrides,
   };
 }
@@ -95,6 +98,71 @@ describe('RequestQueueSection sort controls', () => {
     expect(screen.getByLabelText('Sort direction: ascending')).toHaveTextContent('↑');
     rerender(<RequestQueueSection {...baseProps({ sortDirection: 'desc' })} />);
     expect(screen.getByLabelText('Sort direction: descending')).toHaveTextContent('↓');
+  });
+});
+
+describe('RequestQueueSection status tabs (server-side, issue #478)', () => {
+  it('renders tab counts from statusCounts, not the loaded requests window', () => {
+    // Only a 2-row window is loaded, but the true event totals are larger.
+    const reqs = [makeRequest({ id: 1, status: 'accepted' }), makeRequest({ id: 2, status: 'accepted' })];
+    render(
+      <RequestQueueSection
+        {...baseProps({
+          requests: reqs,
+          filter: 'accepted',
+          total: 25,
+          statusCounts: { all: 120, new: 80, accepted: 25, playing: 2, played: 10, rejected: 3 },
+        })}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'All (120)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'New (80)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Accepted (25)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Playing (2)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Played (10)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Rejected (3)' })).toBeInTheDocument();
+  });
+
+  it('calls onFilterChange when a status tab is selected (server-side filter)', () => {
+    const onFilterChange = vi.fn();
+    render(<RequestQueueSection {...baseProps({ onFilterChange })} />);
+    fireEvent.click(screen.getByRole('button', { name: /^Accepted/ }));
+    expect(onFilterChange).toHaveBeenCalledWith('accepted');
+  });
+
+  it('renders the server-returned requests as-is without client-side status filtering', () => {
+    // filter='accepted' but the server already returned the correct rows. The
+    // component must NOT drop rows whose status differs (no client filter).
+    const reqs = [
+      makeRequest({ id: 1, status: 'accepted', song_title: 'Keep Me' }),
+      makeRequest({ id: 2, status: 'accepted', song_title: 'And Me' }),
+    ];
+    render(
+      <RequestQueueSection
+        {...baseProps({
+          requests: reqs,
+          filter: 'accepted',
+          total: 2,
+          statusCounts: { all: 2, new: 0, accepted: 2, playing: 0, played: 0, rejected: 0 },
+        })}
+      />,
+    );
+    expect(screen.getByText('Keep Me')).toBeInTheDocument();
+    expect(screen.getByText('And Me')).toBeInTheDocument();
+  });
+
+  it('uses statusCounts.new for the Accept All button label', () => {
+    render(
+      <RequestQueueSection
+        {...baseProps({
+          requests: [makeRequest({ id: 1, status: 'accepted' })],
+          filter: 'accepted',
+          statusCounts: { all: 50, new: 42, accepted: 8, playing: 0, played: 0, rejected: 0 },
+        })}
+      />,
+    );
+    // Honest count even when no "new" rows are in the loaded window.
+    expect(screen.getByRole('button', { name: 'Accept All (42)' })).toBeInTheDocument();
   });
 });
 

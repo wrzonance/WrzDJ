@@ -66,6 +66,9 @@ const baseProps = {
   onSortDirectionToggle: vi.fn(),
   total: 1,
   onLoadMore: vi.fn(),
+  filter: 'all' as const,
+  onFilterChange: vi.fn(),
+  statusCounts: { all: 1, new: 0, accepted: 1, playing: 0, played: 0, rejected: 0 },
 };
 
 describe('SongManagementTab', () => {

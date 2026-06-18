@@ -132,3 +132,8 @@ class RequestListResponse(BaseSchema):
     offset: int
     sort: RequestSort
     direction: SortDirection
+    # True per-status counts for the whole event, computed before pagination and
+    # independent of the active status/since/limit/offset (issue #478). Keys:
+    # all, new, accepted, playing, played, rejected (0 when absent). ``all`` is
+    # the cross-status total; ``total`` stays the active filter's count.
+    status_counts: dict[str, int]

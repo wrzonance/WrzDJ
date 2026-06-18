@@ -38,13 +38,19 @@ interface RequestQueueSectionProps {
   deletingRequest?: number | null;
   refreshingRequest?: number | null;
   // Sort + growing-window pagination (issue #478). The server sorts
-  // authoritatively by field+direction; the list here only filters by status.
+  // authoritatively by field+direction and filters by status; this component is
+  // fully controlled — `requests` is the server-filtered page rendered as-is.
   sortField: RequestSort;
   sortDirection: SortDirection;
   onSortFieldChange: (field: RequestSort) => void;
   onSortDirectionToggle: () => void;
   total: number;
   onLoadMore: (status?: string) => Promise<void>;
+  // Active status filter (lifted to the page so the poll re-fetches with it) and
+  // true per-status totals for the tabs (independent of the loaded window).
+  filter: StatusFilter;
+  onFilterChange: (filter: StatusFilter) => void;
+  statusCounts: Record<StatusFilter, number>;
 }
 
 export function RequestQueueSection({
@@ -74,22 +80,15 @@ export function RequestQueueSection({
   onSortDirectionToggle,
   total,
   onLoadMore,
+  filter,
+  onFilterChange,
+  statusCounts,
 }: RequestQueueSectionProps) {
-  const [filter, setFilter] = useState<StatusFilter>('all');
   const [advancedMode, setAdvancedMode] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
   const [refreshingAll, setRefreshingAll] = useState(false);
   const [enrichingAll, setEnrichingAll] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-
-  const statusCounts = useMemo(() => {
-    const counts = { all: requests.length, new: 0, accepted: 0, playing: 0, played: 0, rejected: 0 };
-    for (const r of requests) {
-      const s = r.status as keyof typeof counts;
-      if (s in counts) counts[s]++;
-    }
-    return counts;
-  }, [requests]);
 
   // Compute BPM context from the DJ's active set (accepted + playing)
   // so badges show proximity relative to the current musical direction
@@ -101,15 +100,12 @@ export function RequestQueueSection({
     return computeBpmContext(activeBpms);
   }, [requests]);
 
-  // The server returns rows already sorted by the chosen field+direction
-  // (issue #478), so the list only filters by status — never reorders.
-  const filteredRequests = useMemo(
-    () => requests.filter((r) => (filter === 'all' ? true : r.status === filter)),
-    [requests, filter],
-  );
-
+  // The server returns rows already sorted AND filtered by status (issue #478),
+  // so this component renders `requests` as-is — never reordering or filtering.
   const handleDeleteAll = async () => {
-    const count = filteredRequests.length;
+    // Bulk delete targets the whole server-side filtered set (true count), not
+    // just the loaded window. "all" deletes every status.
+    const count = filter === 'all' ? statusCounts.all : statusCounts[filter];
     if (count === 0) return;
     if (!window.confirm(`Delete all ${count} ${filter === 'all' ? '' : filter + ' '}request${count === 1 ? '' : 's'}? This cannot be undone.`)) return;
     setDeletingAll(true);
@@ -121,10 +117,10 @@ export function RequestQueueSection({
   };
 
   const handleRefreshAll = async () => {
-    if (filteredRequests.length === 0) return;
+    if (requests.length === 0) return;
     setRefreshingAll(true);
     try {
-      const ids = filteredRequests.map((r) => r.id);
+      const ids = requests.map((r) => r.id);
       for (const id of ids) {
         await onRefreshMetadata?.(id);
       }
@@ -141,7 +137,7 @@ export function RequestQueueSection({
             <button
               key={status}
               className={`tab ${filter === status ? 'active' : ''}`}
-              onClick={() => setFilter(status)}
+              onClick={() => onFilterChange(status)}
             >
               {status.charAt(0).toUpperCase() + status.slice(1)} ({statusCounts[status]})
             </button>
@@ -242,7 +238,7 @@ export function RequestQueueSection({
                   className="btn btn-sm"
                   style={{ background: 'var(--surface-raised)', fontSize: '0.7rem' }}
                   onClick={handleRefreshAll}
-                  disabled={refreshingAll || filteredRequests.length === 0}
+                  disabled={refreshingAll || requests.length === 0}
                 >
                   {refreshingAll ? 'Refreshing...' : 'Refresh All'}
                 </button>
@@ -250,7 +246,7 @@ export function RequestQueueSection({
                   className="btn btn-sm"
                   style={{ background: 'var(--color-danger-subtle)', fontSize: '0.7rem' }}
                   onClick={handleDeleteAll}
-                  disabled={deletingAll || filteredRequests.length === 0}
+                  disabled={deletingAll || (filter === 'all' ? statusCounts.all : statusCounts[filter]) === 0}
                 >
                   {deletingAll ? 'Deleting...' : 'Delete All'}
                 </button>
@@ -260,7 +256,7 @@ export function RequestQueueSection({
         )}
       </div>
 
-      {filteredRequests.length === 0 ? (
+      {requests.length === 0 ? (
         <div className="card" style={{ textAlign: 'center' }}>
           <p style={{ color: 'var(--text-secondary)' }}>
             {filter === 'all'
@@ -270,7 +266,7 @@ export function RequestQueueSection({
         </div>
       ) : (
         <div className="request-list scrollable-list" style={{ marginBottom: '1rem' }}>
-          {filteredRequests.map((request) => (
+          {requests.map((request) => (
             <div
               key={request.id}
               id={`request-${request.id}`}
@@ -492,9 +488,9 @@ export function RequestQueueSection({
       )}
 
       {(() => {
-        // Growing window applies to the full fetched set (`requests`), not the
-        // status-filtered view, so the count reflects what's loaded vs the
-        // server's true total. Hide once everything is loaded or we hit the cap.
+        // `requests` is the server's filtered page and `total` is that filter's
+        // true count, so "Showing X of Y" is honest per-filter. Hide once
+        // everything is loaded or we hit the cap.
         const loaded = requests.length;
         const hasMore = loaded < total && loaded < PUBLIC_PAGE_MAX;
         if (loaded === 0) return null;

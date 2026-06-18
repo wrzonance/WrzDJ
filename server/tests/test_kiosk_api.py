@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 from app.core.time import utcnow
 from app.models.event import Event
 from app.models.user import User
-from app.services.kiosk import complete_pairing, create_kiosk
+from app.services.event import delete_event
+from app.services.kiosk import complete_pairing, create_kiosk, get_kiosk_by_id
 
 
 class TestKioskPairing:
@@ -550,3 +551,114 @@ class TestKioskIdor:
         )
         assert resp.status_code == 200
         assert resp.json()["event_code"] == test_event.code
+
+
+class TestKioskRecoveryOnMissingEvent:
+    """Issue #474 — a kiosk whose assigned event no longer exists must recover
+    gracefully instead of bricking on the pairing screen.
+
+    Two complementary layers:
+      * the public polling endpoints downgrade an 'active' kiosk whose event is
+        unresolvable to the synthetic 'unassigned' status, so the device can
+        re-pair instead of polling forever with a stale code;
+      * deleting an event removes the kiosks bound to it at the source, so the
+        dangling reference never forms in the first place.
+    """
+
+    @staticmethod
+    def _orphan_kiosk(db: Session, test_user: User, test_event: Event):
+        """Pair a kiosk to an event, then delete the event row directly —
+        bypassing the kiosk-cleanup path — to simulate a legacy/edge orphan."""
+        kiosk = create_kiosk(db)
+        complete_pairing(db, kiosk, test_event.code, test_user.id)
+        db.query(Event).filter(Event.id == test_event.id).delete(synchronize_session=False)
+        db.commit()
+        return kiosk
+
+    def test_session_assignment_reports_unassigned_when_event_missing(
+        self, client: TestClient, db: Session, test_user: User, test_event: Event
+    ):
+        kiosk = self._orphan_kiosk(db, test_user, test_event)
+        resp = client.get(
+            "/api/public/kiosk/session/assignment",
+            headers={"X-Kiosk-Session": kiosk.session_token},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "unassigned"
+        assert data["event_code"] is None
+        assert data["event_join_code"] is None
+
+    def test_pair_status_reports_unassigned_when_event_missing(
+        self, client: TestClient, db: Session, test_user: User, test_event: Event
+    ):
+        kiosk = self._orphan_kiosk(db, test_user, test_event)
+        resp = client.get(f"/api/public/kiosk/pair/{kiosk.pair_code}/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "unassigned"
+        assert data["event_join_code"] is None
+
+    def test_active_kiosk_with_valid_event_still_reports_active(
+        self, client: TestClient, db: Session, test_user: User, test_event: Event
+    ):
+        """Regression guard: a healthy paired kiosk is unaffected by the downgrade."""
+        kiosk = create_kiosk(db)
+        complete_pairing(db, kiosk, test_event.code, test_user.id)
+        resp = client.get(
+            "/api/public/kiosk/session/assignment",
+            headers={"X-Kiosk-Session": kiosk.session_token},
+        )
+        assert resp.json()["status"] == "active"
+        assert resp.json()["event_code"] == test_event.code
+
+    def test_delete_event_service_removes_bound_kiosks(
+        self, db: Session, test_user: User, test_event: Event
+    ):
+        kiosk = create_kiosk(db)
+        complete_pairing(db, kiosk, test_event.code, test_user.id)
+        kiosk_id = kiosk.id
+        delete_event(db, test_event)
+        assert get_kiosk_by_id(db, kiosk_id) is None
+
+    def test_delete_event_leaves_other_events_kiosks_untouched(
+        self, db: Session, test_user: User, test_event: Event
+    ):
+        """Only kiosks bound to the deleted event are removed."""
+        other_event = Event(
+            code="OTHER1",
+            join_code="OTHRJ2",
+            name="Other Event",
+            created_by_user_id=test_user.id,
+            expires_at=utcnow() + timedelta(hours=6),
+        )
+        db.add(other_event)
+        db.commit()
+        bound = create_kiosk(db)
+        complete_pairing(db, bound, test_event.code, test_user.id)
+        survivor = create_kiosk(db)
+        complete_pairing(db, survivor, other_event.code, test_user.id)
+        survivor_id = survivor.id
+
+        delete_event(db, test_event)
+
+        assert get_kiosk_by_id(db, survivor_id) is not None
+
+    def test_kiosk_session_404_after_its_event_deleted_via_endpoint(
+        self,
+        client: TestClient,
+        db: Session,
+        auth_headers: dict,
+        test_user: User,
+        test_event: Event,
+    ):
+        kiosk = create_kiosk(db)
+        complete_pairing(db, kiosk, test_event.code, test_user.id)
+        token = kiosk.session_token
+        resp = client.delete(f"/api/events/{test_event.code}", headers=auth_headers)
+        assert resp.status_code == 204
+        resp2 = client.get(
+            "/api/public/kiosk/session/assignment",
+            headers={"X-Kiosk-Session": token},
+        )
+        assert resp2.status_code == 404

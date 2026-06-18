@@ -150,4 +150,30 @@ describe('KioskPairPage', () => {
       expect(mockPush).toHaveBeenCalledWith('/e/EVT02J/display');
     });
   });
+
+  it('re-pairs when assignment returns unassigned (event deleted)', async () => {
+    // Existing paired session whose event has since been deleted (issue #474).
+    mockStorage['kiosk_session_token'] = 'b'.repeat(64);
+    mockStorage['kiosk_pair_code'] = 'OLD123';
+    mockGetKioskAssignment.mockResolvedValue({
+      status: 'unassigned',
+      event_code: null,
+      event_join_code: null,
+      event_name: null,
+    });
+
+    await act(async () => {
+      render(<KioskPairPage />);
+    });
+
+    // Stale session is cleared and a fresh pairing is started…
+    await waitFor(() => {
+      expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('kiosk_session_token');
+      expect(mockCreateKioskPairing).toHaveBeenCalledWith('test-nonce-abc123');
+    });
+    // …and the new, scannable code is shown (not the stale OLD-123).
+    await waitFor(() => {
+      expect(screen.getByText('ABC-234')).toBeInTheDocument();
+    });
+  });
 });

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_active_user, get_db
 from app.core.rate_limit import get_client_ip, limiter
 from app.models.event import Event
+from app.models.kiosk import Kiosk
 from app.models.user import User
 from app.schemas.kiosk import (
     KioskAssignRequest,
@@ -54,20 +55,37 @@ public_router = APIRouter()
 auth_router = APIRouter()
 
 
-def _resolve_event_name(db: Session, event_code: str | None) -> str | None:
-    """Look up the event name for a given collection code, or return None."""
+def _resolve_event_labels(db: Session, event_code: str | None) -> tuple[str | None, str | None]:
+    """Return (join_code, name) for an event collection code, or (None, None).
+
+    Used by the DJ-facing KioskOut responses, which report the kiosk's stored
+    state verbatim (no 'unassigned' downgrade — see _resolve_kiosk_event).
+    """
     if not event_code:
-        return None
+        return (None, None)
     event = db.query(Event).filter(Event.code == event_code).first()
-    return event.name if event else None
+    if event is None:
+        return (None, None)
+    return (event.join_code, event.name)
 
 
-def _resolve_event_join_code(db: Session, event_code: str | None) -> str | None:
-    """Look up the join_code for an event identified by its collection code."""
-    if not event_code:
-        return None
-    event = db.query(Event).filter(Event.code == event_code).first()
-    return event.join_code if event else None
+def _resolve_kiosk_event(
+    db: Session, kiosk: Kiosk
+) -> tuple[str, str | None, str | None, str | None]:
+    """Resolve a kiosk's reportable (status, event_code, event_join_code, event_name).
+
+    An 'active' kiosk whose assigned event no longer resolves (deleted, or never
+    set) is reported with the synthetic 'unassigned' status so the device can
+    re-pair instead of polling forever with a stale code (issue #474).
+    """
+    event = None
+    if kiosk.event_code:
+        event = db.query(Event).filter(Event.code == kiosk.event_code).first()
+    if kiosk.status == "active" and event is None:
+        return ("unassigned", None, None, None)
+    if event is None:
+        return (kiosk.status, kiosk.event_code, None, None)
+    return (kiosk.status, kiosk.event_code, event.join_code, event.name)
 
 
 def _assert_caller_owns_event(event: Event, user: User) -> None:
@@ -143,11 +161,10 @@ def get_pair_status(pair_code: str, request: Request, db: Session = Depends(get_
     if kiosk.status == "pairing" and is_pair_code_expired(kiosk):
         return KioskPairStatusResponse(status="expired")
 
-    event_name = _resolve_event_name(db, kiosk.event_code)
-    event_join_code = _resolve_event_join_code(db, kiosk.event_code)
+    resolved_status, event_code, event_join_code, event_name = _resolve_kiosk_event(db, kiosk)
     return KioskPairStatusResponse(
-        status=kiosk.status,
-        event_code=kiosk.event_code,
+        status=resolved_status,
+        event_code=event_code,
         event_join_code=event_join_code,
         event_name=event_name,
     )
@@ -177,11 +194,10 @@ def get_session_assignment(request: Request, db: Session = Depends(get_db)):
     if kiosk.status == "active":
         update_kiosk_last_seen(db, kiosk)
 
-    event_name = _resolve_event_name(db, kiosk.event_code)
-    event_join_code = _resolve_event_join_code(db, kiosk.event_code)
+    resolved_status, event_code, event_join_code, event_name = _resolve_kiosk_event(db, kiosk)
     return KioskSessionResponse(
-        status=kiosk.status,
-        event_code=kiosk.event_code,
+        status=resolved_status,
+        event_code=event_code,
         event_join_code=event_join_code,
         event_name=event_name,
     )
@@ -243,19 +259,22 @@ def list_my_kiosks(
 ):
     """List all kiosks paired by the current user."""
     kiosks = get_kiosks_for_user(db, current_user.id)
-    return [
-        KioskOut(
-            id=k.id,
-            name=k.name,
-            event_code=k.event_code,
-            event_join_code=_resolve_event_join_code(db, k.event_code),
-            event_name=_resolve_event_name(db, k.event_code),
-            status=k.status,
-            paired_at=k.paired_at,
-            last_seen_at=k.last_seen_at,
+    out = []
+    for k in kiosks:
+        join_code, event_name = _resolve_event_labels(db, k.event_code)
+        out.append(
+            KioskOut(
+                id=k.id,
+                name=k.name,
+                event_code=k.event_code,
+                event_join_code=join_code,
+                event_name=event_name,
+                status=k.status,
+                paired_at=k.paired_at,
+                last_seen_at=k.last_seen_at,
+            )
         )
-        for k in kiosks
-    ]
+    return out
 
 
 def _get_owned_kiosk(db: Session, kiosk_id: int, user: User):
@@ -312,12 +331,13 @@ def rename_kiosk_endpoint(
     """Rename a kiosk."""
     kiosk = _get_owned_kiosk(db, kiosk_id, current_user)
     rename_kiosk(db, kiosk, body.name)
+    join_code, event_name = _resolve_event_labels(db, kiosk.event_code)
     return KioskOut(
         id=kiosk.id,
         name=kiosk.name,
         event_code=kiosk.event_code,
-        event_join_code=_resolve_event_join_code(db, kiosk.event_code),
-        event_name=_resolve_event_name(db, kiosk.event_code),
+        event_join_code=join_code,
+        event_name=event_name,
         status=kiosk.status,
         paired_at=kiosk.paired_at,
         last_seen_at=kiosk.last_seen_at,

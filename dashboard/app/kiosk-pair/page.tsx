@@ -59,7 +59,9 @@ export default function KioskPairPage() {
         router.push(`/e/${status.event_join_code}/display`);
         return;
       }
-      if (status.status === 'expired') {
+      // 'expired' = pair code timed out; 'unassigned' = the paired event was
+      // deleted (issue #474). Both are dead sessions — clear and re-pair.
+      if (status.status === 'expired' || status.status === 'unassigned') {
         localStorage.removeItem(SESSION_TOKEN_KEY);
         localStorage.removeItem(PAIR_CODE_KEY);
         createNewPairing();
@@ -72,7 +74,7 @@ export default function KioskPairPage() {
           if (s.status === 'active' && s.event_join_code) {
             stopPolling();
             router.push(`/e/${s.event_join_code}/display`);
-          } else if (s.status === 'expired') {
+          } else if (s.status === 'expired' || s.status === 'unassigned') {
             stopPolling();
             localStorage.removeItem(SESSION_TOKEN_KEY);
             localStorage.removeItem(PAIR_CODE_KEY);

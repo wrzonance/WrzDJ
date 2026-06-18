@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { SongRequest, PlayHistoryItem, RecommendedTrack, RequestSort, SortDirection } from '@/lib/api-types';
 import { RequestQueueSection } from './RequestQueueSection';
+import type { StatusFilter } from './types';
 import { SyncReportPanel } from './SyncReportPanel';
 import { PlayHistorySection } from './PlayHistorySection';
 import { RecommendationsCard } from './RecommendationsCard';
@@ -50,6 +51,9 @@ interface SongManagementTabProps {
   onSortDirectionToggle: () => void;
   total: number;
   onLoadMore: (status?: string) => Promise<void>;
+  filter: StatusFilter;
+  onFilterChange: (filter: StatusFilter) => void;
+  statusCounts: Record<StatusFilter, number>;
 }
 
 export function SongManagementTab(props: SongManagementTabProps) {
@@ -98,6 +102,9 @@ export function SongManagementTab(props: SongManagementTabProps) {
         onSortDirectionToggle={props.onSortDirectionToggle}
         total={props.total}
         onLoadMore={props.onLoadMore}
+        filter={props.filter}
+        onFilterChange={props.onFilterChange}
+        statusCounts={props.statusCounts}
       />
       </HelpSpot>
 

@@ -223,6 +223,7 @@ function mockRequestList(
     offset: 0,
     sort: 'date_requested',
     direction: 'desc',
+    status_counts: { all: requests.length, new: 0, accepted: 0, playing: 0, played: 0, rejected: 0 },
     ...overrides,
   };
 }
@@ -1104,6 +1105,105 @@ describe('EventQueuePage', () => {
 
       const backLink = screen.getByText(/Back to Dashboard/);
       expect(backLink.closest('a')).toHaveAttribute('href', '/dashboard');
+    });
+  });
+
+  describe('Server-side status filter + status counts (issue #478, Bugs 1 & 2)', () => {
+    it('passes server status_counts through to SongTab', async () => {
+      setupDefaultMocks();
+      vi.mocked(api.getRequests).mockResolvedValue(
+        mockRequestList([mockRequest()], {
+          status_counts: { all: 120, new: 80, accepted: 25, playing: 2, played: 10, rejected: 3 },
+        }),
+      );
+
+      render(<EventQueuePage />);
+      await screen.findByText('Test Event');
+
+      expect(capturedSongTabProps.statusCounts).toEqual({
+        all: 120, new: 80, accepted: 25, playing: 2, played: 10, rejected: 3,
+      });
+    });
+
+    it('refetches with the chosen status server-side when the filter changes', async () => {
+      setupDefaultMocks();
+
+      render(<EventQueuePage />);
+      await screen.findByText('Test Event');
+      vi.mocked(api.getRequests).mockClear();
+
+      const onFilterChange = capturedSongTabProps.onFilterChange as (f: string) => void;
+      await act(async () => { onFilterChange('accepted'); });
+
+      // First fetch after a filter change must carry status: 'accepted', offset 0.
+      expect(api.getRequests).toHaveBeenCalledWith(
+        'TEST',
+        expect.objectContaining({ status: 'accepted', offset: 0 }),
+      );
+    });
+
+    it("omits status (undefined) when the filter is 'all'", async () => {
+      setupDefaultMocks();
+
+      render(<EventQueuePage />);
+      await screen.findByText('Test Event');
+
+      const onFilterChange = capturedSongTabProps.onFilterChange as (f: string) => void;
+      // Move off 'all' then back to 'all'.
+      await act(async () => { onFilterChange('accepted'); });
+      vi.mocked(api.getRequests).mockClear();
+      await act(async () => { onFilterChange('all'); });
+
+      expect(api.getRequests).toHaveBeenCalledWith(
+        'TEST',
+        expect.objectContaining({ status: undefined, offset: 0 }),
+      );
+    });
+  });
+
+  describe('Immediate reload on sort change (issue #478, Bug 3)', () => {
+    it('refetches immediately when the sort field changes (not waiting for poll)', async () => {
+      setupDefaultMocks();
+
+      render(<EventQueuePage />);
+      await screen.findByText('Test Event');
+      vi.mocked(api.getRequests).mockClear();
+
+      const onSortFieldChange = capturedSongTabProps.onSortFieldChange as (f: string) => void;
+      await act(async () => { onSortFieldChange('upvotes'); });
+
+      expect(api.getRequests).toHaveBeenCalledWith(
+        'TEST',
+        expect.objectContaining({ sort: 'upvotes', offset: 0 }),
+      );
+    });
+
+    it('refetches immediately when the sort direction toggles', async () => {
+      setupDefaultMocks();
+
+      render(<EventQueuePage />);
+      await screen.findByText('Test Event');
+      vi.mocked(api.getRequests).mockClear();
+
+      const onSortDirectionToggle = capturedSongTabProps.onSortDirectionToggle as () => void;
+      await act(async () => { onSortDirectionToggle(); });
+
+      // Default field date_requested defaults desc → toggling yields asc.
+      expect(api.getRequests).toHaveBeenCalledWith(
+        'TEST',
+        expect.objectContaining({ direction: 'asc', offset: 0 }),
+      );
+    });
+
+    it('does not double-fetch on the initial mount (effect skips first render)', async () => {
+      vi.useFakeTimers();
+      setupDefaultMocks();
+
+      render(<EventQueuePage />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+      // Exactly one initial load — the sort-change effect must skip mount.
+      expect(api.getRequests).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -60,6 +60,27 @@ def filtered_requests_query(
     return query
 
 
+def status_counts(db: Session, event: Event) -> dict[str, int]:
+    """True per-status counts for an event, independent of pagination/filters.
+
+    Backs the dashboard status-filter tabs (issue #478): a single
+    ``GROUP BY status`` over the whole event, always returning all six keys
+    (``all`` plus each status, 0 when absent). ``all`` is the cross-status total.
+    """
+    counts = {"all": 0, "new": 0, "accepted": 0, "playing": 0, "played": 0, "rejected": 0}
+    rows = (
+        db.query(Request.status, func.count(Request.id))
+        .filter(Request.event_id == event.id)
+        .group_by(Request.status)
+        .all()
+    )
+    for status, count in rows:
+        if status in counts:
+            counts[status] = count
+        counts["all"] += count
+    return counts
+
+
 def _camelot_ordinal(musical_key: str | None) -> int | None:
     """Map a key to a sortable harmonic ordinal (1A=2, 1B=3, ... 12B=25)."""
     pos = parse_key(musical_key)

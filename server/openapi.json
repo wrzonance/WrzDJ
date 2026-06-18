@@ -7457,6 +7457,13 @@
           "sort": {
             "$ref": "#/components/schemas/RequestSort"
           },
+          "status_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Status Counts",
+            "type": "object"
+          },
           "total": {
             "title": "Total",
             "type": "integer"
@@ -7468,6 +7475,7 @@
           "offset",
           "requests",
           "sort",
+          "status_counts",
           "total"
         ],
         "title": "RequestListResponse",

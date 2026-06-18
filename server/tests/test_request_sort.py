@@ -199,3 +199,102 @@ def test_deterministic_tiebreaker_id_desc(db, client, test_event, auth_headers):
 
     # equal votes -> newest id first
     assert [r["id"] for r in body["requests"]] == [b.id, a.id]
+
+
+def test_status_counts_independent_of_limit_status_offset(db, client, test_event, auth_headers):
+    """status_counts is the true per-status total for the whole event, not the
+    paginated/filtered window (issue #478, Bugs 1 & 2)."""
+    for i in range(5):
+        _mk(db, test_event, title=f"new{i}", status=RequestStatus.NEW.value, dedupe=f"n{i}")
+    for i in range(3):
+        _mk(
+            db,
+            test_event,
+            title=f"acc{i}",
+            status=RequestStatus.ACCEPTED.value,
+            accepted_at=utcnow(),
+            dedupe=f"a{i}",
+        )
+
+    # Fetch a tiny window of the accepted filter — counts must ignore it.
+    body = _get(client, test_event, auth_headers, status="accepted", limit=2, offset=0).json()
+
+    assert body["total"] == 3  # active filter total is unchanged
+    assert len(body["requests"]) == 2  # window honored
+    assert body["status_counts"] == {
+        "all": 8,
+        "new": 5,
+        "accepted": 3,
+        "playing": 0,
+        "played": 0,
+        "rejected": 0,
+    }
+
+
+def test_status_counts_always_returns_all_six_keys_when_empty(db, client, test_event, auth_headers):
+    """All six keys are present (0 when absent) so the dashboard never crashes."""
+    body = _get(client, test_event, auth_headers).json()
+
+    assert body["status_counts"] == {
+        "all": 0,
+        "new": 0,
+        "accepted": 0,
+        "playing": 0,
+        "played": 0,
+        "rejected": 0,
+    }
+
+
+def test_status_counts_present_for_best_match(db, client, test_event, auth_headers):
+    """The best_match branch must include status_counts too (issue #478)."""
+    _mk(db, test_event, title="n0", status=RequestStatus.NEW.value, dedupe="n0")
+    _mk(db, test_event, title="n1", status=RequestStatus.NEW.value, dedupe="n1")
+    _mk(
+        db,
+        test_event,
+        title="p0",
+        status=RequestStatus.PLAYED.value,
+        dedupe="p0",
+    )
+
+    body = _get(client, test_event, auth_headers, sort="best_match").json()
+
+    assert body["sort"] == "best_match"
+    assert body["status_counts"] == {
+        "all": 3,
+        "new": 2,
+        "accepted": 0,
+        "playing": 0,
+        "played": 1,
+        "rejected": 0,
+    }
+
+
+def test_status_counts_ignores_since_filter(db, client, test_event, auth_headers):
+    """status_counts is independent of the `since` incremental filter."""
+    now = utcnow()
+    _mk(
+        db,
+        test_event,
+        title="old",
+        status=RequestStatus.NEW.value,
+        created_at=now - timedelta(hours=2),
+        dedupe="old",
+    )
+    _mk(
+        db,
+        test_event,
+        title="recent",
+        status=RequestStatus.ACCEPTED.value,
+        accepted_at=now,
+        created_at=now,
+        dedupe="recent",
+    )
+
+    since = (now - timedelta(minutes=30)).isoformat()
+    body = _get(client, test_event, auth_headers, since=since).json()
+
+    # `since` filters the page (only "recent" is newer), but counts see both.
+    assert body["status_counts"]["all"] == 2
+    assert body["status_counts"]["new"] == 1
+    assert body["status_counts"]["accepted"] == 1

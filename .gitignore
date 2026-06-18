@@ -14,7 +14,9 @@ dist/
 build/
 
 # Node
-node_modules/
+# No trailing slash: also ignores a `node_modules` symlink/file, not just a directory
+# (worktree setups symlink node_modules; the dir-only pattern let one leak into git once).
+node_modules
 .next/
 out/
 .turbo/

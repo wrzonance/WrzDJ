@@ -4,4 +4,5 @@
 
 # Static configs that ARE tracked (not generated from templates)
 !logging.conf
+!tuning.conf
 !goaccess.conf

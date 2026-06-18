@@ -72,6 +72,9 @@ server {
 
     # OBS/streaming overlay — allow embedding from any origin
     location ~ ^/e/[^/]+/overlay {
+        # Edge rate limiting before Next.js.
+        limit_req zone=wrzdj_edge burst=180 nodelay;
+
         # Override server-level framing restrictions for this path
         add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://${API_DOMAIN} https://i.scdn.co https://resources.tidal.com https://geo-media.beatport.com; media-src 'self' data:; connect-src 'self' https://${API_DOMAIN}; frame-src https://challenges.cloudflare.com; frame-ancestors *" always;
         # Omit X-Frame-Options entirely (CSP frame-ancestors takes precedence)
@@ -90,6 +93,9 @@ server {
 
     # Frontend -> Next.js
     location / {
+        # Edge rate limiting before Next.js.
+        limit_req zone=wrzdj_edge burst=180 nodelay;
+
         proxy_pass http://127.0.0.1:${PORT_FRONTEND};
     }
 }

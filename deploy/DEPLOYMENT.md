@@ -187,7 +187,8 @@ APP_DOMAIN=app.yourdomain.com API_DOMAIN=api.yourdomain.com ./deploy/setup-nginx
 
 # The setup script will:
 # - Generate configs from deploy/nginx/*.conf.template
-# - Install them to /etc/nginx/sites-available/
+# - Install deploy/nginx/logging.conf and tuning.conf to /etc/nginx/conf.d/
+# - Install vhost configs to /etc/nginx/sites-available/
 # - Symlink to sites-enabled/
 # - Test and reload nginx
 #
@@ -198,8 +199,8 @@ APP_DOMAIN=app.yourdomain.com API_DOMAIN=api.yourdomain.com ./deploy/setup-nginx
 # Remove default site (optional)
 sudo rm -f /etc/nginx/sites-enabled/default
 
-# Hide nginx version (security hardening)
-sudo sed -i 's/# server_tokens off;/server_tokens off;/' /etc/nginx/nginx.conf
+# setup-nginx.sh installs the versioned http-context tuning include; do not
+# hand-edit /etc/nginx/nginx.conf for WrzDJ gzip/TLS/rate-limit defaults.
 
 # Start nginx
 sudo systemctl enable nginx
@@ -299,6 +300,42 @@ docker compose -f deploy/docker-compose.yml restart
 ```bash
 git pull
 docker compose -f deploy/docker-compose.yml up -d --build
+```
+
+### Update nginx config on a running deployment
+
+The container rebuild above does **not** touch nginx — nginx is host-level
+(systemd), not containerized. Whenever a pull changes anything under
+`deploy/nginx/` (the `*.conf.template` vhosts or the `tuning.conf` /
+`logging.conf` http-context includes), re-run the setup script to roll those
+changes onto the live box:
+
+```bash
+# Same APP_DOMAIN / API_DOMAIN you used for the initial setup
+APP_DOMAIN=app.yourdomain.com API_DOMAIN=api.yourdomain.com ./deploy/setup-nginx.sh
+```
+
+`setup-nginx.sh` is idempotent and **fail-closed**: it regenerates the vhosts,
+reinstalls `wrzdj-logging.conf` + `wrzdj-tuning.conf` to `/etc/nginx/conf.d/`,
+runs `nginx -t`, and only `systemctl reload nginx` if the test passes — so a bad
+config can never take a running site down (the old config keeps serving).
+
+> `tuning.conf` is an **http-context** include: its gzip, timeout, and
+> rate-limit-zone settings apply to every vhost on this nginx. It deliberately
+> does **not** restate `gzip on`, `server_tokens off`, or `ssl_protocols` —
+> those are already declared by the base `/etc/nginx/nginx.conf` and the
+> per-vhost certbot include, and repeating them in an http-level include is a
+> fatal `"directive is duplicate"` error that fails `nginx -t`.
+
+Verify after reload:
+
+```bash
+# gzip on proxied JSON — must be a GET (HEAD has no body to compress) against a
+# response larger than gzip_min_length (1024B); /health is far too small to gzip
+curl -sH 'Accept-Encoding: gzip' -D - -o /dev/null https://api.yourdomain.com/openapi.json | grep -i content-encoding
+# edge rate limit returns 429 past the burst on a non-SSE endpoint
+# SSE stream still connects and is NOT throttled (long-lived, exempt from limit_req)
+# only TLS 1.2/1.3 negotiated; security headers unchanged on all vhosts
 ```
 
 ### Database backup

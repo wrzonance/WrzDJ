@@ -13,6 +13,7 @@ import ChatSidebar from '../components/ChatSidebar';
 import MobileAgentOverlay from '../components/MobileAgentOverlay';
 import { useIsMobile } from '../components/useIsMobile';
 import PairingsOverlay from '../components/PairingsOverlay';
+import PlaybackReportOverlay from '../components/PlaybackReportOverlay';
 import BuilderSettingsModal, { type BuilderSettings } from '../components/BuilderSettingsModal';
 import ConfirmActionDialog, { type ConfirmAction } from '../components/ConfirmActionDialog';
 import HistoryControls from '../components/HistoryControls';
@@ -81,6 +82,7 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
   const [building, setBuilding] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [pairingsOpen, setPairingsOpen] = useState(false);
+  const [playbackOpen, setPlaybackOpen] = useState(false);
   const [pairingCount, setPairingCount] = useState(0);
   const [initialPairingId, setInitialPairingId] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -389,6 +391,26 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
             Pairings
             <span className={styles.topbarPairingsBadge}>{pairingCount}</span>
           </button>
+          {set?.event_id != null && (
+            <button
+              type="button"
+              className={styles.topbarReportBtn}
+              aria-label="Open playback report"
+              onClick={() => setPlaybackOpen(true)}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M4 19V5m0 14h16M8 16V9m4 7V6m4 10v-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.8"
+                />
+              </svg>
+              Playback report
+            </button>
+          )}
           {set && (
             <SetActionsMenu
               set={set}
@@ -475,6 +497,18 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
           )
         }
       />
+      {set?.event_id != null && (
+        <PlaybackReportOverlay
+          setId={numericSetId}
+          open={playbackOpen}
+          onClose={() => setPlaybackOpen(false)}
+          onApplied={() =>
+            window.dispatchEvent(
+              new CustomEvent('wrzdj:setbuilder-pairings-changed', { detail: {} }),
+            )
+          }
+        />
+      )}
       <BuilderSettingsModal
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}

@@ -931,6 +931,24 @@
         "title": "AppliedToolCallOut",
         "type": "object"
       },
+      "ApplyPairingFeedbackOut": {
+        "description": "Result of the explicit consecutive-pairing bump action.",
+        "properties": {
+          "bumped": {
+            "title": "Bumped",
+            "type": "integer"
+          },
+          "pairings": {
+            "$ref": "#/components/schemas/PairingsState"
+          }
+        },
+        "required": [
+          "bumped",
+          "pairings"
+        ],
+        "title": "ApplyPairingFeedbackOut",
+        "type": "object"
+      },
       "ApplyTemplateRequest": {
         "description": "Apply a template's shape onto the set's slots.\n\nExactly one of ``builtin`` / ``template_id``. ``slot_midpoints`` are the\nnormalized slot midpoints (client knows track durations); omitted means\nuniform buckets.",
         "properties": {
@@ -5917,6 +5935,40 @@
         "title": "PlayHistoryEntry",
         "type": "object"
       },
+      "PlayHistoryFeedbackOut": {
+        "description": "Derive-on-read planned-vs-actual report for a set's attached event.",
+        "properties": {
+          "event_id": {
+            "title": "Event Id",
+            "type": "integer"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/PlaybackSlotOutcomeOut"
+            },
+            "title": "Slots",
+            "type": "array"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/PlaybackReportSummary"
+          },
+          "unplanned": {
+            "items": {
+              "$ref": "#/components/schemas/UnplannedPlayOut"
+            },
+            "title": "Unplanned",
+            "type": "array"
+          }
+        },
+        "required": [
+          "event_id",
+          "slots",
+          "summary",
+          "unplanned"
+        ],
+        "title": "PlayHistoryFeedbackOut",
+        "type": "object"
+      },
       "PlayHistoryResponse": {
         "description": "Paginated response for play history.",
         "properties": {
@@ -5937,6 +5989,148 @@
           "total"
         ],
         "title": "PlayHistoryResponse",
+        "type": "object"
+      },
+      "PlaybackReportSummary": {
+        "description": "Headline counts for the report header.",
+        "properties": {
+          "out_of_order": {
+            "title": "Out Of Order",
+            "type": "integer"
+          },
+          "played": {
+            "title": "Played",
+            "type": "integer"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "total_planned": {
+            "title": "Total Planned",
+            "type": "integer"
+          },
+          "total_played": {
+            "title": "Total Played",
+            "type": "integer"
+          },
+          "unplanned": {
+            "title": "Unplanned",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "out_of_order",
+          "played",
+          "skipped",
+          "total_planned",
+          "total_played",
+          "unplanned"
+        ],
+        "title": "PlaybackReportSummary",
+        "type": "object"
+      },
+      "PlaybackSlotOutcomeOut": {
+        "description": "One planned slot's planned-vs-actual outcome.",
+        "properties": {
+          "artist": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artist"
+          },
+          "deck": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deck"
+          },
+          "outcome": {
+            "enum": [
+              "played",
+              "skipped",
+              "out_of_order",
+              "substituted"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "play_order": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Play Order"
+          },
+          "played_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Played At"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "slot_id": {
+            "title": "Slot Id",
+            "type": "integer"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "track_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track Id"
+          }
+        },
+        "required": [
+          "artist",
+          "deck",
+          "outcome",
+          "play_order",
+          "played_at",
+          "position",
+          "slot_id",
+          "title",
+          "track_id"
+        ],
+        "title": "PlaybackSlotOutcomeOut",
         "type": "object"
       },
       "PlaylistInfo": {
@@ -9999,6 +10193,67 @@
           "last_seen"
         ],
         "title": "TransportStatusOut",
+        "type": "object"
+      },
+      "UnplannedPlayOut": {
+        "description": "A played track that matched no planned slot (a live substitution).",
+        "properties": {
+          "artist": {
+            "title": "Artist",
+            "type": "string"
+          },
+          "deck": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deck"
+          },
+          "outcome": {
+            "default": "substituted",
+            "enum": [
+              "played",
+              "skipped",
+              "out_of_order",
+              "substituted"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "play_order": {
+            "title": "Play Order",
+            "type": "integer"
+          },
+          "played_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Played At"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "artist",
+          "deck",
+          "outcome",
+          "play_order",
+          "played_at",
+          "title"
+        ],
+        "title": "UnplannedPlayOut",
         "type": "object"
       },
       "UnresolvedTrackOut": {
@@ -18619,6 +18874,108 @@
           }
         ],
         "summary": "Update Set Pairing",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/playback-report": {
+      "get": {
+        "description": "Planned-vs-actual report comparing the set's slots to the event's play history.",
+        "operationId": "get_playback_report_api_setbuilder_sets__set_id__playback_report_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayHistoryFeedbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Set has no attached event."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Playback Report",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/playback-report/apply-pairings": {
+      "post": {
+        "description": "Feed real consecutive plays into pairing use-counts (explicit DJ action).",
+        "operationId": "apply_playback_pairings_api_setbuilder_sets__set_id__playback_report_apply_pairings_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyPairingFeedbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Set has no attached event."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Apply Playback Pairings",
         "tags": [
           "setbuilder"
         ]

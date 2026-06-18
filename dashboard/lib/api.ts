@@ -55,6 +55,8 @@ import type {
   PairingCreate,
   PairingUpdate,
   PairingsState,
+  PlaybackReport,
+  ApplyPairingFeedback,
   PlayHistoryResponse,
   PlaylistListResponse,
   PoolImportManualIn,
@@ -163,6 +165,8 @@ export type {
   PairingCreate,
   PairingUpdate,
   PairingsState,
+  PlaybackReport,
+  ApplyPairingFeedback,
   PlayHistoryItem,
   PlayHistoryResponse,
   PublicBridgeStatus,
@@ -839,6 +843,16 @@ class ApiClient {
   async deletePairing(setId: number, pairingId: number): Promise<void> {
     await this.rawFetch(`/api/setbuilder/sets/${setId}/pairings/${pairingId}`, {
       method: 'DELETE',
+    });
+  }
+
+  // WrzDJSet play-history feedback loop (issue #403)
+  async getPlaybackReport(setId: number): Promise<PlaybackReport> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/playback-report`);
+  }
+  async applyPlaybackPairings(setId: number): Promise<ApplyPairingFeedback> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/playback-report/apply-pairings`, {
+      method: 'POST',
     });
   }
 

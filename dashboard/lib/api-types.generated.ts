@@ -2898,6 +2898,46 @@ export interface paths {
         patch: operations["update_set_pairing_api_setbuilder_sets__set_id__pairings__pairing_id__patch"];
         trace?: never;
     };
+    "/api/setbuilder/sets/{set_id}/playback-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Playback Report
+         * @description Planned-vs-actual report comparing the set's slots to the event's play history.
+         */
+        get: operations["get_playback_report_api_setbuilder_sets__set_id__playback_report_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/playback-report/apply-pairings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply Playback Pairings
+         * @description Feed real consecutive plays into pairing use-counts (explicit DJ action).
+         */
+        post: operations["apply_playback_pairings_api_setbuilder_sets__set_id__playback_report_apply_pairings_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setbuilder/sets/{set_id}/pool": {
         parameters: {
             query?: never;
@@ -3898,6 +3938,15 @@ export interface components {
             result: {
                 [key: string]: unknown;
             };
+        };
+        /**
+         * ApplyPairingFeedbackOut
+         * @description Result of the explicit consecutive-pairing bump action.
+         */
+        ApplyPairingFeedbackOut: {
+            /** Bumped */
+            bumped: number;
+            pairings: components["schemas"]["PairingsState"];
         };
         /**
          * ApplyTemplateRequest
@@ -5634,6 +5683,19 @@ export interface components {
             title: string;
         };
         /**
+         * PlayHistoryFeedbackOut
+         * @description Derive-on-read planned-vs-actual report for a set's attached event.
+         */
+        PlayHistoryFeedbackOut: {
+            /** Event Id */
+            event_id: number;
+            /** Slots */
+            slots: components["schemas"]["PlaybackSlotOutcomeOut"][];
+            summary: components["schemas"]["PlaybackReportSummary"];
+            /** Unplanned */
+            unplanned: components["schemas"]["UnplannedPlayOut"][];
+        };
+        /**
          * PlayHistoryResponse
          * @description Paginated response for play history.
          */
@@ -5642,6 +5704,51 @@ export interface components {
             items: components["schemas"]["PlayHistoryEntry"][];
             /** Total */
             total: number;
+        };
+        /**
+         * PlaybackReportSummary
+         * @description Headline counts for the report header.
+         */
+        PlaybackReportSummary: {
+            /** Out Of Order */
+            out_of_order: number;
+            /** Played */
+            played: number;
+            /** Skipped */
+            skipped: number;
+            /** Total Planned */
+            total_planned: number;
+            /** Total Played */
+            total_played: number;
+            /** Unplanned */
+            unplanned: number;
+        };
+        /**
+         * PlaybackSlotOutcomeOut
+         * @description One planned slot's planned-vs-actual outcome.
+         */
+        PlaybackSlotOutcomeOut: {
+            /** Artist */
+            artist: string | null;
+            /** Deck */
+            deck: string | null;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "played" | "skipped" | "out_of_order" | "substituted";
+            /** Play Order */
+            play_order: number | null;
+            /** Played At */
+            played_at: string | null;
+            /** Position */
+            position: number;
+            /** Slot Id */
+            slot_id: number;
+            /** Title */
+            title: string | null;
+            /** Track Id */
+            track_id: string | null;
         };
         /** PlaylistInfo */
         PlaylistInfo: {
@@ -6929,6 +7036,28 @@ export interface components {
             device_name: string | null;
             /** Last Seen */
             last_seen: string | null;
+        };
+        /**
+         * UnplannedPlayOut
+         * @description A played track that matched no planned slot (a live substitution).
+         */
+        UnplannedPlayOut: {
+            /** Artist */
+            artist: string;
+            /** Deck */
+            deck: string | null;
+            /**
+             * Outcome
+             * @default substituted
+             * @enum {string}
+             */
+            outcome: "played" | "skipped" | "out_of_order" | "substituted";
+            /** Play Order */
+            play_order: number;
+            /** Played At */
+            played_at: string | null;
+            /** Title */
+            title: string;
         };
         /**
          * UnresolvedTrackOut
@@ -12409,6 +12538,82 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PairingOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_playback_report_api_setbuilder_sets__set_id__playback_report_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlayHistoryFeedbackOut"];
+                };
+            };
+            /** @description Set has no attached event. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_playback_pairings_api_setbuilder_sets__set_id__playback_report_apply_pairings_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplyPairingFeedbackOut"];
+                };
+            };
+            /** @description Set has no attached event. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

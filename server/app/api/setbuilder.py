@@ -27,6 +27,7 @@ from app.schemas.setbuilder import (
     AgentChatMessageOut,
     AgentChatOut,
     AppliedToolCallOut,
+    ApplyPairingFeedbackOut,
     ApplyTemplateRequest,
     ApplyTemplateResponse,
     BuilderPlaylistsOut,
@@ -50,6 +51,9 @@ from app.schemas.setbuilder import (
     PairingOut,
     PairingsState,
     PairingUpdate,
+    PlaybackReportSummary,
+    PlaybackSlotOutcomeOut,
+    PlayHistoryFeedbackOut,
     PoolImportEventIn,
     PoolImportManualIn,
     PoolImportPlaylistIn,
@@ -81,6 +85,7 @@ from app.schemas.setbuilder import (
     TransportCommandIn,
     TransportCommandOut,
     TransportStatusOut,
+    UnplannedPlayOut,
     UnresolvedTrackOut,
     UnresolvedTracksError,
     VibeEnrichmentResult,
@@ -101,6 +106,7 @@ from app.services.setbuilder import (
     pairings,
     pass1_deterministic,
     pass2_agent,
+    playhistory_feedback,
     pool,
     reorder,
     set_service,
@@ -510,6 +516,97 @@ def delete_set_pairing(
     if pairing is None:
         raise HTTPException(status_code=404, detail="Pairing not found")
     pairings.delete_pairing(db, pairing)
+
+
+# ---------------------------------------------------------------------------
+# Play-history feedback loop (issue #403) — derive-on-read planned-vs-actual.
+# Read-only on play_history AND requests; the only write is SetPairing.use_count
+# via the explicit apply-pairings action.
+
+
+def _playback_report_out(report: playhistory_feedback.FeedbackReport) -> PlayHistoryFeedbackOut:
+    return PlayHistoryFeedbackOut(
+        event_id=report.event_id,
+        slots=[
+            PlaybackSlotOutcomeOut(
+                slot_id=s.slot_id,
+                position=s.position,
+                track_id=s.track_id,
+                title=s.title,
+                artist=s.artist,
+                outcome=s.outcome,
+                play_order=s.play_order,
+                played_at=s.played_at,
+                deck=s.deck,
+            )
+            for s in report.slots
+        ],
+        unplanned=[
+            UnplannedPlayOut(
+                play_order=u.play_order,
+                title=u.title,
+                artist=u.artist,
+                played_at=u.played_at,
+                deck=u.deck,
+                outcome=u.outcome,
+            )
+            for u in report.unplanned
+        ],
+        summary=PlaybackReportSummary(
+            total_planned=report.summary.total_planned,
+            total_played=report.summary.total_played,
+            played=report.summary.played,
+            skipped=report.summary.skipped,
+            out_of_order=report.summary.out_of_order,
+            unplanned=report.summary.unplanned,
+        ),
+    )
+
+
+def _require_event_attached(set_obj: Set) -> None:
+    if set_obj.event_id is None:
+        raise HTTPException(
+            status_code=400, detail="Set must be attached to an event for a playback report"
+        )
+
+
+@router.get(
+    "/sets/{set_id}/playback-report",
+    response_model=PlayHistoryFeedbackOut,
+    responses={400: {"description": "Set has no attached event."}},
+)
+@limiter.limit("30/minute")
+def get_playback_report(
+    set_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> PlayHistoryFeedbackOut:
+    """Planned-vs-actual report comparing the set's slots to the event's play history."""
+    set_obj = _get_owned_or_404(db, set_id, current_user)
+    _require_event_attached(set_obj)
+    report = playhistory_feedback.build_feedback_report(db, set_obj)
+    return _playback_report_out(report)
+
+
+@router.post(
+    "/sets/{set_id}/playback-report/apply-pairings",
+    response_model=ApplyPairingFeedbackOut,
+    responses={400: {"description": "Set has no attached event."}},
+)
+@limiter.limit("10/minute")
+def apply_playback_pairings(
+    set_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> ApplyPairingFeedbackOut:
+    """Feed real consecutive plays into pairing use-counts (explicit DJ action)."""
+    set_obj = _get_owned_or_404(db, set_id, current_user)
+    _require_event_attached(set_obj)
+    report = playhistory_feedback.build_feedback_report(db, set_obj)
+    bumped = playhistory_feedback.apply_outcomes_to_pairings(db, set_obj, report)
+    return ApplyPairingFeedbackOut(bumped=bumped, pairings=_pairings_state(db, set_obj))
 
 
 @router.patch("/sets/{set_id}/slots/{slot_id}/target", response_model=SlotTargetOut)

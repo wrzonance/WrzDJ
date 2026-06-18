@@ -640,6 +640,10 @@ export default function KioskDisplayPage() {
           align-items: center;
           gap: 14px;
           overflow: hidden;
+          /* Keep natural row height so a long accepted queue scrolls instead of
+             squishing: overflow:hidden zeroes the flex auto min-height, so without
+             flex-shrink:0 the column crushes every row to fit (issue #478). */
+          flex-shrink: 0;
         }
         .queue-item-top1 {
           border-color: var(--banner-accent-50, rgba(255,255,255,0.1));

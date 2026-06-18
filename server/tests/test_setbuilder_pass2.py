@@ -1159,3 +1159,214 @@ def test_tool_display_summary_lock_and_unlock():
 
     assert locked == "Locked slot 1."
     assert unlocked == "Unlocked slot 3."
+
+
+def test_set_target_sets_every_field(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+
+    result, positions = apply_tool_call(
+        db,
+        set_obj,
+        "set_target",
+        {
+            "target_duration_sec": 3600,
+            "bpm_floor": 120,
+            "bpm_ceiling": 130,
+            "key_strictness": 0.8,
+            "avg_transition_overlap_sec": 12,
+            "rationale": "Dial in a one-hour peak-time set.",
+        },
+    )
+
+    assert positions == set()
+    db.refresh(set_obj)
+    assert set_obj.target_duration_sec == 3600
+    assert set_obj.bpm_floor == 120
+    assert set_obj.bpm_ceiling == 130
+    assert set_obj.key_strictness == 0.8
+    assert set_obj.avg_transition_overlap_sec == 12
+    assert result == {
+        "target_duration_sec": 3600,
+        "bpm_floor": 120,
+        "bpm_ceiling": 130,
+        "key_strictness": 0.8,
+        "avg_transition_overlap_sec": 12,
+    }
+
+
+def test_set_target_partial_update_leaves_others_unchanged(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    set_obj.bpm_floor = 118
+    set_obj.bpm_ceiling = 128
+    set_obj.key_strictness = 0.3
+    db.commit()
+    original_overlap = set_obj.avg_transition_overlap_sec
+
+    result, _ = apply_tool_call(
+        db,
+        set_obj,
+        "set_target",
+        {"target_duration_sec": 5400, "rationale": "Stretch to 90 minutes."},
+    )
+
+    db.refresh(set_obj)
+    assert set_obj.target_duration_sec == 5400
+    # Omitted fields are untouched.
+    assert set_obj.bpm_floor == 118
+    assert set_obj.bpm_ceiling == 128
+    assert set_obj.key_strictness == 0.3
+    assert set_obj.avg_transition_overlap_sec == original_overlap
+    # The result echoes only the fields the call actually set.
+    assert result == {"target_duration_sec": 5400}
+
+
+def test_set_target_clears_nullable_field_with_explicit_none(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)  # seeded target_duration_sec=420
+    assert set_obj.target_duration_sec is not None
+
+    result, _ = apply_tool_call(
+        db,
+        set_obj,
+        "set_target",
+        {"target_duration_sec": None, "rationale": "Drop the hard duration target."},
+    )
+
+    db.refresh(set_obj)
+    assert set_obj.target_duration_sec is None
+    assert result == {"target_duration_sec": None}
+
+
+def test_set_target_rejects_inverted_bpm_window(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+
+    with pytest.raises(AgentToolError, match="bpm_floor"):
+        apply_tool_call(
+            db,
+            set_obj,
+            "set_target",
+            {"bpm_floor": 130, "bpm_ceiling": 120, "rationale": "oops"},
+        )
+
+
+def test_set_target_rejects_out_of_range_key_strictness(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+
+    for bad in (-0.1, 1.5):
+        with pytest.raises(AgentToolError, match="key_strictness"):
+            apply_tool_call(
+                db,
+                set_obj,
+                "set_target",
+                {"key_strictness": bad, "rationale": "oops"},
+            )
+
+
+def test_set_target_rejects_negative_durations(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+
+    with pytest.raises(AgentToolError, match="target_duration_sec"):
+        apply_tool_call(
+            db,
+            set_obj,
+            "set_target",
+            {"target_duration_sec": -1, "rationale": "oops"},
+        )
+    with pytest.raises(AgentToolError, match="avg_transition_overlap_sec"):
+        apply_tool_call(
+            db,
+            set_obj,
+            "set_target",
+            {"avg_transition_overlap_sec": -5, "rationale": "oops"},
+        )
+
+
+def test_set_target_rejects_inverted_bpm_against_existing_floor(db: Session, test_user: User):
+    """A new ceiling below the already-stored floor must be rejected too."""
+    set_obj = _mk_set_with_tracks(db, test_user)
+    set_obj.bpm_floor = 125
+    db.commit()
+
+    with pytest.raises(AgentToolError, match="bpm_floor"):
+        apply_tool_call(
+            db,
+            set_obj,
+            "set_target",
+            {"bpm_ceiling": 120, "rationale": "Lower the top end."},
+        )
+
+
+def test_set_target_requires_rationale(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+
+    with pytest.raises(AgentToolError, match="rationale"):
+        apply_tool_call(db, set_obj, "set_target", {"target_duration_sec": 3600})
+
+
+def test_set_target_leaves_event_requests_untouched(
+    db: Session, test_user: User, test_request: Request
+):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    before_count = db.query(Request).count()
+    before_title = test_request.song_title
+
+    apply_tool_call(
+        db,
+        set_obj,
+        "set_target",
+        {
+            "target_duration_sec": 3000,
+            "bpm_floor": 122,
+            "bpm_ceiling": 128,
+            "rationale": "Set the targets without touching anyone's requests.",
+        },
+    )
+
+    db.refresh(test_request)
+    assert db.query(Request).count() == before_count
+    assert test_request.song_title == before_title
+
+
+def test_set_target_display_summary_is_human_readable():
+    summary = _tool_display_summary(
+        "set_target",
+        {"rationale": "x"},
+        {
+            "target_duration_sec": 3600,
+            "bpm_floor": 120,
+            "bpm_ceiling": 130,
+            "key_strictness": 0.8,
+            "avg_transition_overlap_sec": 12,
+        },
+        {},
+        {},
+    )
+    assert "duration 60 min" in summary
+    assert "BPM 120-130" in summary
+    assert "key strictness 0.8" in summary
+    assert "transition overlap 12s" in summary
+
+
+def test_set_target_display_summary_handles_clears_and_single_bounds():
+    # Cleared nullable fields and a lone floor/ceiling render distinct phrasing.
+    cleared = _tool_display_summary(
+        "set_target",
+        {"rationale": "x"},
+        {"target_duration_sec": None, "bpm_floor": None},
+        {},
+        {},
+    )
+    assert "cleared duration target" in cleared
+    assert "cleared BPM floor" in cleared
+
+    floor_only = _tool_display_summary("set_target", {"rationale": "x"}, {"bpm_floor": 124}, {}, {})
+    assert floor_only == "Set targets: BPM floor 124."
+
+    ceiling_only = _tool_display_summary(
+        "set_target", {"rationale": "x"}, {"bpm_ceiling": None}, {}, {}
+    )
+    assert ceiling_only == "Set targets: cleared BPM ceiling."
+
+    # An empty result (no fields set) still yields a sentence, never a crash.
+    assert _tool_display_summary("set_target", {"rationale": "x"}, {}, {}, {}) == (
+        "Updated set targets."
+    )

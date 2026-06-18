@@ -18,6 +18,7 @@ from app.services.setbuilder import agent_history, curve
 from app.services.setbuilder.pass1_deterministic import TrackMeta
 from app.services.setbuilder.pass2_agent import (
     AgentToolError,
+    _agent_tools,
     _explain_warning,
     _tool_display_summary,
     _track_summary,
@@ -1263,3 +1264,12 @@ def test_remove_curve_point_display_summary_is_human_readable():
         {},
     )
     assert summary == "Removed curve point at 120s."
+
+
+def test_set_curve_point_schema_keeps_label_optional():
+    """label is optional; position_sec/energy/rationale stay required."""
+    spec = next(t for t in _agent_tools() if t.name == "set_curve_point")
+    required = set(spec.input_schema["required"])
+    assert required == {"position_sec", "energy", "rationale"}
+    assert "label" not in required
+    assert "label" in spec.input_schema["properties"]

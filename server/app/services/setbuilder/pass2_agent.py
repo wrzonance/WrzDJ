@@ -1043,7 +1043,8 @@ def _agent_tools() -> list[ToolSpec]:
         _tool("bump_energy", {"amount": "number", "slot_id": "integer"}),
         _tool(
             "set_curve_point",
-            {"position_sec": "integer", "energy": "integer", "label": "string"},
+            {"position_sec": "integer", "energy": "integer"},
+            optional_fields={"label": "string"},
         ),
         _tool("remove_curve_point", {"position_sec": "integer"}),
         ToolSpec(
@@ -1090,8 +1091,20 @@ def _agent_tools() -> list[ToolSpec]:
     ]
 
 
-def _tool(name: str, fields: dict[str, str]) -> ToolSpec:
+def _tool(
+    name: str,
+    fields: dict[str, str],
+    *,
+    optional_fields: dict[str, str] | None = None,
+) -> ToolSpec:
+    """Build a mutation tool schema.
+
+    ``fields`` are required; ``optional_fields`` appear in the schema but are
+    not required. ``rationale`` is always added and required (mutation tools
+    must justify themselves — see ``MUTATION_TOOLS``).
+    """
     properties = {key: {"type": value} for key, value in fields.items()}
+    properties.update({key: {"type": value} for key, value in (optional_fields or {}).items()})
     properties["rationale"] = {"type": "string"}
     return ToolSpec(
         name=name,

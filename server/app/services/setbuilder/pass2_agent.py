@@ -17,6 +17,7 @@ from app.services.llm.exceptions import NoLlmConfigured
 from app.services.llm.gateway import Gateway
 from app.services.setbuilder import curve
 from app.services.setbuilder.pass1_deterministic import (
+    TrackMeta,
     TransitionScore,
     recompute_transition_scores,
     transition_score,
@@ -259,6 +260,7 @@ def apply_tool_call(
         "set_peak_at": _tool_set_peak_at,
         "bump_energy": _tool_bump_energy,
         "analyze_transition": _tool_analyze_transition,
+        "explain_transition": _tool_explain_transition,
         "critique_set": _tool_static_critique,
     }
     handler = handlers.get(name)
@@ -406,6 +408,80 @@ def _tool_analyze_transition(
         raise AgentToolError("slot has no pool metadata")
     score, warnings = transition_score(prev, curr, set_obj.key_strictness)
     return {"position": position, "score": score, "warnings": warnings}, set()
+
+
+def _tool_explain_transition(
+    db: Session, set_obj: Set, payload: dict[str, Any]
+) -> tuple[dict[str, Any], set[int]]:
+    """Read-only: turn a transition's terse warning codes into grounded sentences."""
+    position = int(payload["position"])
+    slots = _ordered_slots(db, set_obj.id)
+    if position <= 0 or position >= len(slots):
+        raise AgentToolError("position must identify a transition destination")
+    tracks = {
+        _pass1_track_meta(t).slot_track_id: _pass1_track_meta(t)
+        for t in _pool_tracks(db, set_obj.id)
+    }
+    prev = tracks.get(slots[position - 1].track_id or "")
+    curr = tracks.get(slots[position].track_id or "")
+    if curr is None:
+        raise AgentToolError("slot has no pool metadata")
+    score, warnings = transition_score(prev, curr, set_obj.key_strictness)
+    explanations = [
+        {"code": code, "detail": _explain_warning(code, prev, curr)} for code in warnings
+    ]
+    return {
+        "position": position,
+        "score": score,
+        "explanations": explanations,
+        "prev": _track_summary(prev),
+        "curr": _track_summary(curr),
+    }, set()
+
+
+def _track_summary(meta: TrackMeta | None) -> dict[str, Any] | None:
+    """Compact prev/curr summary of the fields that drive transition scoring."""
+    if meta is None:
+        return None
+    return {
+        "title": meta.title,
+        "artist": meta.artist,
+        "bpm": meta.bpm,
+        "key": meta.key,
+        "energy": meta.energy,
+    }
+
+
+def _explain_warning(code: str, prev: TrackMeta | None, curr: TrackMeta) -> str:
+    """Build one human-readable sentence for a warning, grounded in real fields."""
+    if code == "bpm_jump":
+        prev_bpm = _fmt_number(prev.bpm) if prev else "unknown"
+        return (
+            f"Big tempo gap: {prev_bpm} BPM into {_fmt_number(curr.bpm)} BPM — "
+            "too far to ride the same groove."
+        )
+    if code == "key_clash":
+        prev_key = (prev.key if prev and prev.key else "unknown") if prev else "unknown"
+        return (
+            f"Keys clash: {prev_key} into {curr.key or 'unknown'} are not "
+            "harmonically adjacent on the Camelot wheel."
+        )
+    if code == "mood_shift":
+        prev_mood = (prev.mood if prev and prev.mood else "unknown") if prev else "unknown"
+        return (
+            f"Mood swings from {prev_mood} to {curr.mood or 'unknown'} — "
+            "the emotional energy lurches."
+        )
+    if code == "repeat_artist":
+        artist = curr.artist or (prev.artist if prev else None) or "the same artist"
+        return f"Back-to-back {artist}: repeating an artist can stall the set's variety."
+    return code.replace("_", " ")
+
+
+def _fmt_number(value: float | None) -> str:
+    if value is None:
+        return "unknown"
+    return f"{value:g}"
 
 
 def _tool_static_critique(
@@ -661,6 +737,13 @@ def _tool_display_summary(
             readable = ", ".join(str(warning).replace("_", " ") for warning in warnings)
             return f"{base} Warnings: {readable}."
         return base
+    if name == "explain_transition":
+        base = f"Explained transition into {_position_label(int(result['position']))}."
+        explanations = result.get("explanations") or []
+        if explanations:
+            details = " ".join(str(item.get("detail") or "") for item in explanations)
+            return f"{base} {details}".strip()
+        return f"{base} No transition issues."
     if name == "critique_set":
         grade = result.get("overall_grade")
         if grade:
@@ -684,6 +767,15 @@ def _agent_tools() -> list[ToolSpec]:
         ToolSpec(
             name="analyze_transition",
             description="Analyze one transition by destination slot position.",
+            input_schema={
+                "type": "object",
+                "properties": {"position": {"type": "integer"}},
+                "required": ["position"],
+            },
+        ),
+        ToolSpec(
+            name="explain_transition",
+            description="Explain why a transition is flagged, grounded in the two tracks' fields.",
             input_schema={
                 "type": "object",
                 "properties": {"position": {"type": "integer"}},

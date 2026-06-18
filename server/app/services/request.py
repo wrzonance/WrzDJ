@@ -109,6 +109,18 @@ def get_requests_for_event(
     return query.order_by(Request.created_at.desc()).limit(limit).all()
 
 
+def mark_accepted(req: Request, now: datetime) -> None:
+    """Record the first time *req* enters ACCEPTED.
+
+    Idempotent and history-preserving: once set, ``accepted_at`` is never moved
+    by a re-accept or a later status change (playing/played/rejected), because
+    the DJ sort field is *date accepted* — a historical fact, not "currently
+    accepted at" (issue #478).
+    """
+    if req.accepted_at is None:
+        req.accepted_at = now
+
+
 def update_request_status(db: Session, request: Request, status: RequestStatus) -> Request:
     """Update the status of a request.
 
@@ -123,6 +135,8 @@ def update_request_status(db: Session, request: Request, status: RequestStatus) 
         )
     request.status = status.value
     request.updated_at = utcnow()
+    if status == RequestStatus.ACCEPTED:
+        mark_accepted(request, request.updated_at)
     db.commit()
     db.refresh(request)
     return request
@@ -168,6 +182,7 @@ def accept_all_new_requests(db: Session, event: Event) -> list[Request]:
     for req in new_requests:
         req.status = RequestStatus.ACCEPTED.value
         req.updated_at = now
+        mark_accepted(req, now)
     db.commit()
     for req in new_requests:
         db.refresh(req)

@@ -6156,6 +6156,8 @@ export interface components {
         };
         /** RequestOut */
         RequestOut: {
+            /** Accepted At */
+            accepted_at: string | null;
             /** Artist */
             artist: string;
             /** Artwork Url */

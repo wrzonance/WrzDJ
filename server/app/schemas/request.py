@@ -82,6 +82,9 @@ class RequestOut(BaseSchema):
     status: str
     created_at: IsoDatetime
     updated_at: IsoDatetime
+    # First moment the request entered ACCEPTED; null until first accepted.
+    # Backs the DJ "date accepted" sort (issue #478).
+    accepted_at: IsoDatetime | None = None
     is_duplicate: bool = False
     # Track metadata
     genre: str | None = None

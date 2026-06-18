@@ -29,6 +29,8 @@ MUTATION_TOOLS = {
     "set_target",
     "lock_slot",
     "unlock_slot",
+    "add_pairing",
+    "remove_pairing",
 }
 
 

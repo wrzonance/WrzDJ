@@ -4952,7 +4952,7 @@ export interface components {
              * Format
              * @enum {string}
              */
-            format: "rekordbox" | "m3u" | "txt";
+            format: "rekordbox" | "m3u" | "txt" | "enginedj" | "lexicon";
             /**
              * Skip Unresolved
              * @default false
@@ -4968,7 +4968,7 @@ export interface components {
              * Target
              * @enum {string}
              */
-            target: "tidal" | "rekordbox" | "m3u" | "txt";
+            target: "tidal" | "rekordbox" | "m3u" | "txt" | "enginedj" | "lexicon";
         };
         /**
          * ExportPreflightOut
@@ -4986,7 +4986,7 @@ export interface components {
              * Target
              * @enum {string}
              */
-            target: "tidal" | "rekordbox" | "m3u" | "txt";
+            target: "tidal" | "rekordbox" | "m3u" | "txt" | "enginedj" | "lexicon";
             /** Tidal Connected */
             tidal_connected: boolean | null;
             /** Total */

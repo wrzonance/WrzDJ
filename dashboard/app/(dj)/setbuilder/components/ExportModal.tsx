@@ -41,11 +41,27 @@ const PLATFORMS = [
     sub: 'Universal playlist / plaintext',
     available: true,
   },
-  { id: 'enginedj' as const, label: 'Engine DJ XML', sub: '', available: false },
+  {
+    id: 'enginedj' as const,
+    label: 'Engine DJ XML',
+    sub: 'Imports via Rekordbox XML — relink on import',
+    available: true,
+  },
+  {
+    id: 'lexicon' as const,
+    label: 'Lexicon',
+    sub: 'Imports via Rekordbox XML — relink on import',
+    available: true,
+  },
   { id: 'serato' as const, label: 'Serato .crate', sub: '', available: false },
   { id: 'spotify' as const, label: 'Spotify', sub: '', available: false },
   { id: 'applemusic' as const, label: 'Apple Music', sub: '', available: false },
 ];
+
+// Targets that emit the Rekordbox DJ_PLAYLISTS XML. Engine DJ and Lexicon have
+// no proprietary import format — both ingest this XML — so they share one
+// download path with rekordbox.
+const XML_PLATFORMS = ['rekordbox', 'enginedj', 'lexicon'] as const;
 
 // ---------------------------------------------------------------------------
 // Props
@@ -109,12 +125,14 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
     setFileDownloaded(null);
     setStage('checking');
 
-    const targetMap: Record<'tidal' | 'rekordbox' | 'm3u', ExportTarget> = {
+    const targetMap: Record<'tidal' | 'rekordbox' | 'm3u' | 'enginedj' | 'lexicon', ExportTarget> = {
       tidal: 'tidal',
       rekordbox: 'rekordbox',
       m3u: 'm3u',
+      enginedj: 'enginedj',
+      lexicon: 'lexicon',
     };
-    const target = targetMap[platform.id as 'tidal' | 'rekordbox' | 'm3u'];
+    const target = targetMap[platform.id as keyof typeof targetMap];
 
     try {
       const result = await api.exportPreflight(set.id, target);
@@ -158,6 +176,8 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
       rekordbox: 'xml',
       m3u: 'm3u8',
       txt: 'txt',
+      enginedj: 'xml',
+      lexicon: 'xml',
     };
     const fallback = buildFallbackName(set.name, extMap[format]);
     try {
@@ -394,19 +414,34 @@ function ConfirmStage({
         </button>
       )}
 
-      {canExport && platformId === 'rekordbox' && (
-        <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
-          <button
-            className="btn btn-primary btn-sm"
-            disabled={exporting || downloading}
-            onClick={() => onFileExport('rekordbox')}
-          >
-            {downloading ? 'Preparing…' : 'Download .xml'}
-          </button>
-          {fileDownloaded && (
-            <span style={{ fontSize: '0.75rem', color: 'var(--color-success, #22c55e)', alignSelf: 'center' }}>
-              Downloaded ✓
-            </span>
+      {canExport && (XML_PLATFORMS as readonly string[]).includes(platformId) && (
+        <div style={{ marginTop: '0.5rem' }}>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button
+              className="btn btn-primary btn-sm"
+              disabled={exporting || downloading}
+              onClick={() => onFileExport(platformId as ExportFileFormat)}
+            >
+              {downloading ? 'Preparing…' : 'Download .xml'}
+            </button>
+            {fileDownloaded && (
+              <span style={{ fontSize: '0.75rem', color: 'var(--color-success, #22c55e)', alignSelf: 'center' }}>
+                Downloaded ✓
+              </span>
+            )}
+          </div>
+          {platformId !== 'rekordbox' && (
+            <div
+              style={{
+                marginTop: '0.5rem',
+                fontSize: '0.6875rem',
+                color: 'var(--text-secondary)',
+                lineHeight: 1.4,
+              }}
+            >
+              Engine DJ and Lexicon both import this Rekordbox XML. Set the XML path in the
+              app, import the playlist, then relink tracks to your local audio files.
+            </div>
           )}
         </div>
       )}

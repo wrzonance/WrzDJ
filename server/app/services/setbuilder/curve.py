@@ -287,3 +287,87 @@ def replace_vibe_windows(
     else:
         db.flush()
     return get_vibe_windows(db, set_obj.id)
+
+
+# ---------------------------------------------------------------------------
+# Standalone curve points (non-window SetCurvePoint rows, #468)
+# ---------------------------------------------------------------------------
+#
+# Standalone points are individual energy markers the agent places or removes
+# at a time offset. They are the *complement* of the paired vibe-window rows:
+# every standalone point has both window flags ``False``, so these helpers
+# filter on that and never touch ``add_slow_window``'s paired rows.
+
+
+def _standalone_points_filter(set_id: int):
+    """Owner-scoped filter for non-window points (both window flags False)."""
+    return (
+        SetCurvePoint.set_id == set_id,
+        SetCurvePoint.is_slow_window_start == False,  # noqa: E712
+        SetCurvePoint.is_slow_window_end == False,  # noqa: E712
+    )
+
+
+def get_standalone_point(db: Session, set_id: int, position_sec: int) -> SetCurvePoint | None:
+    """The non-window point at ``position_sec`` for the set, or None."""
+    return (
+        db.query(SetCurvePoint)
+        .filter(*_standalone_points_filter(set_id), SetCurvePoint.position_sec == position_sec)
+        .one_or_none()
+    )
+
+
+def upsert_curve_point(
+    db: Session,
+    set_obj: Set,
+    position_sec: int,
+    energy: int,
+    label: str | None = None,
+    *,
+    commit: bool = True,
+) -> SetCurvePoint:
+    """Insert or update a standalone (non-window) curve point at ``position_sec``.
+
+    Matches the existing non-window point at the same ``position_sec`` and
+    updates its ``energy``/``label``; otherwise inserts a new one. Window flags
+    are always ``False`` so paired vibe-window rows are never disturbed.
+    """
+    point = get_standalone_point(db, set_obj.id, position_sec)
+    if point is None:
+        point = SetCurvePoint(
+            set_id=set_obj.id,
+            position_sec=position_sec,
+            energy=energy,
+            label=label,
+            is_slow_window_start=False,
+            is_slow_window_end=False,
+        )
+        db.add(point)
+    else:
+        point.energy = energy
+        point.label = label
+    if commit:
+        db.commit()
+        db.refresh(point)
+    else:
+        db.flush()
+    return point
+
+
+def remove_curve_point(
+    db: Session, set_obj: Set, position_sec: int, *, commit: bool = True
+) -> bool:
+    """Delete the standalone (non-window) point at ``position_sec``.
+
+    Returns True when a point was removed, False when none existed. Window rows
+    are never matched, so vibe-window pairs are left intact.
+    """
+    point = get_standalone_point(db, set_obj.id, position_sec)
+    if point is None:
+        return False
+    db.delete(point)
+    if commit:
+        db.commit()
+    else:
+        db.flush()
+    return True

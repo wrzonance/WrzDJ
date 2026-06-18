@@ -884,8 +884,11 @@ class VibeEnrichmentResult(BaseModel):
 # Export (issue #396)
 
 
-ExportTarget = Literal["tidal", "rekordbox", "m3u", "txt"]
-ExportFileFormat = Literal["rekordbox", "m3u", "txt"]
+# Engine DJ and Lexicon have no proprietary import format — both ingest the
+# Rekordbox DJ_PLAYLISTS XML — so they are distinct format keys that render the
+# same XML (kept distinct, not aliased, so the UI lists them separately).
+ExportTarget = Literal["tidal", "rekordbox", "m3u", "txt", "enginedj", "lexicon"]
+ExportFileFormat = Literal["rekordbox", "m3u", "txt", "enginedj", "lexicon"]
 
 
 class ExportPreflightIn(BaseModel):

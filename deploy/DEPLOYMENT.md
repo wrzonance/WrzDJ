@@ -302,6 +302,41 @@ git pull
 docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
+### Update nginx config on a running deployment
+
+The container rebuild above does **not** touch nginx — nginx is host-level
+(systemd), not containerized. Whenever a pull changes anything under
+`deploy/nginx/` (the `*.conf.template` vhosts or the `tuning.conf` /
+`logging.conf` http-context includes), re-run the setup script to roll those
+changes onto the live box:
+
+```bash
+# Same APP_DOMAIN / API_DOMAIN you used for the initial setup
+APP_DOMAIN=app.yourdomain.com API_DOMAIN=api.yourdomain.com ./deploy/setup-nginx.sh
+```
+
+`setup-nginx.sh` is idempotent and **fail-closed**: it regenerates the vhosts,
+reinstalls `wrzdj-logging.conf` + `wrzdj-tuning.conf` to `/etc/nginx/conf.d/`,
+runs `nginx -t`, and only `systemctl reload nginx` if the test passes — so a bad
+config can never take a running site down (the old config keeps serving).
+
+> `tuning.conf` is an **http-context** include: its gzip, timeout, and
+> rate-limit-zone settings apply to every vhost on this nginx. It deliberately
+> does **not** restate `gzip on`, `server_tokens off`, or `ssl_protocols` —
+> those are already declared by the base `/etc/nginx/nginx.conf` and the
+> per-vhost certbot include, and repeating them in an http-level include is a
+> fatal `"directive is duplicate"` error that fails `nginx -t`.
+
+Verify after reload:
+
+```bash
+# gzip on proxied JSON
+curl -sH 'Accept-Encoding: gzip' -I https://api.yourdomain.com/health | grep -i content-encoding
+# edge rate limit returns 429 past the burst on a non-SSE endpoint
+# SSE stream still connects and is NOT throttled (long-lived, exempt from limit_req)
+# only TLS 1.2/1.3 negotiated; security headers unchanged on all vhosts
+```
+
 ### Database backup
 
 ```bash

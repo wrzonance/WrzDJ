@@ -55,7 +55,7 @@ class TestGetEventRequestsIncludesSyncFields:
             headers=auth_headers,
         )
         assert response.status_code == 200
-        data = response.json()
+        data = response.json()["requests"]
         assert len(data) == 1
 
         req = data[0]
@@ -86,7 +86,7 @@ class TestGetEventRequestsIncludesSyncFields:
             headers=auth_headers,
         )
         assert response.status_code == 200
-        req = response.json()[0]
+        req = response.json()["requests"][0]
         assert req["sync_results_json"] is None
         assert req["raw_search_query"] is None
 

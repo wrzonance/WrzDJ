@@ -1438,18 +1438,33 @@ describe('ApiClient', () => {
   // ========== Request Management ==========
 
   describe('getRequests', () => {
-    it('fetches all requests for an event', async () => {
+    // #478: the endpoint now returns a paginated envelope, not a bare array.
+    const envelope = (overrides: Record<string, unknown> = {}) => ({
+      requests: [],
+      total: 0,
+      limit: 100,
+      offset: 0,
+      sort: 'date_requested',
+      direction: 'desc',
+      ...overrides,
+    });
+
+    it('returns the paginated envelope for an event', async () => {
       api.setToken('test-token');
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => [
-          { id: 1, artist: 'A', song_title: 'S', status: 'new' },
-          { id: 2, artist: 'B', song_title: 'T', status: 'accepted' },
-        ],
+        json: async () => envelope({
+          requests: [
+            { id: 1, artist: 'A', song_title: 'S', status: 'new' },
+            { id: 2, artist: 'B', song_title: 'T', status: 'accepted' },
+          ],
+          total: 2,
+        }),
       });
 
-      const requests = await api.getRequests('ABC123');
-      expect(requests).toHaveLength(2);
+      const resp = await api.getRequests('ABC123');
+      expect(resp.requests).toHaveLength(2);
+      expect(resp.total).toBe(2);
 
       const [url] = mockFetch.mock.calls[0];
       expect(url).toContain('/api/events/ABC123/requests');
@@ -1458,10 +1473,7 @@ describe('ApiClient', () => {
 
     it('filters requests by status', async () => {
       api.setToken('test-token');
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => [{ id: 1, status: 'new' }],
-      });
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => envelope() });
 
       await api.getRequests('ABC123', { status: 'new' });
 
@@ -1469,30 +1481,49 @@ describe('ApiClient', () => {
       expect(url).toContain('status=new');
     });
 
-    it('appends sort parameter when specified', async () => {
+    it('appends sort + direction params when specified', async () => {
       api.setToken('test-token');
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => [{ id: 1, status: 'new', priority_score: 0.85 }],
-      });
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => envelope() });
 
-      await api.getRequests('ABC123', { sort: 'priority' });
+      await api.getRequests('ABC123', { sort: 'best_match', direction: 'desc' });
 
       const [url] = mockFetch.mock.calls[0];
-      expect(url).toContain('sort=priority');
+      expect(url).toContain('sort=best_match');
+      expect(url).toContain('direction=desc');
     });
 
-    it('omits sort parameter by default', async () => {
+    it('appends limit + offset params when specified', async () => {
       api.setToken('test-token');
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => [],
-      });
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => envelope() });
+
+      await api.getRequests('ABC123', { limit: 200, offset: 0 });
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('limit=200');
+      expect(url).toContain('offset=0');
+    });
+
+    it('sends offset=0 even though it is falsy (growing-window contract)', async () => {
+      api.setToken('test-token');
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => envelope() });
+
+      await api.getRequests('ABC123', { limit: 100, offset: 0 });
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('offset=0');
+    });
+
+    it('omits sort/direction/limit/offset by default', async () => {
+      api.setToken('test-token');
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => envelope() });
 
       await api.getRequests('ABC123');
 
       const [url] = mockFetch.mock.calls[0];
       expect(url).not.toContain('sort=');
+      expect(url).not.toContain('direction=');
+      expect(url).not.toContain('limit=');
+      expect(url).not.toContain('offset=');
     });
   });
 

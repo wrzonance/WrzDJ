@@ -12,7 +12,9 @@ import { getRequestEmphasisStyle } from '@/lib/request-emphasis';
 import { safeExternalUrl } from '@/lib/safe-url';
 import { getVoteHeatStyle } from '@/lib/vote-heat';
 import { formatPriorityScore, getPriorityScoreColor } from '@/lib/priority-score';
-import type { SortMode } from '@/lib/priority-score';
+import { PUBLIC_PAGE_MAX } from '@/lib/api';
+import { SORT_FIELDS } from '@/lib/request-sort';
+import type { RequestSort, SortDirection } from '@/lib/api-types';
 
 interface RequestQueueSectionProps {
   requests: SongRequest[];
@@ -35,8 +37,14 @@ interface RequestQueueSectionProps {
   rejectingAll?: boolean;
   deletingRequest?: number | null;
   refreshingRequest?: number | null;
-  sortMode: SortMode;
-  onSortModeChange: (mode: SortMode) => void;
+  // Sort + growing-window pagination (issue #478). The server sorts
+  // authoritatively by field+direction; the list here only filters by status.
+  sortField: RequestSort;
+  sortDirection: SortDirection;
+  onSortFieldChange: (field: RequestSort) => void;
+  onSortDirectionToggle: () => void;
+  total: number;
+  onLoadMore: (status?: string) => Promise<void>;
 }
 
 export function RequestQueueSection({
@@ -60,14 +68,19 @@ export function RequestQueueSection({
   rejectingAll,
   deletingRequest,
   refreshingRequest,
-  sortMode,
-  onSortModeChange,
+  sortField,
+  sortDirection,
+  onSortFieldChange,
+  onSortDirectionToggle,
+  total,
+  onLoadMore,
 }: RequestQueueSectionProps) {
   const [filter, setFilter] = useState<StatusFilter>('all');
   const [advancedMode, setAdvancedMode] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
   const [refreshingAll, setRefreshingAll] = useState(false);
   const [enrichingAll, setEnrichingAll] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const statusCounts = useMemo(() => {
     const counts = { all: requests.length, new: 0, accepted: 0, playing: 0, played: 0, rejected: 0 };
@@ -88,19 +101,12 @@ export function RequestQueueSection({
     return computeBpmContext(activeBpms);
   }, [requests]);
 
-  const filteredRequests = useMemo(() => {
-    const filtered = requests.filter((r) => (filter === 'all' ? true : r.status === filter));
-    // In priority mode, API returns pre-sorted results — preserve that order
-    if (sortMode === 'priority') return filtered;
-    if (filter === 'all') {
-      return [...filtered].sort((a, b) => {
-        const aBottom = a.status === 'played' ? 1 : 0;
-        const bBottom = b.status === 'played' ? 1 : 0;
-        return aBottom - bBottom;
-      });
-    }
-    return filtered;
-  }, [requests, filter, sortMode]);
+  // The server returns rows already sorted by the chosen field+direction
+  // (issue #478), so the list only filters by status — never reorders.
+  const filteredRequests = useMemo(
+    () => requests.filter((r) => (filter === 'all' ? true : r.status === filter)),
+    [requests, filter],
+  );
 
   const handleDeleteAll = async () => {
     const count = filteredRequests.length;
@@ -141,17 +147,40 @@ export function RequestQueueSection({
             </button>
           ))}
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginLeft: 'auto' }}>
+          <label
+            htmlFor="request-sort-field"
+            style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}
+          >
+            Sort
+          </label>
+          <select
+            id="request-sort-field"
+            className="input"
+            aria-label="Sort requests by"
+            value={sortField}
+            onChange={(e) => onSortFieldChange(e.target.value as RequestSort)}
+            style={{ width: 'auto', padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+          >
+            {SORT_FIELDS.map((f) => (
+              <option key={f.value} value={f.value}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="btn btn-sm"
+            style={{ background: 'var(--surface-raised)', fontSize: '0.75rem', minWidth: '2rem' }}
+            onClick={onSortDirectionToggle}
+            aria-label={`Sort direction: ${sortDirection === 'asc' ? 'ascending' : 'descending'}`}
+            title={sortDirection === 'asc' ? 'Ascending' : 'Descending'}
+          >
+            {sortDirection === 'asc' ? '↑' : '↓'}
+          </button>
+        </div>
         {!isExpiredOrArchived && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginLeft: 'auto' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: sortMode === 'priority' ? 'var(--color-success)' : 'var(--text-secondary)', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={sortMode === 'priority'}
-                onChange={(e) => onSortModeChange(e.target.checked ? 'priority' : 'chronological')}
-                style={{ accentColor: 'var(--color-success)' }}
-              />
-              Best Match
-            </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
               <input
                 type="checkbox"
@@ -350,7 +379,7 @@ export function RequestQueueSection({
                       {request.vote_count} {request.vote_count === 1 ? 'vote' : 'votes'}
                     </span>
                   )}
-                  {sortMode === 'priority' && request.priority_score != null && (
+                  {sortField === 'best_match' && request.priority_score != null && (
                     <Tooltip description="Combines votes, wait time, harmonic compatibility, and BPM energy match" delay={100}>
                       <span
                         style={{
@@ -461,6 +490,40 @@ export function RequestQueueSection({
           ))}
         </div>
       )}
+
+      {(() => {
+        // Growing window applies to the full fetched set (`requests`), not the
+        // status-filtered view, so the count reflects what's loaded vs the
+        // server's true total. Hide once everything is loaded or we hit the cap.
+        const loaded = requests.length;
+        const hasMore = loaded < total && loaded < PUBLIC_PAGE_MAX;
+        if (loaded === 0) return null;
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+              Showing {loaded} of {total}
+            </span>
+            {hasMore && (
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{ background: 'var(--surface-raised)' }}
+                disabled={loadingMore}
+                onClick={async () => {
+                  setLoadingMore(true);
+                  try {
+                    await onLoadMore(filter === 'all' ? undefined : filter);
+                  } finally {
+                    setLoadingMore(false);
+                  }
+                }}
+              >
+                {loadingMore ? 'Loading…' : 'Load More'}
+              </button>
+            )}
+          </div>
+        );
+      })()}
     </>
   );
 }

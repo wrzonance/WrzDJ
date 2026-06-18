@@ -161,7 +161,7 @@ def test_sync_results_exposed_in_api_response(client, auth_headers, test_request
     response = client.get(f"/api/events/{event.code}/requests", headers=auth_headers)
     assert response.status_code == 200
 
-    data = response.json()
+    data = response.json()["requests"]
     assert len(data) > 0
     req = next(r for r in data if r["id"] == test_request.id)
     assert req["sync_results_json"] is not None

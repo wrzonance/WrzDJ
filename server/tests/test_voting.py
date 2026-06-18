@@ -270,7 +270,7 @@ class TestVoteCountInResponses:
             headers=auth_headers,
         )
         assert response.status_code == 200
-        data = response.json()
+        data = response.json()["requests"]
         assert len(data) == 1
         assert "vote_count" in data[0]
         assert data[0]["vote_count"] == 0

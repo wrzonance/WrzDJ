@@ -2,10 +2,8 @@
  * Priority score formatting and display utilities.
  *
  * Used by the DJ dashboard to render priority score badges
- * on request cards when sort=priority is active.
+ * on request cards when sort=best_match is active (issue #478).
  */
-
-export type SortMode = 'chronological' | 'priority';
 
 /**
  * Format a priority score (0.0-1.0) as a percentage string.

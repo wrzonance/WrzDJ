@@ -1,6 +1,5 @@
 import json
 from datetime import UTC, datetime
-from typing import Literal
 from urllib.parse import quote
 
 from fastapi import (
@@ -25,6 +24,7 @@ from app.api.deps import (
     require_verified_human_soft,
 )
 from app.core.config import get_settings
+from app.core.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.core.rate_limit import get_guest_id, limiter
 from app.models.event import Event
 from app.models.request import RequestStatus
@@ -53,7 +53,13 @@ from app.schemas.recommendation import (
     RecommendedTrack,
     TemplatePlaylistRequest,
 )
-from app.schemas.request import RequestCreate, RequestOut
+from app.schemas.request import (
+    RequestCreate,
+    RequestListResponse,
+    RequestOut,
+    RequestSort,
+    SortDirection,
+)
 from app.schemas.search import SearchResult
 from app.services.collect import (
     collection_settings_payload,
@@ -94,6 +100,11 @@ from app.services.request import (
     create_request,
     get_requests_for_event,
     reject_all_new_requests,
+)
+from app.services.request_sort import (
+    DEFAULT_SORT_DIRECTION,
+    filtered_requests_query,
+    get_sorted_requests,
 )
 from app.services.sync.orchestrator import enrich_request_metadata, sync_requests_batch
 from app.services.sync.registry import get_connected_adapters
@@ -757,24 +768,68 @@ def bulk_delete_requests_endpoint(
     return BulkActionResponse(status="ok", count=count)
 
 
-@router.get("/{code}/requests", response_model=list[RequestOut])
+@router.get("/{code}/requests", response_model=RequestListResponse)
 @limiter.limit("60/minute")
 def get_event_requests(
     request: Request,
     status: RequestStatus | None = None,
     since: datetime | None = None,
-    limit: int = Query(default=100, ge=1, le=500),
-    sort: Literal["chronological", "priority"] = "chronological",
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+    sort: RequestSort = RequestSort.DATE_REQUESTED,
+    direction: SortDirection | None = None,
     event: Event = Depends(get_owned_event),
     db: Session = Depends(get_db),
-) -> list[RequestOut]:
-    # Owner can view requests regardless of event status
-    requests = get_requests_for_event(db, event, status, since, limit)
+) -> RequestListResponse:
+    """Paginated, sorted request list. Owner sees requests regardless of status.
 
-    if sort == "priority":
-        return _apply_priority_sort(requests, event, db)
+    ``total`` is computed before pagination so the dashboard shows a truthful
+    count rather than inferring it from the returned page length (issue #478).
+    """
+    resolved = direction or DEFAULT_SORT_DIRECTION[sort]
 
-    return [_request_to_out(r) for r in requests]
+    if sort == RequestSort.BEST_MATCH:
+        requests, total = _best_match_page(db, event, status, since, limit, offset)
+    else:
+        rows, total = get_sorted_requests(
+            db,
+            event,
+            status=status,
+            since=since,
+            sort=sort,
+            direction=resolved,
+            limit=limit,
+            offset=offset,
+        )
+        requests = [_request_to_out(r) for r in rows]
+
+    return RequestListResponse(
+        requests=requests,
+        total=total,
+        limit=limit,
+        offset=offset,
+        sort=sort,
+        direction=resolved,
+    )
+
+
+def _best_match_page(
+    db: Session,
+    event: "Event",
+    status: RequestStatus | None,
+    since: datetime | None,
+    limit: int,
+    offset: int,
+) -> tuple[list[RequestOut], int]:
+    """Best Match (priority) sort with a true total, then paginate.
+
+    Priority scoring needs now-playing context and runs over the whole filtered
+    set, so we score everything, then slice the requested window.
+    """
+    base = filtered_requests_query(db, event, status, since)
+    total = base.count()
+    ordered = _apply_priority_sort(base.all(), event, db)
+    return ordered[offset : offset + limit], total
 
 
 def _apply_priority_sort(

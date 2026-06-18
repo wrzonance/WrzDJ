@@ -4725,6 +4725,10 @@
             "title": "Accepted Queue",
             "type": "array"
           },
+          "accepted_queue_total": {
+            "title": "Accepted Queue Total",
+            "type": "integer"
+          },
           "banner_colors": {
             "anyOf": [
               {
@@ -4800,6 +4804,7 @@
         },
         "required": [
           "accepted_queue",
+          "accepted_queue_total",
           "banner_colors",
           "banner_kiosk_url",
           "banner_url",
@@ -16874,6 +16879,29 @@
             "schema": {
               "title": "Code",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
             }
           }
         ],

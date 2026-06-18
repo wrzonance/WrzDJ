@@ -66,6 +66,9 @@ server {
 
     # Static uploads (banners) — image-appropriate headers
     location /uploads/ {
+        # Edge rate limiting before FastAPI; public SSE is exempt below.
+        limit_req zone=wrzdj_edge burst=180 nodelay;
+
         proxy_pass http://127.0.0.1:${PORT_API};
 
         # Override server-level security headers for static assets
@@ -79,6 +82,7 @@ server {
     # Note: proxy_set_header in a location block prevents inheritance from
     # server level, so we must repeat all headers here.
     location ~ ^/api/public/events/.+/stream$ {
+        # No limit_req here: long-lived event streams must never be throttled.
         proxy_pass http://127.0.0.1:${PORT_API};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -94,6 +98,9 @@ server {
 
     # API -> FastAPI
     location / {
+        # Edge rate limiting before FastAPI/slowapi.
+        limit_req zone=wrzdj_edge burst=180 nodelay;
+
         proxy_pass http://127.0.0.1:${PORT_API};
         proxy_intercept_errors on;
         error_page 502 503 504 = @backend_down;

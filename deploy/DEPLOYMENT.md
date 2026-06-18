@@ -187,7 +187,8 @@ APP_DOMAIN=app.yourdomain.com API_DOMAIN=api.yourdomain.com ./deploy/setup-nginx
 
 # The setup script will:
 # - Generate configs from deploy/nginx/*.conf.template
-# - Install them to /etc/nginx/sites-available/
+# - Install deploy/nginx/logging.conf and tuning.conf to /etc/nginx/conf.d/
+# - Install vhost configs to /etc/nginx/sites-available/
 # - Symlink to sites-enabled/
 # - Test and reload nginx
 #
@@ -198,8 +199,8 @@ APP_DOMAIN=app.yourdomain.com API_DOMAIN=api.yourdomain.com ./deploy/setup-nginx
 # Remove default site (optional)
 sudo rm -f /etc/nginx/sites-enabled/default
 
-# Hide nginx version (security hardening)
-sudo sed -i 's/# server_tokens off;/server_tokens off;/' /etc/nginx/nginx.conf
+# setup-nginx.sh installs the versioned http-context tuning include; do not
+# hand-edit /etc/nginx/nginx.conf for WrzDJ gzip/TLS/rate-limit defaults.
 
 # Start nginx
 sudo systemctl enable nginx

@@ -24,7 +24,7 @@ server {
 
 # HTTPS catch-all (nginx requires a cert even for rejected connections)
 server {
-    listen 443 ssl default_server;
+    listen 443 ssl http2 default_server;
     server_name _;
 
     # Use the frontend cert as a fallback — the connection is dropped anyway.

@@ -59,6 +59,7 @@ echo "    PORT_API:      $PORT_API"
 echo "    PORT_FRONTEND: $PORT_FRONTEND"
 
 # envsubst only replaces the variables we specify, leaving nginx $vars untouched
+# shellcheck disable=SC2016
 VARS='${APP_DOMAIN} ${API_DOMAIN} ${PORT_API} ${PORT_FRONTEND}'
 
 # Generate API config
@@ -79,15 +80,23 @@ echo "    Generated: $TEMPLATE_DIR/default.conf"
 # Install to nginx if running as root / with sudo
 if [ -d /etc/nginx/sites-available ]; then
   echo ""
-  echo "==> Installing JSON log format to conf.d"
+  echo "==> Installing http-level nginx configs to conf.d"
 
-  # logging.conf goes to conf.d (http-level, not a vhost)
-  if [ -n "$SUDO" ] && [ -x /usr/local/bin/wrzdj-nginx-confd-install ]; then
-    $SUDO /usr/local/bin/wrzdj-nginx-confd-install "$TEMPLATE_DIR/logging.conf"
-  else
-    cp "$TEMPLATE_DIR/logging.conf" "/etc/nginx/conf.d/wrzdj-logging.conf"
-  fi
-  echo "    Installed: /etc/nginx/conf.d/wrzdj-logging.conf"
+  install_confd_config() {
+    local src="$1"
+    local dest_name="$2"
+
+    # http-level configs go to conf.d (not a vhost)
+    if [ -n "$SUDO" ] && [ -x /usr/local/bin/wrzdj-nginx-confd-install ]; then
+      $SUDO /usr/local/bin/wrzdj-nginx-confd-install "$src"
+    else
+      cp "$src" "/etc/nginx/conf.d/$dest_name"
+    fi
+    echo "    Installed: /etc/nginx/conf.d/$dest_name"
+  }
+
+  install_confd_config "$TEMPLATE_DIR/logging.conf" "wrzdj-logging.conf"
+  install_confd_config "$TEMPLATE_DIR/tuning.conf" "wrzdj-tuning.conf"
 
   echo ""
   echo "==> Installing vhost configs to sites-available"
@@ -128,6 +137,7 @@ else
   echo "==> /etc/nginx/sites-available not found — configs generated but not installed."
   echo "    Copy them manually:"
   echo "      sudo cp $TEMPLATE_DIR/logging.conf /etc/nginx/conf.d/wrzdj-logging.conf"
+  echo "      sudo cp $TEMPLATE_DIR/tuning.conf /etc/nginx/conf.d/wrzdj-tuning.conf"
   echo "      sudo cp $TEMPLATE_DIR/$API_DOMAIN.conf /etc/nginx/sites-available/$API_DOMAIN"
   echo "      sudo cp $TEMPLATE_DIR/$APP_DOMAIN.conf /etc/nginx/sites-available/$APP_DOMAIN"
   echo "      sudo cp $TEMPLATE_DIR/default.conf /etc/nginx/sites-available/default"

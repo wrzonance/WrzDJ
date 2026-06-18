@@ -15,9 +15,12 @@ from app.models.user import User
 from app.services.llm.base import ChatResponse, ToolCall
 from app.services.llm.exceptions import NoLlmConfigured
 from app.services.setbuilder import agent_history
+from app.services.setbuilder.pass1_deterministic import TrackMeta
 from app.services.setbuilder.pass2_agent import (
     AgentToolError,
+    _explain_warning,
     _tool_display_summary,
+    _track_summary,
     apply_tool_call,
     chat_with_agent,
     critique_set,
@@ -851,3 +854,180 @@ def test_tool_display_summary_analyze_pool_gaps():
     )
 
     assert summary == "Analyzed pool gaps over 4 tracks: 2 missing Camelot keys, 1 sparse BPM band."
+
+
+def _meta(**overrides) -> TrackMeta:
+    base = dict(
+        pool_id=1,
+        slot_track_id="tidal:x",
+        title="T",
+        artist="A",
+        bpm=124.0,
+        key="8A",
+        energy=6,
+    )
+    base.update(overrides)
+    return TrackMeta(**base)
+
+
+def test_explain_warning_key_clash_cites_both_keys():
+    prev = _meta(key="8A")
+    curr = _meta(key="2A")
+    detail = _explain_warning("key_clash", prev, curr)
+    assert "8A" in detail and "2A" in detail
+
+
+def test_explain_warning_mood_shift_cites_both_moods():
+    prev = _meta(mood="dark")
+    curr = _meta(mood="euphoric")
+    detail = _explain_warning("mood_shift", prev, curr)
+    assert "dark" in detail and "euphoric" in detail
+
+
+def test_explain_warning_handles_missing_prev_and_fields():
+    detail = _explain_warning("bpm_jump", None, _meta(bpm=None))
+    assert "unknown" in detail
+    # Unknown codes fall back to a readable phrase.
+    assert _explain_warning("some_new_code", None, _meta()) == "some new code"
+
+
+def test_track_summary_handles_none():
+    assert _track_summary(None) is None
+    assert _track_summary(_meta(title="Hi"))["title"] == "Hi"
+
+
+def test_tool_display_summary_explain_transition_lists_details():
+    summary = _tool_display_summary(
+        "explain_transition",
+        {},
+        {
+            "position": 2,
+            "score": 60.0,
+            "explanations": [{"code": "bpm_jump", "detail": "Big tempo gap: 124 into 150."}],
+        },
+        {},
+        {},
+    )
+
+    assert "slot 3" in summary
+    assert "Big tempo gap" in summary
+
+
+def test_tool_display_summary_explain_transition_clean():
+    summary = _tool_display_summary(
+        "explain_transition",
+        {},
+        {"position": 1, "score": 92.0, "explanations": []},
+        {},
+        {},
+    )
+
+    assert summary == "Explained transition into slot 2. No transition issues."
+
+
+def _mk_set_with_warned_transition(db: Session, user: User) -> Set:
+    """A two-slot set whose transition trips bpm_jump + repeat_artist warnings."""
+    set_obj = Set(owner_id=user.id, name="Warned Set", key_strictness=1.0)
+    db.add(set_obj)
+    db.flush()
+    source = SetPoolSource(set_id=set_obj.id, kind="manual", label="Manual")
+    db.add(source)
+    db.flush()
+    db.add_all(
+        [
+            SetPoolTrack(
+                set_id=set_obj.id,
+                source_id=source.id,
+                track_id="tidal:a",
+                title="Opener",
+                artist="DJ Same",
+                bpm=124,
+                key="8A",
+                camelot="8A",
+                energy=8,
+                duration_sec=210,
+                dedupe_sig="sig-a",
+            ),
+            SetPoolTrack(
+                set_id=set_obj.id,
+                source_id=source.id,
+                track_id="tidal:b",
+                title="Follower",
+                artist="DJ Same",
+                bpm=150,
+                key="2A",
+                camelot="2A",
+                energy=3,
+                duration_sec=210,
+                dedupe_sig="sig-b",
+            ),
+        ]
+    )
+    db.flush()
+    db.add_all(
+        [
+            SetSlot(set_id=set_obj.id, position=0, track_id="tidal:a"),
+            SetSlot(set_id=set_obj.id, position=1, track_id="tidal:b"),
+        ]
+    )
+    db.commit()
+    db.refresh(set_obj)
+    return set_obj
+
+
+def test_explain_transition_returns_grounded_explanations(db: Session, test_user: User):
+    set_obj = _mk_set_with_warned_transition(db, test_user)
+
+    result, positions = apply_tool_call(db, set_obj, "explain_transition", {"position": 1})
+
+    assert positions == set()
+    assert result["position"] == 1
+    assert isinstance(result["score"], float)
+    codes = {item["code"] for item in result["explanations"]}
+    assert "bpm_jump" in codes
+    assert "repeat_artist" in codes
+    by_code = {item["code"]: item["detail"] for item in result["explanations"]}
+    # bpm_jump explanation cites both real BPM values.
+    assert "124" in by_code["bpm_jump"]
+    assert "150" in by_code["bpm_jump"]
+    # repeat_artist explanation names the shared artist.
+    assert "DJ Same" in by_code["repeat_artist"]
+    # Compact prev/curr summary carries the two tracks' real fields.
+    assert result["prev"]["title"] == "Opener"
+    assert result["curr"]["title"] == "Follower"
+    assert result["prev"]["bpm"] == 124
+    assert result["curr"]["bpm"] == 150
+
+
+def test_explain_transition_clean_transition_has_no_issues(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+
+    result, positions = apply_tool_call(db, set_obj, "explain_transition", {"position": 1})
+
+    assert positions == set()
+    assert result["explanations"] == []
+    assert result["prev"]["title"] == "Track 0"
+    assert result["curr"]["title"] == "Track 1"
+
+
+def test_explain_transition_rejects_out_of_range_position(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+
+    with pytest.raises(AgentToolError):
+        apply_tool_call(db, set_obj, "explain_transition", {"position": 0})
+    with pytest.raises(AgentToolError):
+        apply_tool_call(db, set_obj, "explain_transition", {"position": 99})
+
+
+def test_explain_transition_leaves_event_requests_untouched(
+    db: Session, test_user: User, test_request: Request
+):
+    set_obj = _mk_set_with_warned_transition(db, test_user)
+    before_count = db.query(Request).count()
+    before_title = test_request.song_title
+
+    apply_tool_call(db, set_obj, "explain_transition", {"position": 1})
+
+    db.refresh(test_request)
+    assert db.query(Request).count() == before_count
+    assert test_request.song_title == before_title

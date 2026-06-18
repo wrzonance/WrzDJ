@@ -117,5 +117,5 @@ def test_request_out_exposes_accepted_at(db, client, test_event, auth_headers):
     resp = client.get(f"/api/events/{test_event.code}/requests", headers=auth_headers)
 
     assert resp.status_code == 200
-    match = next(item for item in resp.json() if item["id"] == r.id)
+    match = next(item for item in resp.json()["requests"] if item["id"] == r.id)
     assert match["accepted_at"] is not None

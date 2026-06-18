@@ -179,7 +179,7 @@ vi.mock('@/lib/api', () => ({
 }));
 
 import { api, ApiError } from '@/lib/api';
-import type { SongRequest } from '@/lib/api';
+import type { SongRequest, RequestListResponse } from '@/lib/api';
 import EventQueuePage from '../page';
 
 function mockEvent(overrides = {}) {
@@ -211,9 +211,25 @@ function mockRequest(overrides: Partial<SongRequest> = {}): SongRequest {
   };
 }
 
+/** Wrap request rows in the #478 paginated envelope returned by getRequests. */
+function mockRequestList(
+  requests: SongRequest[] = [],
+  overrides: Partial<RequestListResponse> = {},
+): RequestListResponse {
+  return {
+    requests,
+    total: requests.length,
+    limit: 100,
+    offset: 0,
+    sort: 'date_requested',
+    direction: 'desc',
+    ...overrides,
+  };
+}
+
 function setupDefaultMocks() {
   vi.mocked(api.getEvent).mockResolvedValue(mockEvent());
-  vi.mocked(api.getRequests).mockResolvedValue([]);
+  vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([]));
   vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
   vi.mocked(api.getDisplaySettings).mockResolvedValue({
     status: 'ok', now_playing_hidden: false, now_playing_auto_hide_minutes: 10,
@@ -358,7 +374,7 @@ describe('EventQueuePage', () => {
 
     it('shows expired state on 410 with archived data', async () => {
       vi.mocked(api.getEvent).mockRejectedValue(new ApiError('Expired', 410));
-      vi.mocked(api.getRequests).mockResolvedValue([mockRequest()]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
       vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
       vi.mocked(api.getDisplaySettings).mockResolvedValue({
         status: 'ok', now_playing_hidden: false, now_playing_auto_hide_minutes: 10,
@@ -385,7 +401,7 @@ describe('EventQueuePage', () => {
 
     it('shows error card on 410 without archived match', async () => {
       vi.mocked(api.getEvent).mockRejectedValue(new ApiError('Expired', 410));
-      vi.mocked(api.getRequests).mockResolvedValue([]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([]));
       vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
       vi.mocked(api.getDisplaySettings).mockResolvedValue({
         status: 'ok', now_playing_hidden: false, now_playing_auto_hide_minutes: 10,
@@ -427,7 +443,7 @@ describe('EventQueuePage', () => {
     it('stops on 404', async () => {
       vi.useFakeTimers();
       vi.mocked(api.getEvent).mockRejectedValue(new ApiError('Not found', 404));
-      vi.mocked(api.getRequests).mockResolvedValue([]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([]));
       vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
       vi.mocked(api.getDisplaySettings).mockResolvedValue({
         status: 'ok', now_playing_hidden: false, now_playing_auto_hide_minutes: 10,
@@ -529,7 +545,7 @@ describe('EventQueuePage', () => {
     it('auto-dismisses after 5s', async () => {
       vi.useFakeTimers();
       setupDefaultMocks();
-      vi.mocked(api.getRequests).mockResolvedValue([mockRequest()]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
       vi.mocked(api.updateRequestStatus).mockRejectedValue(new ApiError('Status error', 400));
 
       render(<EventQueuePage />);
@@ -559,7 +575,7 @@ describe('EventQueuePage', () => {
 
     it('calls updateRequestStatus via handler', async () => {
       setupDefaultMocks();
-      vi.mocked(api.getRequests).mockResolvedValue([mockRequest()]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
       vi.mocked(api.updateRequestStatus).mockResolvedValue(mockRequest({ status: 'accepted' }));
 
       render(<EventQueuePage />);
@@ -573,7 +589,7 @@ describe('EventQueuePage', () => {
 
     it('shows error on status update failure', async () => {
       setupDefaultMocks();
-      vi.mocked(api.getRequests).mockResolvedValue([mockRequest()]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
       vi.mocked(api.updateRequestStatus).mockRejectedValue(new ApiError('Invalid transition', 400));
 
       render(<EventQueuePage />);
@@ -590,7 +606,7 @@ describe('EventQueuePage', () => {
     it('calls acceptAllRequests', async () => {
       setupDefaultMocks();
       vi.mocked(api.acceptAllRequests).mockResolvedValue({ status: 'ok', accepted_count: 1 });
-      vi.mocked(api.getRequests).mockResolvedValue([mockRequest({ status: 'accepted' })]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest({ status: 'accepted' })]));
 
       render(<EventQueuePage />);
       await screen.findByText('Test Event');
@@ -715,7 +731,7 @@ describe('EventQueuePage', () => {
       vi.mocked(api.getArchivedEvents).mockResolvedValue([{
         ...mockEvent(), status: 'expired' as const, request_count: 1, archived_at: null,
       }]);
-      vi.mocked(api.getRequests).mockResolvedValue([mockRequest()]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
       vi.mocked(api.exportEventCsv).mockResolvedValue(undefined);
 
       render(<EventQueuePage />);
@@ -949,7 +965,7 @@ describe('EventQueuePage', () => {
       vi.mocked(api.getArchivedEvents).mockResolvedValue([{
         ...mockEvent(), status: 'expired' as const, request_count: 0, archived_at: null,
       }]);
-      vi.mocked(api.getRequests).mockResolvedValue([]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([]));
       vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
       vi.mocked(api.getDisplaySettings).mockResolvedValue({
         status: 'ok', now_playing_hidden: false, now_playing_auto_hide_minutes: 10,
@@ -980,7 +996,7 @@ describe('EventQueuePage', () => {
       vi.mocked(api.getArchivedEvents).mockResolvedValue([{
         ...mockEvent(), status: 'expired' as const, request_count: 1, archived_at: null,
       }]);
-      vi.mocked(api.getRequests).mockResolvedValue([mockRequest()]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
       vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
       vi.mocked(api.getDisplaySettings).mockResolvedValue({
         status: 'ok', now_playing_hidden: false, now_playing_auto_hide_minutes: 10,
@@ -1008,7 +1024,7 @@ describe('EventQueuePage', () => {
       vi.mocked(api.getArchivedEvents).mockResolvedValue([{
         ...mockEvent(), status: 'expired' as const, request_count: 0, archived_at: null,
       }]);
-      vi.mocked(api.getRequests).mockResolvedValue([]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([]));
       vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
       vi.mocked(api.getDisplaySettings).mockResolvedValue({
         status: 'ok', now_playing_hidden: false, now_playing_auto_hide_minutes: 10,
@@ -1032,7 +1048,7 @@ describe('EventQueuePage', () => {
   describe('Delete request', () => {
     it('calls deleteRequest via handler', async () => {
       setupDefaultMocks();
-      vi.mocked(api.getRequests).mockResolvedValue([mockRequest()]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
       vi.mocked(api.deleteRequest).mockResolvedValue(undefined);
 
       render(<EventQueuePage />);
@@ -1048,7 +1064,7 @@ describe('EventQueuePage', () => {
   describe('Refresh metadata', () => {
     it('calls refreshRequestMetadata via handler', async () => {
       setupDefaultMocks();
-      vi.mocked(api.getRequests).mockResolvedValue([mockRequest()]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
       vi.mocked(api.refreshRequestMetadata).mockResolvedValue(
         mockRequest({ genre: 'Electronic', bpm: 128 }),
       );
@@ -1067,7 +1083,7 @@ describe('EventQueuePage', () => {
     it('calls rejectAllRequests via handler', async () => {
       setupDefaultMocks();
       vi.mocked(api.rejectAllRequests).mockResolvedValue({ status: 'ok', count: 0 });
-      vi.mocked(api.getRequests).mockResolvedValue([]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([]));
 
       render(<EventQueuePage />);
       await screen.findByText('Test Event');

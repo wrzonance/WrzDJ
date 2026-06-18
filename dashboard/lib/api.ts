@@ -78,6 +78,9 @@ import type {
   ShareTokenOut,
   SlotTargetOut,
   SongRequest,
+  RequestListResponse,
+  RequestSort,
+  SortDirection,
   SystemSettings,
   SystemStats,
   TidalEventSettings,
@@ -185,6 +188,9 @@ export type {
   SharedSlotView,
   ShareTokenOut,
   SongRequest,
+  RequestListResponse,
+  RequestSort,
+  SortDirection,
   SyncResultEntry,
   SystemSettings,
   SystemStats,
@@ -1015,13 +1021,30 @@ class ApiClient {
     });
   }
 
+  /**
+   * DJ request list (issue #478). Returns the paginated envelope
+   * (`requests`/`total`/`limit`/`offset`/`sort`/`direction`) so the dashboard
+   * never infers the row count from a page length.
+   *
+   * `limit` clamps to {@link PUBLIC_PAGE_MAX} (mirrors backend MAX_PAGE_SIZE);
+   * sending a larger value returns HTTP 422.
+   */
   async getRequests(
     code: string,
-    options?: { status?: string; sort?: 'chronological' | 'priority' },
-  ): Promise<SongRequest[]> {
+    options?: {
+      status?: string;
+      sort?: RequestSort;
+      direction?: SortDirection;
+      limit?: number;
+      offset?: number;
+    },
+  ): Promise<RequestListResponse> {
     const params = new URLSearchParams();
     if (options?.status) params.set('status', options.status);
     if (options?.sort) params.set('sort', options.sort);
+    if (options?.direction) params.set('direction', options.direction);
+    if (options?.limit !== undefined) params.set('limit', String(options.limit));
+    if (options?.offset !== undefined) params.set('offset', String(options.offset));
     const qs = params.toString();
     return this.fetch(`/api/events/${code}/requests${qs ? `?${qs}` : ''}`);
   }

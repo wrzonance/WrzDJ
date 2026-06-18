@@ -6176,6 +6176,10 @@ export interface components {
             /** Requests */
             requests: components["schemas"]["RequestOut"][];
             sort: components["schemas"]["RequestSort"];
+            /** Status Counts */
+            status_counts: {
+                [key: string]: number;
+            };
             /** Total */
             total: number;
         };

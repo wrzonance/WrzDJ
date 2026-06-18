@@ -105,6 +105,7 @@ from app.services.request_sort import (
     DEFAULT_SORT_DIRECTION,
     filtered_requests_query,
     get_sorted_requests,
+    status_counts,
 )
 from app.services.sync.orchestrator import enrich_request_metadata, sync_requests_batch
 from app.services.sync.registry import get_connected_adapters
@@ -810,6 +811,7 @@ def get_event_requests(
         offset=offset,
         sort=sort,
         direction=resolved,
+        status_counts=status_counts(db, event),
     )
 
 

@@ -73,6 +73,7 @@ vi.mock('@/lib/api', () => ({
     }),
     getRequests: vi.fn().mockResolvedValue({
       requests: [], total: 0, limit: 100, offset: 0, sort: 'date_requested', direction: 'desc',
+      status_counts: { all: 0, new: 0, accepted: 0, playing: 0, played: 0, rejected: 0 },
     }),
     getPlayHistory: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     getDisplaySettings: vi.fn().mockResolvedValue({

@@ -182,6 +182,7 @@ def _request_to_out(r) -> RequestOut:
         status=r.status,
         created_at=r.created_at,
         updated_at=r.updated_at,
+        accepted_at=r.accepted_at,
         raw_search_query=r.raw_search_query,
         sync_results_json=r.sync_results_json,
         vote_count=r.vote_count,

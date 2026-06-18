@@ -7435,6 +7435,17 @@
       },
       "RequestOut": {
         "properties": {
+          "accepted_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted At"
+          },
           "artist": {
             "title": "Artist",
             "type": "string"
@@ -7589,6 +7600,7 @@
           }
         },
         "required": [
+          "accepted_at",
           "artist",
           "artwork_url",
           "bpm",

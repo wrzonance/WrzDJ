@@ -6,11 +6,13 @@ from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.time import utcnow
 from app.models.event import Event
 from app.models.guest import Guest
 from app.models.guest_profile import GuestProfile
 from app.models.request import Request as SongRequest
 from app.schemas.collect import BulkReviewRequest, UpdateCollectionSettings
+from app.services.request import mark_accepted
 
 
 class NicknameConflictError(Exception):
@@ -115,6 +117,7 @@ def execute_bulk_review(
     rejected = 0
     accepted_rows: list[SongRequest] = []
     rejected_rows: list[SongRequest] = []
+    now = utcnow()
 
     if payload.action == "accept_top_n":
         if payload.n is None:
@@ -126,6 +129,7 @@ def execute_bulk_review(
         )
         for r in rows:
             r.status = "accepted"
+            mark_accepted(r, now)
             accepted += 1
             accepted_rows.append(r)
     elif payload.action == "accept_threshold":
@@ -134,6 +138,7 @@ def execute_bulk_review(
         rows = pending_q.filter(SongRequest.vote_count >= payload.min_votes).all()
         for r in rows:
             r.status = "accepted"
+            mark_accepted(r, now)
             accepted += 1
             accepted_rows.append(r)
     elif payload.action == "accept_ids":
@@ -142,6 +147,7 @@ def execute_bulk_review(
         rows = pending_q.filter(SongRequest.id.in_(payload.request_ids)).all()
         for r in rows:
             r.status = "accepted"
+            mark_accepted(r, now)
             accepted += 1
             accepted_rows.append(r)
     elif payload.action == "reject_ids":

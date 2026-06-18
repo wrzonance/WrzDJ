@@ -961,6 +961,104 @@
   cursor: not-allowed;
 }
 
+/* ------------------------------------------------------------------ */
+/* Mobile agent chat: FAB + full-viewport overlay (#402)               */
+/* Rendered only on narrow viewports (useIsMobile); the desktop layout */
+/* is untouched. Touch-target bumps are scoped to .agentOverlay so the */
+/* shared composer/chips stay compact on desktop.                      */
+
+.agentFab {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 80;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 44px;
+  padding: 0 1.1rem;
+  border: 1px solid rgba(183, 139, 255, 0.4);
+  border-radius: 999px;
+  background: #b78bff;
+  color: #fff;
+  font-family: var(--font-display), sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.agentFabLabel {
+  line-height: 1;
+}
+
+.agentFabGrade {
+  padding: 0.12rem 0.42rem;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.22);
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.agentOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.agentOverlayHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  padding: 0.5rem 0.65rem;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--card);
+}
+
+.agentOverlayBack {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-raised, rgba(255, 255, 255, 0.06));
+  color: var(--text);
+  font-size: 1.2rem;
+}
+
+/* Comfortable touch targets and zoom-safe input, overlay-only. */
+.agentOverlay .personaToggle button {
+  min-height: 44px;
+  padding: 0 0.85rem;
+}
+
+.agentOverlay .suggestionChip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 0.8rem;
+  font-size: 0.8125rem;
+}
+
+.agentOverlay .chatInput {
+  font-size: 1rem;
+}
+
+.agentOverlay .chatSend {
+  min-height: 44px;
+  padding: 0 0.9rem;
+}
+
 .confirmWrap {
   position: fixed;
   inset: 0;
@@ -2306,6 +2404,19 @@
 }
 
 @media (max-width: 720px) {
+  /* #402 — chat moves to the FAB + overlay, so drop the desktop chat column.
+     The pool/timeline workspace itself is intentionally not yet responsive
+     (documented known gap). */
+  .workspace,
+  .workspace.chatOpen,
+  .workspace.chatClosed {
+    grid-template-columns: 320px 1fr;
+    grid-template-areas:
+      'pool curve'
+      'pool transport'
+      'pool timeline';
+  }
+
   .topbarPairingsBtn {
     padding: 0 0.5rem;
     font-size: 0;

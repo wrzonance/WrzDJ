@@ -282,11 +282,12 @@ class TestFileExport:
 
     def test_enginedj_export_does_not_mutate_status(self, client, auth_headers, db, set_id):
         _seed_pool(db, set_id)
-        client.post(
+        resp = client.post(
             f"/api/setbuilder/sets/{set_id}/export/file",
             json={"format": "enginedj", "skip_unresolved": False},
             headers=auth_headers,
         )
+        assert resp.status_code == 200
         db.expire_all()
         assert db.get(Set, set_id).status == "draft"
 

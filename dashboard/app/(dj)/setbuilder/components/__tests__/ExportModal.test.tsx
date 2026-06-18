@@ -441,10 +441,15 @@ describe('ExportModal — Engine DJ + Lexicon (Rekordbox XML)', () => {
     });
   });
 
-  it('shows the import-then-relink note for these targets', async () => {
-    mockApi.exportPreflight.mockResolvedValue(makePreflightClean('enginedj'));
+  it.each([
+    ['Engine DJ XML', 'enginedj'],
+    ['Lexicon', 'lexicon'],
+  ])('%s shows the import-then-relink note', async (label, format) => {
+    mockApi.exportPreflight.mockResolvedValue(
+      makePreflightClean(format as ExportPreflight['target'])
+    );
     render(<ExportModal {...baseProps} />);
-    fireEvent.click(screen.getByText('Engine DJ XML'));
+    fireEvent.click(screen.getByText(label));
     await waitFor(() => {
       expect(screen.getByText(/relink/i)).toBeTruthy();
     });

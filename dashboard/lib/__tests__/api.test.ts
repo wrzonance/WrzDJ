@@ -1527,6 +1527,85 @@ describe('ApiClient', () => {
     });
   });
 
+  describe('getPendingReview', () => {
+    // #478: pending-review now returns a paginated envelope, not a bare array.
+    const envelope = (overrides: Record<string, unknown> = {}) => ({
+      requests: [],
+      total: 0,
+      limit: 100,
+      offset: 0,
+      sort: null,
+      direction: null,
+      ...overrides,
+    });
+
+    it('returns the paginated envelope with the true total', async () => {
+      api.setToken('test-token');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () =>
+          envelope({
+            requests: [
+              {
+                id: 1,
+                song_title: 'S',
+                artist: 'A',
+                artwork_url: null,
+                vote_count: 5,
+                nickname: null,
+                created_at: '2026-04-21T12:00:00Z',
+                note: null,
+                status: 'new',
+              },
+            ],
+            total: 250,
+          }),
+      });
+
+      const resp = await api.getPendingReview('ABC123');
+      expect(resp.requests).toHaveLength(1);
+      expect(resp.total).toBe(250);
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/events/ABC123/pending-review');
+    });
+
+    it('omits sort/direction/limit/offset by default (Review order)', async () => {
+      api.setToken('test-token');
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => envelope() });
+
+      await api.getPendingReview('ABC123');
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).not.toContain('sort=');
+      expect(url).not.toContain('direction=');
+      expect(url).not.toContain('limit=');
+      expect(url).not.toContain('offset=');
+    });
+
+    it('appends sort + direction params when specified', async () => {
+      api.setToken('test-token');
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => envelope() });
+
+      await api.getPendingReview('ABC123', { sort: 'upvotes', direction: 'desc' });
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('sort=upvotes');
+      expect(url).toContain('direction=desc');
+    });
+
+    it('appends limit + offset params, sending offset=0 even though falsy', async () => {
+      api.setToken('test-token');
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => envelope() });
+
+      await api.getPendingReview('ABC123', { limit: 200, offset: 0 });
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('limit=200');
+      expect(url).toContain('offset=0');
+    });
+  });
+
   describe('acceptAllRequests', () => {
     it('accepts all pending requests', async () => {
       api.setToken('test-token');

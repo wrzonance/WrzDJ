@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 from pydantic import AfterValidator, BaseModel, Field, StringConstraints
 
 from app.core.validation import contains_profanity
+from app.schemas.request import RequestSort, SortDirection
 
 
 def _check_nickname_profanity(v: str) -> str:
@@ -177,6 +178,10 @@ class PendingReviewRow(BaseModel):
 class PendingReviewResponse(BaseModel):
     requests: list[PendingReviewRow]
     total: int
+    limit: int
+    offset: int
+    sort: RequestSort | None
+    direction: SortDirection | None
 
 
 class BulkReviewRequest(BaseModel):

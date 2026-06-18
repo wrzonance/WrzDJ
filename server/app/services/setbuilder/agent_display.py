@@ -35,6 +35,15 @@ def _tool_display_summary(
                 f"Moved {slot['label']} from {_position_label(slot['position'])} to "
                 f"{_position_label(int(result['position']))}."
             )
+    if name == "move_range":
+        start = int(result["start_position"])
+        end = int(result["end_position"])
+        span = (
+            _position_label(start)
+            if int(result["moved_count"]) == 1
+            else f"slots {start + 1}–{end + 1}"
+        )
+        return f"Moved {span} to {_position_label(int(result['to_position']))}."
     if name == "remove_slot":
         removed = before.get(int(payload["slot_id"]))
         if removed:

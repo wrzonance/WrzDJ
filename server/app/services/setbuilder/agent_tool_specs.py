@@ -50,6 +50,10 @@ def _critique_tool() -> ToolSpec:
 def _agent_tools() -> list[ToolSpec]:
     return [
         _tool("reorder_slot", {"slot_id": "integer", "position": "integer"}),
+        _tool(
+            "move_range",
+            {"start_position": "integer", "end_position": "integer", "to_position": "integer"},
+        ),
         _tool("swap_slots", {"slot_a_id": "integer", "slot_b_id": "integer"}),
         _tool("remove_slot", {"slot_id": "integer"}),
         _tool("replace_slot", {"slot_id": "integer", "pool_track_id": "integer"}),

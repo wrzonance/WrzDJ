@@ -432,6 +432,14 @@ def _tool_analyze_pool_gaps(
     present = set(camelot_keys)
     missing = [key for key in ALL_CAMELOT_KEYS if key not in present]
     bands = _bpm_bands(set_obj, bpms)
+    logger.debug(
+        "Set %s analyze_pool_gaps: pool=%d keyed=%d bpm=%d missing_keys=%d",
+        set_obj.id,
+        len(metas),
+        len(camelot_keys),
+        len(bpms),
+        len(missing),
+    )
     return {
         "pool_size": len(metas),
         "keyed_track_count": len(camelot_keys),
@@ -445,9 +453,13 @@ def _tool_analyze_pool_gaps(
 def _bpm_bands(set_obj: Set, bpms: list[float]) -> list[dict[str, Any]]:
     """Bucket pool BPMs into fixed-width bands across the set's target window.
 
-    The window is ``set_obj.bpm_floor``..``bpm_ceiling`` when set, else the
-    observed pool min/max. Returns one entry per band (empty bands included)
-    so the agent can see tempo holes, not just where tracks cluster.
+    Bands are anchored to ``set_obj.bpm_floor``..``bpm_ceiling`` (the declared
+    window) when set, else the observed pool min/max. The range is then widened
+    to also cover any track outside that window, so every BPM-tagged pool track
+    lands in exactly one band — ``sum(band counts) == bpm_track_count`` always
+    holds, and out-of-window tracks surface as their own bands rather than
+    silently vanishing. Empty bands are included so the agent sees tempo holes,
+    not just where tracks cluster.
     """
     if not bpms:
         return []

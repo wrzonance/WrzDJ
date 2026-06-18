@@ -536,6 +536,31 @@ def test_analyze_pool_gaps_empty_pool_is_everything_a_gap(db: Session, test_user
     assert gaps["sparse_bands"] == []
 
 
+def test_analyze_pool_gaps_bands_anchor_to_window_but_keep_every_track(
+    db: Session, test_user: User
+):
+    # Declared window is 120-130, but the pool has tracks below (118) and above
+    # (135) it. Bands anchor to the declared window yet widen to cover the
+    # outliers, so every BPM-tagged track still lands in a band:
+    # sum(band counts) must equal bpm_track_count (no silent drops).
+    set_obj = _mk_set_with_pool(
+        db,
+        test_user,
+        [
+            {"camelot": "8A", "bpm": 118, "bpm_floor": 120, "bpm_ceiling": 130},
+            {"camelot": "8A", "bpm": 124},
+            {"camelot": "9A", "bpm": 135},
+        ],
+    )
+
+    gaps, _ = apply_tool_call(db, set_obj, "analyze_pool_gaps", {})
+
+    assert gaps["bpm_track_count"] == 3
+    assert sum(b["count"] for b in gaps["bpm_bands"]) == 3
+    labels = {b["label"] for b in gaps["bpm_bands"]}
+    assert {"110-120", "120-130", "130-140"} <= labels
+
+
 def test_analyze_pool_gaps_leaves_event_requests_untouched(
     db: Session, test_user: User, test_request: Request
 ):

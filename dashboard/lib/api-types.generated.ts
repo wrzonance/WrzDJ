@@ -1218,7 +1218,12 @@ export interface paths {
         };
         /**
          * Pending Review
-         * @description Get pending review data source for DJ bulk-review.
+         * @description Paginated pending-review source for DJ bulk-review (issue #478).
+         *
+         *     ``total`` is the true count of pending rows before pagination, so the
+         *     Pre-Event tab never shows a capped page length as the queue size. Default
+         *     ordering stays the vote-ranked review order; bulk actions still operate
+         *     server-side against the full filtered set, not the loaded page.
          */
         get: operations["pending_review_api_events__code__pending_review_get"];
         put?: never;
@@ -5628,8 +5633,14 @@ export interface components {
         };
         /** PendingReviewResponse */
         PendingReviewResponse: {
+            direction: components["schemas"]["SortDirection"] | null;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
             /** Requests */
             requests: components["schemas"]["PendingReviewRow"][];
+            sort: components["schemas"]["RequestSort"] | null;
             /** Total */
             total: number;
         };
@@ -9534,7 +9545,12 @@ export interface operations {
     };
     pending_review_api_events__code__pending_review_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                offset?: number;
+                sort?: components["schemas"]["RequestSort"] | null;
+                direction?: components["schemas"]["SortDirection"] | null;
+            };
             header?: never;
             path: {
                 code: string;

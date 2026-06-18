@@ -64,7 +64,7 @@ from app.schemas.search import SearchResult
 from app.services.collect import (
     collection_settings_payload,
     execute_bulk_review,
-    get_pending_review_rows,
+    get_sorted_pending_review,
     update_collection_settings,
 )
 from app.services.event import (
@@ -1161,11 +1161,24 @@ def sync_collection_to_tidal(
 
 @router.get("/{code}/pending-review", response_model=PendingReviewResponse)
 def pending_review(
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+    sort: RequestSort | None = None,
+    direction: SortDirection | None = None,
     event: Event = Depends(get_event_for_dj_or_admin),
     db: Session = Depends(get_db),
 ):
-    """Get pending review data source for DJ bulk-review."""
-    rows = get_pending_review_rows(db, event.id)
+    """Paginated pending-review source for DJ bulk-review (issue #478).
+
+    ``total`` is the true count of pending rows before pagination, so the
+    Pre-Event tab never shows a capped page length as the queue size. Default
+    ordering stays the vote-ranked review order; bulk actions still operate
+    server-side against the full filtered set, not the loaded page.
+    """
+    rows, total = get_sorted_pending_review(
+        db, event.id, sort=sort, direction=direction, limit=limit, offset=offset
+    )
+    resolved = direction or (DEFAULT_SORT_DIRECTION[sort] if sort else None)
     return PendingReviewResponse(
         requests=[
             PendingReviewRow(
@@ -1181,7 +1194,11 @@ def pending_review(
             )
             for r in rows
         ],
-        total=len(rows),
+        total=total,
+        limit=limit,
+        offset=offset,
+        sort=sort,
+        direction=resolved,
     )
 
 

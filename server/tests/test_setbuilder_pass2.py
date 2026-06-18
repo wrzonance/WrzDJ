@@ -1031,3 +1031,121 @@ def test_explain_transition_leaves_event_requests_untouched(
     db.refresh(test_request)
     assert db.query(Request).count() == before_count
     assert test_request.song_title == before_title
+
+
+def test_lock_slot_sets_locked_true(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    slot = sorted(set_obj.slots, key=lambda s: s.position)[0]
+    assert slot.locked is False
+
+    result, positions = apply_tool_call(
+        db, set_obj, "lock_slot", {"slot_id": slot.id, "rationale": "Pin the opener."}
+    )
+
+    db.refresh(slot)
+    assert slot.locked is True
+    assert result == {"slot_id": slot.id, "locked": True}
+    assert positions == {slot.position}
+
+
+def test_lock_slot_is_idempotent(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    slot = sorted(set_obj.slots, key=lambda s: s.position)[0]
+    slot.locked = True
+    db.flush()
+
+    result, _ = apply_tool_call(
+        db, set_obj, "lock_slot", {"slot_id": slot.id, "rationale": "Keep it pinned."}
+    )
+
+    db.refresh(slot)
+    assert slot.locked is True
+    assert result["locked"] is True
+
+
+def test_unlock_slot_sets_locked_false(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    slot = sorted(set_obj.slots, key=lambda s: s.position)[0]
+    slot.locked = True
+    db.flush()
+
+    result, positions = apply_tool_call(
+        db, set_obj, "unlock_slot", {"slot_id": slot.id, "rationale": "Release the pin."}
+    )
+
+    db.refresh(slot)
+    assert slot.locked is False
+    assert result == {"slot_id": slot.id, "locked": False}
+    assert positions == {slot.position}
+
+
+def test_lock_slot_requires_rationale(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    slot = sorted(set_obj.slots, key=lambda s: s.position)[0]
+
+    with pytest.raises(AgentToolError, match="rationale"):
+        apply_tool_call(db, set_obj, "lock_slot", {"slot_id": slot.id})
+
+
+def test_unlock_slot_requires_rationale(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    slot = sorted(set_obj.slots, key=lambda s: s.position)[0]
+
+    with pytest.raises(AgentToolError, match="rationale"):
+        apply_tool_call(db, set_obj, "unlock_slot", {"slot_id": slot.id})
+
+
+def test_lock_slot_rejects_foreign_slot(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    other = _mk_set_with_tracks(db, test_user)
+    foreign_slot = sorted(other.slots, key=lambda s: s.position)[0]
+
+    with pytest.raises(AgentToolError, match="Slot not found"):
+        apply_tool_call(
+            db, set_obj, "lock_slot", {"slot_id": foreign_slot.id, "rationale": "Pin it."}
+        )
+
+
+def test_lock_slot_then_reorder_refuses_that_slot(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    slot = sorted(set_obj.slots, key=lambda s: s.position)[0]
+    apply_tool_call(db, set_obj, "lock_slot", {"slot_id": slot.id, "rationale": "Pin the opener."})
+
+    with pytest.raises(AgentToolError, match="Locked"):
+        apply_tool_call(
+            db,
+            set_obj,
+            "reorder_slot",
+            {"slot_id": slot.id, "position": 1, "rationale": "Try to move it."},
+        )
+
+
+def test_lock_slot_leaves_event_requests_untouched(
+    db: Session, test_user: User, test_request: Request
+):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    slot = sorted(set_obj.slots, key=lambda s: s.position)[0]
+    before_count = db.query(Request).count()
+    before_title = test_request.song_title
+
+    apply_tool_call(db, set_obj, "lock_slot", {"slot_id": slot.id, "rationale": "Pin the opener."})
+
+    db.refresh(test_request)
+    assert db.query(Request).count() == before_count
+    assert test_request.song_title == before_title
+
+
+def test_tool_display_summary_lock_and_unlock():
+    locked = _tool_display_summary(
+        "lock_slot", {}, {"slot_id": 1, "locked": True}, {1: {"position": 0}}, {1: {"position": 0}}
+    )
+    unlocked = _tool_display_summary(
+        "unlock_slot",
+        {},
+        {"slot_id": 1, "locked": False},
+        {1: {"position": 2}},
+        {1: {"position": 2}},
+    )
+
+    assert locked == "Locked slot 1."
+    assert unlocked == "Unlocked slot 3."

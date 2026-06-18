@@ -47,6 +47,8 @@ MUTATION_TOOLS = {
     "add_slow_window",
     "set_peak_at",
     "bump_energy",
+    "set_curve_point",
+    "remove_curve_point",
     "apply_curve_template",
     "set_target",
     "lock_slot",
@@ -283,6 +285,8 @@ def apply_tool_call(
         "add_slow_window": _tool_add_slow_window,
         "set_peak_at": _tool_set_peak_at,
         "bump_energy": _tool_bump_energy,
+        "set_curve_point": _tool_set_curve_point,
+        "remove_curve_point": _tool_remove_curve_point,
         "apply_curve_template": _tool_apply_curve_template,
         "set_target": _tool_set_target,
         "lock_slot": _tool_lock_slot,
@@ -438,6 +442,45 @@ def _tool_bump_energy(
         slot.target_energy = round(max(0.0, min(10.0, base + amount)), 1)
     db.flush()
     return {"updated": len(slots)}, {s.position for s in slots}
+
+
+def _tool_set_curve_point(
+    db: Session, set_obj: Set, payload: dict[str, Any]
+) -> tuple[dict[str, Any], set[int]]:
+    """Upsert a standalone (non-window) curve point at ``position_sec``.
+
+    Curve points are time-offset markers, not slot positions, so no slot
+    positions are affected — returns ``set()`` like ``add_slow_window``.
+    """
+    position_sec = int(payload["position_sec"])
+    energy = int(payload["energy"])
+    if not 0 <= energy <= 10:
+        raise AgentToolError("energy must be between 0 and 10")
+    label = payload.get("label")
+    label = str(label)[:50] if label is not None else None
+    point = curve.upsert_curve_point(db, set_obj, position_sec, energy, label, commit=False)
+    return {
+        "point_id": point.id,
+        "position_sec": point.position_sec,
+        "energy": point.energy,
+        "label": point.label,
+    }, set()
+
+
+def _tool_remove_curve_point(
+    db: Session, set_obj: Set, payload: dict[str, Any]
+) -> tuple[dict[str, Any], set[int]]:
+    """Remove the standalone (non-window) curve point at ``position_sec``.
+
+    Keyed by ``position_sec`` (the agent works from the time-offset curve, not
+    DB row ids). Raises ``AgentToolError`` if no non-window point is there, so
+    the agent gets a clear signal instead of a silent no-op.
+    """
+    position_sec = int(payload["position_sec"])
+    removed = curve.remove_curve_point(db, set_obj, position_sec, commit=False)
+    if not removed:
+        raise AgentToolError("No curve point at that position_sec")
+    return {"removed_position_sec": position_sec}, set()
 
 
 def _tool_apply_curve_template(
@@ -1117,6 +1160,15 @@ def _tool_display_summary(
         return (
             f"Added slow window {label} from {int(result['t0_sec'])}s to {int(result['t1_sec'])}s."
         )
+    if name == "set_curve_point":
+        label = result.get("label")
+        suffix = f" ({label})" if label else ""
+        return (
+            f"Set curve point at {int(result['position_sec'])}s to energy "
+            f"{int(result['energy'])}{suffix}."
+        )
+    if name == "remove_curve_point":
+        return f"Removed curve point at {int(result['removed_position_sec'])}s."
     if name == "apply_curve_template":
         shape = str(payload.get("builtin") or "saved template")
         count = len(result.get("targets") or [])
@@ -1229,6 +1281,12 @@ def _agent_tools() -> list[ToolSpec]:
         _tool("add_slow_window", {"t0_sec": "integer", "t1_sec": "integer", "label": "string"}),
         _tool("set_peak_at", {"position": "integer", "energy": "number"}),
         _tool("bump_energy", {"amount": "number", "slot_id": "integer"}),
+        _tool(
+            "set_curve_point",
+            {"position_sec": "integer", "energy": "integer"},
+            optional_fields={"label": "string"},
+        ),
+        _tool("remove_curve_point", {"position_sec": "integer"}),
         _tool("lock_slot", {"slot_id": "integer"}),
         _tool("unlock_slot", {"slot_id": "integer"}),
         ToolSpec(
@@ -1317,8 +1375,20 @@ def _agent_tools() -> list[ToolSpec]:
     ]
 
 
-def _tool(name: str, fields: dict[str, str]) -> ToolSpec:
+def _tool(
+    name: str,
+    fields: dict[str, str],
+    *,
+    optional_fields: dict[str, str] | None = None,
+) -> ToolSpec:
+    """Build a mutation tool schema.
+
+    ``fields`` are required; ``optional_fields`` appear in the schema but are
+    not required. ``rationale`` is always added and required (mutation tools
+    must justify themselves — see ``MUTATION_TOOLS``).
+    """
     properties = {key: {"type": value} for key, value in fields.items()}
+    properties.update({key: {"type": value} for key, value in (optional_fields or {}).items()})
     properties["rationale"] = {"type": "string"}
     return ToolSpec(
         name=name,

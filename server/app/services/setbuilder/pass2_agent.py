@@ -461,13 +461,16 @@ def _explain_warning(code: str, prev: TrackMeta | None, curr: TrackMeta) -> str:
             "too far to ride the same groove."
         )
     if code == "key_clash":
-        prev_key = (prev.key if prev and prev.key else "unknown") if prev else "unknown"
+        prev_key = prev.key if (prev and prev.key) else "unknown"
         return (
             f"Keys clash: {prev_key} into {curr.key or 'unknown'} are not "
             "harmonically adjacent on the Camelot wheel."
         )
     if code == "mood_shift":
-        prev_mood = (prev.mood if prev and prev.mood else "unknown") if prev else "unknown"
+        # Forward-looking: transition_score may emit mood_shift, but the current
+        # pool→TrackMeta path never populates mood (SetPoolTrack has no mood column),
+        # so this branch is defensive and only exercised directly by unit tests today.
+        prev_mood = prev.mood if (prev and prev.mood) else "unknown"
         return (
             f"Mood swings from {prev_mood} to {curr.mood or 'unknown'} — "
             "the emotional energy lurches."

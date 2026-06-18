@@ -30,6 +30,7 @@ from app.services.setbuilder.agent_common import (
 from app.services.setbuilder.agent_display import _tool_display_summary
 from app.services.setbuilder.agent_tool_specs import _agent_tools, _critique_tool
 from app.services.setbuilder.agent_tools_mutations import (
+    _tool_add_pairing,
     _tool_add_slow_window,
     _tool_apply_curve_template,
     _tool_bump_energy,
@@ -37,6 +38,7 @@ from app.services.setbuilder.agent_tools_mutations import (
     _tool_lock_slot,
     _tool_move_range,
     _tool_remove_curve_point,
+    _tool_remove_pairing,
     _tool_remove_slot,
     _tool_reorder_slot,
     _tool_replace_slot,
@@ -54,6 +56,7 @@ from app.services.setbuilder.agent_tools_sensing import (
     _tool_explain_transition,
     _tool_get_track_vibes,
     _tool_static_critique,
+    _tool_suggest_pairings,
     _tool_summarize_set,
     _track_summary,
 )
@@ -317,11 +320,14 @@ def apply_tool_call(
         "set_target": _tool_set_target,
         "lock_slot": _tool_lock_slot,
         "unlock_slot": _tool_unlock_slot,
+        "add_pairing": _tool_add_pairing,
+        "remove_pairing": _tool_remove_pairing,
         "analyze_transition": _tool_analyze_transition,
         "explain_transition": _tool_explain_transition,
         "get_track_vibes": _tool_get_track_vibes,
         "summarize_set": _tool_summarize_set,
         "analyze_pool_gaps": _tool_analyze_pool_gaps,
+        "suggest_pairings": _tool_suggest_pairings,
         "critique_set": _tool_static_critique,
     }
     handler = handlers.get(name)

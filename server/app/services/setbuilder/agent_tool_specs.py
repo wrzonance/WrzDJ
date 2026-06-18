@@ -70,6 +70,15 @@ def _agent_tools() -> list[ToolSpec]:
         _tool("remove_curve_point", {"position_sec": "integer"}),
         _tool("lock_slot", {"slot_id": "integer"}),
         _tool("unlock_slot", {"slot_id": "integer"}),
+        _tool(
+            "add_pairing",
+            {"from_pool_track_id": "integer", "into_pool_track_id": "integer"},
+            optional_fields={"note": "string", "tags": "array"},
+        ),
+        _tool(
+            "remove_pairing",
+            {"from_pool_track_id": "integer", "into_pool_track_id": "integer"},
+        ),
         ToolSpec(
             name="set_target",
             description=(
@@ -150,6 +159,15 @@ def _agent_tools() -> list[ToolSpec]:
         ToolSpec(
             name="analyze_pool_gaps",
             description=("Report pool coverage holes: missing Camelot keys and sparse BPM bands."),
+            input_schema={"type": "object", "properties": {}},
+        ),
+        ToolSpec(
+            name="suggest_pairings",
+            description=(
+                "Read-only: the set's consecutive transitions with their score and "
+                "whether each is already pinned as a DJ pairing, plus each endpoint's "
+                "pool_track_id so strong unpinned ones can be pinned with add_pairing."
+            ),
             input_schema={"type": "object", "properties": {}},
         ),
         _critique_tool(),

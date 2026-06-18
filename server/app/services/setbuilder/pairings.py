@@ -50,6 +50,15 @@ def _tags_json(tags: list[str]) -> str:
     return json.dumps(normalize_tags(tags), separators=(",", ":"))
 
 
+def _persist(db: Session, pairing: SetPairing, commit: bool) -> None:
+    """Commit + refresh (REST callers) or just flush (inside an agent turn)."""
+    if commit:
+        db.commit()
+        db.refresh(pairing)
+    else:
+        db.flush()
+
+
 def get_pairing(db: Session, set_obj: Set, pairing_id: int) -> SetPairing | None:
     """Fetch a pairing scoped to the set."""
     return (
@@ -84,8 +93,14 @@ def upsert_pairing(
     note: str | None,
     tags: list[str],
     increment_use_count: bool = False,
+    commit: bool = True,
 ) -> tuple[SetPairing, bool]:
-    """Create or update a transition pairing. Returns (row, created)."""
+    """Create or update a transition pairing. Returns (row, created).
+
+    ``commit=False`` flushes instead of committing so the call can take part in a
+    larger transaction (e.g. one WrzDJSet agent turn that rolls back as a unit);
+    the IntegrityError reconcile path only applies when this call owns the commit.
+    """
     if from_track_id == into_track_id:
         raise ValueError("from_track_id and into_track_id must be different")
     existing = find_pairing(db, set_obj.id, from_track_id, into_track_id)
@@ -95,8 +110,7 @@ def upsert_pairing(
         existing.tags_json = _tags_json(tags)
         if increment_use_count:
             existing.use_count += 1
-        db.commit()
-        db.refresh(existing)
+        _persist(db, existing, commit)
         return existing, False
 
     pairing = SetPairing(
@@ -109,6 +123,11 @@ def upsert_pairing(
         use_count=1 if increment_use_count else 0,
     )
     db.add(pairing)
+    if not commit:
+        # Surface a unique-constraint violation to the caller's transaction
+        # rather than rolling back work the agent turn has not committed yet.
+        db.flush()
+        return pairing, True
     try:
         db.commit()
     except IntegrityError:
@@ -145,9 +164,12 @@ def update_pairing(
     return pairing
 
 
-def delete_pairing(db: Session, pairing: SetPairing) -> None:
+def delete_pairing(db: Session, pairing: SetPairing, *, commit: bool = True) -> None:
     db.delete(pairing)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
 
 
 def pairing_view(db: Session, set_obj: Set, pairing: SetPairing) -> PairingView:

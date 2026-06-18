@@ -1044,7 +1044,7 @@ def test_lock_slot_sets_locked_true(db: Session, test_user: User):
 
     db.refresh(slot)
     assert slot.locked is True
-    assert result == {"slot_id": slot.id, "locked": True}
+    assert result == {"slot_id": slot.id, "locked": True, "position": slot.position}
     assert positions == {slot.position}
 
 
@@ -1075,7 +1075,7 @@ def test_unlock_slot_sets_locked_false(db: Session, test_user: User):
 
     db.refresh(slot)
     assert slot.locked is False
-    assert result == {"slot_id": slot.id, "locked": False}
+    assert result == {"slot_id": slot.id, "locked": False, "position": slot.position}
     assert positions == {slot.position}
 
 
@@ -1104,6 +1104,16 @@ def test_lock_slot_rejects_foreign_slot(db: Session, test_user: User):
         apply_tool_call(
             db, set_obj, "lock_slot", {"slot_id": foreign_slot.id, "rationale": "Pin it."}
         )
+
+
+@pytest.mark.parametrize("bad_payload", [{}, {"slot_id": None}, {"slot_id": "not-an-int"}])
+def test_lock_slot_normalizes_invalid_slot_id(db: Session, test_user: User, bad_payload):
+    """Malformed slot_id from the model must surface as AgentToolError, not a raw
+    KeyError/TypeError/ValueError that escapes the apply_tool_call contract."""
+    set_obj = _mk_set_with_tracks(db, test_user)
+
+    with pytest.raises(AgentToolError, match="slot_id must be an integer"):
+        apply_tool_call(db, set_obj, "lock_slot", {**bad_payload, "rationale": "Pin it."})
 
 
 def test_lock_slot_then_reorder_refuses_that_slot(db: Session, test_user: User):

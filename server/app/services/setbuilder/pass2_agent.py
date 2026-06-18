@@ -427,10 +427,14 @@ def _set_slot_locked(
     db: Session, set_obj: Set, payload: dict[str, Any], *, locked: bool
 ) -> tuple[dict[str, Any], set[int]]:
     """Pin/unpin a slot: write only its ``locked`` column. Idempotent."""
-    slot = _slot_or_error(db, set_obj.id, int(payload["slot_id"]))
+    try:
+        slot_id = int(payload["slot_id"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise AgentToolError("slot_id must be an integer") from exc
+    slot = _slot_or_error(db, set_obj.id, slot_id)
     slot.locked = locked
     db.flush()
-    return {"slot_id": slot.id, "locked": locked}, {slot.position}
+    return {"slot_id": slot.id, "locked": locked, "position": slot.position}, {slot.position}
 
 
 def _tool_analyze_transition(

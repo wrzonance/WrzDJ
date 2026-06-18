@@ -41,6 +41,7 @@ MUTATION_TOOLS = {
     "reorder_slot",
     "swap_slots",
     "remove_slot",
+    "replace_slot",
     "insert_from_pool",
     "search_and_insert",
     "add_slow_window",
@@ -267,6 +268,7 @@ def apply_tool_call(
         "reorder_slot": _tool_reorder_slot,
         "swap_slots": _tool_swap_slots,
         "remove_slot": _tool_remove_slot,
+        "replace_slot": _tool_replace_slot,
         "insert_from_pool": _tool_insert_from_pool,
         "search_and_insert": _tool_search_and_insert,
         "add_slow_window": _tool_add_slow_window,
@@ -337,6 +339,24 @@ def _tool_remove_slot(
             row.position -= 1
     db.flush()
     return {"removed_slot_id": slot.id}, {position}
+
+
+def _tool_replace_slot(
+    db: Session, set_obj: Set, payload: dict[str, Any]
+) -> tuple[dict[str, Any], set[int]]:
+    """Atomic track swap: keep the slot's position, point it at a new pool track.
+
+    A single op that replaces remove+insert, so the timeline never passes through
+    a transient invalid state and no positions shift. Mirrors ``_tool_remove_slot``
+    for the locked check and the insert tools for the namespaced id derivation.
+    """
+    slot = _slot_or_error(db, set_obj.id, int(payload["slot_id"]))
+    if slot.locked:
+        raise AgentToolError("Locked slots cannot be replaced")
+    track = _pool_track_or_error(db, set_obj.id, int(payload["pool_track_id"]))
+    slot.track_id = _pass1_track_meta(track).slot_track_id
+    db.flush()
+    return {"slot_id": slot.id, "pool_track_id": track.id}, {slot.position}
 
 
 def _tool_insert_from_pool(
@@ -891,6 +911,15 @@ def _tool_display_summary(
         removed = before.get(int(payload["slot_id"]))
         if removed:
             return f"Removed {removed['label']} from {_position_label(removed['position'])}."
+    if name == "replace_slot":
+        slot_id = int(result["slot_id"])
+        old = before.get(slot_id)
+        new = after.get(slot_id)
+        if old and new:
+            return (
+                f"Replaced {old['label']} with {new['label']} at "
+                f"{_position_label(new['position'])}."
+            )
     if name in {"insert_from_pool", "search_and_insert"}:
         position = int(result["position"])
         inserted = next((s for s in after.values() if s["position"] == position), None)
@@ -984,6 +1013,7 @@ def _agent_tools() -> list[ToolSpec]:
         _tool("reorder_slot", {"slot_id": "integer", "position": "integer"}),
         _tool("swap_slots", {"slot_a_id": "integer", "slot_b_id": "integer"}),
         _tool("remove_slot", {"slot_id": "integer"}),
+        _tool("replace_slot", {"slot_id": "integer", "pool_track_id": "integer"}),
         _tool("insert_from_pool", {"pool_track_id": "integer", "position": "integer"}),
         _tool("search_and_insert", {"query": "string", "position": "integer"}),
         _tool("add_slow_window", {"t0_sec": "integer", "t1_sec": "integer", "label": "string"}),

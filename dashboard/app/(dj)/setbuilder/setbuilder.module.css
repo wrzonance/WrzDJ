@@ -2740,3 +2740,151 @@
     opacity: 0.7;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Playback report overlay (issue #403) — planned-vs-actual feedback.  */
+
+.playbackBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.playbackSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.playbackSectionHead {
+  margin: 0;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.playbackTimeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.playbackRow {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--surface-raised);
+}
+
+.playbackOrder {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.playbackTrack {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.playbackTrack strong {
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playbackTrack small {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playbackPlanned {
+  font-size: 0.68rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.outcomeBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.68rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.outcomePlayed {
+  color: #6ee7a8;
+  background: rgba(110, 231, 168, 0.12);
+  border-color: rgba(110, 231, 168, 0.35);
+}
+
+.outcomeOutOfOrder {
+  color: #f3c969;
+  background: rgba(243, 201, 105, 0.12);
+  border-color: rgba(243, 201, 105, 0.35);
+}
+
+.outcomeSkipped {
+  color: var(--text-secondary);
+  background: var(--surface-raised);
+  border-color: var(--border-subtle);
+}
+
+.outcomeSubstituted {
+  color: #b78bff;
+  background: rgba(183, 139, 255, 0.12);
+  border-color: rgba(183, 139, 255, 0.35);
+}
+
+.playbackFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1.1rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.playbackFooterNote {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+/* Playback report topbar trigger mirrors the pairings button. */
+.topbarReportBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.topbarReportBtn:hover {
+  border-color: rgba(183, 139, 255, 0.45);
+}

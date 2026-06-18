@@ -230,6 +230,13 @@ export type PairingUpdate = Schemas['PairingUpdate'];
 export type Pairing = Schemas['PairingOut'];
 export type PairingsState = Schemas['PairingsState'];
 
+// WrzDJSet play-history feedback loop (issue #403)
+export type PlaybackSlotOutcome = Schemas['PlaybackSlotOutcomeOut'];
+export type PlaybackUnplannedPlay = Schemas['UnplannedPlayOut'];
+export type PlaybackReportSummary = Schemas['PlaybackReportSummary'];
+export type PlaybackReport = Schemas['PlayHistoryFeedbackOut'];
+export type ApplyPairingFeedback = Schemas['ApplyPairingFeedbackOut'];
+
 // WrzDJSet transport (issue #393)
 export type TransportCommandIn = Schemas['TransportCommandIn'];
 export type TransportCommandOut = Schemas['TransportCommandOut'];

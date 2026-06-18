@@ -46,6 +46,7 @@ MUTATION_TOOLS = {
     "add_slow_window",
     "set_peak_at",
     "bump_energy",
+    "apply_curve_template",
 }
 ALLOWED_FLAG_TYPES = {
     "energy_dip",
@@ -272,6 +273,7 @@ def apply_tool_call(
         "add_slow_window": _tool_add_slow_window,
         "set_peak_at": _tool_set_peak_at,
         "bump_energy": _tool_bump_energy,
+        "apply_curve_template": _tool_apply_curve_template,
         "analyze_transition": _tool_analyze_transition,
         "explain_transition": _tool_explain_transition,
         "get_track_vibes": _tool_get_track_vibes,
@@ -405,6 +407,60 @@ def _tool_bump_energy(
         slot.target_energy = round(max(0.0, min(10.0, base + amount)), 1)
     db.flush()
     return {"updated": len(slots)}, {s.position for s in slots}
+
+
+def _tool_apply_curve_template(
+    db: Session, set_obj: Set, payload: dict[str, Any]
+) -> tuple[dict[str, Any], set[int]]:
+    """Re-target every (unlocked) slot from a built-in or owned template shape.
+
+    Reuses the curve service the REST endpoint uses. ``locked`` slots are
+    protected: ``apply_points_to_slots`` re-targets every slot uniformly, so we
+    snapshot the locked slots' ``target_energy`` first and restore it after,
+    leaving their DJ-chosen energy untouched. Their positions are excluded from
+    the affected set and from the returned targets.
+    """
+    points = _curve_template_points(db, set_obj, payload)
+    # apply_points_to_slots re-targets EVERY slot, so snapshot locked targets
+    # first to restore them afterward; its return value is ignored because we
+    # rebuild the locked-aware targets from the slots below.
+    locked_before = {
+        slot.id: slot.target_energy for slot in _ordered_slots(db, set_obj.id) if slot.locked
+    }
+    try:
+        curve.apply_points_to_slots(db, set_obj, points, None)
+    except ValueError as exc:
+        raise AgentToolError(str(exc)) from exc
+
+    targets: list[dict[str, Any]] = []
+    affected: set[int] = set()
+    for slot in _ordered_slots(db, set_obj.id):
+        if slot.id in locked_before:
+            slot.target_energy = locked_before[slot.id]
+            continue
+        targets.append({"slot_id": slot.id, "target_energy": slot.target_energy})
+        affected.add(slot.position)
+    if locked_before:
+        db.flush()
+
+    return {"targets": targets, "windows": curve.windows_from_points(points)}, affected
+
+
+def _curve_template_points(db: Session, set_obj: Set, payload: dict[str, Any]) -> list[dict]:
+    """Resolve the template (built-in name XOR owned id) to its point list."""
+    builtin = payload.get("builtin")
+    template_id = payload.get("template_id")
+    if builtin is not None:
+        points = curve.BUILTIN_TEMPLATES.get(str(builtin))
+        if points is None:
+            raise AgentToolError("Template not found")
+        return points
+    if template_id is not None:
+        tpl = curve.get_owned_template(db, int(template_id), set_obj.owner_id)
+        if tpl is None:
+            raise AgentToolError("Template not found")
+        return curve.template_points(tpl)
+    raise AgentToolError("apply_curve_template requires builtin or template_id")
 
 
 def _tool_analyze_transition(
@@ -917,6 +973,10 @@ def _tool_display_summary(
         return (
             f"Added slow window {label} from {int(result['t0_sec'])}s to {int(result['t1_sec'])}s."
         )
+    if name == "apply_curve_template":
+        shape = str(payload.get("builtin") or "saved template")
+        count = len(result.get("targets") or [])
+        return f"Applied curve template {shape} to {count} slot{'s' if count != 1 else ''}."
     if name == "analyze_transition":
         base = (
             f"Analyzed transition into {_position_label(int(result['position']))}: "
@@ -989,6 +1049,26 @@ def _agent_tools() -> list[ToolSpec]:
         _tool("add_slow_window", {"t0_sec": "integer", "t1_sec": "integer", "label": "string"}),
         _tool("set_peak_at", {"position": "integer", "energy": "number"}),
         _tool("bump_energy", {"amount": "number", "slot_id": "integer"}),
+        ToolSpec(
+            name="apply_curve_template",
+            description=(
+                "Re-target every unlocked slot's energy from an energy-curve "
+                "template shape. Provide exactly one of builtin (a preset name) "
+                "or template_id (one of the DJ's saved templates)."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "builtin": {
+                        "type": "string",
+                        "enum": sorted(curve.BUILTIN_TEMPLATES.keys()),
+                    },
+                    "template_id": {"type": "integer"},
+                    "rationale": {"type": "string"},
+                },
+                "required": ["rationale"],
+            },
+        ),
         ToolSpec(
             name="analyze_transition",
             description="Analyze one transition by destination slot position.",

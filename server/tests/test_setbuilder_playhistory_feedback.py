@@ -9,6 +9,8 @@ non-negotiable isolation invariant: read-only on ``play_history`` AND
 
 from datetime import timedelta
 
+import pytest
+
 from app.core.time import utcnow
 from app.models.play_history import PlayHistory
 from app.models.request import Request, RequestStatus
@@ -260,6 +262,13 @@ def test_feedback_is_read_only_on_requests_and_play_history(db, test_user, test_
 
 # ---------------------------------------------------------------------------
 # API surface
+
+
+def test_build_report_rejects_set_without_event(db, test_user):
+    """Service contract: a report cannot be derived without an attached event."""
+    set_obj = _mk_set(db, test_user.id, event_id=None)
+    with pytest.raises(feedback.FeedbackUnavailable):
+        feedback.build_feedback_report(db, set_obj)
 
 
 def test_get_playback_report_requires_attached_event(client, auth_headers, db, test_user):

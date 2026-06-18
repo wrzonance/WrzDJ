@@ -44,6 +44,7 @@ const mockKioskDisplay = {
     { id: 1, title: 'Song 1', artist: 'Artist 1', artwork_url: null, nickname: null, vote_count: 0, bpm: null, musical_key: null, genre: null, requester_verified: false },
     { id: 2, title: 'Song 2', artist: 'Artist 2', artwork_url: null, nickname: null, vote_count: 0, bpm: null, musical_key: null, genre: null, requester_verified: false },
   ],
+  accepted_queue_total: 2,
   now_playing: null,
   now_playing_hidden: false,
   requests_open: true,
@@ -91,6 +92,7 @@ vi.mock('@/lib/api', () => ({
       this.status = status;
     }
   },
+  PUBLIC_PAGE_MAX: 500,
 }));
 
 import { api, ApiError } from '@/lib/api';
@@ -297,6 +299,7 @@ describe('KioskDisplayPage', () => {
       vi.mocked(api.getKioskDisplay).mockResolvedValue({
         ...mockKioskDisplay,
         accepted_queue: [],
+        accepted_queue_total: 0,
       });
       vi.mocked(api.getNowPlaying).mockResolvedValue(mockNowPlaying);
       vi.mocked(api.getPlayHistory).mockResolvedValue(mockPlayHistory);
@@ -415,6 +418,88 @@ describe('KioskDisplayPage', () => {
       // Should still poll after error
       await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
       expect(api.getKioskDisplay).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe('Accepted-queue pagination (growing window)', () => {
+    it('fetches the initial page with limit 100 and offset 0', async () => {
+      setupDefaultMocks();
+
+      render(<KioskDisplayPage />);
+      await screen.findByText('Test Event');
+
+      expect(api.getKioskDisplay).toHaveBeenCalledWith('TEST123', { limit: 100, offset: 0 });
+    });
+
+    it('uses accepted_queue_total for the headline count and a "of" indicator', async () => {
+      vi.mocked(api.getKioskDisplay).mockResolvedValue({
+        ...mockKioskDisplay,
+        accepted_queue_total: 250, // far more than the 2 loaded items
+      });
+      vi.mocked(api.getNowPlaying).mockResolvedValue(null);
+      vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
+
+      render(<KioskDisplayPage />);
+      await screen.findByText('Test Event');
+
+      // Headline QUEUE stat shows the true total, not the loaded page length
+      expect(screen.getByText('250')).toBeInTheDocument();
+      // Compact "showing X of Y" indicator (loaded 2 of 250)
+      expect(screen.getByText('2 OF 250 TRACKS')).toBeInTheDocument();
+    });
+
+    it('shows the plain total when the whole queue is loaded', async () => {
+      setupDefaultMocks(); // 2 items, accepted_queue_total: 2
+
+      render(<KioskDisplayPage />);
+      await screen.findByText('Test Event');
+
+      expect(screen.getByText('2 TRACKS')).toBeInTheDocument();
+    });
+
+    it('grows displayLimit toward PUBLIC_PAGE_MAX when total exceeds the loaded page', async () => {
+      vi.useFakeTimers();
+      // Every response reports far more accepted requests than the loaded page,
+      // so each refresh should bump the requested limit by 100, clamped at 500.
+      vi.mocked(api.getKioskDisplay).mockResolvedValue({
+        ...mockKioskDisplay,
+        accepted_queue_total: 999,
+      });
+      vi.mocked(api.getNowPlaying).mockResolvedValue(null);
+      vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
+
+      render(<KioskDisplayPage />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+      expect(api.getKioskDisplay).toHaveBeenNthCalledWith(1, 'TEST123', { limit: 100, offset: 0 });
+
+      // Each subsequent poll should request the next 100-larger window.
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(api.getKioskDisplay).toHaveBeenNthCalledWith(2, 'TEST123', { limit: 200, offset: 0 });
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(api.getKioskDisplay).toHaveBeenNthCalledWith(3, 'TEST123', { limit: 300, offset: 0 });
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(api.getKioskDisplay).toHaveBeenNthCalledWith(4, 'TEST123', { limit: 400, offset: 0 });
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(api.getKioskDisplay).toHaveBeenNthCalledWith(5, 'TEST123', { limit: 500, offset: 0 });
+
+      // Clamped at PUBLIC_PAGE_MAX (500) — does not keep growing.
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(api.getKioskDisplay).toHaveBeenNthCalledWith(6, 'TEST123', { limit: 500, offset: 0 });
+    });
+
+    it('does not grow the window when the whole queue is already loaded', async () => {
+      vi.useFakeTimers();
+      setupDefaultMocks(); // total 2, loaded 2
+
+      render(<KioskDisplayPage />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      // Limit stays at the initial 100 — nothing more to load.
+      expect(api.getKioskDisplay).toHaveBeenNthCalledWith(2, 'TEST123', { limit: 100, offset: 0 });
     });
   });
 

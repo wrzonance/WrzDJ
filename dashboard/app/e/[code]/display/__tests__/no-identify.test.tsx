@@ -46,6 +46,7 @@ vi.mock('@/lib/api', () => ({
       event: { code: 'TEST01', name: 'Test' },
       qr_join_url: 'http://x',
       accepted_queue: [],
+      accepted_queue_total: 0,
       now_playing: null,
       now_playing_hidden: false,
       requests_open: true,
@@ -60,6 +61,7 @@ vi.mock('@/lib/api', () => ({
     getKioskAssignment: vi.fn(),
   },
   ApiError: class extends Error { status = 0; },
+  PUBLIC_PAGE_MAX: 500,
 }));
 
 describe('KioskDisplayPage (F4)', () => {

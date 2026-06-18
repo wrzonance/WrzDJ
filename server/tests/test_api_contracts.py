@@ -173,6 +173,7 @@ KIOSK_DISPLAY_KEYS = {
     "event",
     "qr_join_url",
     "accepted_queue",
+    "accepted_queue_total",
     "now_playing",
     "now_playing_hidden",
     "requests_open",

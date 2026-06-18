@@ -5302,6 +5302,8 @@ export interface components {
         KioskDisplayResponse: {
             /** Accepted Queue */
             accepted_queue: components["schemas"]["PublicRequestInfo"][];
+            /** Accepted Queue Total */
+            accepted_queue_total: number;
             /** Banner Colors */
             banner_colors: string[] | null;
             /** Banner Kiosk Url */
@@ -11092,7 +11094,10 @@ export interface operations {
     };
     get_kiosk_display_api_public_events__code__display_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
             header?: never;
             path: {
                 code: string;

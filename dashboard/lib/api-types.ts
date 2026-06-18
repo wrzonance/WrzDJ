@@ -23,6 +23,10 @@ type Schemas = components['schemas'];
 export type Event = Schemas['EventOut'];
 export type PublicEvent = Schemas['PublicEventResponse'];
 export type SongRequest = Schemas['RequestOut'];
+// DJ request list pagination + sort envelope (issue #478)
+export type RequestListResponse = Schemas['RequestListResponse'];
+export type RequestSort = Schemas['RequestSort'];
+export type SortDirection = Schemas['SortDirection'];
 export type PublicRequestInfo = Schemas['PublicRequestInfo'] & { requester_verified?: boolean };
 export type GuestRequestInfo = Schemas['GuestRequestInfo'] & { requester_verified?: boolean };
 export type GuestNowPlaying = Schemas['GuestNowPlaying'];

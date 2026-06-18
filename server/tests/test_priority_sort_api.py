@@ -1,6 +1,6 @@
 """Integration tests for priority sort on the request list endpoint.
 
-TDD Phase 2: RED — tests for GET /api/events/{code}/requests?sort=priority.
+TDD Phase 2: RED — tests for GET /api/events/{code}/requests?sort=best_match.
 """
 
 from datetime import timedelta
@@ -71,7 +71,7 @@ class TestPrioritySortEndpoint:
             headers=auth_headers,
         )
         assert resp.status_code == 200
-        data = resp.json()
+        data = resp.json()["requests"]
         assert len(data) == 3
         # Newest first (Third, then Second, then First)
         assert data[0]["song_title"] == "Third"
@@ -113,11 +113,11 @@ class TestPrioritySortEndpoint:
         )
 
         resp = client.get(
-            f"/api/events/{test_event.code}/requests?sort=priority",
+            f"/api/events/{test_event.code}/requests?sort=best_match",
             headers=auth_headers,
         )
         assert resp.status_code == 200
-        data = resp.json()
+        data = resp.json()["requests"]
         assert len(data) == 3
 
         # All should have priority_score
@@ -177,11 +177,11 @@ class TestPrioritySortEndpoint:
         )
 
         resp = client.get(
-            f"/api/events/{test_event.code}/requests?sort=priority&status=new",
+            f"/api/events/{test_event.code}/requests?sort=best_match&status=new",
             headers=auth_headers,
         )
         assert resp.status_code == 200
-        data = resp.json()
+        data = resp.json()["requests"]
         new_requests = [d for d in data if d["status"] == "new"]
         assert len(new_requests) == 2
         # Compatible should rank higher
@@ -211,11 +211,11 @@ class TestPrioritySortEndpoint:
         )
 
         resp = client.get(
-            f"/api/events/{test_event.code}/requests?sort=priority",
+            f"/api/events/{test_event.code}/requests?sort=best_match",
             headers=auth_headers,
         )
         assert resp.status_code == 200
-        data = resp.json()
+        data = resp.json()["requests"]
         assert len(data) == 2
         # Popular should be first even without harmonic context
         assert data[0]["song_title"] == "Popular"
@@ -237,7 +237,7 @@ class TestPrioritySortEndpoint:
             headers=auth_headers,
         )
         assert resp.status_code == 200
-        data = resp.json()
+        data = resp.json()["requests"]
         assert data[0]["priority_score"] is None
 
     def test_sort_param_validation(
@@ -279,11 +279,11 @@ class TestPrioritySortEndpoint:
         )
 
         resp = client.get(
-            f"/api/events/{test_event.code}/requests?sort=priority&status=new",
+            f"/api/events/{test_event.code}/requests?sort=best_match&status=new",
             headers=auth_headers,
         )
         assert resp.status_code == 200
-        data = resp.json()
+        data = resp.json()["requests"]
         # Only NEW requests
         assert len(data) == 1
         assert data[0]["song_title"] == "New Song"
@@ -296,6 +296,6 @@ class TestPrioritySortEndpoint:
     ):
         """Unauthenticated request should fail."""
         resp = client.get(
-            f"/api/events/{test_event.code}/requests?sort=priority",
+            f"/api/events/{test_event.code}/requests?sort=best_match",
         )
         assert resp.status_code == 401

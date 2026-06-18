@@ -60,8 +60,12 @@ const baseProps = {
   beatportLinked: false,
   onAcceptTrack: vi.fn(),
   onRefreshRequests: vi.fn(),
-  sortMode: 'chronological' as const,
-  onSortModeChange: vi.fn(),
+  sortField: 'date_requested' as const,
+  sortDirection: 'desc' as const,
+  onSortFieldChange: vi.fn(),
+  onSortDirectionToggle: vi.fn(),
+  total: 1,
+  onLoadMore: vi.fn(),
 };
 
 describe('SongManagementTab', () => {

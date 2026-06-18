@@ -5,11 +5,11 @@ import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '@/lib/auth';
-import { api, ApiError, Event, ArchivedEvent, SongRequest, PlayHistoryItem, TidalStatus, TidalSearchResult, BeatportStatus, CollectionSettingsResponse } from '@/lib/api';
+import { api, ApiError, Event, ArchivedEvent, SongRequest, PlayHistoryItem, TidalStatus, TidalSearchResult, BeatportStatus, CollectionSettingsResponse, PUBLIC_PAGE_MAX } from '@/lib/api';
 import { useEventStream } from '@/lib/use-event-stream';
 import { usePollingLoop } from '@/lib/usePollingLoop';
-import type { BeatportSearchResult, NowPlayingInfo } from '@/lib/api-types';
-import type { SortMode } from '@/lib/priority-score';
+import type { BeatportSearchResult, NowPlayingInfo, RequestSort, SortDirection } from '@/lib/api-types';
+import { SORT_FIELD_DEFAULT_DIRECTION, isRequestSort, migrateLegacySort } from '@/lib/request-sort';
 import { useHelp } from '@/lib/help/HelpContext';
 import { HelpSpot } from '@/components/help/HelpSpot';
 import { HelpButton } from '@/components/help/HelpButton';
@@ -33,6 +33,18 @@ function toLocalDateTimeString(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+/** Read the persisted sort field for an event, falling back to the legacy
+ *  toggle then the default. Returns a valid {@link RequestSort}. */
+function readStoredSortField(code: string): RequestSort {
+  try {
+    const storedField = localStorage.getItem(`wrzdj-sortfield-${code}`);
+    if (storedField && isRequestSort(storedField)) return storedField;
+    return migrateLegacySort(localStorage.getItem(`wrzdj-sort-${code}`));
+  } catch {
+    return migrateLegacySort(null);
+  }
+}
+
 export default function EventQueuePage() {
   const { isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
@@ -41,6 +53,10 @@ export default function EventQueuePage() {
 
   const [event, setEvent] = useState<Event | ArchivedEvent | null>(null);
   const [requests, setRequests] = useState<SongRequest[]>([]);
+  // Growing-window pagination (issue #478): every refresh re-fetches
+  // [0, displayLimit) so live vote/status changes never drift the offset.
+  const [displayLimit, setDisplayLimit] = useState(100);
+  const [requestTotal, setRequestTotal] = useState(0);
   const [playHistory, setPlayHistory] = useState<PlayHistoryItem[]>([]);
   const [playHistoryTotal, setPlayHistoryTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -136,28 +152,72 @@ export default function EventQueuePage() {
     }
   });
 
-  // Sort mode (persisted in localStorage per event)
-  const [sortMode, setSortMode] = useState<SortMode>(() => {
+  // Sort field + direction (persisted in localStorage per event, issue #478).
+  // Migrates the legacy single `wrzdj-sort-${code}` toggle: 'priority' →
+  // best_match, anything else → date_requested.
+  const [sortField, setSortField] = useState<RequestSort>(() => readStoredSortField(code));
+  const [sortDirection, setSortDirection] = useState<SortDirection>(() => {
     try {
-      const stored = localStorage.getItem(`wrzdj-sort-${code}`);
-      return stored === 'priority' ? 'priority' : 'chronological';
+      const storedDir = localStorage.getItem(`wrzdj-sortdir-${code}`);
+      if (storedDir === 'asc' || storedDir === 'desc') return storedDir;
     } catch {
-      return 'chronological';
+      // localStorage unavailable
     }
+    return SORT_FIELD_DEFAULT_DIRECTION[readStoredSortField(code)];
   });
 
-  const handleSortModeChange = useCallback((mode: SortMode) => {
-    setSortMode(mode);
+  // Changing the field snaps direction to that field's default (a separate
+  // toggle then flips it). Persist both for next session.
+  const handleSortFieldChange = useCallback((field: RequestSort) => {
+    const direction = SORT_FIELD_DEFAULT_DIRECTION[field];
+    setSortField(field);
+    setSortDirection(direction);
     try {
-      localStorage.setItem(`wrzdj-sort-${code}`, mode);
+      localStorage.setItem(`wrzdj-sortfield-${code}`, field);
+      localStorage.setItem(`wrzdj-sortdir-${code}`, direction);
     } catch {
       // localStorage unavailable
     }
   }, [code]);
 
-  // Ref so loadData/callbacks always use current sort mode
-  const sortModeRef = useRef(sortMode);
-  sortModeRef.current = sortMode;
+  const handleSortDirectionToggle = useCallback(() => {
+    setSortDirection((prev) => {
+      const next: SortDirection = prev === 'asc' ? 'desc' : 'asc';
+      try {
+        localStorage.setItem(`wrzdj-sortdir-${code}`, next);
+      } catch {
+        // localStorage unavailable
+      }
+      return next;
+    });
+  }, [code]);
+
+  // Refs so polling/SSE/mutation callbacks always read the current values.
+  const sortFieldRef = useRef(sortField);
+  sortFieldRef.current = sortField;
+  const sortDirectionRef = useRef(sortDirection);
+  sortDirectionRef.current = sortDirection;
+  const displayLimitRef = useRef(displayLimit);
+  displayLimitRef.current = displayLimit;
+
+  // Single growing-window fetch: always [0, displayLimit) with the current
+  // sort field/direction so live reorders never drift the offset (issue #478).
+  // Reads refs so polling/SSE/mutation callbacks pick up current values.
+  const reloadRequests = useCallback(
+    async (status?: string): Promise<SongRequest[]> => {
+      const resp = await api.getRequests(code, {
+        status,
+        sort: sortFieldRef.current,
+        direction: sortDirectionRef.current,
+        limit: displayLimitRef.current,
+        offset: 0,
+      });
+      setRequests(resp.requests);
+      setRequestTotal(resp.total);
+      return resp.requests;
+    },
+    [code],
+  );
 
   const toggleCompactMode = useCallback(() => {
     setCompactMode((prev) => {
@@ -253,7 +313,12 @@ export default function EventQueuePage() {
     try {
       const [eventData, requestsData, historyData, displaySettings, tidalStatusData, beatportStatusData, nowPlayingData, bridgeStatusData] = await Promise.all([
         api.getEvent(code),
-        api.getRequests(code, { sort: sortModeRef.current }),
+        api.getRequests(code, {
+          sort: sortFieldRef.current,
+          direction: sortDirectionRef.current,
+          limit: displayLimitRef.current,
+          offset: 0,
+        }),
         api.getPlayHistory(code).catch((): undefined => undefined),
         api.getDisplaySettings(code).catch(() => ({ now_playing_hidden: false, now_playing_auto_hide_minutes: 10, requests_open: true, kiosk_display_only: false })),
         api.getTidalStatus().catch(() => ({ linked: false, user_id: null, expires_at: null, integration_enabled: true })),
@@ -262,7 +327,8 @@ export default function EventQueuePage() {
         api.getBridgeStatus(code).catch(() => ({ connected: false, device_name: null, last_seen: null, circuit_breaker_state: null, buffer_size: null, plugin_id: null, deck_count: null, uptime_seconds: null })),
       ]);
       setEvent(eventData);
-      setRequests(requestsData);
+      setRequests(requestsData.requests);
+      setRequestTotal(requestsData.total);
       if (historyData !== undefined) {
         setPlayHistory(historyData.items);
         setPlayHistoryTotal(historyData.total);
@@ -301,12 +367,18 @@ export default function EventQueuePage() {
         try {
           const [archivedEvents, requestsData] = await Promise.all([
             api.getArchivedEvents(),
-            api.getRequests(code, { sort: sortModeRef.current }), // Still works for owners
+            api.getRequests(code, {
+              sort: sortFieldRef.current,
+              direction: sortDirectionRef.current,
+              limit: displayLimitRef.current,
+              offset: 0,
+            }), // Still works for owners
           ]);
           const archivedEvent = archivedEvents.find((e) => e.code === code);
           if (archivedEvent) {
             setEvent(archivedEvent);
-            setRequests(requestsData);
+            setRequests(requestsData.requests);
+            setRequestTotal(requestsData.total);
             setEventStatus(archivedEvent.status);
             setError(null);
             return false; // Stop polling - event is expired
@@ -374,8 +446,7 @@ export default function EventQueuePage() {
     setAcceptingAll(true);
     try {
       await api.acceptAllRequests(code);
-      const updatedRequests = await api.getRequests(code, { sort: sortModeRef.current });
-      setRequests(updatedRequests);
+      await reloadRequests();
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Failed to accept all requests');
     } finally {
@@ -566,8 +637,7 @@ export default function EventQueuePage() {
         )
       );
       // Refresh to get updated sync_results_json from server
-      const updatedRequests = await api.getRequests(code, { sort: sortModeRef.current });
-      setRequests(updatedRequests);
+      await reloadRequests();
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Failed to sync to Tidal');
     } finally {
@@ -601,8 +671,7 @@ export default function EventQueuePage() {
     setLinkingTrack(true);
     try {
       await api.linkTidalTrack(requestId, tidalTrackId);
-      const updatedRequests = await api.getRequests(code, { sort: sortModeRef.current });
-      setRequests(updatedRequests);
+      await reloadRequests();
       setShowTidalPicker(null);
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Failed to link Tidal track');
@@ -638,8 +707,7 @@ export default function EventQueuePage() {
     try {
       await api.linkBeatportTrack(requestId, beatportTrackId);
       // Reload requests to get updated sync_results_json
-      const updatedRequests = await api.getRequests(code, { sort: sortModeRef.current });
-      setRequests(updatedRequests);
+      await reloadRequests();
       setShowBeatportPicker(null);
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Failed to link Beatport track');
@@ -766,8 +834,7 @@ export default function EventQueuePage() {
     setRejectingAll(true);
     try {
       await api.rejectAllRequests(code);
-      const updatedRequests = await api.getRequests(code, { sort: sortModeRef.current });
-      setRequests(updatedRequests);
+      await reloadRequests();
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Failed to reject all requests');
     } finally {
@@ -778,8 +845,7 @@ export default function EventQueuePage() {
   const handleBulkDelete = async (status?: string) => {
     try {
       await api.bulkDeleteRequests(code, status);
-      const updatedRequests = await api.getRequests(code, { sort: sortModeRef.current });
-      setRequests(updatedRequests);
+      await reloadRequests();
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Failed to bulk delete requests');
     }
@@ -802,14 +868,22 @@ export default function EventQueuePage() {
       },
     );
     // Refresh request list
-    const updatedRequests = await api.getRequests(code, { sort: sortModeRef.current });
-    setRequests(updatedRequests);
+    await reloadRequests();
   };
 
   const handleRefreshRequests = useCallback(async () => {
-    const updatedRequests = await api.getRequests(code, { sort: sortModeRef.current });
-    setRequests(updatedRequests);
-  }, [code]);
+    await reloadRequests();
+  }, [reloadRequests]);
+
+  // Grow the window by a page and re-fetch. When a status filter is active the
+  // caller passes it so `total` stays honest per-filter (issue #478).
+  const handleLoadMore = useCallback(async (status?: string) => {
+    const next = Math.min(displayLimitRef.current + 100, PUBLIC_PAGE_MAX);
+    if (next === displayLimitRef.current) return;
+    displayLimitRef.current = next;
+    setDisplayLimit(next);
+    await reloadRequests(status);
+  }, [reloadRequests]);
 
   if (isLoading || !isAuthenticated) {
     return (
@@ -994,8 +1068,12 @@ export default function EventQueuePage() {
             onSyncToTidal={handleSyncToTidal}
             onOpenTidalPicker={handleOpenTidalPicker}
             onScrollToSyncReport={handleScrollToSyncReport}
-            sortMode={sortMode}
-            onSortModeChange={handleSortModeChange}
+            sortField={sortField}
+            sortDirection={sortDirection}
+            onSortFieldChange={handleSortFieldChange}
+            onSortDirectionToggle={handleSortDirectionToggle}
+            total={requestTotal}
+            onLoadMore={handleLoadMore}
           />
           <PlayHistorySection
             items={playHistory}
@@ -1072,8 +1150,12 @@ export default function EventQueuePage() {
               rejectingAll={rejectingAll}
               deletingRequest={deletingRequest}
               refreshingRequest={refreshingRequest}
-              sortMode={sortMode}
-              onSortModeChange={handleSortModeChange}
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSortFieldChange={handleSortFieldChange}
+              onSortDirectionToggle={handleSortDirectionToggle}
+              total={requestTotal}
+              onLoadMore={handleLoadMore}
             />
           </div>
 

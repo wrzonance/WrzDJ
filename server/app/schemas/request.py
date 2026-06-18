@@ -1,3 +1,4 @@
+from enum import Enum
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_validator
@@ -96,5 +97,38 @@ class RequestOut(BaseSchema):
     sync_results_json: str | None = None
     # Voting
     vote_count: int = 0
-    # Priority scoring (populated only when sort=priority)
+    # Priority scoring (populated only when sort=best_match)
     priority_score: float | None = None
+
+
+class RequestSort(str, Enum):
+    """DJ-facing sort fields for the request list (issue #478)."""
+
+    DATE_REQUESTED = "date_requested"
+    DATE_ACCEPTED = "date_accepted"
+    UPVOTES = "upvotes"
+    BPM = "bpm"
+    KEY = "key"
+    TITLE = "title"
+    ARTIST = "artist"
+    BEST_MATCH = "best_match"
+
+
+class SortDirection(str, Enum):
+    ASC = "asc"
+    DESC = "desc"
+
+
+class RequestListResponse(BaseSchema):
+    """Paginated DJ request list.
+
+    ``total`` is the true row count before pagination, so the dashboard never
+    infers the count from the returned page length (the #411 failure mode).
+    """
+
+    requests: list[RequestOut]
+    total: int
+    limit: int
+    offset: int
+    sort: RequestSort
+    direction: SortDirection

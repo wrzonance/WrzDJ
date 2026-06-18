@@ -7433,6 +7433,46 @@
         "title": "RequestEmailChangeRequest",
         "type": "object"
       },
+      "RequestListResponse": {
+        "description": "Paginated DJ request list.\n\n``total`` is the true row count before pagination, so the dashboard never\ninfers the count from the returned page length (the #411 failure mode).",
+        "properties": {
+          "direction": {
+            "$ref": "#/components/schemas/SortDirection"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "requests": {
+            "items": {
+              "$ref": "#/components/schemas/RequestOut"
+            },
+            "title": "Requests",
+            "type": "array"
+          },
+          "sort": {
+            "$ref": "#/components/schemas/RequestSort"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "direction",
+          "limit",
+          "offset",
+          "requests",
+          "sort",
+          "total"
+        ],
+        "title": "RequestListResponse",
+        "type": "object"
+      },
       "RequestOut": {
         "properties": {
           "accepted_at": {
@@ -7624,6 +7664,21 @@
         ],
         "title": "RequestOut",
         "type": "object"
+      },
+      "RequestSort": {
+        "description": "DJ-facing sort fields for the request list (issue #478).",
+        "enum": [
+          "date_requested",
+          "date_accepted",
+          "upvotes",
+          "bpm",
+          "key",
+          "title",
+          "artist",
+          "best_match"
+        ],
+        "title": "RequestSort",
+        "type": "string"
       },
       "RequestSource": {
         "enum": [
@@ -9245,6 +9300,14 @@
         },
         "title": "SlotTargetUpdate",
         "type": "object"
+      },
+      "SortDirection": {
+        "enum": [
+          "asc",
+          "desc"
+        ],
+        "title": "SortDirection",
+        "type": "string"
       },
       "StatusMessageResponse": {
         "properties": {
@@ -14583,6 +14646,7 @@
     },
     "/api/events/{code}/requests": {
       "get": {
+        "description": "Paginated, sorted request list. Owner sees requests regardless of status.\n\n``total`` is computed before pagination so the dashboard shows a truthful\ncount rather than inferring it from the returned page length (issue #478).",
         "operationId": "get_event_requests_api_events__code__requests_get",
         "parameters": [
           {
@@ -14641,16 +14705,38 @@
           },
           {
             "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
             "name": "sort",
             "required": false,
             "schema": {
-              "default": "chronological",
-              "enum": [
-                "chronological",
-                "priority"
+              "$ref": "#/components/schemas/RequestSort",
+              "default": "date_requested"
+            }
+          },
+          {
+            "in": "query",
+            "name": "direction",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/SortDirection"
+                },
+                {
+                  "type": "null"
+                }
               ],
-              "title": "Sort",
-              "type": "string"
+              "title": "Direction"
             }
           }
         ],
@@ -14659,11 +14745,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/RequestOut"
-                  },
-                  "title": "Response Get Event Requests Api Events  Code  Requests Get",
-                  "type": "array"
+                  "$ref": "#/components/schemas/RequestListResponse"
                 }
               }
             },

@@ -181,8 +181,9 @@ class TestListRequests:
         )
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 1
-        assert data[0]["id"] == test_request.id
+        assert data["total"] == 1
+        assert len(data["requests"]) == 1
+        assert data["requests"][0]["id"] == test_request.id
 
     def test_list_requests_filter_by_status(
         self, client: TestClient, auth_headers: dict, test_event: Event, test_request: Request
@@ -194,14 +195,15 @@ class TestListRequests:
         )
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 1
+        assert data["total"] == 1
+        assert len(data["requests"]) == 1
 
         response = client.get(
             f"/api/events/{test_event.code}/requests?status=played",
             headers=auth_headers,
         )
         assert response.status_code == 200
-        assert len(response.json()) == 0
+        assert response.json()["total"] == 0
 
     def test_list_requests_no_auth(self, client: TestClient, test_event: Event):
         """Test listing requests without auth fails."""
@@ -563,7 +565,7 @@ class TestMarkPlayingSingleActive:
             f"/api/events/{test_event.code}/requests?status=played",
             headers=auth_headers,
         )
-        played_ids = [r["id"] for r in resp_check.json()]
+        played_ids = [r["id"] for r in resp_check.json()["requests"]]
         assert req1 in played_ids
 
     def test_mark_playing_updates_now_playing_table(

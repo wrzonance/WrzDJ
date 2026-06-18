@@ -47,6 +47,9 @@ MUTATION_TOOLS = {
     "set_peak_at",
     "bump_energy",
     "apply_curve_template",
+    "set_target",
+    "lock_slot",
+    "unlock_slot",
 }
 ALLOWED_FLAG_TYPES = {
     "energy_dip",
@@ -71,6 +74,11 @@ SPARSE_BAND_THRESHOLD = 2
 
 class AgentToolError(ValueError):
     """The model requested an invalid or unsafe setbuilder tool operation."""
+
+
+# Sentinel for set_target: distinguishes an omitted field (leave unchanged) from
+# an explicit null (clear a nullable target column).
+_UNSET = object()
 
 
 @dataclass(frozen=True)
@@ -274,6 +282,9 @@ def apply_tool_call(
         "set_peak_at": _tool_set_peak_at,
         "bump_energy": _tool_bump_energy,
         "apply_curve_template": _tool_apply_curve_template,
+        "set_target": _tool_set_target,
+        "lock_slot": _tool_lock_slot,
+        "unlock_slot": _tool_unlock_slot,
         "analyze_transition": _tool_analyze_transition,
         "explain_transition": _tool_explain_transition,
         "get_track_vibes": _tool_get_track_vibes,
@@ -461,6 +472,105 @@ def _curve_template_points(db: Session, set_obj: Set, payload: dict[str, Any]) -
             raise AgentToolError("Template not found")
         return curve.template_points(tpl)
     raise AgentToolError("apply_curve_template requires builtin or template_id")
+
+
+def _tool_set_target(
+    db: Session, set_obj: Set, payload: dict[str, Any]
+) -> tuple[dict[str, Any], set[int]]:
+    """Set whichever of the Set's targets are present in ``payload`` (#465).
+
+    Each field is OPTIONAL: an omitted key leaves the column untouched, while an
+    explicit ``null`` clears a nullable column. Writes only ``set_obj``'s target
+    columns — never the ``requests`` table. Targets shape future deterministic
+    passes but move no slots, so the affected-positions set is always empty.
+    """
+    updates = _resolve_target_updates(payload)
+    _validate_bpm_window(set_obj, updates)
+    for column, value in updates.items():
+        setattr(set_obj, column, value)
+    db.flush()
+    return updates, set()
+
+
+def _resolve_target_updates(payload: dict[str, Any]) -> dict[str, Any]:
+    """Pull, coerce, and range-check the target fields actually present in payload."""
+    updates: dict[str, Any] = {}
+    _set_nonneg_int(updates, payload, "target_duration_sec", nullable=True)
+    _set_optional_int(updates, payload, "bpm_floor")
+    _set_optional_int(updates, payload, "bpm_ceiling")
+    _set_key_strictness(updates, payload)
+    _set_nonneg_int(updates, payload, "avg_transition_overlap_sec", nullable=False)
+    return updates
+
+
+def _set_nonneg_int(
+    updates: dict[str, Any], payload: dict[str, Any], field_name: str, *, nullable: bool
+) -> None:
+    value = payload.get(field_name, _UNSET)
+    if value is _UNSET:
+        return
+    if value is None:
+        if not nullable:
+            raise AgentToolError(f"{field_name} cannot be null")
+        updates[field_name] = None
+        return
+    coerced = int(value)
+    if coerced < 0:
+        raise AgentToolError(f"{field_name} must be non-negative")
+    updates[field_name] = coerced
+
+
+def _set_optional_int(updates: dict[str, Any], payload: dict[str, Any], field_name: str) -> None:
+    value = payload.get(field_name, _UNSET)
+    if value is _UNSET:
+        return
+    updates[field_name] = None if value is None else int(value)
+
+
+def _set_key_strictness(updates: dict[str, Any], payload: dict[str, Any]) -> None:
+    value = payload.get("key_strictness", _UNSET)
+    if value is _UNSET:
+        return
+    if value is None:
+        raise AgentToolError("key_strictness cannot be null")
+    coerced = float(value)
+    if not 0.0 <= coerced <= 1.0:
+        raise AgentToolError("key_strictness must be between 0.0 and 1.0")
+    updates["key_strictness"] = coerced
+
+
+def _validate_bpm_window(set_obj: Set, updates: dict[str, Any]) -> None:
+    """Reject an inverted BPM window, considering both new and already-stored bounds."""
+    floor = updates["bpm_floor"] if "bpm_floor" in updates else set_obj.bpm_floor
+    ceiling = updates["bpm_ceiling"] if "bpm_ceiling" in updates else set_obj.bpm_ceiling
+    if floor is not None and ceiling is not None and floor > ceiling:
+        raise AgentToolError("bpm_floor must be <= bpm_ceiling")
+
+
+def _tool_lock_slot(
+    db: Session, set_obj: Set, payload: dict[str, Any]
+) -> tuple[dict[str, Any], set[int]]:
+    return _set_slot_locked(db, set_obj, payload, locked=True)
+
+
+def _tool_unlock_slot(
+    db: Session, set_obj: Set, payload: dict[str, Any]
+) -> tuple[dict[str, Any], set[int]]:
+    return _set_slot_locked(db, set_obj, payload, locked=False)
+
+
+def _set_slot_locked(
+    db: Session, set_obj: Set, payload: dict[str, Any], *, locked: bool
+) -> tuple[dict[str, Any], set[int]]:
+    """Pin/unpin a slot: write only its ``locked`` column. Idempotent."""
+    try:
+        slot_id = int(payload["slot_id"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise AgentToolError("slot_id must be an integer") from exc
+    slot = _slot_or_error(db, set_obj.id, slot_id)
+    slot.locked = locked
+    db.flush()
+    return {"slot_id": slot.id, "locked": locked, "position": slot.position}, {slot.position}
 
 
 def _tool_analyze_transition(
@@ -947,6 +1057,11 @@ def _tool_display_summary(
         removed = before.get(int(payload["slot_id"]))
         if removed:
             return f"Removed {removed['label']} from {_position_label(removed['position'])}."
+    if name in {"lock_slot", "unlock_slot"}:
+        slot = before.get(int(result["slot_id"]))
+        verb = "Locked" if result.get("locked") else "Unlocked"
+        where = _position_label(slot["position"]) if slot else f"slot {result['slot_id']}"
+        return f"{verb} {where}."
     if name in {"insert_from_pool", "search_and_insert"}:
         position = int(result["position"])
         inserted = next((s for s in after.values() if s["position"] == position), None)
@@ -1005,6 +1120,8 @@ def _tool_display_summary(
         if resolved.get("mood"):
             parts.append(f"mood {resolved['mood']} ({resolved.get('mood_source')})")
         return f"Vibe tags for {where}: {', '.join(parts)}."
+    if name == "set_target":
+        return _set_target_summary(result)
     if name == "summarize_set":
         return _summarize_set_summary(result)
     if name == "analyze_pool_gaps":
@@ -1023,6 +1140,39 @@ def _tool_display_summary(
             return f"{head} {summary}" if summary else head
         return "Recomputed critique context."
     return name.replace("_", " ").capitalize() + "."
+
+
+def _set_target_summary(result: dict[str, Any]) -> str:
+    """One human-readable sentence over only the target fields the call set."""
+    parts: list[str] = []
+    if "target_duration_sec" in result:
+        secs = result["target_duration_sec"]
+        if secs is None:
+            parts.append("cleared duration target")
+        else:
+            parts.append(f"duration {int(secs) // 60} min")
+    parts.extend(_bpm_window_summary_parts(result))
+    if "key_strictness" in result:
+        parts.append(f"key strictness {float(result['key_strictness']):g}")
+    if "avg_transition_overlap_sec" in result:
+        parts.append(f"transition overlap {int(result['avg_transition_overlap_sec'])}s")
+    if not parts:
+        return "Updated set targets."
+    return "Set targets: " + ", ".join(parts) + "."
+
+
+def _bpm_window_summary_parts(result: dict[str, Any]) -> list[str]:
+    """Render the BPM bounds the call set: combined as a window when both are present."""
+    floor, ceiling = result.get("bpm_floor"), result.get("bpm_ceiling")
+    has_floor, has_ceiling = "bpm_floor" in result, "bpm_ceiling" in result
+    if has_floor and has_ceiling and floor is not None and ceiling is not None:
+        return [f"BPM {int(floor)}-{int(ceiling)}"]
+    parts: list[str] = []
+    if has_floor:
+        parts.append("cleared BPM floor" if floor is None else f"BPM floor {int(floor)}")
+    if has_ceiling:
+        parts.append("cleared BPM ceiling" if ceiling is None else f"BPM ceiling {int(ceiling)}")
+    return parts
 
 
 def _summarize_set_summary(result: dict[str, Any]) -> str:
@@ -1049,6 +1199,30 @@ def _agent_tools() -> list[ToolSpec]:
         _tool("add_slow_window", {"t0_sec": "integer", "t1_sec": "integer", "label": "string"}),
         _tool("set_peak_at", {"position": "integer", "energy": "number"}),
         _tool("bump_energy", {"amount": "number", "slot_id": "integer"}),
+        _tool("lock_slot", {"slot_id": "integer"}),
+        _tool("unlock_slot", {"slot_id": "integer"}),
+        ToolSpec(
+            name="set_target",
+            description=(
+                "Set the set's goals: total duration, BPM window, key strictness, and "
+                "average transition overlap. All target fields are optional — set only "
+                "those you want to change; omit the rest. The _tool() helper marks every "
+                "field required, so this uses a bare ToolSpec to keep the targets optional "
+                "while still requiring rationale (enforced via MUTATION_TOOLS)."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "target_duration_sec": {"type": ["integer", "null"], "minimum": 0},
+                    "bpm_floor": {"type": ["integer", "null"]},
+                    "bpm_ceiling": {"type": ["integer", "null"]},
+                    "key_strictness": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                    "avg_transition_overlap_sec": {"type": "integer", "minimum": 0},
+                    "rationale": {"type": "string"},
+                },
+                "required": ["rationale"],
+            },
+        ),
         ToolSpec(
             name="apply_curve_template",
             description=(

@@ -13,7 +13,9 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "alphatheta-connect": "0.15.0",
+    "alphatheta-connect": "0.21.1",
+    "metadata-connect": "1.1.10",
+    "onelibrary-connect": "1.1.1",
     "stagelinq": "3.0.4"
   },
   "devDependencies": {

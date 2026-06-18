@@ -13,6 +13,7 @@ from app.services.setbuilder import agent_history
 from app.services.setbuilder.pass2_agent import (
     AgentToolError,
     _tool_display_summary,
+    apply_tool_call,
     chat_with_agent,
     critique_set,
 )
@@ -447,3 +448,129 @@ def test_tool_display_summary_transition_omits_empty_warnings():
     )
 
     assert summary == "Analyzed transition into slot 2: 90."
+
+
+def _mk_set_with_pool(db: Session, user: User, tracks: list[dict]) -> Set:
+    """Build a set whose pool is described row-by-row (no slots needed).
+
+    Each ``tracks`` entry may carry ``bpm``/``key``/``camelot`` (any may be
+    omitted/None) so a test can target specific Camelot keys and BPM bands.
+    """
+    set_obj = Set(
+        owner_id=user.id,
+        name="Gap Set",
+        bpm_floor=tracks[0].get("bpm_floor") if tracks else None,
+        bpm_ceiling=tracks[0].get("bpm_ceiling") if tracks else None,
+    )
+    db.add(set_obj)
+    db.flush()
+    source = SetPoolSource(set_id=set_obj.id, kind="manual", label="Manual")
+    db.add(source)
+    db.flush()
+    db.add_all(
+        [
+            SetPoolTrack(
+                set_id=set_obj.id,
+                source_id=source.id,
+                track_id=f"manual:{idx}",
+                title=f"Track {idx}",
+                artist=f"Artist {idx}",
+                bpm=row.get("bpm"),
+                key=row.get("key"),
+                camelot=row.get("camelot"),
+                dedupe_sig=f"gap-sig-{idx}",
+            )
+            for idx, row in enumerate(tracks)
+        ]
+    )
+    db.commit()
+    db.refresh(set_obj)
+    return set_obj
+
+
+def test_analyze_pool_gaps_reports_missing_keys_and_sparse_bands(db: Session, test_user: User):
+    # Pool covers only 8A (124) and 9A (132); leaves the other 22 Camelot
+    # slots empty and concentrates BPM around two bands.
+    set_obj = _mk_set_with_pool(
+        db,
+        test_user,
+        [
+            {"camelot": "8A", "bpm": 124},
+            {"camelot": "8A", "bpm": 126},
+            {"camelot": "9A", "bpm": 132},
+            {"key": "F minor", "bpm": None},  # 4A, no BPM
+        ],
+    )
+
+    gaps, affected = apply_tool_call(db, set_obj, "analyze_pool_gaps", {})
+
+    assert affected == set()
+    assert gaps["pool_size"] == 4
+    assert gaps["keyed_track_count"] == 4
+    assert gaps["bpm_track_count"] == 3
+    # 8A, 9A, 4A are present → not missing; everything else is.
+    assert "8A" not in gaps["missing_camelot_keys"]
+    assert "9A" not in gaps["missing_camelot_keys"]
+    assert "4A" not in gaps["missing_camelot_keys"]
+    assert "1B" in gaps["missing_camelot_keys"]
+    assert len(gaps["missing_camelot_keys"]) == 21
+    # Bands cover the observed 124-132 span; the high band (132) has a single
+    # track → flagged sparse.
+    band_labels = {b["label"] for b in gaps["bpm_bands"]}
+    assert any(b["count"] >= 2 for b in gaps["bpm_bands"])
+    sparse = {b["label"] for b in gaps["sparse_bands"]}
+    assert sparse and sparse <= band_labels
+
+
+def test_analyze_pool_gaps_empty_pool_is_everything_a_gap(db: Session, test_user: User):
+    set_obj = _mk_set_with_pool(db, test_user, [])
+
+    gaps, affected = apply_tool_call(db, set_obj, "analyze_pool_gaps", {})
+
+    assert affected == set()
+    assert gaps["pool_size"] == 0
+    assert gaps["keyed_track_count"] == 0
+    assert gaps["bpm_track_count"] == 0
+    assert len(gaps["missing_camelot_keys"]) == 24
+    assert gaps["bpm_bands"] == []
+    assert gaps["sparse_bands"] == []
+
+
+def test_analyze_pool_gaps_leaves_event_requests_untouched(
+    db: Session, test_user: User, test_request: Request
+):
+    set_obj = _mk_set_with_pool(
+        db,
+        test_user,
+        [{"camelot": "8A", "bpm": 124}, {"camelot": "9A", "bpm": 128}],
+    )
+    before_count = db.query(Request).count()
+    before_title = test_request.song_title
+
+    apply_tool_call(db, set_obj, "analyze_pool_gaps", {})
+
+    db.refresh(test_request)
+    assert db.query(Request).count() == before_count
+    assert test_request.song_title == before_title
+
+
+def test_analyze_pool_gaps_unknown_tool_still_raises():
+    # Guards the closed allowlist: an unknown sibling name must not slip through.
+    with pytest.raises(AgentToolError, match="Unknown tool"):
+        apply_tool_call(None, None, "totally_unknown_tool", {})
+
+
+def test_tool_display_summary_analyze_pool_gaps():
+    summary = _tool_display_summary(
+        "analyze_pool_gaps",
+        {},
+        {
+            "pool_size": 4,
+            "missing_camelot_keys": ["1A", "1B"],
+            "sparse_bands": [{"label": "130-140", "min": 130, "max": 140, "count": 1}],
+        },
+        {},
+        {},
+    )
+
+    assert summary == "Analyzed pool gaps over 4 tracks: 2 missing Camelot keys, 1 sparse BPM band."

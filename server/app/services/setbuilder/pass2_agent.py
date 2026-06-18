@@ -15,6 +15,7 @@ from app.models.user import User
 from app.services.llm.base import ChatRequest, Message, ToolSpec
 from app.services.llm.exceptions import NoLlmConfigured
 from app.services.llm.gateway import Gateway
+from app.services.recommendation.camelot import parse_key
 from app.services.setbuilder import curve
 from app.services.setbuilder.pass1_deterministic import (
     TransitionScore,
@@ -52,6 +53,17 @@ ALLOWED_FLAG_TYPES = {
     "banger_buried",
     "transition_brilliant",
 }
+
+# The 24 Camelot-wheel slots: numbers 1-12 on each of the A (minor) and B
+# (major) rings. Used by analyze_pool_gaps to report which slots the pool
+# leaves uncovered.
+ALL_CAMELOT_KEYS: tuple[str, ...] = tuple(
+    f"{number}{letter}" for number in range(1, 13) for letter in ("A", "B")
+)
+# analyze_pool_gaps bins pool BPMs into fixed-width bands; a band holding
+# fewer than SPARSE_BAND_THRESHOLD tracks is flagged as a coverage hole.
+BPM_BAND_WIDTH = 10
+SPARSE_BAND_THRESHOLD = 2
 
 
 class AgentToolError(ValueError):
@@ -259,6 +271,7 @@ def apply_tool_call(
         "set_peak_at": _tool_set_peak_at,
         "bump_energy": _tool_bump_energy,
         "analyze_transition": _tool_analyze_transition,
+        "analyze_pool_gaps": _tool_analyze_pool_gaps,
         "critique_set": _tool_static_critique,
     }
     handler = handlers.get(name)
@@ -406,6 +419,51 @@ def _tool_analyze_transition(
         raise AgentToolError("slot has no pool metadata")
     score, warnings = transition_score(prev, curr, set_obj.key_strictness)
     return {"position": position, "score": score, "warnings": warnings}, set()
+
+
+def _tool_analyze_pool_gaps(
+    db: Session, set_obj: Set, payload: dict[str, Any]
+) -> tuple[dict[str, Any], set[int]]:
+    """Read-only coverage report over the set's pool (missing keys + BPM bands)."""
+    del payload
+    metas = [_pass1_track_meta(t) for t in _pool_tracks(db, set_obj.id)]
+    camelot_keys = [str(pos) for pos in (parse_key(m.key) for m in metas) if pos is not None]
+    bpms = [float(m.bpm) for m in metas if m.bpm is not None]
+    present = set(camelot_keys)
+    missing = [key for key in ALL_CAMELOT_KEYS if key not in present]
+    bands = _bpm_bands(set_obj, bpms)
+    return {
+        "pool_size": len(metas),
+        "keyed_track_count": len(camelot_keys),
+        "bpm_track_count": len(bpms),
+        "missing_camelot_keys": missing,
+        "bpm_bands": bands,
+        "sparse_bands": [b for b in bands if b["count"] < SPARSE_BAND_THRESHOLD],
+    }, set()
+
+
+def _bpm_bands(set_obj: Set, bpms: list[float]) -> list[dict[str, Any]]:
+    """Bucket pool BPMs into fixed-width bands across the set's target window.
+
+    The window is ``set_obj.bpm_floor``..``bpm_ceiling`` when set, else the
+    observed pool min/max. Returns one entry per band (empty bands included)
+    so the agent can see tempo holes, not just where tracks cluster.
+    """
+    if not bpms:
+        return []
+    floor = set_obj.bpm_floor if set_obj.bpm_floor is not None else int(min(bpms))
+    ceiling = set_obj.bpm_ceiling if set_obj.bpm_ceiling is not None else int(max(bpms))
+    low = min(floor, int(min(bpms)))
+    high = max(ceiling, int(max(bpms)))
+    start = (low // BPM_BAND_WIDTH) * BPM_BAND_WIDTH
+    bands: list[dict[str, Any]] = []
+    edge = start
+    while edge <= high:
+        band_end = edge + BPM_BAND_WIDTH
+        count = sum(1 for bpm in bpms if edge <= bpm < band_end)
+        bands.append({"label": f"{edge}-{band_end}", "min": edge, "max": band_end, "count": count})
+        edge = band_end
+    return bands
 
 
 def _tool_static_critique(
@@ -661,6 +719,14 @@ def _tool_display_summary(
             readable = ", ".join(str(warning).replace("_", " ") for warning in warnings)
             return f"{base} Warnings: {readable}."
         return base
+    if name == "analyze_pool_gaps":
+        missing = result.get("missing_camelot_keys") or []
+        sparse = result.get("sparse_bands") or []
+        return (
+            f"Analyzed pool gaps over {int(result.get('pool_size') or 0)} tracks: "
+            f"{len(missing)} missing Camelot key{'s' if len(missing) != 1 else ''}, "
+            f"{len(sparse)} sparse BPM band{'s' if len(sparse) != 1 else ''}."
+        )
     if name == "critique_set":
         grade = result.get("overall_grade")
         if grade:
@@ -689,6 +755,11 @@ def _agent_tools() -> list[ToolSpec]:
                 "properties": {"position": {"type": "integer"}},
                 "required": ["position"],
             },
+        ),
+        ToolSpec(
+            name="analyze_pool_gaps",
+            description=("Report pool coverage holes: missing Camelot keys and sparse BPM bands."),
+            input_schema={"type": "object", "properties": {}},
         ),
         _critique_tool(),
     ]

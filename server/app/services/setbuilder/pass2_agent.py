@@ -23,6 +23,7 @@ from app.services.setbuilder.pass1_deterministic import (
     transition_score,
 )
 from app.services.setbuilder.pass1_deterministic import _track_meta as _pass1_track_meta
+from app.services.setbuilder.vibe_resolver import TrackVibeState, build_pool_vibe_state
 
 logger = logging.getLogger(__name__)
 
@@ -271,6 +272,7 @@ def apply_tool_call(
         "set_peak_at": _tool_set_peak_at,
         "bump_energy": _tool_bump_energy,
         "analyze_transition": _tool_analyze_transition,
+        "get_track_vibes": _tool_get_track_vibes,
         "summarize_set": _tool_summarize_set,
         "analyze_pool_gaps": _tool_analyze_pool_gaps,
         "critique_set": _tool_static_critique,
@@ -420,6 +422,54 @@ def _tool_analyze_transition(
         raise AgentToolError("slot has no pool metadata")
     score, warnings = transition_score(prev, curr, set_obj.key_strictness)
     return {"position": position, "score": score, "warnings": warnings}, set()
+
+
+def _tool_get_track_vibes(
+    db: Session, set_obj: Set, payload: dict[str, Any]
+) -> tuple[dict[str, Any], set[int]]:
+    """Read-only: surface a slot track's resolved TrackVibe tags (#457).
+
+    Resolves the slot -> its pool track -> the owner-merged vibe state via
+    ``vibe_resolver``. No vibe data yields an explicit empty result, never an
+    error. Writes to no table; returns ``set()`` (no affected positions).
+    """
+    slot = _slot_or_error(db, set_obj.id, int(payload["slot_id"]))
+    owner = db.get(User, set_obj.owner_id)
+    if owner is None:
+        raise AgentToolError("Set owner not found")
+    pool_track = _slot_pool_track(db, set_obj.id, slot.track_id)
+    state = (
+        build_pool_vibe_state(db, owner, set_obj, pool_track.id) if pool_track is not None else None
+    )
+    return _vibe_state_result(slot, pool_track, state), set()
+
+
+def _slot_pool_track(db: Session, set_id: int, slot_track_id: str | None) -> SetPoolTrack | None:
+    """Map a slot's namespaced track_id back to its pool track row, if any."""
+    for track in _pool_tracks(db, set_id):
+        if _pass1_track_meta(track).slot_track_id == (slot_track_id or ""):
+            return track
+    return None
+
+
+def _vibe_state_result(
+    slot: SetSlot, pool_track: SetPoolTrack | None, state: TrackVibeState | None
+) -> dict[str, Any]:
+    """Shape a TrackVibeState into the agent-facing vibe result payload."""
+    resolved = state.resolved if state else None
+    has_vibe = resolved is not None and (resolved.energy is not None or resolved.mood is not None)
+    return {
+        "slot_id": slot.id,
+        "position": slot.position,
+        "pool_track_id": pool_track.id if pool_track else None,
+        "has_vibe": has_vibe,
+        "resolved": {
+            "energy": resolved.energy if resolved else None,
+            "energy_source": resolved.energy_source if resolved else None,
+            "mood": resolved.mood if resolved else None,
+            "mood_source": resolved.mood_source if resolved else None,
+        },
+    }
 
 
 def _tool_summarize_set(
@@ -798,6 +848,17 @@ def _tool_display_summary(
             readable = ", ".join(str(warning).replace("_", " ") for warning in warnings)
             return f"{base} Warnings: {readable}."
         return base
+    if name == "get_track_vibes":
+        where = _position_label(int(result["position"]))
+        if not result.get("has_vibe"):
+            return f"No vibe tags on record for {where}."
+        resolved = result.get("resolved") or {}
+        parts = []
+        if resolved.get("energy") is not None:
+            parts.append(f"energy {resolved['energy']} ({resolved.get('energy_source')})")
+        if resolved.get("mood"):
+            parts.append(f"mood {resolved['mood']} ({resolved.get('mood_source')})")
+        return f"Vibe tags for {where}: {', '.join(parts)}."
     if name == "summarize_set":
         return _summarize_set_summary(result)
     if name == "analyze_pool_gaps":
@@ -849,6 +910,15 @@ def _agent_tools() -> list[ToolSpec]:
                 "type": "object",
                 "properties": {"position": {"type": "integer"}},
                 "required": ["position"],
+            },
+        ),
+        ToolSpec(
+            name="get_track_vibes",
+            description="Read the resolved vibe tags (energy, mood, source) for one slot's track.",
+            input_schema={
+                "type": "object",
+                "properties": {"slot_id": {"type": "integer"}},
+                "required": ["slot_id"],
             },
         ),
         ToolSpec(

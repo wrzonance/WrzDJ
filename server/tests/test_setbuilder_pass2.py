@@ -6,6 +6,11 @@ from sqlalchemy.orm import Session
 from app.models.request import Request
 from app.models.set import Set, SetSlot
 from app.models.set_pool import SetPoolSource, SetPoolTrack
+from app.models.track_vibe import (
+    TRACK_VIBE_SOURCE_EXPLICIT_EDIT,
+    TrackVibe,
+    TrackVibeOverride,
+)
 from app.models.user import User
 from app.services.llm.base import ChatResponse, ToolCall
 from app.services.llm.exceptions import NoLlmConfigured
@@ -17,6 +22,7 @@ from app.services.setbuilder.pass2_agent import (
     chat_with_agent,
     critique_set,
 )
+from app.services.setbuilder.vibe_enrichment import PROMPT_VERSION, SCHEMA_VERSION
 
 
 def _chat_then_critique(chat_calls, critique_input, counter=None):
@@ -567,6 +573,133 @@ def test_tool_display_summary_transition_omits_empty_warnings():
     )
 
     assert summary == "Analyzed transition into slot 2: 90."
+
+
+def _seed_llm_vibe(db: Session, track_key: str, **fields) -> TrackVibe:
+    """Insert a current-version global LLM vibe row the resolver will trust."""
+    vibe = TrackVibe(
+        track_id=track_key,
+        llm_provider="anthropic",
+        llm_model="claude-test",
+        prompt_version=PROMPT_VERSION,
+        schema_version=SCHEMA_VERSION,
+        **fields,
+    )
+    db.add(vibe)
+    db.flush()
+    return vibe
+
+
+def test_get_track_vibes_resolves_owner_merged_tags(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    opener = sorted(set_obj.slots, key=lambda s: s.position)[0]
+    _seed_llm_vibe(db, "tidal:0", energy=8, mood="dark", confidence=0.9)
+    db.add(
+        TrackVibeOverride(
+            track_id="tidal:0",
+            user_id=test_user.id,
+            energy_override=6,
+            source=TRACK_VIBE_SOURCE_EXPLICIT_EDIT,
+        )
+    )
+    db.commit()
+
+    result, positions = apply_tool_call(db, set_obj, "get_track_vibes", {"slot_id": opener.id})
+
+    assert positions == set()
+    assert result["slot_id"] == opener.id
+    assert result["has_vibe"] is True
+    # Per-field cascade: the DJ's own edit wins energy, LLM cache supplies mood.
+    assert result["resolved"] == {
+        "energy": 6,
+        "energy_source": "own",
+        "mood": "dark",
+        "mood_source": "llm",
+    }
+
+
+def test_get_track_vibes_empty_when_no_vibe_data(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    opener = sorted(set_obj.slots, key=lambda s: s.position)[0]
+
+    result, positions = apply_tool_call(db, set_obj, "get_track_vibes", {"slot_id": opener.id})
+
+    assert positions == set()
+    assert result["has_vibe"] is False
+    assert result["resolved"] == {
+        "energy": None,
+        "energy_source": None,
+        "mood": None,
+        "mood_source": None,
+    }
+
+
+def test_get_track_vibes_rejects_foreign_slot(db: Session, test_user: User):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    other = _mk_set_with_tracks(db, test_user)
+    foreign_slot = sorted(other.slots, key=lambda s: s.position)[0]
+
+    with pytest.raises(AgentToolError, match="Slot not found"):
+        apply_tool_call(db, set_obj, "get_track_vibes", {"slot_id": foreign_slot.id})
+
+
+def test_tool_display_summary_get_track_vibes_with_tags():
+    summary = _tool_display_summary(
+        "get_track_vibes",
+        {},
+        {
+            "position": 0,
+            "has_vibe": True,
+            "resolved": {
+                "energy": 6,
+                "energy_source": "own",
+                "mood": "dark",
+                "mood_source": "llm",
+            },
+        },
+        {},
+        {},
+    )
+
+    assert summary == "Vibe tags for slot 1: energy 6 (own), mood dark (llm)."
+
+
+def test_tool_display_summary_get_track_vibes_empty():
+    summary = _tool_display_summary(
+        "get_track_vibes",
+        {},
+        {
+            "position": 2,
+            "has_vibe": False,
+            "resolved": {
+                "energy": None,
+                "energy_source": None,
+                "mood": None,
+                "mood_source": None,
+            },
+        },
+        {},
+        {},
+    )
+
+    assert summary == "No vibe tags on record for slot 3."
+
+
+def test_get_track_vibes_leaves_requests_untouched(
+    db: Session, test_user: User, test_request: Request
+):
+    set_obj = _mk_set_with_tracks(db, test_user)
+    opener = sorted(set_obj.slots, key=lambda s: s.position)[0]
+    _seed_llm_vibe(db, "tidal:0", energy=7, mood="warm")
+    db.commit()
+    before_count = db.query(Request).count()
+    before_title = test_request.song_title
+
+    apply_tool_call(db, set_obj, "get_track_vibes", {"slot_id": opener.id})
+
+    db.refresh(test_request)
+    assert db.query(Request).count() == before_count
+    assert test_request.song_title == before_title
 
 
 def _mk_set_with_pool(db: Session, user: User, tracks: list[dict]) -> Set:

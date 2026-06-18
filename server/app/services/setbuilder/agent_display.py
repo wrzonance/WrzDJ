@@ -148,6 +148,16 @@ def _tool_display_summary(
             head = f"Critique grade {grade}."
             return f"{head} {summary}" if summary else head
         return "Recomputed critique context."
+    if name == "suggest_pairings":
+        total = len(result.get("transitions") or [])
+        pinned = int(result.get("pinned_count") or 0)
+        return f"Reviewed {total} transition{'s' if total != 1 else ''}; {pinned} already pinned."
+    if name == "add_pairing":
+        transition = f"{result.get('from_label')} → {result.get('into_label')}"
+        verb = "Pinned the transition" if result.get("created") else "Updated the pinned transition"
+        return f"{verb} {transition}."
+    if name == "remove_pairing":
+        return f"Unpinned the transition {result.get('from_label')} → {result.get('into_label')}."
     return name.replace("_", " ").capitalize() + "."
 
 

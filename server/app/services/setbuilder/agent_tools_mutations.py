@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.models.set import Set, SetSlot
 from app.models.set_pool import SetPoolTrack
-from app.services.setbuilder import curve
+from app.services.setbuilder import curve, pairings
 from app.services.setbuilder.agent_common import (
     AgentToolError,
     _ordered_slots,
@@ -413,3 +413,82 @@ def _insert_track_at(
     db.add(SetSlot(set_id=set_obj.id, position=position, track_id=slot_track_id))
     db.flush()
     return {"pool_track_id": track.id, "position": position}, set(range(position, len(slots) + 1))
+
+
+def _tool_add_pairing(
+    db: Session, set_obj: Set, payload: dict[str, Any]
+) -> tuple[dict[str, Any], set[int]]:
+    """Pin a transition as a DJ pairing (#442): the from->into pair gets a +20
+    pass-1 ordering boost. Owner-scoped via the pool tracks; writes only the
+    set's pairings, never the requests table.
+
+    Affects no slot positions or stored scores (the boost steers future pass-1
+    candidate ordering, not the current adjacency), so the affected set is empty.
+    The service runs with ``commit=False`` so the agent turn commits/rolls back
+    as one unit.
+    """
+    from_track_id, from_track = _pairing_endpoint(db, set_obj, payload, "from_pool_track_id")
+    into_track_id, into_track = _pairing_endpoint(db, set_obj, payload, "into_pool_track_id")
+    if from_track_id == into_track_id:
+        raise AgentToolError("A pairing needs two different tracks")
+    note = payload.get("note")
+    tags = payload.get("tags") or []
+    if not isinstance(tags, list):
+        raise AgentToolError("tags must be a list of strings")
+    try:
+        pairing, created = pairings.upsert_pairing(
+            db,
+            set_obj,
+            from_track_id=from_track_id,
+            into_track_id=into_track_id,
+            cue_in_sec=None,
+            note=str(note)[:500] if note is not None else None,
+            tags=[str(tag) for tag in tags],
+            commit=False,
+        )
+    except ValueError as exc:
+        raise AgentToolError(str(exc)) from exc
+    return {
+        "pairing_id": pairing.id,
+        "from_track_id": from_track_id,
+        "into_track_id": into_track_id,
+        "from_label": from_track.title,
+        "into_label": into_track.title,
+        "created": created,
+    }, set()
+
+
+def _tool_remove_pairing(
+    db: Session, set_obj: Set, payload: dict[str, Any]
+) -> tuple[dict[str, Any], set[int]]:
+    """Unpin a saved transition pairing (#442), keyed by its two pool tracks.
+
+    Symmetric with ``_tool_add_pairing``; raises when no pairing exists so the
+    agent gets a clear signal instead of a silent no-op. Commit deferred to the
+    turn.
+    """
+    from_track_id, from_track = _pairing_endpoint(db, set_obj, payload, "from_pool_track_id")
+    into_track_id, into_track = _pairing_endpoint(db, set_obj, payload, "into_pool_track_id")
+    pairing = pairings.find_pairing(db, set_obj.id, from_track_id, into_track_id)
+    if pairing is None:
+        raise AgentToolError("No saved pairing for that transition")
+    pairings.delete_pairing(db, pairing, commit=False)
+    return {
+        "removed": True,
+        "from_track_id": from_track_id,
+        "into_track_id": into_track_id,
+        "from_label": from_track.title,
+        "into_label": into_track.title,
+    }, set()
+
+
+def _pairing_endpoint(
+    db: Session, set_obj: Set, payload: dict[str, Any], field_name: str
+) -> tuple[str, SetPoolTrack]:
+    """Resolve a pool-track id from ``payload`` to its (namespaced track_id, row).
+
+    The pairing key must be the same namespaced id slots use, so derive it via
+    the Pass-1 track meta — keeping pairings, slots, and the boost lookup aligned.
+    """
+    track = _pool_track_or_error(db, set_obj.id, int(payload[field_name]))
+    return _pass1_track_meta(track).slot_track_id, track

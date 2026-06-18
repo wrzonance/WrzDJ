@@ -22,6 +22,7 @@ from app.services.setbuilder.agent_common import (
     _pool_tracks,
     _slot_or_error,
 )
+from app.services.setbuilder.pairing_scoring import load_pairing_index
 from app.services.setbuilder.pass1_deterministic import TrackMeta, transition_score
 from app.services.setbuilder.pass1_deterministic import _track_meta as _pass1_track_meta
 from app.services.setbuilder.vibe_resolver import TrackVibeState, build_pool_vibe_state
@@ -316,3 +317,55 @@ def _tool_static_critique(
     scores = [s.transition_score for s in slots[1:] if s.transition_score is not None]
     avg = round(sum(scores) / len(scores), 1) if scores else None
     return {"average_transition_score": avg, "slot_count": len(slots)}, set()
+
+
+def _tool_suggest_pairings(
+    db: Session, set_obj: Set, payload: dict[str, Any]
+) -> tuple[dict[str, Any], set[int]]:
+    """Read-only: the set's consecutive transitions with score + whether each is
+    already a saved (pinned) pairing (#442).
+
+    The score is the raw ``transition_score`` — the +20 DJ-pairing boost steers
+    pass-1 candidate ordering, not an existing adjacency's stored score, so this
+    reports the honest transition quality alongside an ``is_pinned`` flag and the
+    endpoints' ``pool_track_id`` so the agent can act with ``add_pairing``.
+    """
+    del payload
+    slots = _ordered_slots(db, set_obj.id)
+    by_track_id = {
+        _pass1_track_meta(track).slot_track_id: track for track in _pool_tracks(db, set_obj.id)
+    }
+    pinned = load_pairing_index(db, set_obj.id)
+    transitions: list[dict[str, Any]] = []
+    for position in range(1, len(slots)):
+        prev_track_id = slots[position - 1].track_id or ""
+        curr_track_id = slots[position].track_id or ""
+        prev_track = by_track_id.get(prev_track_id)
+        curr_track = by_track_id.get(curr_track_id)
+        if curr_track is None:
+            continue
+        prev_meta = _pass1_track_meta(prev_track) if prev_track is not None else None
+        score, warnings = transition_score(
+            prev_meta, _pass1_track_meta(curr_track), set_obj.key_strictness
+        )
+        pairing = pinned.get((prev_track_id, curr_track_id))
+        transitions.append(
+            {
+                "position": position,
+                "score": score,
+                "warnings": warnings,
+                "is_pinned": pairing is not None,
+                "pairing_id": pairing.id if pairing is not None else None,
+                "from": _pairing_endpoint(prev_track),
+                "into": _pairing_endpoint(curr_track),
+            }
+        )
+    pinned_count = sum(1 for transition in transitions if transition["is_pinned"])
+    return {"transitions": transitions, "pinned_count": pinned_count}, set()
+
+
+def _pairing_endpoint(track: SetPoolTrack | None) -> dict[str, Any]:
+    """Compact pool-track reference the agent can feed back to add_pairing."""
+    if track is None:
+        return {"pool_track_id": None, "title": None, "artist": None}
+    return {"pool_track_id": track.id, "title": track.title, "artist": track.artist}

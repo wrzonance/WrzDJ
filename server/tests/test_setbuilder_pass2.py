@@ -438,6 +438,125 @@ def test_tool_display_summary_includes_transition_warnings():
     assert "key clash" in summary
 
 
+def _mk_set_for_summary(db: Session, user: User) -> Set:
+    """A set with varied BPM/key/energy so the summary has signal to report."""
+    set_obj = Set(owner_id=user.id, name="Summary Set", target_duration_sec=600)
+    db.add(set_obj)
+    db.flush()
+    source = SetPoolSource(set_id=set_obj.id, kind="manual", label="Manual")
+    db.add(source)
+    db.flush()
+    specs = [
+        # (bpm, camelot, key, duration_sec)
+        (120.0, "8A", "A minor", 200),
+        (124.0, "9A", "E minor", 220),
+        (128.0, None, None, 180),  # unknown key -> skipped in key_journey
+    ]
+    for idx, (bpm, camelot, key, duration) in enumerate(specs):
+        db.add(
+            SetPoolTrack(
+                set_id=set_obj.id,
+                source_id=source.id,
+                track_id=f"tidal:{idx}",
+                title=f"Track {idx}",
+                artist=f"Artist {idx}",
+                bpm=bpm,
+                key=key,
+                camelot=camelot,
+                energy=5,
+                duration_sec=duration,
+                dedupe_sig=f"sum-sig-{idx}",
+            )
+        )
+    db.flush()
+    db.add_all(
+        [
+            SetSlot(set_id=set_obj.id, position=0, track_id="tidal:0", target_energy=4.0),
+            SetSlot(set_id=set_obj.id, position=1, track_id="tidal:1", target_energy=9.0),
+            SetSlot(set_id=set_obj.id, position=2, track_id="tidal:2", target_energy=6.0),
+        ]
+    )
+    db.commit()
+    db.refresh(set_obj)
+    return set_obj
+
+
+def test_summarize_set_reports_duration_bpm_key_and_energy(db: Session, test_user: User):
+    set_obj = _mk_set_for_summary(db, test_user)
+
+    result, positions = apply_tool_call(db, set_obj, "summarize_set", {})
+
+    assert positions == set()  # read-only: no affected positions
+    assert result["slot_count"] == 3
+    assert result["total_duration_sec"] == 600  # 200 + 220 + 180
+    assert result["target_duration_sec"] == 600
+    assert result["duration_delta_sec"] == 0  # total - target
+    assert result["bpm_arc"] == {
+        "min": 120.0,
+        "max": 128.0,
+        "first": 120.0,
+        "last": 128.0,
+        "mean": 124.0,
+    }
+    # Unknown key on slot 3 is skipped, order preserved.
+    assert result["key_journey"] == ["8A", "9A"]
+    assert result["energy_profile"]["values"] == [4.0, 9.0, 6.0]
+    assert result["energy_profile"]["peak_position"] == 1  # the 9.0 slot
+
+
+def test_summarize_set_handles_empty_set(db: Session, test_user: User):
+    set_obj = Set(owner_id=test_user.id, name="Empty", target_duration_sec=300)
+    db.add(set_obj)
+    db.commit()
+    db.refresh(set_obj)
+
+    result, positions = apply_tool_call(db, set_obj, "summarize_set", {})
+
+    assert positions == set()
+    assert result["slot_count"] == 0
+    assert result["total_duration_sec"] == 0
+    assert result["target_duration_sec"] == 300
+    assert result["duration_delta_sec"] == -300
+    assert result["bpm_arc"] is None
+    assert result["key_journey"] == []
+    assert result["energy_profile"] == {"values": [], "peak_position": None}
+
+
+def test_summarize_set_leaves_event_requests_untouched(
+    db: Session, test_user: User, test_request: Request
+):
+    set_obj = _mk_set_for_summary(db, test_user)
+    before_count = db.query(Request).count()
+    before_title = test_request.song_title
+
+    apply_tool_call(db, set_obj, "summarize_set", {})
+
+    db.refresh(test_request)
+    assert db.query(Request).count() == before_count
+    assert test_request.song_title == before_title
+
+
+def test_summarize_set_display_summary_is_human_readable():
+    summary = _tool_display_summary(
+        "summarize_set",
+        {},
+        {
+            "slot_count": 3,
+            "total_duration_sec": 600,
+            "target_duration_sec": 600,
+            "duration_delta_sec": 0,
+            "bpm_arc": {"min": 120.0, "max": 128.0, "first": 120.0, "last": 128.0, "mean": 124.0},
+            "key_journey": ["8A", "9A"],
+            "energy_profile": {"values": [4.0, 9.0, 6.0], "peak_position": 1},
+        },
+        {},
+        {},
+    )
+
+    assert "3 slots" in summary
+    assert "120" in summary and "128" in summary
+
+
 def test_tool_display_summary_transition_omits_empty_warnings():
     summary = _tool_display_summary(
         "analyze_transition",

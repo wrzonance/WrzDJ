@@ -271,6 +271,7 @@ def apply_tool_call(
         "set_peak_at": _tool_set_peak_at,
         "bump_energy": _tool_bump_energy,
         "analyze_transition": _tool_analyze_transition,
+        "summarize_set": _tool_summarize_set,
         "analyze_pool_gaps": _tool_analyze_pool_gaps,
         "critique_set": _tool_static_critique,
     }
@@ -419,6 +420,72 @@ def _tool_analyze_transition(
         raise AgentToolError("slot has no pool metadata")
     score, warnings = transition_score(prev, curr, set_obj.key_strictness)
     return {"position": position, "score": score, "warnings": warnings}, set()
+
+
+def _tool_summarize_set(
+    db: Session, set_obj: Set, payload: dict[str, Any]
+) -> tuple[dict[str, Any], set[int]]:
+    """Read-only snapshot of the whole set: duration, BPM arc, key journey, energy.
+
+    Returns ``(summary, set())`` — no positions are affected because nothing is
+    mutated. Mirrors ``_tool_analyze_transition`` (read-only), not ``_tool``.
+    """
+    del payload  # no input args
+    slots = _ordered_slots(db, set_obj.id)
+    # One view per pool track: meta carries BPM + normalized key, the raw row
+    # carries duration_sec (which TrackMeta does not expose).
+    by_track_id = {
+        _pass1_track_meta(t).slot_track_id: (_pass1_track_meta(t), t)
+        for t in _pool_tracks(db, set_obj.id)
+    }
+
+    total_duration_sec = 0
+    bpms: list[float] = []
+    key_journey: list[str] = []
+    energy_values: list[float | None] = []
+    for slot in slots:
+        meta, track = by_track_id.get(slot.track_id or "", (None, None))
+        if track is not None and track.duration_sec:
+            total_duration_sec += int(track.duration_sec)
+        if meta is not None and meta.bpm is not None:
+            bpms.append(float(meta.bpm))
+        camelot = parse_key(meta.key) if meta is not None else None
+        if camelot is not None:
+            key_journey.append(str(camelot))
+        energy_values.append(slot.target_energy)
+
+    target_duration_sec = set_obj.target_duration_sec
+    return {
+        "slot_count": len(slots),
+        "total_duration_sec": total_duration_sec,
+        "target_duration_sec": target_duration_sec,
+        "duration_delta_sec": (
+            total_duration_sec - target_duration_sec if target_duration_sec is not None else None
+        ),
+        "bpm_arc": _bpm_arc(bpms),
+        "key_journey": key_journey,
+        "energy_profile": _energy_profile(energy_values),
+    }, set()
+
+
+def _bpm_arc(bpms: list[float]) -> dict[str, float] | None:
+    """Min/max/first/last/mean over slots that have a BPM; ``None`` if none do."""
+    if not bpms:
+        return None
+    return {
+        "min": min(bpms),
+        "max": max(bpms),
+        "first": bpms[0],
+        "last": bpms[-1],
+        "mean": round(sum(bpms) / len(bpms), 1),
+    }
+
+
+def _energy_profile(values: list[float | None]) -> dict[str, Any]:
+    """Ordered ``target_energy`` per slot plus the slot position of the peak."""
+    known = [(pos, val) for pos, val in enumerate(values) if val is not None]
+    peak_position = max(known, key=lambda pair: pair[1])[0] if known else None
+    return {"values": values, "peak_position": peak_position}
 
 
 def _tool_analyze_pool_gaps(
@@ -731,6 +798,8 @@ def _tool_display_summary(
             readable = ", ".join(str(warning).replace("_", " ") for warning in warnings)
             return f"{base} Warnings: {readable}."
         return base
+    if name == "summarize_set":
+        return _summarize_set_summary(result)
     if name == "analyze_pool_gaps":
         missing = result.get("missing_camelot_keys") or []
         sparse = result.get("sparse_bands") or []
@@ -747,6 +816,20 @@ def _tool_display_summary(
             return f"{head} {summary}" if summary else head
         return "Recomputed critique context."
     return name.replace("_", " ").capitalize() + "."
+
+
+def _summarize_set_summary(result: dict[str, Any]) -> str:
+    count = int(result.get("slot_count") or 0)
+    total = int(result.get("total_duration_sec") or 0)
+    parts = [f"Set has {count} slot{'s' if count != 1 else ''}, {total // 60} min total"]
+    delta = result.get("duration_delta_sec")
+    if delta is not None and delta != 0:
+        over_under = "over" if delta > 0 else "under"
+        parts.append(f"{abs(int(delta)) // 60} min {over_under} target")
+    arc = result.get("bpm_arc")
+    if arc:
+        parts.append(f"BPM {arc['min']:g}-{arc['max']:g}")
+    return "; ".join(parts) + "."
 
 
 def _agent_tools() -> list[ToolSpec]:
@@ -767,6 +850,14 @@ def _agent_tools() -> list[ToolSpec]:
                 "properties": {"position": {"type": "integer"}},
                 "required": ["position"],
             },
+        ),
+        ToolSpec(
+            name="summarize_set",
+            description=(
+                "Read-only snapshot of the whole set: total vs target duration, "
+                "BPM arc, Camelot key journey, and energy profile."
+            ),
+            input_schema={"type": "object", "properties": {}, "required": []},
         ),
         ToolSpec(
             name="analyze_pool_gaps",

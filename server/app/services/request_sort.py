@@ -89,7 +89,7 @@ def _camelot_ordinal(musical_key: str | None) -> int | None:
     return pos.number * 2 + (1 if pos.letter == "B" else 0)
 
 
-def _key_sorted(rows: list[Request], direction: SortDirection) -> list[Request]:
+def key_sorted(rows: list[Request], direction: SortDirection) -> list[Request]:
     """Sort by harmonic key in Python; null/unparseable keys always last."""
     desc = direction == SortDirection.DESC
 
@@ -108,6 +108,20 @@ def _key_sorted(rows: list[Request], direction: SortDirection) -> list[Request]:
     return sorted(rows, key=key_fn)
 
 
+def apply_field_sort(query: Query, sort: RequestSort, direction: SortDirection) -> Query:
+    """Apply ``ORDER BY`` for a SQL-expressible field sort.
+
+    Adds nulls-last for nullable columns and a deterministic ``id DESC``
+    tie-breaker. Not valid for ``KEY`` (harmonic, Python-sorted via
+    :func:`key_sorted`) or ``BEST_MATCH`` (priority-scored in the endpoint).
+    """
+    column = _SORT_COLUMNS[sort]
+    ordering = column.asc() if direction == SortDirection.ASC else column.desc()
+    if sort in _NULLABLE_SORTS:
+        ordering = nullslast(ordering)
+    return query.order_by(ordering, Request.id.desc())
+
+
 def get_sorted_requests(
     db: Session,
     event: Event,
@@ -124,12 +138,8 @@ def get_sorted_requests(
     total = base.count()
 
     if sort == RequestSort.KEY:
-        ordered = _key_sorted(base.all(), direction)
+        ordered = key_sorted(base.all(), direction)
         return ordered[offset : offset + limit], total
 
-    column = _SORT_COLUMNS[sort]
-    ordering = column.asc() if direction == SortDirection.ASC else column.desc()
-    if sort in _NULLABLE_SORTS:
-        ordering = nullslast(ordering)
-    page = base.order_by(ordering, Request.id.desc()).offset(offset).limit(limit).all()
+    page = apply_field_sort(base, sort, direction).offset(offset).limit(limit).all()
     return page, total

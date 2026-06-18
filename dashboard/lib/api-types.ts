@@ -27,6 +27,9 @@ export type SongRequest = Schemas['RequestOut'];
 export type RequestListResponse = Schemas['RequestListResponse'];
 export type RequestSort = Schemas['RequestSort'];
 export type SortDirection = Schemas['SortDirection'];
+// Pre-event pending-review pagination + sort envelope (issue #478)
+export type PendingReviewResponse = Schemas['PendingReviewResponse'];
+export type PendingReviewRow = Schemas['PendingReviewRow'];
 export type PublicRequestInfo = Schemas['PublicRequestInfo'] & { requester_verified?: boolean };
 export type GuestRequestInfo = Schemas['GuestRequestInfo'] & { requester_verified?: boolean };
 export type GuestNowPlaying = Schemas['GuestNowPlaying'];

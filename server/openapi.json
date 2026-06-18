@@ -5735,6 +5735,24 @@
       },
       "PendingReviewResponse": {
         "properties": {
+          "direction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SortDirection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
           "requests": {
             "items": {
               "$ref": "#/components/schemas/PendingReviewRow"
@@ -5742,13 +5760,27 @@
             "title": "Requests",
             "type": "array"
           },
+          "sort": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequestSort"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "total": {
             "title": "Total",
             "type": "integer"
           }
         },
         "required": [
+          "direction",
+          "limit",
+          "offset",
           "requests",
+          "sort",
           "total"
         ],
         "title": "PendingReviewResponse",
@@ -14398,7 +14430,7 @@
     },
     "/api/events/{code}/pending-review": {
       "get": {
-        "description": "Get pending review data source for DJ bulk-review.",
+        "description": "Paginated pending-review source for DJ bulk-review (issue #478).\n\n``total`` is the true count of pending rows before pagination, so the\nPre-Event tab never shows a capped page length as the queue size. Default\nordering stays the vote-ranked review order; bulk actions still operate\nserver-side against the full filtered set, not the loaded page.",
         "operationId": "pending_review_api_events__code__pending_review_get",
         "parameters": [
           {
@@ -14408,6 +14440,61 @@
             "schema": {
               "title": "Code",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/RequestSort"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort"
+            }
+          },
+          {
+            "in": "query",
+            "name": "direction",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/SortDirection"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Direction"
             }
           }
         ],

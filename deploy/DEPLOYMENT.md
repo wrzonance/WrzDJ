@@ -330,8 +330,9 @@ config can never take a running site down (the old config keeps serving).
 Verify after reload:
 
 ```bash
-# gzip on proxied JSON
-curl -sH 'Accept-Encoding: gzip' -I https://api.yourdomain.com/health | grep -i content-encoding
+# gzip on proxied JSON — must be a GET (HEAD has no body to compress) against a
+# response larger than gzip_min_length (1024B); /health is far too small to gzip
+curl -sH 'Accept-Encoding: gzip' -D - -o /dev/null https://api.yourdomain.com/openapi.json | grep -i content-encoding
 # edge rate limit returns 429 past the burst on a non-SSE endpoint
 # SSE stream still connects and is NOT throttled (long-lived, exempt from limit_req)
 # only TLS 1.2/1.3 negotiated; security headers unchanged on all vhosts

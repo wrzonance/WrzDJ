@@ -100,6 +100,21 @@ class TestPreflight:
         assert body["unresolved"][0]["track_id"] == "spotify:gone"
         assert body["unresolved"][0]["reason"] == "missing_metadata"
 
+    def test_enginedj_and_lexicon_preflight_use_file_branch(self, client, auth_headers, db, set_id):
+        _seed_pool(db, set_id)
+        for target in ("enginedj", "lexicon"):
+            resp = client.post(
+                f"/api/setbuilder/sets/{set_id}/export/preflight",
+                json={"target": target},
+                headers=auth_headers,
+            )
+            assert resp.status_code == 200, target
+            body = resp.json()
+            assert body["source"] == "pool"
+            assert body["resolved_count"] == 2
+            # File targets never run Tidal matching, so tidal_connected stays null.
+            assert body["tidal_connected"] is None
+
     def test_tidal_target_not_connected(self, client, auth_headers, db, set_id):
         _seed_pool(db, set_id)
         resp = client.post(
@@ -251,6 +266,30 @@ class TestFileExport:
         assert resp.headers["content-type"].startswith("application/xml")
         assert 'filename="Export Set.xml"' in resp.headers["content-disposition"]
         assert "DJ_PLAYLISTS" in resp.text
+
+    def test_enginedj_and_lexicon_route_to_rekordbox_xml(self, client, auth_headers, db, set_id):
+        _seed_pool(db, set_id)
+        for fmt in ("enginedj", "lexicon"):
+            resp = client.post(
+                f"/api/setbuilder/sets/{set_id}/export/file",
+                json={"format": fmt, "skip_unresolved": False},
+                headers=auth_headers,
+            )
+            assert resp.status_code == 200, fmt
+            assert resp.headers["content-type"].startswith("application/xml")
+            assert 'filename="Export Set.xml"' in resp.headers["content-disposition"]
+            assert "DJ_PLAYLISTS" in resp.text
+
+    def test_enginedj_export_does_not_mutate_status(self, client, auth_headers, db, set_id):
+        _seed_pool(db, set_id)
+        resp = client.post(
+            f"/api/setbuilder/sets/{set_id}/export/file",
+            json={"format": "enginedj", "skip_unresolved": False},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        db.expire_all()
+        assert db.get(Set, set_id).status == "draft"
 
     def test_m3u_and_txt_downloads(self, client, auth_headers, db, set_id):
         _seed_pool(db, set_id)

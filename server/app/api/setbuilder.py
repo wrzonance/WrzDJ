@@ -1523,8 +1523,12 @@ def export_set_tidal(
     )
 
 
+# Engine DJ and Lexicon both import Rekordbox DJ_PLAYLISTS XML — no separate
+# native format exists — so they reuse the same renderer under distinct keys.
 _FILE_RENDERERS = {
     "rekordbox": (export_files.render_rekordbox_xml, "application/xml", "xml"),
+    "enginedj": (export_files.render_rekordbox_xml, "application/xml", "xml"),
+    "lexicon": (export_files.render_rekordbox_xml, "application/xml", "xml"),
     "m3u": (export_files.render_m3u, "audio/x-mpegurl", "m3u8"),
     "txt": (export_files.render_txt, "text/plain", "txt"),
 }

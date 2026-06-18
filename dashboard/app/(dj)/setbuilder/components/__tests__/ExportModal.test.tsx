@@ -116,27 +116,36 @@ beforeEach(() => {
 });
 
 // ============================================================
-// 1. Platform picker — all 7 rows, 4 disabled with "Coming soon"
+// 1. Platform picker — all 8 rows, 3 disabled with "Coming soon"
 // ============================================================
 
 describe('ExportModal — platform picker', () => {
-  it('renders all 7 platform rows with 4 disabled and showing "Coming soon"', () => {
+  it('renders all 8 platform rows with 3 disabled and showing "Coming soon"', () => {
     render(<ExportModal {...baseProps} />);
 
-    // Available platforms
+    // Available platforms (Engine DJ + Lexicon both ship via Rekordbox XML)
     expect(screen.getByText('Tidal')).toBeTruthy();
     expect(screen.getByText('Rekordbox XML')).toBeTruthy();
     expect(screen.getByText('M3U / .txt')).toBeTruthy();
+    expect(screen.getByText('Engine DJ XML')).toBeTruthy();
+    expect(screen.getByText('Lexicon')).toBeTruthy();
 
     // Unavailable platforms
-    expect(screen.getByText('Engine DJ XML')).toBeTruthy();
     expect(screen.getByText('Serato .crate')).toBeTruthy();
     expect(screen.getByText('Spotify')).toBeTruthy();
     expect(screen.getByText('Apple Music')).toBeTruthy();
 
-    // Exactly 4 "Coming soon" badges
+    // Exactly 3 "Coming soon" badges
     const comingSoonBadges = screen.getAllByText('Coming soon');
-    expect(comingSoonBadges).toHaveLength(4);
+    expect(comingSoonBadges).toHaveLength(3);
+  });
+
+  it('Engine DJ and Lexicon rows are enabled (not "Coming soon")', () => {
+    render(<ExportModal {...baseProps} />);
+    const engineBtn = screen.getByRole('button', { name: /engine dj xml/i });
+    const lexiconBtn = screen.getByRole('button', { name: /lexicon/i });
+    expect((engineBtn as HTMLButtonElement).disabled).toBe(false);
+    expect((lexiconBtn as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('unavailable rows are disabled and clicking them does not call exportPreflight', () => {
@@ -396,6 +405,53 @@ describe('ExportModal — M3U dual-download', () => {
     fireEvent.click(screen.getByRole('button', { name: /download.*txt/i }));
     await waitFor(() => {
       expect(mockApi.exportSetFile).toHaveBeenCalledWith(42, 'txt', false, expect.any(String));
+    });
+  });
+});
+
+// ============================================================
+// 8. Engine DJ + Lexicon: preflight → Download .xml via Rekordbox XML
+// ============================================================
+
+describe('ExportModal — Engine DJ + Lexicon (Rekordbox XML)', () => {
+  it.each([
+    ['Engine DJ XML', 'enginedj'],
+    ['Lexicon', 'lexicon'],
+  ])('%s preflights as %s then downloads .xml', async (label, format) => {
+    mockApi.exportPreflight.mockResolvedValue(
+      makePreflightClean(format as ExportPreflight['target'])
+    );
+    const mockBlob = new Blob(['<DJ_PLAYLISTS/>'], { type: 'application/xml' });
+    mockApi.exportSetFile.mockResolvedValue({ blob: mockBlob, filename: `set.xml` });
+
+    render(<ExportModal {...baseProps} />);
+    fireEvent.click(screen.getByText(label));
+
+    await waitFor(() => {
+      expect(mockApi.exportPreflight).toHaveBeenCalledWith(42, format);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /download.*xml/i })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /download.*xml/i }));
+    await waitFor(() => {
+      expect(mockApi.exportSetFile).toHaveBeenCalledWith(42, format, false, expect.any(String));
+    });
+  });
+
+  it.each([
+    ['Engine DJ XML', 'enginedj'],
+    ['Lexicon', 'lexicon'],
+  ])('%s shows the import-then-relink note', async (label, format) => {
+    mockApi.exportPreflight.mockResolvedValue(
+      makePreflightClean(format as ExportPreflight['target'])
+    );
+    render(<ExportModal {...baseProps} />);
+    fireEvent.click(screen.getByText(label));
+    await waitFor(() => {
+      expect(screen.getByText(/relink/i)).toBeTruthy();
     });
   });
 });

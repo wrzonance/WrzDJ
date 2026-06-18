@@ -168,6 +168,25 @@ class TestRekordboxXml:
         root = ET.fromstring(xml)  # parse fails if escaping is broken
         assert root.find("COLLECTION/TRACK[2]").attrib["Name"] == 'Peak "Time"'
 
+    def test_isrc_emitted_in_comments(self):
+        """ISRC has no native DJ_PLAYLISTS slot; carry it in Comments (Engine/Lexicon fidelity)."""
+        track = ExportTrack(position=0, title="T", artist="A", isrc="USX9P1234567")
+        xml = render_rekordbox_xml("S", [track])
+        root = ET.fromstring(xml)
+        assert root.find("COLLECTION/TRACK").attrib["Comments"] == "ISRC:USX9P1234567"
+
+    def test_no_isrc_omits_comments(self):
+        track = ExportTrack(position=0, title="T", artist="A")
+        xml = render_rekordbox_xml("S", [track])
+        root = ET.fromstring(xml)
+        assert "Comments" not in root.find("COLLECTION/TRACK").attrib
+
+    def test_isrc_control_chars_sanitized(self):
+        track = ExportTrack(position=0, title="T", artist="A", isrc="US\x00X9P\x1f1234567")
+        xml = render_rekordbox_xml("S", [track])
+        root = ET.fromstring(xml)  # must parse; control chars stripped
+        assert root.find("COLLECTION/TRACK").attrib["Comments"] == "ISRC:US X9P 1234567"
+
 
 class TestM3u:
     def test_extm3u_with_extinf_metadata(self):

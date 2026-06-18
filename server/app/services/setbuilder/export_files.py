@@ -63,6 +63,10 @@ def render_rekordbox_xml(set_name: str, tracks: list[ExportTrack]) -> str:
             attrs["Album"] = _clean(track.album)
         if track.genre:
             attrs["Genre"] = _clean(track.genre)
+        if track.isrc:
+            # DJ_PLAYLISTS has no native ISRC slot; carry it in Comments so
+            # Engine DJ / Lexicon / rekordbox preserve the identifier on import.
+            attrs["Comments"] = f"ISRC:{_clean(track.isrc)}"
         if track.duration_sec:
             attrs["TotalTime"] = str(track.duration_sec)
         if track.bpm:

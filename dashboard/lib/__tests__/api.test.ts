@@ -1752,29 +1752,41 @@ describe('ApiClient', () => {
   });
 
   describe('getKioskDisplay', () => {
+    const kioskDisplayBody = {
+      event: { code: 'FRI001', name: 'Friday Night' },
+      qr_join_url: 'https://example.com/join/FRI001',
+      accepted_queue: [],
+      accepted_queue_total: 0,
+      now_playing: null,
+      now_playing_hidden: false,
+      requests_open: true,
+      kiosk_display_only: false,
+      updated_at: '2026-01-01T00:00:00Z',
+      banner_url: null,
+      banner_kiosk_url: null,
+      banner_colors: null,
+    };
+
     it('fetches kiosk display data', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          event: { code: 'FRI001', name: 'Friday Night' },
-          qr_join_url: 'https://example.com/join/FRI001',
-          accepted_queue: [],
-          now_playing: null,
-          now_playing_hidden: false,
-          requests_open: true,
-          kiosk_display_only: false,
-          updated_at: '2026-01-01T00:00:00Z',
-          banner_url: null,
-          banner_kiosk_url: null,
-          banner_colors: null,
-        }),
-      });
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => kioskDisplayBody });
 
       const result = await api.getKioskDisplay('FRI001');
       expect(result.event.name).toBe('Friday Night');
+      expect(result.accepted_queue_total).toBe(0);
 
       const [url] = mockFetch.mock.calls[0];
       expect(url).toContain('/api/public/events/FRI001/display');
+      expect(url).not.toContain('?');
+    });
+
+    it('appends limit and offset when provided', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => kioskDisplayBody });
+
+      await api.getKioskDisplay('FRI001', { limit: 200, offset: 100 });
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('limit=200');
+      expect(url).toContain('offset=100');
     });
   });
 

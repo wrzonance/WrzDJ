@@ -1231,8 +1231,15 @@ class ApiClient {
     return this.publicFetch(`${getApiUrl()}/api/public/events/${code}`);
   }
 
-  async getKioskDisplay(code: string): Promise<KioskDisplay> {
-    return this.publicFetch(`${getApiUrl()}/api/public/events/${code}/display`);
+  async getKioskDisplay(
+    code: string,
+    options?: { limit?: number; offset?: number },
+  ): Promise<KioskDisplay> {
+    const qs = new URLSearchParams();
+    if (options?.limit !== undefined) qs.set('limit', String(options.limit));
+    if (options?.offset !== undefined) qs.set('offset', String(options.offset));
+    const suffix = qs.toString() ? `?${qs}` : '';
+    return this.publicFetch(`${getApiUrl()}/api/public/events/${code}/display${suffix}`);
   }
 
   /**

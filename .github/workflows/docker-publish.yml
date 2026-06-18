@@ -1,11 +1,12 @@
 name: Docker Publish
 
+# PR-time image validation lives in ci.yml's "Docker Build Smoke Test" (amd64,
+# no push). This workflow only runs on main/tag pushes, where it does the full
+# multi-arch build+push to GHCR — keeping the slow arm64-under-QEMU build off PRs.
 on:
   push:
     branches: [main]
     tags: ['v*']
-  pull_request:
-    branches: [main]
 
 env:
   REGISTRY: ghcr.io
@@ -26,7 +27,6 @@ jobs:
       - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
       - name: Log in to GHCR
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           registry: ${{ env.REGISTRY }}
@@ -52,7 +52,7 @@ jobs:
         with:
           context: ./server
           platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
@@ -71,7 +71,6 @@ jobs:
       - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
       - name: Log in to GHCR
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           registry: ${{ env.REGISTRY }}
@@ -99,7 +98,7 @@ jobs:
           build-args: |
             NEXT_PUBLIC_API_URL=__WRZDJ_API_URL__
           platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

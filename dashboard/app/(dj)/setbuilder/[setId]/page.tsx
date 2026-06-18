@@ -69,6 +69,11 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
   const { isAuthenticated, isLoading, role } = useAuth();
   const router = useRouter();
   const isMobile = useIsMobile();
+  // Defer mounting either chat surface until after hydration so a mobile client
+  // never briefly mounts the desktop sidebar (and its agent fetches) before
+  // `useIsMobile` resolves. The grid already reserves the chat column, so this
+  // adds no layout shift on desktop.
+  const [chatSurfaceReady, setChatSurfaceReady] = useState(false);
   const [set, setSet] = useState<SetDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
@@ -92,6 +97,10 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
   const [targetProjection, setTargetProjection] = useState<TargetProjection | null>(null);
   const [savingTarget, setSavingTarget] = useState(false);
   const [targetError, setTargetError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setChatSurfaceReady(true);
+  }, []);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -429,7 +438,7 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
           onProjectionChange={handleProjectionChange}
         />
 
-        {!isMobile && (
+        {chatSurfaceReady && !isMobile && (
           <div className={styles.panelChat}>
             <ChatSidebar
               setId={Number(setId)}
@@ -441,7 +450,7 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
           </div>
         )}
       </div>
-      {isMobile && (
+      {chatSurfaceReady && isMobile && (
         <MobileAgentOverlay
           setId={Number(setId)}
           refreshToken={refreshToken}

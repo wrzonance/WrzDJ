@@ -51,6 +51,15 @@ export function formatAgentError(error: unknown): string {
  * Owns all WrzDJSet agent-chat state and side effects (critique load, history
  * load, message send). Shared by the desktop sidebar and the mobile overlay so
  * exactly one instance mounts and fetches at a time.
+ *
+ * Capabilities & limitations:
+ * - Critique loads on mount and whenever `setId`/`refreshToken` change.
+ * - History loads only while `open` is true; stale responses are discarded via
+ *   a monotonic request id so a fast reopen never clobbers fresher state.
+ * - Sends are one-at-a-time: a synchronous in-flight guard rejects overlapping
+ *   `send()` calls, so the same tick can never fire duplicate requests.
+ * - No retry or streaming: a failed send surfaces a normalized error message and
+ *   removes its optimistic pending entry.
  */
 export function useAgentChat(
   setId: number,
@@ -73,6 +82,7 @@ export function useAgentChat(
   const historyRequestIdRef = useRef(0);
   const historyErrorRef = useRef<string | null>(null);
   const hasLocalTurnRef = useRef(false);
+  const sendInFlightRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -131,7 +141,8 @@ export function useAgentChat(
 
   const send = async (override?: string) => {
     const message = (override ?? input).trim();
-    if (!message || busy) return;
+    if (!message || busy || sendInFlightRef.current) return;
+    sendInFlightRef.current = true;
     hasLocalTurnRef.current = true;
     const pendingEntry: ChatEntry = {
       id: -Date.now(),
@@ -167,6 +178,7 @@ export function useAgentChat(
       setError(formatAgentError(err));
     } finally {
       setBusy(false);
+      sendInFlightRef.current = false;
     }
   };
 

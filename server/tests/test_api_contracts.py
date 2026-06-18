@@ -107,6 +107,7 @@ REQUEST_OUT_KEYS = {
     "status",
     "created_at",
     "updated_at",
+    "accepted_at",
     "is_duplicate",
     "raw_search_query",
     "sync_results_json",

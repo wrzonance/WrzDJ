@@ -10,6 +10,8 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 import BuilderBrandMenu from '../components/BuilderBrandMenu';
 import BuilderWorkspace from '../components/BuilderWorkspace';
 import ChatSidebar from '../components/ChatSidebar';
+import MobileAgentOverlay from '../components/MobileAgentOverlay';
+import { useIsMobile } from '../components/useIsMobile';
 import PairingsOverlay from '../components/PairingsOverlay';
 import BuilderSettingsModal, { type BuilderSettings } from '../components/BuilderSettingsModal';
 import ConfirmActionDialog, { type ConfirmAction } from '../components/ConfirmActionDialog';
@@ -66,6 +68,7 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
   const numericSetId = Number(setId);
   const { isAuthenticated, isLoading, role } = useAuth();
   const router = useRouter();
+  const isMobile = useIsMobile();
   const [set, setSet] = useState<SetDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
@@ -426,16 +429,25 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
           onProjectionChange={handleProjectionChange}
         />
 
-        <div className={styles.panelChat}>
-          <ChatSidebar
-            setId={Number(setId)}
-            open={chatOpen}
-            onToggle={() => setChatOpen((open) => !open)}
-            refreshToken={refreshToken}
-            onMutationApplied={() => setRefreshToken((v) => v + 1)}
-          />
-        </div>
+        {!isMobile && (
+          <div className={styles.panelChat}>
+            <ChatSidebar
+              setId={Number(setId)}
+              open={chatOpen}
+              onToggle={() => setChatOpen((open) => !open)}
+              refreshToken={refreshToken}
+              onMutationApplied={() => setRefreshToken((v) => v + 1)}
+            />
+          </div>
+        )}
       </div>
+      {isMobile && (
+        <MobileAgentOverlay
+          setId={Number(setId)}
+          refreshToken={refreshToken}
+          onMutationApplied={() => setRefreshToken((v) => v + 1)}
+        />
+      )}
       {toast && (
         <div className={styles.poolToast} role="status" aria-live="polite">
           {toast}

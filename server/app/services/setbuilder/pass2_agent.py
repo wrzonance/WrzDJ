@@ -47,6 +47,8 @@ MUTATION_TOOLS = {
     "set_peak_at",
     "bump_energy",
     "set_target",
+    "lock_slot",
+    "unlock_slot",
 }
 ALLOWED_FLAG_TYPES = {
     "energy_dip",
@@ -279,6 +281,8 @@ def apply_tool_call(
         "set_peak_at": _tool_set_peak_at,
         "bump_energy": _tool_bump_energy,
         "set_target": _tool_set_target,
+        "lock_slot": _tool_lock_slot,
+        "unlock_slot": _tool_unlock_slot,
         "analyze_transition": _tool_analyze_transition,
         "explain_transition": _tool_explain_transition,
         "get_track_vibes": _tool_get_track_vibes,
@@ -485,6 +489,32 @@ def _validate_bpm_window(set_obj: Set, updates: dict[str, Any]) -> None:
     ceiling = updates["bpm_ceiling"] if "bpm_ceiling" in updates else set_obj.bpm_ceiling
     if floor is not None and ceiling is not None and floor > ceiling:
         raise AgentToolError("bpm_floor must be <= bpm_ceiling")
+
+
+def _tool_lock_slot(
+    db: Session, set_obj: Set, payload: dict[str, Any]
+) -> tuple[dict[str, Any], set[int]]:
+    return _set_slot_locked(db, set_obj, payload, locked=True)
+
+
+def _tool_unlock_slot(
+    db: Session, set_obj: Set, payload: dict[str, Any]
+) -> tuple[dict[str, Any], set[int]]:
+    return _set_slot_locked(db, set_obj, payload, locked=False)
+
+
+def _set_slot_locked(
+    db: Session, set_obj: Set, payload: dict[str, Any], *, locked: bool
+) -> tuple[dict[str, Any], set[int]]:
+    """Pin/unpin a slot: write only its ``locked`` column. Idempotent."""
+    try:
+        slot_id = int(payload["slot_id"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise AgentToolError("slot_id must be an integer") from exc
+    slot = _slot_or_error(db, set_obj.id, slot_id)
+    slot.locked = locked
+    db.flush()
+    return {"slot_id": slot.id, "locked": locked, "position": slot.position}, {slot.position}
 
 
 def _tool_analyze_transition(
@@ -971,6 +1001,11 @@ def _tool_display_summary(
         removed = before.get(int(payload["slot_id"]))
         if removed:
             return f"Removed {removed['label']} from {_position_label(removed['position'])}."
+    if name in {"lock_slot", "unlock_slot"}:
+        slot = before.get(int(result["slot_id"]))
+        verb = "Locked" if result.get("locked") else "Unlocked"
+        where = _position_label(slot["position"]) if slot else f"slot {result['slot_id']}"
+        return f"{verb} {where}."
     if name in {"insert_from_pool", "search_and_insert"}:
         position = int(result["position"])
         inserted = next((s for s in after.values() if s["position"] == position), None)
@@ -1104,6 +1139,8 @@ def _agent_tools() -> list[ToolSpec]:
         _tool("add_slow_window", {"t0_sec": "integer", "t1_sec": "integer", "label": "string"}),
         _tool("set_peak_at", {"position": "integer", "energy": "number"}),
         _tool("bump_energy", {"amount": "number", "slot_id": "integer"}),
+        _tool("lock_slot", {"slot_id": "integer"}),
+        _tool("unlock_slot", {"slot_id": "integer"}),
         ToolSpec(
             name="set_target",
             description=(

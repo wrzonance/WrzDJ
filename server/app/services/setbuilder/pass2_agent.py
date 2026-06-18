@@ -35,6 +35,7 @@ from app.services.setbuilder.agent_tools_mutations import (
     _tool_bump_energy,
     _tool_insert_from_pool,
     _tool_lock_slot,
+    _tool_move_range,
     _tool_remove_curve_point,
     _tool_remove_slot,
     _tool_reorder_slot,
@@ -301,6 +302,7 @@ def apply_tool_call(
         raise AgentToolError(f"{name} requires a rationale")
     handlers = {
         "reorder_slot": _tool_reorder_slot,
+        "move_range": _tool_move_range,
         "swap_slots": _tool_swap_slots,
         "remove_slot": _tool_remove_slot,
         "replace_slot": _tool_replace_slot,

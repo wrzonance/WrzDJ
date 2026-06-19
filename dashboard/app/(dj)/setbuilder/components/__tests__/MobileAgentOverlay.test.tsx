@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import MobileAgentOverlay from '../MobileAgentOverlay';
+import type { BuilderCommit } from '../useSetDocumentHistory';
 
 const mockApi = vi.hoisted(() => ({
   critiqueSet: vi.fn(),
@@ -73,6 +74,29 @@ describe('MobileAgentOverlay', () => {
     await waitFor(() =>
       expect(mockApi.chatWithSetAgent).toHaveBeenCalledWith(9, { message: 'swap the opener' }),
     );
+  });
+
+  it('routes overlay sends through the provided commit instead of onMutationApplied', async () => {
+    const commit = vi.fn((...args: unknown[]) => (args[1] as () => Promise<unknown>)());
+    const onMutationApplied = vi.fn();
+    render(
+      <MobileAgentOverlay
+        setId={5}
+        onMutationApplied={onMutationApplied}
+        commit={commit as unknown as BuilderCommit}
+      />,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: /open agent/i }));
+    await waitFor(() => expect(mockApi.getSetAgentHistory).toHaveBeenCalledWith(5));
+
+    fireEvent.change(screen.getByPlaceholderText(/tell the agent/i), {
+      target: { value: 'swap the opener' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await waitFor(() => expect(commit).toHaveBeenCalledTimes(1));
+    expect(commit.mock.calls[0][0]).toBe('Agent · swap the opener');
+    expect(onMutationApplied).not.toHaveBeenCalled();
   });
 
   it('closes the overlay with the close affordance', async () => {

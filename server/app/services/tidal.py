@@ -338,8 +338,10 @@ def create_event_playlist(
             event.tidal_playlist_id,
             event.code,
         )
+        # Clear the dead ID in memory only; the create+commit below persists the
+        # recreated playlist atomically (the existing commit is already guarded,
+        # so there's no separate unprotected commit that could escape the path).
         event.tidal_playlist_id = None
-        db.commit()
 
     try:
         playlist_name = f"WrzDJ: {event.code} – {event.name}"
@@ -382,8 +384,10 @@ def ensure_collection_playlist(
             event.tidal_collection_playlist_id,
             event.code,
         )
+        # Clear the dead ID in memory only; the create+commit below persists the
+        # recreated playlist atomically (the existing commit is already guarded,
+        # so there's no separate unprotected commit that could escape the path).
         event.tidal_collection_playlist_id = None
-        db.commit()
 
     try:
         playlist_name = f"WrzDJ: {event.code} – {event.name} (pre-event)"

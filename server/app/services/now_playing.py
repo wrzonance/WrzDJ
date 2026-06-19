@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 # Re-export normalizer functions for backward compatibility
 from app.services.track_normalizer import (  # noqa: F401
+    artist_match_score,
     fuzzy_match_score,
     normalize_artist,
     normalize_track_title,
@@ -221,7 +222,10 @@ def fuzzy_match_pending_request(
         req_artist = normalize_artist(req.artist)
 
         title_score = fuzzy_match_score(req_title, norm_title)
-        artist_score = fuzzy_match_score(req_artist, norm_artist)
+        # Multi-artist-aware: equipment may report only the primary artist while
+        # the request lists every collaborator (e.g. "Lil Jon" vs
+        # "Lil Jon, The EastSide Boyz, Ying Yang Twins").
+        artist_score = artist_match_score(req_artist, norm_artist)
         combined = title_score * 0.7 + artist_score * 0.3
 
         if combined > threshold and combined > best_score:

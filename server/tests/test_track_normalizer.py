@@ -62,6 +62,47 @@ class TestNormalizeTrackTitle:
     def test_plain_title_unchanged(self):
         assert normalize_track_title("Strobe") == "Strobe"
 
+    def test_strips_feat_parenthetical(self):
+        # DJ equipment / streaming metadata embeds the featured artist in the
+        # title; guests rarely type it. Strip it before fuzzy matching.
+        assert normalize_track_title("Get Low (ft. Ying Yang Twins)") == "Get Low"
+
+    def test_strips_featuring_parenthetical(self):
+        assert normalize_track_title("Promiscuous (feat. Timbaland)") == "Promiscuous"
+
+    def test_strips_feat_brackets(self):
+        assert normalize_track_title("Get Low [ft. Ying Yang Twins]") == "Get Low"
+
+    def test_strips_feat_trailing(self):
+        assert normalize_track_title("Get Low feat. Ying Yang Twins") == "Get Low"
+
+    def test_feat_strip_keeps_named_remix(self):
+        # Strip the feat credit but preserve a following named remix.
+        assert (
+            normalize_track_title("Otherside (ft. Foo) (Skrillex Remix)")
+            == "Otherside (Skrillex Remix)"
+        )
+
+    def test_feat_strip_ignores_plain_with(self):
+        # "with" is not a feat marker in titles — don't eat real words.
+        assert normalize_track_title("Dancing With Myself") == "Dancing With Myself"
+
+    def test_feat_regexes_are_linear_on_pathological_input(self):
+        # ReDoS guard (CodeQL polynomial-regex alert): the feat patterns must
+        # not backtrack quadratically on a long run of spaces after "(ft ".
+        # Bounded quantifiers keep them linear; the unbounded versions were
+        # O(n^2) and took seconds on this input.
+        import time
+
+        from app.services.track_normalizer import FEAT_PAREN_RE, FEAT_TRAILING_RE
+
+        payload = "(ft " + " " * 100_000
+        start = time.perf_counter()
+        FEAT_PAREN_RE.sub(" ", payload)
+        FEAT_TRAILING_RE.sub("", payload)
+        elapsed = time.perf_counter() - start
+        assert elapsed < 0.2, f"feat regexes took {elapsed:.3f}s (possible ReDoS)"
+
 
 class TestNormalizeArtist:
     """Tests for normalize_artist()."""

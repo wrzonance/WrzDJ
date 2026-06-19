@@ -25,6 +25,22 @@ GENERIC_SUFFIX_DASH_RE = re.compile(rf"\s+-\s+(?:{_GENERIC_SUFFIXES})\s*$", re.I
 FEAT_RE = re.compile(r"\b(?:featuring|feat\.?|ft\.?|with)(?=\s)", re.IGNORECASE)
 MULTI_SPACE_RE = re.compile(r"\s{2,}")
 
+# Featured-artist credits embedded in titles by DJ equipment / streaming
+# metadata, e.g. "Get Low (ft. Ying Yang Twins)" or "Promiscuous [feat. Timbaland]".
+# Guests rarely type these, so strip them before fuzzy matching. "with" is
+# intentionally excluded here to avoid eating real title words ("Dancing With Myself").
+# All quantifiers are bounded ({n,m}) so the patterns stay linear-time — an
+# unbounded \s+ adjacent to a class that also matches spaces is a polynomial
+# (ReDoS) backtracking risk flagged by CodeQL.
+FEAT_PAREN_RE = re.compile(
+    r"[\(\[]\s{0,3}(?:featuring|feat|ft)\.?\s{1,3}[^\)\]]{0,100}[\)\]]",
+    re.IGNORECASE,
+)
+FEAT_TRAILING_RE = re.compile(
+    r"\s{1,3}(?:featuring|feat|ft)\.?\s{1,3}.{0,150}$",
+    re.IGNORECASE,
+)
+
 # Remix detection: "Artist Remix", "Artist Edit", etc. in parentheses or after dash
 _REMIX_PAREN_RE = re.compile(
     r"[\(\[]([\w\s&.]+?)\s+(remix|edit|bootleg|rework|flip|mix)\s*[\)\]]",
@@ -75,11 +91,15 @@ def normalize_track_title(title: str) -> str:
     """Normalize a track title for fuzzy matching.
 
     Strips generic mix suffixes (Original Mix, Extended Mix, Radio Edit, etc.)
-    but preserves named remixes (e.g. "Skrillex Remix"), special versions
-    (Instrumental, Acoustic, Live, VIP, Dub Mix, A Cappella), and arbitrary
-    parenthetical content (e.g. "2024 Remaster").
+    and featured-artist credits ("(ft. ...)", "feat. ...") that DJ equipment
+    embeds in titles, but preserves named remixes (e.g. "Skrillex Remix"),
+    special versions (Instrumental, Acoustic, Live, VIP, Dub Mix, A Cappella),
+    and arbitrary parenthetical content (e.g. "2024 Remaster").
     """
     result = GENERIC_SUFFIX_PAREN_RE.sub("", title)
+    # Replace a feat paren with a space so a following named remix stays spaced.
+    result = FEAT_PAREN_RE.sub(" ", result)
+    result = FEAT_TRAILING_RE.sub("", result)
     result = GENERIC_SUFFIX_DASH_RE.sub("", result)
     result = MULTI_SPACE_RE.sub(" ", result).strip()
     return result

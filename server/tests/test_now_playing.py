@@ -313,6 +313,58 @@ class TestFuzzyMatchPendingRequest:
         assert result is not None
         assert result.id == req.id
 
+    def test_match_feat_embedded_in_title_multi_artist(self, db: Session, test_event: Event):
+        """Regression (prod event RMLNDZ / request #491): the bridge reported
+        'Get Low (ft. Ying Yang Twins)' by 'Lil Jon & The Eastside Boyz' while
+        the accepted request was 'Get Low' by
+        'Lil Jon, The EastSide Boyz, Ying Yang Twins'. The featured artist
+        embedded in the title tanked the fuzzy score below threshold, so the
+        request was never auto-matched/marked played.
+        """
+        req = Request(
+            event_id=test_event.id,
+            song_title="Get Low",
+            artist="Lil Jon, The EastSide Boyz, Ying Yang Twins",
+            source="spotify",
+            status=RequestStatus.ACCEPTED.value,
+            dedupe_key="get_low_feat_title_key",
+        )
+        db.add(req)
+        db.commit()
+
+        result = fuzzy_match_pending_request(
+            db,
+            test_event.id,
+            "Get Low (ft. Ying Yang Twins)",
+            "Lil Jon & The Eastside Boyz",
+        )
+        assert result is not None
+        assert result.id == req.id
+
+    def test_match_primary_artist_only_vs_multi_artist_request(
+        self, db: Session, test_event: Event
+    ):
+        """Equipment often reports only the primary artist while the guest
+        request lists every collaborator. Multi-artist-aware scoring must let
+        'Lil Jon' match 'Lil Jon, The EastSide Boyz, Ying Yang Twins'.
+        """
+        req = Request(
+            event_id=test_event.id,
+            song_title="Get Low",
+            artist="Lil Jon, The EastSide Boyz, Ying Yang Twins",
+            source="spotify",
+            status=RequestStatus.ACCEPTED.value,
+            dedupe_key="get_low_primary_only_key",
+        )
+        db.add(req)
+        db.commit()
+
+        result = fuzzy_match_pending_request(
+            db, test_event.id, "Get Low (ft. Ying Yang Twins)", "Lil Jon"
+        )
+        assert result is not None
+        assert result.id == req.id
+
     def test_matches_new_requests(self, db: Session, test_event: Event):
         """Matches NEW requests (not just ACCEPTED)."""
         new_req = Request(

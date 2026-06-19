@@ -57,6 +57,9 @@ function Harness({ mutate, enabled = true }: { mutate: () => Promise<void>; enab
       <div data-testid="redo-label">{history.nextRedoLabel ?? ''}</div>
       <div data-testid="slot-target">{history.snapshot?.slots[0]?.target_energy ?? 'none'}</div>
       <button onClick={() => void history.commit('Retarget slot 1', mutate)}>commit</button>
+      <button onClick={() => void history.commit('No-record', mutate, () => false)}>
+        commit-norecord
+      </button>
       <button onClick={() => void history.undo()}>undo</button>
       <button onClick={() => void history.redo()}>redo</button>
       <button onClick={() => void history.saveNow()}>save</button>
@@ -105,6 +108,48 @@ describe('useSetDocumentHistory', () => {
     fireEvent.click(screen.getByText('redo'));
     await waitFor(() => expect(screen.getByTestId('slot-target')).toHaveTextContent('8.5'));
     expect(mockApi.putSetDocument).toHaveBeenLastCalledWith(5, snapshot(8.5));
+  });
+
+  it('publishes the new snapshot but records no undo entry when shouldRecord is false', async () => {
+    let serverDoc = snapshot(null);
+    mockApi.getSetDocument.mockImplementation(() => Promise.resolve(clone(serverDoc)));
+    mockApi.putSetDocument.mockImplementation((_setId: number, doc: SetDocumentSnapshot) => {
+      serverDoc = clone(doc);
+      return Promise.resolve(clone(serverDoc));
+    });
+
+    render(
+      <Harness mutate={() => Promise.resolve().then(() => void (serverDoc = snapshot(8.5)))} />,
+    );
+    await waitFor(() => expect(screen.getByTestId('slot-target')).toHaveTextContent('none'));
+
+    fireEvent.click(screen.getByText('commit-norecord'));
+
+    await waitFor(() => expect(screen.getByTestId('slot-target')).toHaveTextContent('8.5'));
+    expect(screen.getByTestId('undo-depth')).toHaveTextContent('0');
+  });
+
+  it('leaves the redo stack intact when a non-recording commit runs', async () => {
+    let serverDoc = snapshot(null);
+    mockApi.getSetDocument.mockImplementation(() => Promise.resolve(clone(serverDoc)));
+    mockApi.putSetDocument.mockImplementation((_setId: number, doc: SetDocumentSnapshot) => {
+      serverDoc = clone(doc);
+      return Promise.resolve(clone(serverDoc));
+    });
+
+    render(
+      <Harness mutate={() => Promise.resolve().then(() => void (serverDoc = snapshot(8.5)))} />,
+    );
+    await waitFor(() => expect(screen.getByTestId('slot-target')).toHaveTextContent('none'));
+
+    fireEvent.click(screen.getByText('commit'));
+    await waitFor(() => expect(screen.getByTestId('undo-depth')).toHaveTextContent('1'));
+    fireEvent.click(screen.getByText('undo'));
+    await waitFor(() => expect(screen.getByTestId('redo-depth')).toHaveTextContent('1'));
+
+    fireEvent.click(screen.getByText('commit-norecord'));
+    await waitFor(() => expect(screen.getByTestId('slot-target')).toHaveTextContent('8.5'));
+    expect(screen.getByTestId('redo-depth')).toHaveTextContent('1');
   });
 
   it('manual save writes the current snapshot without adding history depth', async () => {

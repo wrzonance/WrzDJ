@@ -6,7 +6,11 @@ import type { SetDocumentSnapshot } from '@/lib/api-types';
 
 const AUTOSAVE_KEY = 'wrzdj.setbuilder.autosave';
 
-export type BuilderCommit = <T>(label: string, action: () => Promise<T> | T) => Promise<T>;
+export type BuilderCommit = <T>(
+  label: string,
+  action: () => Promise<T> | T,
+  shouldRecord?: (result: T) => boolean,
+) => Promise<T>;
 
 interface HistoryEntry {
   label: string;
@@ -127,7 +131,7 @@ export function useSetDocumentHistory(
   }, [enabled, publishSnapshot, setId]);
 
   const commit: BuilderCommit = useCallback(
-    async (label, action) => {
+    async (label, action, shouldRecord = () => true) => {
       if (!beginOperation()) {
         throw new Error('Another document history operation is already in progress');
       }
@@ -138,8 +142,10 @@ export function useSetDocumentHistory(
         setSaveError(null);
         const result = await action();
         const after = await api.getSetDocument(setId);
-        setUndoStack((prev) => [...prev, { label, snapshot: before }].slice(-50));
-        setRedoStack([]);
+        if (shouldRecord(result)) {
+          setUndoStack((prev) => [...prev, { label, snapshot: before }].slice(-50));
+          setRedoStack([]);
+        }
         publishSnapshot(after);
         setLastSavedAt(new Date());
         setIsDirty(false);

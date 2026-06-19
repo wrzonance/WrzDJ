@@ -356,15 +356,21 @@ describe("PreEventVotingTab", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /load more/i })).toBeInTheDocument());
 
     // Click Load More many times; the requested limit grows by 100 but clamps.
+    // Wait for each click's fetch to actually land (incremental call count),
+    // otherwise the loop races ahead and the clamp assertion can false-pass.
+    const baseCalls = vi.mocked(apiClient.getPendingReview).mock.calls.length;
     for (let i = 0; i < 10; i++) {
       fireEvent.click(screen.getByRole("button", { name: /load more/i }));
-      // Let the awaited fetch settle before the next click.
-      await waitFor(() => expect(apiClient.getPendingReview).toHaveBeenCalled());
+      await waitFor(() =>
+        expect(apiClient.getPendingReview).toHaveBeenCalledTimes(baseCalls + i + 1),
+      );
     }
 
     const requestedLimits = vi
       .mocked(apiClient.getPendingReview)
       .mock.calls.map(([, opts]) => opts?.limit ?? 0);
     expect(Math.max(...requestedLimits)).toBeLessThanOrEqual(PUBLIC_PAGE_MAX);
+    // The window actually reached the cap rather than stopping short.
+    expect(requestedLimits.at(-1)).toBe(PUBLIC_PAGE_MAX);
   });
 });

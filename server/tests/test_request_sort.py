@@ -298,3 +298,17 @@ def test_status_counts_ignores_since_filter(db, client, test_event, auth_headers
     assert body["status_counts"]["all"] == 2
     assert body["status_counts"]["new"] == 1
     assert body["status_counts"]["accepted"] == 1
+
+
+def test_sort_best_match_honors_direction(db, client, test_event, auth_headers):
+    """best_match asc must reverse the priority order, not just relabel direction."""
+    for i in range(3):
+        _mk(db, test_event, title=f"S{i}", votes=i * 5, dedupe=f"d{i}")
+
+    desc = _get(client, test_event, auth_headers, sort="best_match", direction="desc").json()
+    asc = _get(client, test_event, auth_headers, sort="best_match", direction="asc").json()
+
+    assert asc["direction"] == "asc"
+    desc_ids = [r["id"] for r in desc["requests"]]
+    asc_ids = [r["id"] for r in asc["requests"]]
+    assert asc_ids == list(reversed(desc_ids))

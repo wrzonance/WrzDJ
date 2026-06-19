@@ -99,3 +99,14 @@ def test_pending_review_sort_upvotes_asc_override(db, client, test_event, auth_h
 
     assert body["direction"] == "asc"
     assert [r["id"] for r in body["requests"]] == [low.id, high.id]
+
+
+def test_pending_review_direction_null_when_sort_omitted(db, client, test_event, auth_headers):
+    """Default review order has no direction — a client-supplied one must not be
+    echoed back as if it were applied (issue #478)."""
+    _pending(db, test_event, title="a", dedupe="a")
+
+    body = _get(client, test_event, auth_headers, direction="asc").json()
+
+    assert body["sort"] is None
+    assert body["direction"] is None

@@ -17,7 +17,7 @@ function makeRequest(overrides: Partial<SongRequest> = {}): SongRequest {
     status: 'accepted',
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
-    accepted_at: null,
+    accepted_at: '2026-01-01T00:00:00Z',
     is_duplicate: false,
     raw_search_query: null,
     sync_results_json: null,

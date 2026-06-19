@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { apiClient, PendingReviewRow, PUBLIC_PAGE_MAX } from '@/lib/api';
 import type { SortDirection } from '@/lib/api-types';
@@ -122,22 +122,34 @@ export default function PreEventVotingTab({
   // growing window back to the first page. "Load More" drives its own fetch
   // (loadMore) so its loading state stays meaningful. The effect intentionally
   // re-runs only on the inputs below, mirroring the original code.code effect.
+  // Drops stale in-flight pending-review responses so an older fetch can't
+  // overwrite newer rows when sort/page change in quick succession.
+  const pendingFetchSeqRef = useRef(0);
+
   useEffect(() => {
     setDisplayLimit(PAGE_SIZE);
-    fetchPage(PAGE_SIZE);
-
+    void fetchPage(PAGE_SIZE);
   }, [event.code, sortField, sortDirection]);
 
   // Fetch the pending-review window from offset=0 up to `limit`. Every refresh
-  // re-fetches the whole current window so sort/paging stay consistent.
-  async function fetchPage(limit: number) {
-    const resp = await apiClient.getPendingReview(event.code, {
-      ...toPendingReviewParams(sortField, sortDirection),
-      limit,
-      offset: 0,
-    });
-    setPending(resp.requests);
-    setPendingTotal(resp.total);
+  // re-fetches the whole current window so sort/paging stay consistent. Returns
+  // false (and skips state updates) on failure or when superseded by a newer
+  // fetch, so callers can fire-and-forget without unhandled rejections.
+  async function fetchPage(limit: number): Promise<boolean> {
+    const seq = ++pendingFetchSeqRef.current;
+    try {
+      const resp = await apiClient.getPendingReview(event.code, {
+        ...toPendingReviewParams(sortField, sortDirection),
+        limit,
+        offset: 0,
+      });
+      if (seq !== pendingFetchSeqRef.current) return false;
+      setPending(resp.requests);
+      setPendingTotal(resp.total);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /** Re-fetch the current window (used after bulk actions). */

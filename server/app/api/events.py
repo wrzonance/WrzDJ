@@ -790,7 +790,7 @@ def get_event_requests(
     resolved = direction or DEFAULT_SORT_DIRECTION[sort]
 
     if sort == RequestSort.BEST_MATCH:
-        requests, total = _best_match_page(db, event, status, since, limit, offset)
+        requests, total = _best_match_page(db, event, status, since, limit, offset, resolved)
     else:
         rows, total = get_sorted_requests(
             db,
@@ -822,15 +822,20 @@ def _best_match_page(
     since: datetime | None,
     limit: int,
     offset: int,
+    direction: SortDirection,
 ) -> tuple[list[RequestOut], int]:
     """Best Match (priority) sort with a true total, then paginate.
 
     Priority scoring needs now-playing context and runs over the whole filtered
-    set, so we score everything, then slice the requested window.
+    set, so we score everything, then slice the requested window. ``_apply_priority_sort``
+    ranks highest-score-first (desc); ``asc`` reverses it so the response's
+    ``direction`` metadata matches the order actually applied (issue #478).
     """
     base = filtered_requests_query(db, event, status, since)
     total = base.count()
     ordered = _apply_priority_sort(base.all(), event, db)
+    if direction == SortDirection.ASC:
+        ordered = list(reversed(ordered))
     return ordered[offset : offset + limit], total
 
 
@@ -1175,10 +1180,13 @@ def pending_review(
     ordering stays the vote-ranked review order; bulk actions still operate
     server-side against the full filtered set, not the loaded page.
     """
+    # Resolve the direction up front so the response metadata reflects what was
+    # actually applied: when sort is omitted (default review order) there is no
+    # direction, even if the client passed one (issue #478).
+    resolved = (direction or DEFAULT_SORT_DIRECTION[sort]) if sort else None
     rows, total = get_sorted_pending_review(
-        db, event.id, sort=sort, direction=direction, limit=limit, offset=offset
+        db, event.id, sort=sort, direction=resolved, limit=limit, offset=offset
     )
-    resolved = direction or (DEFAULT_SORT_DIRECTION[sort] if sort else None)
     return PendingReviewResponse(
         requests=[
             PendingReviewRow(

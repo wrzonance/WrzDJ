@@ -70,8 +70,13 @@ export default function KioskDisplayPage() {
   const displayLimitRef = useRef(displayLimit);
   displayLimitRef.current = displayLimit;
 
+  // Drops stale loadDisplay responses (polling + SSE can overlap) so an older
+  // fetch can't overwrite newer queue data or apply a stale limit-growth step.
+  const loadSeqRef = useRef(0);
+
   // Load kiosk display data and StageLinQ data
   const loadDisplay = useCallback(async (): Promise<boolean> => {
+    const seq = ++loadSeqRef.current;
     try {
       const limit = displayLimitRef.current;
       const [kioskData, nowPlayingData, historyData] = await Promise.all([
@@ -79,12 +84,14 @@ export default function KioskDisplayPage() {
         api.getNowPlaying(code).catch((): undefined => undefined),
         api.getPlayHistory(code).catch((): undefined => undefined),
       ]);
+      // Drop this response if a newer loadDisplay started while we awaited.
+      if (seq !== loadSeqRef.current) return true;
       setDisplay(kioskData);
       // Grow the window for the NEXT refresh if the server has more accepted
       // requests than the page we just loaded (clamped to PUBLIC_PAGE_MAX).
       if (
         kioskData.accepted_queue_total > kioskData.accepted_queue.length &&
-        limit < PUBLIC_PAGE_MAX
+        displayLimitRef.current < PUBLIC_PAGE_MAX
       ) {
         setDisplayLimit(Math.min(limit + PUBLIC_PAGE_MAX_INITIAL, PUBLIC_PAGE_MAX));
       }

@@ -263,7 +263,9 @@ export default function EventQueuePage() {
       statusFilterRef.current = filter;
       setDisplayLimit(INITIAL_DISPLAY_LIMIT);
       displayLimitRef.current = INITIAL_DISPLAY_LIMIT;
-      reloadRequests(filterToStatus(filter));
+      void reloadRequests(filterToStatus(filter)).catch(() =>
+        setActionError('Failed to refresh requests'),
+      );
     },
     [reloadRequests],
   );
@@ -471,7 +473,7 @@ export default function EventQueuePage() {
     }
     setDisplayLimit(INITIAL_DISPLAY_LIMIT);
     displayLimitRef.current = INITIAL_DISPLAY_LIMIT;
-    reloadRequests();
+    void reloadRequests().catch(() => setActionError('Failed to refresh requests'));
   }, [sortField, sortDirection, reloadRequests]);
 
   // SSE: trigger immediate refresh on real-time events (new requests, bridge updates)

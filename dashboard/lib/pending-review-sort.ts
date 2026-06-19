@@ -12,6 +12,7 @@
  */
 
 import type { RequestSort, SortDirection } from './api-types';
+import { SORT_FIELD_DEFAULT_DIRECTION } from './request-sort';
 
 /** Sentinel for the default vote-ranked order (sends no `sort` param). */
 export const REVIEW_ORDER = 'review_order' as const;
@@ -31,17 +32,12 @@ export const PENDING_REVIEW_SORT_FIELDS: readonly {
   { value: 'artist', label: 'Artist' },
 ] as const;
 
-/** Per-field default direction (mirrors the backend's per-field defaults). */
+/**
+ * Per-field default direction. Reuses the DJ-list map as the single source of
+ * truth so the two never drift (the pending-review UI only surfaces a subset).
+ */
 export const PENDING_REVIEW_DEFAULT_DIRECTION: Record<RequestSort, SortDirection> = {
-  upvotes: 'desc',
-  date_requested: 'desc',
-  title: 'asc',
-  artist: 'asc',
-  // Unused by the pending-review UI, but kept exhaustive for the union.
-  date_accepted: 'desc',
-  bpm: 'asc',
-  key: 'asc',
-  best_match: 'desc',
+  ...SORT_FIELD_DEFAULT_DIRECTION,
 };
 
 /**

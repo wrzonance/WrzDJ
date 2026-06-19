@@ -15,7 +15,9 @@ from app.services.tidal import (
     _track_to_result,
     cancel_device_login,
     check_device_login,
+    create_event_playlist,
     disconnect_tidal,
+    ensure_collection_playlist,
     get_tidal_session,
     manual_link_track,
     search_tidal_tracks,
@@ -422,6 +424,121 @@ class TestTidalSyncPipeline:
 
         assert result.status == TidalSyncStatus.ERROR
         assert "add track" in result.error.lower()
+
+
+class TestPlaylistSelfHeal:
+    """A stored Tidal playlist deleted out-of-band must self-heal, not fail forever.
+
+    Regression for production event ELZ2G2: the accepted playlist was deleted on
+    Tidal, so create_event_playlist kept returning a dead ID and every accept-sync
+    404'd (red "T!"). The fix validates the stored playlist and recreates it when
+    Tidal reports it gone (ObjectNotFound), while leaving it untouched on a
+    transient API error so a real playlist is never destroyed on a blip.
+    """
+
+    @patch("app.services.tidal.get_tidal_session")
+    def test_create_event_playlist_recreates_when_deleted(
+        self, mock_session_fn: MagicMock, db: Session, tidal_event: Event
+    ):
+        """A 404 (ObjectNotFound) on the stored playlist clears it and creates a fresh one."""
+        from tidalapi.exceptions import ObjectNotFound
+
+        mock_session = MagicMock()
+        mock_session.playlist.side_effect = ObjectNotFound("Playlist with id playlist123 not found")
+        new_playlist = MagicMock()
+        new_playlist.id = "fresh456"
+        mock_session.user.create_playlist.return_value = new_playlist
+        mock_session_fn.return_value = mock_session
+
+        result = create_event_playlist(db, tidal_event.created_by, tidal_event)
+
+        assert result == "fresh456"
+        assert tidal_event.tidal_playlist_id == "fresh456"
+        mock_session.user.create_playlist.assert_called_once()
+
+    @patch("app.services.tidal.get_tidal_session")
+    def test_create_event_playlist_keeps_valid_playlist(
+        self, mock_session_fn: MagicMock, db: Session, tidal_event: Event
+    ):
+        """A stored playlist that still exists is returned without recreating."""
+        mock_session = MagicMock()
+        mock_session.playlist.return_value = MagicMock()  # resolves → playlist exists
+        mock_session_fn.return_value = mock_session
+
+        result = create_event_playlist(db, tidal_event.created_by, tidal_event)
+
+        assert result == "playlist123"
+        mock_session.user.create_playlist.assert_not_called()
+
+    @patch("app.services.tidal.get_tidal_session")
+    def test_create_event_playlist_keeps_id_on_transient_error(
+        self, mock_session_fn: MagicMock, db: Session, tidal_event: Event
+    ):
+        """A transient (non-404) verify error must NOT destroy/recreate a real playlist."""
+        mock_session = MagicMock()
+        mock_session.playlist.side_effect = ConnectionError("network blip")
+        mock_session_fn.return_value = mock_session
+
+        result = create_event_playlist(db, tidal_event.created_by, tidal_event)
+
+        assert result == "playlist123"
+        assert tidal_event.tidal_playlist_id == "playlist123"
+        mock_session.user.create_playlist.assert_not_called()
+
+    @patch("app.services.tidal.get_tidal_session")
+    def test_ensure_collection_playlist_recreates_when_deleted(
+        self, mock_session_fn: MagicMock, db: Session, tidal_event: Event
+    ):
+        """The separate collection playlist self-heals on the same ObjectNotFound class."""
+        from tidalapi.exceptions import ObjectNotFound
+
+        tidal_event.tidal_collection_playlist_id = "collection-dead"
+        db.commit()
+
+        mock_session = MagicMock()
+        mock_session.playlist.side_effect = ObjectNotFound("Playlist not found")
+        new_playlist = MagicMock()
+        new_playlist.id = "collection-fresh"
+        mock_session.user.create_playlist.return_value = new_playlist
+        mock_session_fn.return_value = mock_session
+
+        result = ensure_collection_playlist(db, tidal_event.created_by, tidal_event)
+
+        assert result == "collection-fresh"
+        assert tidal_event.tidal_collection_playlist_id == "collection-fresh"
+
+    @patch("app.services.tidal.get_tidal_session")
+    def test_sync_request_to_tidal_self_heals_deleted_playlist(
+        self, mock_session_fn: MagicMock, db: Session, tidal_request: Request
+    ):
+        """End-to-end: accept-sync against a deleted playlist recreates it and succeeds."""
+        from tidalapi.exceptions import ObjectNotFound
+
+        dead_id = tidal_request.event.tidal_playlist_id  # "playlist123"
+        added_to: list[str] = []
+
+        def playlist_side_effect(pid):
+            if pid == dead_id:
+                raise ObjectNotFound(f"Playlist with id {pid} not found")
+            live = MagicMock()
+            live.add.side_effect = lambda ids: added_to.extend(ids)
+            return live
+
+        mock_session = MagicMock()
+        mock_session.playlist.side_effect = playlist_side_effect
+        new_playlist = MagicMock()
+        new_playlist.id = "recreated789"
+        mock_session.user.create_playlist.return_value = new_playlist
+        mock_session.search.return_value = {
+            "tracks": [_make_mock_track(555, "Test Song", "Test Artist")]
+        }
+        mock_session_fn.return_value = mock_session
+
+        result = sync_request_to_tidal(db, tidal_request)
+
+        assert result.status == TidalSyncStatus.SYNCED
+        assert tidal_request.event.tidal_playlist_id == "recreated789"
+        assert added_to == ["555"]
 
 
 class TestTidalSearch:

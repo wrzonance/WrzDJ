@@ -333,6 +333,17 @@ def apply_tool_call(
     handler = handlers.get(name)
     if handler is None:
         raise AgentToolError(f"Unknown tool: {name}")
+    mutating = name in MUTATION_TOOLS
+    # Single audit point for every agent tool action: logging here, at the
+    # dispatch choke point, covers all handlers (mutating + read-only) without
+    # duplicating log calls across each one. State changes log at INFO.
+    logger.log(
+        logging.INFO if mutating else logging.DEBUG,
+        "setbuilder agent tool %s applied to set %s (mutating=%s)",
+        name,
+        set_obj.id,
+        mutating,
+    )
     return handler(db, set_obj, payload)
 
 

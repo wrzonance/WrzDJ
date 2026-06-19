@@ -2481,3 +2481,36 @@ def test_tool_display_summary_pairings():
         {},
     )
     assert suggested == "Reviewed 2 transitions; 1 already pinned."
+
+
+# CodeRabbit review fixes on PR #483 (regression pins)
+# ---------------------------------------------------------------------------
+
+
+def test_bump_energy_spec_allows_all_slots_mode():
+    """slot_id is optional so the model can reach _tool_bump_energy's all-slots path."""
+    spec = next(tool for tool in _agent_tools() if tool.name == "bump_energy")
+    assert set(spec.input_schema["required"]) == {"amount", "rationale"}
+    assert "slot_id" in spec.input_schema["properties"]
+
+
+def test_apply_curve_template_rejects_both_builtin_and_template_id(db: Session, test_user: User):
+    set_obj = _mk_set_for_curve(db, test_user, slot_count=3)
+    with pytest.raises(AgentToolError, match="exactly one"):
+        apply_tool_call(
+            db,
+            set_obj,
+            "apply_curve_template",
+            {"builtin": "peak", "template_id": 1, "rationale": "ambiguous template source"},
+        )
+
+
+def test_add_pairing_rejects_non_integer_pool_track_id(db: Session, test_user: User):
+    set_obj = _mk_set_with_three_slots(db, test_user)
+    with pytest.raises(AgentToolError, match="must be an integer"):
+        apply_tool_call(
+            db,
+            set_obj,
+            "add_pairing",
+            {"from_pool_track_id": "abc", "into_pool_track_id": 1, "rationale": "bad id"},
+        )

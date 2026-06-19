@@ -287,6 +287,8 @@ def _curve_template_points(db: Session, set_obj: Set, payload: dict[str, Any]) -
     """Resolve the template (built-in name XOR owned id) to its point list."""
     builtin = payload.get("builtin")
     template_id = payload.get("template_id")
+    if builtin is not None and template_id is not None:
+        raise AgentToolError("Provide exactly one of builtin or template_id, not both")
     if builtin is not None:
         points = curve.BUILTIN_TEMPLATES.get(str(builtin))
         if points is None:
@@ -490,5 +492,9 @@ def _pairing_endpoint(
     The pairing key must be the same namespaced id slots use, so derive it via
     the Pass-1 track meta — keeping pairings, slots, and the boost lookup aligned.
     """
-    track = _pool_track_or_error(db, set_obj.id, int(payload[field_name]))
+    try:
+        pool_track_id = int(payload[field_name])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise AgentToolError(f"{field_name} must be an integer") from exc
+    track = _pool_track_or_error(db, set_obj.id, pool_track_id)
     return _pass1_track_meta(track).slot_track_id, track

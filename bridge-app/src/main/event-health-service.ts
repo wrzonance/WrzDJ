@@ -2,8 +2,7 @@
  * Event health check service.
  *
  * Validates that an event still exists via the public API endpoint.
- * No authentication required — uses the public nowplaying endpoint
- * which returns appropriate HTTP status codes.
+ * No authentication required — returns appropriate HTTP status codes.
  */
 
 export type EventHealthStatus = 'active' | 'not_found' | 'expired' | 'error';
@@ -11,8 +10,13 @@ export type EventHealthStatus = 'active' | 'not_found' | 'expired' | 'error';
 /**
  * Check whether an event still exists and is active.
  *
- * Uses GET /api/public/e/{code}/nowplaying:
- *   200 → active (event exists, may or may not have a track playing)
+ * Uses GET /api/public/events/{code} — the dual-resolver public event endpoint,
+ * which accepts EITHER the collection code or the join_code. The bridge is
+ * configured with the collection code; the join-code-only
+ * /api/public/e/{code}/nowplaying would 404 on it and the health check would
+ * misread that as 'not_found' and stop a perfectly live bridge.
+ *
+ *   200 → active (event exists and is live)
  *   404 → not_found (event was deleted)
  *   410 → expired (event expired or archived)
  *   other → error (network issue, server error — don't act on this)
@@ -29,7 +33,7 @@ export async function checkEventHealth(
 
     try {
       const response = await fetch(
-        `${apiUrl}/api/public/e/${encodeURIComponent(eventCode)}/nowplaying`,
+        `${apiUrl}/api/public/events/${encodeURIComponent(eventCode)}`,
         { signal: controller.signal },
       );
 

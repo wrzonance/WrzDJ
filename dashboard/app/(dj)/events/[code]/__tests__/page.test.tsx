@@ -1108,6 +1108,30 @@ describe('EventQueuePage', () => {
     });
   });
 
+  describe('Live-display polls use join_code, not collection code', () => {
+    it('polls now-playing / bridge-status / history by join_code', async () => {
+      setupDefaultMocks();
+
+      render(<EventQueuePage />);
+      await screen.findByText('Test Event');
+
+      // These three endpoints resolve strictly by join_code (post-#324/#328
+      // public-URL contract). This route is keyed on the collection code 'TEST',
+      // but the live polls must use the event's join_code 'TSETJO' or the API
+      // 404s in a polling loop. Regression for the production console-spam bug.
+      expect(api.getNowPlaying).toHaveBeenCalledWith('TSETJO');
+      expect(api.getBridgeStatus).toHaveBeenCalledWith('TSETJO');
+      expect(api.getPlayHistory).toHaveBeenCalledWith('TSETJO');
+      expect(api.getNowPlaying).not.toHaveBeenCalledWith('TEST');
+      expect(api.getBridgeStatus).not.toHaveBeenCalledWith('TEST');
+      expect(api.getPlayHistory).not.toHaveBeenCalledWith('TEST');
+
+      // DJ-owned endpoints still resolve by the collection code.
+      expect(api.getEvent).toHaveBeenCalledWith('TEST');
+      expect(api.getRequests).toHaveBeenCalledWith('TEST', expect.anything());
+    });
+  });
+
   describe('Server-side status filter + status counts (issue #478, Bugs 1 & 2)', () => {
     it('passes server status_counts through to SongTab', async () => {
       setupDefaultMocks();

@@ -1138,10 +1138,17 @@ class ApiClient {
     query: string,
     reverify?: () => Promise<void>,
   ): Promise<SearchResult[]> {
-    const doFetch = () =>
-      fetch(`${getApiUrl()}/api/events/${code}/search?q=${encodeURIComponent(query)}`, {
+    const doFetch = () => {
+      // Send the JWT when present: the authenticated event owner (DJ dashboard
+      // "Search for Song") bypasses the guest human-verification gate. Guests
+      // have no token and fall through to the cookie-based gate + reverify retry.
+      const headers: Record<string, string> = {};
+      if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+      return fetch(`${getApiUrl()}/api/events/${code}/search?q=${encodeURIComponent(query)}`, {
         credentials: 'include',
+        headers,
       });
+    };
     if (reverify) {
       return withHumanRetry<SearchResult[]>(doFetch, reverify);
     }

@@ -360,7 +360,9 @@ export default function EventQueuePage() {
 
   const loadData = useCallback(async (): Promise<boolean> => {
     try {
-      const [eventData, requestsData, historyData, displaySettings, tidalStatusData, beatportStatusData, nowPlayingData, bridgeStatusData] = await Promise.all([
+      // Fetch the event and the collection-code-keyed data together (one round-trip).
+      // getEvent stays in this batch so the request queue isn't delayed behind it.
+      const [eventData, requestsData, displaySettings, tidalStatusData, beatportStatusData] = await Promise.all([
         api.getEvent(code),
         api.getRequests(code, {
           status: filterToStatus(statusFilterRef.current),
@@ -369,21 +371,17 @@ export default function EventQueuePage() {
           limit: displayLimitRef.current,
           offset: 0,
         }),
-        api.getPlayHistory(code).catch((): undefined => undefined),
         api.getDisplaySettings(code).catch(() => ({ now_playing_hidden: false, now_playing_auto_hide_minutes: 10, requests_open: true, kiosk_display_only: false })),
         api.getTidalStatus().catch(() => ({ linked: false, user_id: null, expires_at: null, integration_enabled: true })),
         api.getBeatportStatus().catch(() => ({ linked: false, expires_at: null, configured: false, subscription: null, integration_enabled: true })),
-        api.getNowPlaying(code).catch((): undefined => undefined),
-        api.getBridgeStatus(code).catch(() => ({ connected: false, device_name: null, last_seen: null, circuit_breaker_state: null, buffer_size: null, plugin_id: null, deck_count: null, uptime_seconds: null })),
       ]);
+      // Commit the core queue/event + settings state immediately so the request
+      // queue (and the page itself — `loading` clears in `finally`) renders as soon
+      // as this data is in. It must never wait on the non-critical live-display hop.
       setEvent(eventData);
       setRequests(requestsData.requests);
       setRequestTotal(requestsData.total);
       setStatusCounts(normalizeStatusCounts(requestsData.status_counts));
-      if (historyData !== undefined) {
-        setPlayHistory(historyData.items);
-        setPlayHistoryTotal(historyData.total);
-      }
       setNowPlayingHidden(displaySettings.now_playing_hidden);
       setRequestsOpen(displaySettings.requests_open ?? true);
       setKioskDisplayOnly(displaySettings.kiosk_display_only ?? false);
@@ -397,20 +395,38 @@ export default function EventQueuePage() {
       setTidalSyncEnabled(eventData.tidal_sync_enabled ?? false);
       setBeatportStatus(beatportStatusData);
       setBeatportSyncEnabled(eventData.beatport_sync_enabled ?? false);
-      if (nowPlayingData !== undefined) {
-        setNowPlaying(nowPlayingData ?? null);
-      }
-      setBridgeConnected(bridgeStatusData.connected);
-      setBridgeDetails({
-        circuitBreakerState: bridgeStatusData.circuit_breaker_state,
-        bufferSize: bridgeStatusData.buffer_size,
-        pluginId: bridgeStatusData.plugin_id,
-        deckCount: bridgeStatusData.deck_count,
-        uptimeSeconds: bridgeStatusData.uptime_seconds,
-      });
       setEventStatus('active');
       setError(null);
       hasLoadedRef.current = true;
+
+      // The three live-display endpoints (now-playing / bridge-status / history)
+      // resolve strictly by join_code (post-#324/#328 public-URL contract), so they
+      // need event.join_code — passing the collection `code` this route is keyed on
+      // would 404 in a loop. Fire them once join_code is known and commit their
+      // results when they arrive; they're non-critical, so this extra hop runs in
+      // the background and never blocks the queue/event render committed above.
+      const liveCode = eventData.join_code;
+      void Promise.all([
+        api.getPlayHistory(liveCode).catch((): undefined => undefined),
+        api.getNowPlaying(liveCode).catch((): undefined => undefined),
+        api.getBridgeStatus(liveCode).catch(() => ({ connected: false, device_name: null, last_seen: null, circuit_breaker_state: null, buffer_size: null, plugin_id: null, deck_count: null, uptime_seconds: null })),
+      ]).then(([historyData, nowPlayingData, bridgeStatusData]) => {
+        if (historyData !== undefined) {
+          setPlayHistory(historyData.items);
+          setPlayHistoryTotal(historyData.total);
+        }
+        if (nowPlayingData !== undefined) {
+          setNowPlaying(nowPlayingData ?? null);
+        }
+        setBridgeConnected(bridgeStatusData.connected);
+        setBridgeDetails({
+          circuitBreakerState: bridgeStatusData.circuit_breaker_state,
+          bufferSize: bridgeStatusData.buffer_size,
+          pluginId: bridgeStatusData.plugin_id,
+          deckCount: bridgeStatusData.deck_count,
+          uptimeSeconds: bridgeStatusData.uptime_seconds,
+        });
+      });
       return true; // Continue polling
     } catch (err) {
       if (err instanceof ApiError && err.status === 410) {

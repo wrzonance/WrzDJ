@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.time import utcnow
 from app.models.event import Event
 from app.models.request import Request, RequestStatus
+from app.models.system_settings import SystemSettings
 from app.models.user import User
 from app.schemas.beatport import BeatportSearchResult
 from app.schemas.search import SearchResult
@@ -1636,3 +1637,68 @@ class TestEventSearch:
         data = response.json()
         assert len(data) == 1
         assert data[0]["source"] == "spotify"
+
+
+def _enforce_human_verification(db: Session) -> None:
+    """Flip human_verification_enforced=True (Phase 2+) for the test DB."""
+    sys_settings = db.query(SystemSettings).filter_by(id=1).first()
+    if sys_settings is None:
+        sys_settings = SystemSettings(id=1, human_verification_enforced=True)
+        db.add(sys_settings)
+    else:
+        sys_settings.human_verification_enforced = True
+    db.commit()
+
+
+class TestEventSearchOwnerBypass:
+    """GET /api/events/{code}/search: authenticated event owners bypass the
+    guest human-verification gate; everyone else is still gated when enforced.
+
+    Regression for the production 403 a DJ hit using the dashboard "Search for
+    Song" button: the DJ is JWT-authenticated but holds no guest wrzdj_human
+    cookie, so with human_verification_enforced=True the public search rejected
+    them with 403.
+    """
+
+    @patch("app.services.spotify.search_songs")
+    def test_owner_bypasses_human_gate_when_enforced(
+        self, mock_search, client: TestClient, db: Session, test_event: Event, auth_headers: dict
+    ):
+        """Event owner with a valid JWT searches successfully even with
+        enforcement on and no human cookie (was 403 before the fix)."""
+        _enforce_human_verification(db)
+        mock_search.return_value = [
+            SearchResult(title="Levels", artist="Avicii", popularity=85, spotify_id="sp_levels")
+        ]
+
+        response = client.get(
+            f"/api/events/{test_event.code}/search?q=levels", headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        assert response.json()[0]["title"] == "Levels"
+
+    def test_anonymous_still_gated_when_enforced(
+        self, client: TestClient, db: Session, test_event: Event
+    ):
+        """A request with no JWT and no human cookie stays 403 when enforced."""
+        _enforce_human_verification(db)
+
+        response = client.get(f"/api/events/{test_event.code}/search?q=levels")
+
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "human_verification_required"
+
+    def test_non_owner_authenticated_still_gated_when_enforced(
+        self, client: TestClient, db: Session, test_event: Event, admin_headers: dict
+    ):
+        """A different authenticated user (not the event owner) is still gated:
+        the bypass is owner-only, not 'any logged-in user'."""
+        _enforce_human_verification(db)
+
+        response = client.get(
+            f"/api/events/{test_event.code}/search?q=levels", headers=admin_headers
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "human_verification_required"

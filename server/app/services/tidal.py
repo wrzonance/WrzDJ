@@ -13,6 +13,7 @@ from typing import Any
 
 import tidalapi
 from sqlalchemy.orm import Session
+from tidalapi.exceptions import ObjectNotFound
 
 from app.models.event import Event
 from app.models.request import Request, RequestStatus, TidalSyncStatus
@@ -293,18 +294,52 @@ def search_track(
         return None
 
 
+def _playlist_exists(session: tidalapi.Session, playlist_id: str) -> bool:
+    """Return True if the Tidal playlist still exists for this session.
+
+    Distinguishes a genuinely deleted playlist (404 → ObjectNotFound → False)
+    from a transient API error (any other exception → True). We never treat a
+    transient failure as "deleted", otherwise a real playlist would be orphaned
+    and silently recreated on a momentary network/API blip.
+    """
+    try:
+        session.playlist(playlist_id)
+        return True
+    except ObjectNotFound:
+        return False
+    except Exception as e:
+        logger.warning("Could not verify Tidal playlist %s; assuming it exists: %s", playlist_id, e)
+        return True
+
+
 def create_event_playlist(
     db: Session,
     user: User,
     event: Event,
 ) -> str | None:
-    """Create a Tidal playlist for an event."""
-    if event.tidal_playlist_id:
-        return event.tidal_playlist_id
+    """Ensure a valid Tidal playlist exists for the event's accepted requests.
 
+    Returns the stored playlist ID when it still exists on Tidal. If the stored
+    playlist was deleted out-of-band (Tidal 404), the stale ID is cleared and a
+    fresh playlist is created — so accepted-request sync self-heals instead of
+    failing forever against a dead playlist ID.
+    """
     session = get_tidal_session(db, user)
     if not session:
-        return None
+        # No usable session: leave any stored ID untouched (read-only callers
+        # still see it); downstream sync surfaces the auth failure instead.
+        return event.tidal_playlist_id
+
+    if event.tidal_playlist_id:
+        if _playlist_exists(session, event.tidal_playlist_id):
+            return event.tidal_playlist_id
+        logger.warning(
+            "Accepted playlist %s for event %s no longer exists on Tidal; recreating",
+            event.tidal_playlist_id,
+            event.code,
+        )
+        event.tidal_playlist_id = None
+        db.commit()
 
     try:
         playlist_name = f"WrzDJ: {event.code} – {event.name}"
@@ -331,14 +366,24 @@ def ensure_collection_playlist(
     """Create (or reuse) the pre-event collection Tidal playlist for an event.
 
     Kept separate from create_event_playlist so collection suggestions and
-    live-event accepted requests land in two distinct Tidal playlists.
+    live-event accepted requests land in two distinct Tidal playlists. Like the
+    accepted playlist, a stored collection playlist deleted out-of-band on Tidal
+    (404) is cleared and recreated rather than failing forever.
     """
-    if event.tidal_collection_playlist_id:
-        return event.tidal_collection_playlist_id
-
     session = get_tidal_session(db, user)
     if not session:
-        return None
+        return event.tidal_collection_playlist_id
+
+    if event.tidal_collection_playlist_id:
+        if _playlist_exists(session, event.tidal_collection_playlist_id):
+            return event.tidal_collection_playlist_id
+        logger.warning(
+            "Collection playlist %s for event %s no longer exists on Tidal; recreating",
+            event.tidal_collection_playlist_id,
+            event.code,
+        )
+        event.tidal_collection_playlist_id = None
+        db.commit()
 
     try:
         playlist_name = f"WrzDJ: {event.code} – {event.name} (pre-event)"

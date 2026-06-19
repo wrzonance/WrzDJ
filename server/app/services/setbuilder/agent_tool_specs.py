@@ -61,7 +61,7 @@ def _agent_tools() -> list[ToolSpec]:
         _tool("search_and_insert", {"query": "string", "position": "integer"}),
         _tool("add_slow_window", {"t0_sec": "integer", "t1_sec": "integer", "label": "string"}),
         _tool("set_peak_at", {"position": "integer", "energy": "number"}),
-        _tool("bump_energy", {"amount": "number", "slot_id": "integer"}),
+        _tool("bump_energy", {"amount": "number"}, optional_fields={"slot_id": "integer"}),
         _tool(
             "set_curve_point",
             {"position_sec": "integer", "energy": "integer"},

@@ -50,7 +50,11 @@ server {
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     # SECURITY (H-I2): Permissions-Policy restricts browser APIs for XSS containment
     add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://${API_DOMAIN} https://i.scdn.co https://resources.tidal.com https://geo-media.beatport.com; media-src 'self' data:; connect-src 'self' https://${API_DOMAIN}; frame-src https://challenges.cloudflare.com https://open.spotify.com https://embed.tidal.com; frame-ancestors 'none'" always;
+    # SECURITY: 'unsafe-eval' is required by @thumbmarkjs/thumbmarkjs (lazy-loaded in
+    # useGuestIdentity for guest fingerprinting / human-verification on join/collect).
+    # The dev-proxy CSP already carries it; production was missing it, so guest
+    # fingerprinting was blocked. Tradeoff accepted to keep the anti-bot gate working.
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://${API_DOMAIN} https://i.scdn.co https://resources.tidal.com https://geo-media.beatport.com; media-src 'self' data:; connect-src 'self' https://${API_DOMAIN}; frame-src https://challenges.cloudflare.com https://open.spotify.com https://embed.tidal.com; frame-ancestors 'none'" always;
 
     # Strip security headers from upstream (Next.js sets them too — nginx is authoritative)
     proxy_hide_header Strict-Transport-Security;
@@ -76,7 +80,7 @@ server {
         limit_req zone=wrzdj_edge burst=180 nodelay;
 
         # Override server-level framing restrictions for this path
-        add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://${API_DOMAIN} https://i.scdn.co https://resources.tidal.com https://geo-media.beatport.com; media-src 'self' data:; connect-src 'self' https://${API_DOMAIN}; frame-src https://challenges.cloudflare.com; frame-ancestors *" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://${API_DOMAIN} https://i.scdn.co https://resources.tidal.com https://geo-media.beatport.com; media-src 'self' data:; connect-src 'self' https://${API_DOMAIN}; frame-src https://challenges.cloudflare.com; frame-ancestors *" always;
         # Omit X-Frame-Options entirely (CSP frame-ancestors takes precedence)
         add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
         add_header X-Content-Type-Options "nosniff" always;

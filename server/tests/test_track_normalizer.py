@@ -62,6 +62,31 @@ class TestNormalizeTrackTitle:
     def test_plain_title_unchanged(self):
         assert normalize_track_title("Strobe") == "Strobe"
 
+    def test_strips_feat_parenthetical(self):
+        # DJ equipment / streaming metadata embeds the featured artist in the
+        # title; guests rarely type it. Strip it before fuzzy matching.
+        assert normalize_track_title("Get Low (ft. Ying Yang Twins)") == "Get Low"
+
+    def test_strips_featuring_parenthetical(self):
+        assert normalize_track_title("Promiscuous (feat. Timbaland)") == "Promiscuous"
+
+    def test_strips_feat_brackets(self):
+        assert normalize_track_title("Get Low [ft. Ying Yang Twins]") == "Get Low"
+
+    def test_strips_feat_trailing(self):
+        assert normalize_track_title("Get Low feat. Ying Yang Twins") == "Get Low"
+
+    def test_feat_strip_keeps_named_remix(self):
+        # Strip the feat credit but preserve a following named remix.
+        assert (
+            normalize_track_title("Otherside (ft. Foo) (Skrillex Remix)")
+            == "Otherside (Skrillex Remix)"
+        )
+
+    def test_feat_strip_ignores_plain_with(self):
+        # "with" is not a feat marker in titles — don't eat real words.
+        assert normalize_track_title("Dancing With Myself") == "Dancing With Myself"
+
 
 class TestNormalizeArtist:
     """Tests for normalize_artist()."""

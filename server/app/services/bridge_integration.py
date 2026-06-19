@@ -85,8 +85,8 @@ def handle_now_playing_update(
     1. Archive previous track to play_history (if exists)
     2. Transition matched request from "playing" -> "played"
     3. Upsert now_playing with new track
-    4. Spotify album art lookup
-    5. Fuzzy match against accepted requests -> set to "playing"
+    4. Fuzzy match against accepted requests -> set to "playing"
+    5. Resolve album art: matched request -> Tidal (owner session) -> Spotify
     """
     from app.services.now_playing import (
         archive_to_history,
@@ -94,6 +94,7 @@ def handle_now_playing_update(
         get_event_by_code_for_bridge,
         get_now_playing,
         lookup_spotify_album_art,
+        lookup_tidal_album_art,
     )
 
     event = get_event_by_code_for_bridge(db, event_code)
@@ -146,20 +147,31 @@ def handle_now_playing_update(
         )
         db.add(now_playing)
 
-    # Step 4: Spotify album art lookup
-    spotify_data = lookup_spotify_album_art(title, artist)
-    if spotify_data:
-        now_playing.spotify_track_id = spotify_data["spotify_track_id"]
-        now_playing.album_art_url = spotify_data["album_art_url"]
-        now_playing.spotify_uri = spotify_data["spotify_uri"]
-
-    # Step 5: Fuzzy match against new/accepted requests
+    # Step 4: Fuzzy match against new/accepted requests (first, so its art can be reused)
     matched_request = fuzzy_match_pending_request(db, event.id, title, artist)
     if matched_request:
         matched_request.status = RequestStatus.PLAYING.value
         matched_request.updated_at = _utcnow()
         now_playing.matched_request_id = matched_request.id
         logger.info(f"Auto-matched request {matched_request.id} as playing")
+
+    # Step 5: Resolve album art. Prefer the matched request's already-resolved art
+    # (guest search is Tidal-primary), then a fresh Tidal lookup via the event owner's
+    # session, then Spotify as a last resort. Spotify is no longer primary: its
+    # app-level search 403s when the owner account lacks Premium, which silently
+    # blanked now-playing art while Tidal-backed queue art kept working.
+    if matched_request and matched_request.artwork_url:
+        now_playing.album_art_url = matched_request.artwork_url
+    else:
+        tidal_art = lookup_tidal_album_art(db, event.created_by, title, artist)
+        if tidal_art:
+            now_playing.album_art_url = tidal_art
+        else:
+            spotify_data = lookup_spotify_album_art(title, artist)
+            if spotify_data:
+                now_playing.spotify_track_id = spotify_data["spotify_track_id"]
+                now_playing.album_art_url = spotify_data["album_art_url"]
+                now_playing.spotify_uri = spotify_data["spotify_uri"]
 
     db.commit()
     db.refresh(now_playing)

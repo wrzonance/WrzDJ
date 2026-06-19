@@ -25,6 +25,7 @@ from app.models.event import Event
 from app.models.now_playing import NowPlaying
 from app.models.play_history import PlayHistory
 from app.models.request import Request, RequestStatus
+from app.models.user import User
 from app.services.spotify import _call_spotify_api
 
 # --- Play history (previously in play_history_service.py) ---
@@ -265,6 +266,25 @@ def lookup_spotify_album_art(title: str, artist: str) -> dict | None:
             }
     except Exception as e:
         logger.warning(f"Spotify lookup failed for '{title}' by '{artist}': {e}")
+    return None
+
+
+def lookup_tidal_album_art(db: Session, owner: User, title: str, artist: str) -> str | None:
+    """Look up album art from Tidal using the event owner's connected session.
+
+    Tidal is the now-playing art's primary source: it is the app's primary search
+    provider and its results carry cover art. Returns the cover URL, or None if the
+    owner has no Tidal session, the track isn't found, or the lookup errors (art is
+    non-critical — never let it break a now-playing update).
+    """
+    try:
+        from app.services.tidal import search_track
+
+        result = search_track(db, owner, artist, title)
+        if result and result.cover_url:
+            return result.cover_url
+    except Exception as e:
+        logger.warning(f"Tidal art lookup failed for '{title}' by '{artist}': {e}")
     return None
 
 

@@ -1,6 +1,7 @@
 """Tests for now_playing service functions."""
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -34,6 +35,7 @@ from app.services.now_playing import (
     get_play_history,
     handle_now_playing_update,
     is_now_playing_hidden,
+    lookup_tidal_album_art,
     normalize_artist,
     normalize_track_title,
     set_manual_now_playing,
@@ -555,9 +557,13 @@ class TestHandleNowPlayingUpdate:
         db.refresh(accepted_request)
         assert accepted_request.status == RequestStatus.PLAYED.value
 
+    @patch("app.services.now_playing.lookup_tidal_album_art")
     @patch("app.services.now_playing.lookup_spotify_album_art")
-    def test_adds_spotify_data(self, mock_spotify, db: Session, test_event: Event):
-        """Adds Spotify album art data."""
+    def test_falls_back_to_spotify_when_tidal_misses(
+        self, mock_spotify, mock_tidal, db: Session, test_event: Event
+    ):
+        """Spotify is the last-resort art source when Tidal returns nothing."""
+        mock_tidal.return_value = None
         mock_spotify.return_value = {
             "spotify_track_id": "sp123",
             "album_art_url": "https://example.com/art.jpg",
@@ -570,10 +576,76 @@ class TestHandleNowPlayingUpdate:
         assert result.album_art_url == "https://example.com/art.jpg"
         assert result.spotify_uri == "spotify:track:sp123"
 
+    @patch("app.services.now_playing.lookup_tidal_album_art")
+    @patch("app.services.now_playing.lookup_spotify_album_art")
+    def test_prefers_tidal_art_when_no_request_match(
+        self, mock_spotify, mock_tidal, db: Session, test_event: Event
+    ):
+        """With no matching request, art resolves via Tidal (primary) — Spotify untouched."""
+        mock_tidal.return_value = "https://tidal.example/cover.jpg"
+
+        result = handle_now_playing_update(db, "TEST01", "Get Low", "Lil Jon")
+
+        assert result.album_art_url == "https://tidal.example/cover.jpg"
+        mock_spotify.assert_not_called()
+
+    @patch("app.services.now_playing.lookup_tidal_album_art")
+    @patch("app.services.now_playing.lookup_spotify_album_art")
+    def test_reuses_matched_request_art(
+        self, mock_spotify, mock_tidal, db: Session, test_event: Event, accepted_request: Request
+    ):
+        """A matched request's already-resolved art is reused — no external lookup at all."""
+        accepted_request.artwork_url = "https://requests.example/art.jpg"
+        db.commit()
+
+        result = handle_now_playing_update(db, "TEST01", "Blue Monday", "New Order")
+
+        assert result.album_art_url == "https://requests.example/art.jpg"
+        assert result.matched_request_id == accepted_request.id
+        mock_tidal.assert_not_called()
+        mock_spotify.assert_not_called()
+
+    @patch("app.services.now_playing.lookup_tidal_album_art")
+    @patch("app.services.now_playing.lookup_spotify_album_art")
+    def test_no_art_when_all_sources_miss(
+        self, mock_spotify, mock_tidal, db: Session, test_event: Event
+    ):
+        """Gracefully leaves art null when request, Tidal, and Spotify all miss."""
+        mock_tidal.return_value = None
+        mock_spotify.return_value = None
+
+        result = handle_now_playing_update(db, "TEST01", "Obscure", "Nobody")
+
+        assert result.album_art_url is None
+
     def test_event_not_found(self, db: Session):
         """Returns None for non-existent event."""
         result = handle_now_playing_update(db, "INVALID", "Test", "Test")
         assert result is None
+
+
+class TestLookupTidalAlbumArt:
+    """Tests for lookup_tidal_album_art (now-playing art via the owner's Tidal session)."""
+
+    @patch("app.services.tidal.search_track")
+    def test_returns_cover_url_from_tidal(self, mock_search, db: Session, test_user: User):
+        """Returns the Tidal cover URL when a track is found."""
+        mock_search.return_value = SimpleNamespace(cover_url="https://tidal.example/c.jpg")
+        assert lookup_tidal_album_art(db, test_user, "Sandstorm", "Darude") == (
+            "https://tidal.example/c.jpg"
+        )
+
+    @patch("app.services.tidal.search_track")
+    def test_returns_none_when_no_track(self, mock_search, db: Session, test_user: User):
+        """Returns None when Tidal finds nothing (no session / no match)."""
+        mock_search.return_value = None
+        assert lookup_tidal_album_art(db, test_user, "Obscure", "Nobody") is None
+
+    @patch("app.services.tidal.search_track")
+    def test_returns_none_on_error(self, mock_search, db: Session, test_user: User):
+        """Swallows Tidal errors — now-playing art is non-critical."""
+        mock_search.side_effect = RuntimeError("tidal down")
+        assert lookup_tidal_album_art(db, test_user, "Sandstorm", "Darude") is None
 
 
 class TestUpdateBridgeStatus:

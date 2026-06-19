@@ -14,6 +14,8 @@ const csp = [
 
 const nextConfig = {
   output: 'standalone',
+  // Hide the dev-only indicator (lower-left circle) so it doesn't appear in screenshots.
+  devIndicators: false,
   allowedDevOrigins: ['192.168.*.*'],
   async redirects() {
     return [

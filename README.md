@@ -33,21 +33,21 @@ A real-time song request system for DJs. Guests scan a QR code to submit request
 
 **Guest experience**
 - QR code join, no app install or login required
-- Search songs via Spotify, submit requests with notes, upvote others
+- Search songs via Tidal, submit requests with notes, upvote others
 - Live request queue and kiosk display showing what's playing now
 - Cloudflare Turnstile human verification (invisible managed challenge) on `/join` and `/collect`
 - Nickname gate (profanity filter + letter-padding bypass protection) on standard events, or **frictionless join** — when the DJ enables it, guests skip the nickname/email step and get an auto-generated name they can rename later (great for weddings and private parties)
 - Email verification with one-time codes (Resend API) and cross-device guest profile merge
 - Pre-event song collection (`/collect`) — guests vote on suggestions before the night, DJs bulk-review
-- Inline song preview in the collect detail sheet (Spotify/Tidal embed)
+- Inline song preview in the collect detail sheet (Tidal embed)
 - Verified badge next to email-verified nicknames in request lists and leaderboard
 - Tower v2 UI on `/join` and `/collect` with banner art, song detail panels, and vibes enrichment
 
 **DJ dashboard**
 - Accept, reject, and manage requests in real-time (SSE push updates)
 - Tabbed event detail with Song Management and Event Management views
-- Search Spotify, Beatport, and Tidal directly from the dashboard
-- Inline audio previews for Spotify and Tidal tracks
+- Search Beatport, and Tidal directly from the dashboard
+- Inline audio previews for Tidal tracks
 - Color-coded Camelot key badges and BPM proximity indicators for harmonic mixing
 - Single-active playing constraint (marking a new track auto-transitions the previous one)
 - Multi-service playlist sync to Tidal and Beatport with version-aware matching
@@ -93,37 +93,122 @@ A real-time song request system for DJs. Guests scan a QR code to submit request
 
 **Bridge (DJ equipment detection)**
 - Plugin system: Denon StageLinQ, Pioneer PRO DJ LINK, Serato DJ, Traktor Broadcast
-- Automatic request matching via fuzzy search, Spotify album art enrichment
+- Automatic request matching via fuzzy search, Tidal album art enrichment
 - Circuit breaker, reconnection with backoff, track buffer replay
 - Upstream dependency contract testing with weekly drift detection CI
 - Desktop app (Windows/macOS/Linux) or CLI
 
 ---
 
+## WrzDJSet (Beta)
+
+**WrzDJSet** is an AI-assisted set planner built into the DJ dashboard. Instead of hand-building a
+setlist track by track, you gather candidate songs into a pool, let WrzDJ draft an energy-aware
+running order, then refine it conversationally with an AI agent before exporting to your DJ software.
+
+It is currently in **Beta**: the full plan-a-set loop (import → build → refine → export) is shipped
+and usable, while deeper integrations (local-library readers, more export targets, collaboration) are
+still on the roadmap.
+
+### How it works
+
+1. **Build a pool.** Pull candidate tracks from several sources — a live event's requests, your Tidal
+   or Beatport playlists, a public playlist URL, or manual search. Tracks are de-duplicated on import
+   (by ISRC, with an artist + title fuzzy fallback) and tagged by source, so you can drop a whole
+   source at once.
+2. **Draft the order (Pass 1).** A deterministic pass generates time-based slots for your target set
+   length and greedily orders the pool, scoring each transition on energy, BPM, Camelot-key
+   compatibility, transitional role, mood, and artist diversity — then runs a 2-opt refinement that
+   respects any slots you've locked and any track pairings you've saved.
+3. **Shape the energy curve.** Apply a built-in or saved energy-curve template (with slow-window
+   markers for breaks); every slot gets a target energy the builder mixes toward.
+4. **Refine with the AI agent (Pass 2).** The set is auto-critiqued — graded, with flags such as
+   energy dips, vibe clashes, era jumps, or a banger buried too early — and you can chat with an agent
+   to reshape it ("make the first 20 minutes warmer", "lock slot 5", "swap these two"). The agent
+   works through a fixed, auditable toolkit of reorder / swap / lock / insert / curve actions, each
+   requiring a rationale, with full undo/redo and autosave.
+5. **Export.** Send the finished set to Rekordbox XML, Engine DJ, Lexicon, M3U, or plaintext — or push
+   it straight to a Tidal playlist. A preflight check flags any unresolved tracks first.
+
+### Track vibes & community consensus
+
+Tracks carry "vibe" metadata — energy (0–10), mood, era, sing-along and dance-floor signals, and a
+transitional role — which drives the transition scoring. Vibes resolve in three tiers: your own
+overrides first, then community consensus (aggregated from other DJs' tweaks once there is enough
+agreement), then an AI-generated baseline. You can upvote or adjust any vibe, which feeds the shared
+consensus.
+
+### AI & privacy
+
+All AI calls route through WrzDJ's **LLM Gateway** connector system — there is no hard-coded model
+provider in the set builder. Each DJ's calls use their configured connector (or an org default), and
+usage is logged for auditing. See `ARCHITECTURE.md` and `docs/LLM-PLUGIN.md` for the gateway contract.
+
+### Sharing
+
+Any set can be shared as a read-only link (a revocable capability token) and duplicated as a starting
+point for the next night.
+
+### Beta limitations (on the roadmap)
+
+- Reading from **local DJ libraries** (Rekordbox / Serato / Engine DJ on disk) and streaming local
+  files through the Bridge
+- Writing to **Serato crates / Engine DJ databases** and to **Spotify / Apple Music** playlists
+- Reusable **set templates**, real-time **collaboration** (invite co-editors), and **taste-profile**
+  training from your vibe history
+- Structural "autobuild" agent tools (e.g. fill-to-duration, move-range)
+- No hard caps on AI usage yet — per-DJ usage is audited, but cost guardrails are not surfaced to you
+
+WrzDJSet lives under `server/app/services/setbuilder/` (backend) and `dashboard/app/(dj)/setbuilder/`
+(frontend).
+
+---
+
 ## Architecture
 
+**App & data plane** — guests and the DJ share one Next.js frontend. Guest actions pass through the
+Cloudflare **Turnstile** human-verification gate; DJs/admins authenticate with a JWT instead. The
+backend fans out to music/metadata services, and the highlighted **Bridge Service** is the seam into
+the equipment plane shown below.
+
+```mermaid
+graph TD
+    Guests[Guests] -->|scan QR| Frontend["Next.js Frontend<br/>guest pages + DJ dashboard"]
+    DJ[DJ] -->|dashboard| Frontend
+    Frontend <-->|guest requests| Turnstile["Cloudflare Turnstile<br/>human-verification gate"]
+    Turnstile <--> Backend[FastAPI Backend]
+    Frontend -.->|DJ / admin: JWT bearer| Backend
+    Backend --> DB[(PostgreSQL)]
+    Backend <-->|HTTP, API key auth| Bridge["Bridge Service<br/>plugin system → see below"]
+    Backend --> APIs
+
+    subgraph APIs["Music & metadata APIs"]
+        direction TB
+        Spotify["Spotify — search"] ~~~ Beatport["Beatport — sync + search"] ~~~ Soundcharts["Soundcharts — discovery + BPM/key"]
+        Tidal["Tidal — sync + search + album art"] ~~~ MusicBrainz["MusicBrainz — genre + verification"]
+    end
+
+    style Bridge fill:#7c3aed,stroke:#a78bfa,color:#ffffff
+    style Turnstile fill:#f6821f,stroke:#ffb366,color:#ffffff
 ```
-[Guests]                     [DJ]
-   |                           |
-   | scan QR                   | dashboard
-   v                           v
-[Next.js Frontend] <------> [FastAPI Backend] <--- [PostgreSQL]
-                               |          |
-                     +---------+----------+---------+
-                     |         |          |         |          |
-                  [Spotify] [Tidal]  [Beatport]  [MusicBrainz] [Soundcharts]
-                  (search)  (sync +   (sync +    (genre +       (discovery +
-                            search)   search)    verification)   BPM/key)
-                               ^
-                               | HTTP (API key auth)
-                               |
-                        [Bridge Service]
-                          (plugin system)
-                      /       |        |        \
-            StageLinQ   PRO DJ LINK  Session    Icecast
-              (LAN)      (Ethernet)   (file)    (local)
-                |             |          |          |
-          [Denon CDJs]  [Pioneer CDJs] [Serato]  [Traktor Pro]
+
+**Equipment plane** — the Bridge Service runs the DJ-equipment plugins. The highlighted **FastAPI
+Backend** is the same seam from the diagram above (it pushes now-playing data over HTTP).
+
+```mermaid
+graph TD
+    Backend["FastAPI Backend<br/>see above"] <-->|HTTP, API key auth| Bridge["Bridge Service<br/>plugin system"]
+    Bridge --> StageLinQ["StageLinQ<br/>LAN"]
+    Bridge --> ProDJLink["PRO DJ LINK<br/>Ethernet"]
+    Bridge --> Session["Session<br/>file"]
+    Bridge --> Icecast["Icecast<br/>local"]
+
+    StageLinQ --> Denon[Denon CDJs]
+    ProDJLink --> Pioneer[Pioneer CDJs]
+    Session --> Serato[Serato]
+    Icecast --> Traktor[Traktor Pro]
+
+    style Backend fill:#7c3aed,stroke:#a78bfa,color:#ffffff
 ```
 
 | Service | Stack | Directory |
@@ -161,7 +246,7 @@ A real-time song request system for DJs. Guests scan a QR code to submit request
 git clone https://github.com/thewrz/WrzDJ.git
 cd WrzDJ
 cp .env.example .env
-# Edit .env with your Spotify credentials, JWT secret, etc.
+# Edit .env with your Spotify/Tidal API keys, JWT secret, etc.
 ```
 
 ### 2. Start the database

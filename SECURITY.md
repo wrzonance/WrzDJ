@@ -40,6 +40,62 @@ covers the baseline (secrets, prompt-injection, dependency CVE/license policy).
   f-strings.
 - Never use `eval()`, `exec()`, or dynamic code execution on user-supplied data.
 
+## Authentication & Authorization
+
+WrzDJ uses **no third-party auth framework** (no FastAPI-Users, Authlib, or NextAuth). Auth is
+hand-rolled on vetted primitives, with **three distinct trust models** for three actors:
+
+```mermaid
+graph TD
+    subgraph djflow["DJ / Admin — JWT (PyJWT HS256)"]
+        direction TB
+        DJ[DJ / Admin] -->|username + password| Login["POST /api/auth/login"]
+        Login -->|bcrypt verify, timing-safe| Users[(users table)]
+        Login -->|sign HS256| JWT["JWT access token"]
+        JWT -->|Authorization: Bearer| DJEP["DJ / admin endpoints<br/>get_current_user → active → admin"]
+    end
+
+    subgraph guestflow["Guest — Turnstile + signed cookie"]
+        direction TB
+        Guest[Guest] -->|solve challenge| TS["Cloudflare Turnstile"]
+        Guest -->|"POST /api/guest/verify-human<br/>(turnstile_token)"| Verify["verify_turnstile_token"]
+        Verify -->|siteverify| TS
+        Verify -->|HMAC sign| Cookie["wrzdj_human cookie<br/>tied to wrzdj_guest · 60-min sliding"]
+        Cookie -->|require_verified_human_soft| GuestEP["guest write endpoints<br/>requests · votes · collect"]
+    end
+
+    subgraph bridgeflow["Bridge — shared API key"]
+        direction TB
+        BR[Bridge Service] -->|X-Bridge-API-Key| BAuth["verify_bridge_api_key<br/>secrets.compare_digest"]
+        BAuth --> BridgeEP["/api/bridge/* endpoints"]
+    end
+
+    DJEP ~~~ Guest
+    GuestEP ~~~ BR
+
+    style JWT fill:#7c3aed,stroke:#a78bfa,color:#ffffff
+    style Cookie fill:#7c3aed,stroke:#a78bfa,color:#ffffff
+    style TS fill:#f6821f,stroke:#ffb366,color:#ffffff
+```
+
+- **DJ / admin — JWT.** `services/auth.py` signs an HS256 token with **PyJWT** (`JWT_SECRET`); the
+  frontend sends it as `Authorization: Bearer` (FastAPI `OAuth2PasswordBearer`). `decode_token` pins
+  `algorithms=["HS256"]` — blocks the `alg=none` / algorithm-confusion forgery class. Authorization
+  layers via DI: `get_current_user` → `get_current_active_user` (rejects pending) →
+  `get_current_admin`; last-admin protection guards demote/delete/deactivate.
+- **Passwords** are bcrypt-hashed directly (no `passlib`), never `EncryptedText` (see *Sensitive Data
+  at Rest*). `authenticate_user` runs a dummy bcrypt check on the user-not-found path to equalize
+  timing — no username enumeration.
+- **Guest — Cloudflare Turnstile + signed cookie.** No password, no JWT: a Turnstile challenge gates
+  issuance of the HMAC-signed `wrzdj_human` cookie (tied to `wrzdj_guest`). Full rollout/enforcement
+  detail in *Guest / Human Verification* below.
+- **Bridge — shared API key.** `core/bridge_auth.py` checks the `X-Bridge-API-Key` header with
+  `secrets.compare_digest` (constant-time). A request is rejected outright when no key is configured —
+  never allowed through.
+- **Why bespoke:** one library can't cleanly serve a symmetric-JWT human, a CAPTCHA-gated anonymous
+  guest, and a trusted machine peer. **PyJWT** (not python-jose) and **direct bcrypt** (not passlib)
+  are deliberate CVE/maintenance choices — see *Dependency CVE Vigilance*.
+
 ## Guest / Human Verification
 
 - Public guest endpoints (`/join`, `/collect` flows: event_search, submit_request, public

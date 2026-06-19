@@ -4,10 +4,17 @@ import { test, expect } from '@playwright/test';
 const USERNAME = process.env.SCREENSHOT_USERNAME || 'admin';
 const PASSWORD = process.env.SCREENSHOT_PASSWORD || 'admin123';
 const API_PORT = process.env.SCREENSHOT_API_PORT || '8443';
+// SCREENSHOT_EVENT_CODE targets a specific event by its collection code; otherwise the
+// pre-seeded DEMO01 (then a throwaway event) is used. SCREENSHOT_FRICTIONLESS=1 tells the
+// guest tests the event skips the nickname gate (auto-named guests).
+const EVENT_CODE = process.env.SCREENSHOT_EVENT_CODE || '';
+const FRICTIONLESS = process.env.SCREENSHOT_FRICTIONLESS === '1';
 const SCREENSHOTS_DIR = path.resolve(__dirname, '../../docs/images');
 
 let jwt = '';
-let eventCode = '';
+// Collection code drives DJ/collect surfaces; join code drives guest /join + kiosk /display.
+let collectionCode = '';
+let joinCode = '';
 
 test.beforeAll(async ({ playwright }, testInfo) => {
   const base = testInfo.project.use.baseURL || 'https://app.local';
@@ -30,23 +37,31 @@ test.beforeAll(async ({ playwright }, testInfo) => {
   const loginData = await loginRes.json();
   jwt = loginData.access_token;
 
-  // Use the pre-seeded "demo" event (server/scripts/seed_demo_event.py) so screenshots
-  // show realistic data: 4 enriched requests (BPM/key/genre) + 1 upvoted by a guest.
-  // Falls back to creating a fresh event if the seed hasn't been run.
-  const seedRes = await api.get('/api/events/DEMO01', {
-    headers: { Authorization: `Bearer ${jwt}` },
-  });
-  if (seedRes.ok()) {
-    eventCode = 'DEMO01';
-  } else {
+  // Resolve the event to screenshot. Prefer SCREENSHOT_EVENT_CODE, then the pre-seeded
+  // DEMO01 (server/scripts/seed_demo_event.py), then a throwaway event. Capture BOTH codes:
+  // the collection code (DJ dashboard + /collect) and the join code (/join + kiosk /display).
+  async function loadEvent(code: string) {
+    const res = await api.get(`/api/events/${code}`, {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    if (!res.ok()) return null;
+    const e = await res.json();
+    return { collection: e.code as string, join: e.join_code as string };
+  }
+
+  let resolved = EVENT_CODE ? await loadEvent(EVENT_CODE) : null;
+  if (!resolved) resolved = await loadEvent('DEMO01');
+  if (!resolved) {
     const createRes = await api.post('/api/events', {
       headers: { Authorization: `Bearer ${jwt}` },
       data: { name: 'demo' },
     });
     expect(createRes.ok()).toBeTruthy();
     const created = await createRes.json();
-    eventCode = created.code;
+    resolved = { collection: created.code, join: created.join_code };
   }
+  collectionCode = resolved.collection;
+  joinCode = resolved.join;
 
   await api.dispose();
 });
@@ -105,7 +120,7 @@ test.describe('Authenticated pages', () => {
 
   test('Event Management — Song Tab', async ({ page }) => {
     await setupAuth(page);
-    await page.goto(`/events/${eventCode}`);
+    await page.goto(`/events/${collectionCode}`);
     await waitForPage(page);
     await ensureCleanUI(page);
     await capture(page, 'screenshot-event-management');
@@ -113,7 +128,7 @@ test.describe('Authenticated pages', () => {
 
   test('Event Management — Manage Tab', async ({ page }) => {
     await setupAuth(page);
-    await page.goto(`/events/${eventCode}`);
+    await page.goto(`/events/${collectionCode}`);
     await waitForPage(page);
     await ensureCleanUI(page);
     await page.click('.event-tab:has-text("Event Management")');
@@ -182,13 +197,14 @@ async function newGuestContext(browser: import('@playwright/test').Browser, base
 
 test.describe('Public pages', () => {
   test('Guest Join — gate (mobile)', async ({ browser }) => {
+    test.skip(FRICTIONLESS, 'Frictionless join has no nickname gate to capture.');
     // No cookie — captures the unauthenticated NicknameGate.
     const ctx = await browser.newContext({
       viewport: { width: 430, height: 844 },
       ignoreHTTPSErrors: true,
     });
     const page = await ctx.newPage();
-    await page.goto(`/join/${eventCode}`);
+    await page.goto(`/join/${joinCode}`);
     await waitForPage(page);
     await capture(page, 'screenshot-join-gate-mobile');
     await ctx.close();
@@ -196,28 +212,46 @@ test.describe('Public pages', () => {
 
   test('Guest Join — Tower (mobile)', async ({ browser }, testInfo) => {
     const baseURL = testInfo.project.use.baseURL || 'https://app.local';
-    const ctx = await newGuestContext(browser, baseURL);
+    // Frictionless events auto-name the guest on load (no gate, no cookie needed);
+    // otherwise drop the seed's demo guest cookie to bypass the NicknameGate.
+    const ctx = FRICTIONLESS
+      ? await browser.newContext({ viewport: { width: 430, height: 844 }, ignoreHTTPSErrors: true })
+      : await newGuestContext(browser, baseURL);
     const page = await ctx.newPage();
-    await page.goto(`/join/${eventCode}`);
+    await page.goto(`/join/${joinCode}`);
     await waitForPage(page);
     await page.waitForTimeout(700);
+    // Frictionless auto-opens the "Request a song" sheet for guests with no requests yet;
+    // close it so the live queue (Tower) is what we capture.
+    const closeBtn = page.locator('button[aria-label="Close"]').first();
+    if ((await closeBtn.count()) > 0) {
+      await closeBtn.click().catch(() => {});
+      await page.waitForTimeout(400);
+    }
     await capture(page, 'screenshot-join-mobile');
 
-    // Open song detail sheet — first request row.
+    // Open song detail sheet — first request row (best-effort: the live SSE list can
+    // re-render under the cursor, so don't fail the run if the click can't settle).
     const firstRow = page.locator('.gst-tower-row').first();
     if ((await firstRow.count()) > 0) {
-      await firstRow.click();
-      await page.waitForTimeout(500);
-      await capture(page, 'screenshot-join-detail-mobile');
+      try {
+        await firstRow.click({ timeout: 4000 });
+        await page.waitForTimeout(500);
+        await capture(page, 'screenshot-join-detail-mobile');
+      } catch {
+        /* detail sheet is optional */
+      }
     }
     await ctx.close();
   });
 
   test('Guest Collect — Tower (mobile)', async ({ browser }, testInfo) => {
     const baseURL = testInfo.project.use.baseURL || 'https://app.local';
-    const ctx = await newGuestContext(browser, baseURL);
+    const ctx = FRICTIONLESS
+      ? await browser.newContext({ viewport: { width: 430, height: 844 }, ignoreHTTPSErrors: true })
+      : await newGuestContext(browser, baseURL);
     const page = await ctx.newPage();
-    await page.goto(`/collect/${eventCode}`);
+    await page.goto(`/collect/${collectionCode}`);
     await waitForPage(page);
     await page.waitForTimeout(700);
     await capture(page, 'screenshot-collect-mobile');
@@ -237,7 +271,7 @@ test.describe('Public pages', () => {
       ignoreHTTPSErrors: true,
     });
     const page = await ctx.newPage();
-    await page.goto(`/e/${eventCode}/display`);
+    await page.goto(`/e/${joinCode}/display`);
     await waitForPage(page);
     await capture(page, 'screenshot-kiosk', { fullPage: false });
     await ctx.close();

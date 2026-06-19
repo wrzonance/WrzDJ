@@ -82,11 +82,11 @@ def handle_now_playing_update(
     """Handle a new track from the bridge.
 
     Flow:
-    1. Archive previous track to play_history (if exists)
-    2. Transition matched request from "playing" -> "played"
-    3. Upsert now_playing with new track
-    4. Spotify album art lookup
-    5. Fuzzy match against accepted requests -> set to "playing"
+    1. Resolve fuzzy match + album art (read-only / external) BEFORE staging writes
+    2. Archive previous track to play_history (if exists)
+    3. Transition previously-playing requests "playing" -> "played"
+    4. Upsert now_playing with the new track + resolved art
+    5. Link the fuzzy-matched request -> "playing"
     """
     from app.services.now_playing import (
         archive_to_history,
@@ -94,12 +94,39 @@ def handle_now_playing_update(
         get_event_by_code_for_bridge,
         get_now_playing,
         lookup_spotify_album_art,
+        lookup_tidal_album_art,
     )
 
     event = get_event_by_code_for_bridge(db, event_code)
     if not event:
         logger.warning(f"Event not found for code: {event_code}")
         return None
+
+    # Resolve the match and album art BEFORE staging any DB writes.
+    # lookup_tidal_album_art can refresh the owner's Tidal OAuth token, which
+    # commits the session; doing it here — while nothing of ours is staged —
+    # keeps that refresh from prematurely committing this handler's bridge
+    # mutations, which are committed together at the end.
+    matched_request = fuzzy_match_pending_request(db, event.id, title, artist)
+
+    # Album-art precedence: the matched request's already-resolved art (guest
+    # search is Tidal-primary) -> a fresh Tidal lookup via the owner's session ->
+    # Spotify as a last resort. Spotify is no longer primary: its app-level search
+    # 403s when the owner account lacks Premium, which silently blanked now-playing
+    # art while Tidal-backed queue art kept working.
+    album_art_url: str | None = None
+    spotify_track_id: str | None = None
+    spotify_uri: str | None = None
+    if matched_request and matched_request.artwork_url:
+        album_art_url = matched_request.artwork_url
+    else:
+        album_art_url = lookup_tidal_album_art(db, event.created_by, title, artist)
+        if not album_art_url:
+            spotify_data = lookup_spotify_album_art(title, artist)
+            if spotify_data:
+                spotify_track_id = spotify_data["spotify_track_id"]
+                album_art_url = spotify_data["album_art_url"]
+                spotify_uri = spotify_data["spotify_uri"]
 
     # Step 1: Archive previous track if exists
     existing = get_now_playing(db, event.id)
@@ -121,7 +148,7 @@ def handle_now_playing_update(
         req.updated_at = _utcnow()
         logger.info(f"Marked request {req.id} as played (bridge override)")
 
-    # Step 3: Upsert now_playing
+    # Step 3: Upsert now_playing with the resolved art/IDs
     if existing:
         existing.title = title
         existing.artist = artist
@@ -129,9 +156,9 @@ def handle_now_playing_update(
         existing.deck = deck
         existing.source = source or "bridge"
         existing.started_at = _utcnow()
-        existing.spotify_track_id = None
-        existing.album_art_url = None
-        existing.spotify_uri = None
+        existing.spotify_track_id = spotify_track_id
+        existing.album_art_url = album_art_url
+        existing.spotify_uri = spotify_uri
         existing.matched_request_id = None
         now_playing = existing
     else:
@@ -143,18 +170,13 @@ def handle_now_playing_update(
             deck=deck,
             source=source or "bridge",
             started_at=_utcnow(),
+            spotify_track_id=spotify_track_id,
+            album_art_url=album_art_url,
+            spotify_uri=spotify_uri,
         )
         db.add(now_playing)
 
-    # Step 4: Spotify album art lookup
-    spotify_data = lookup_spotify_album_art(title, artist)
-    if spotify_data:
-        now_playing.spotify_track_id = spotify_data["spotify_track_id"]
-        now_playing.album_art_url = spotify_data["album_art_url"]
-        now_playing.spotify_uri = spotify_data["spotify_uri"]
-
-    # Step 5: Fuzzy match against new/accepted requests
-    matched_request = fuzzy_match_pending_request(db, event.id, title, artist)
+    # Step 4: Link the fuzzy-matched request as now playing
     if matched_request:
         matched_request.status = RequestStatus.PLAYING.value
         matched_request.updated_at = _utcnow()

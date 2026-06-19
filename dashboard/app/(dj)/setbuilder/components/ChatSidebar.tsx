@@ -2,6 +2,7 @@
 
 import ChatPanelBody, { PersonaToggle } from './ChatPanelBody';
 import { useAgentChat } from './useAgentChat';
+import type { BuilderCommit } from './useSetDocumentHistory';
 import styles from '../setbuilder.module.css';
 
 /**
@@ -15,14 +16,16 @@ export default function ChatSidebar({
   onToggle,
   refreshToken = 0,
   onMutationApplied,
+  commit,
 }: {
   setId: number;
   open: boolean;
   onToggle: () => void;
   refreshToken?: number;
   onMutationApplied: () => void;
+  commit?: BuilderCommit;
 }) {
-  const chat = useAgentChat(setId, { open, refreshToken, onMutationApplied });
+  const chat = useAgentChat(setId, { open, refreshToken, onMutationApplied, commit });
 
   if (!open) {
     return (

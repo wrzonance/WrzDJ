@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import ChatPanelBody, { PersonaToggle } from './ChatPanelBody';
 import { useAgentChat } from './useAgentChat';
+import type { BuilderCommit } from './useSetDocumentHistory';
 import styles from '../setbuilder.module.css';
 
 /**
@@ -16,16 +17,18 @@ export default function MobileAgentOverlay({
   setId,
   refreshToken = 0,
   onMutationApplied,
+  commit,
 }: {
   setId: number;
   refreshToken?: number;
   onMutationApplied: () => void;
+  commit?: BuilderCommit;
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const wasOpenRef = useRef(false);
-  const chat = useAgentChat(setId, { open, refreshToken, onMutationApplied });
+  const chat = useAgentChat(setId, { open, refreshToken, onMutationApplied, commit });
   const grade = chat.critique?.overall_grade;
 
   // Dialog focus lifecycle: move focus into the overlay on open, close on Escape,

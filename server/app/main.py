@@ -173,7 +173,7 @@ def create_app(*, lifespan_context=lifespan) -> FastAPI:
             allow_origins=origins,
             allow_credentials=True,
             allow_methods=CORS_ALLOW_METHODS,
-            allow_headers=["Authorization", "Content-Type", "X-Kiosk-Session"],
+            allow_headers=["Authorization", "Content-Type", "X-Kiosk-Session", "X-Pair-Nonce"],
             expose_headers=["Content-Disposition"],
         )
 

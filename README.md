@@ -153,7 +153,7 @@ A real-time song request system for DJs. Guests scan a QR code to submit request
 - Docker + Docker Compose
 - Python 3.11+
 - Node.js 22+
-- [Spotify Developer Account](https://developer.spotify.com/dashboard) (for song search)
+- [Tidal Developer Account](https://developer.tidal.com/) (for song search and album art enrichment)
 
 ### 1. Clone and configure
 

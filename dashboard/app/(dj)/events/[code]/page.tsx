@@ -1,15 +1,15 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '@/lib/auth';
-import { api, ApiError, Event, ArchivedEvent, SongRequest, PlayHistoryItem, TidalStatus, TidalSearchResult, BeatportStatus, CollectionSettingsResponse } from '@/lib/api';
+import { api, ApiError, Event, ArchivedEvent, SongRequest, PlayHistoryItem, TidalStatus, TidalSearchResult, BeatportStatus, CollectionSettingsResponse, PUBLIC_PAGE_MAX } from '@/lib/api';
 import { useEventStream } from '@/lib/use-event-stream';
 import { usePollingLoop } from '@/lib/usePollingLoop';
-import type { BeatportSearchResult, NowPlayingInfo } from '@/lib/api-types';
-import type { SortMode } from '@/lib/priority-score';
+import type { BeatportSearchResult, NowPlayingInfo, RequestSort, SortDirection } from '@/lib/api-types';
+import { SORT_FIELD_DEFAULT_DIRECTION, isRequestSort, migrateLegacySort } from '@/lib/request-sort';
 import { useHelp } from '@/lib/help/HelpContext';
 import { HelpSpot } from '@/components/help/HelpSpot';
 import { HelpButton } from '@/components/help/HelpButton';
@@ -22,6 +22,7 @@ import { TidalLoginModal } from './components/TidalLoginModal';
 import { BeatportLoginModal } from './components/BeatportLoginModal';
 import { ServiceTrackPickerModal } from './components/ServiceTrackPickerModal';
 import { RequestQueueSection } from './components/RequestQueueSection';
+import type { StatusFilter } from './components/types';
 import { PlayHistorySection } from './components/PlayHistorySection';
 import { SongManagementTab } from './components/SongManagementTab';
 import { EventManagementTab } from './components/EventManagementTab';
@@ -33,6 +34,35 @@ function toLocalDateTimeString(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+/** Coerce the server's open `status_counts` dict into the strict per-tab shape,
+ *  defaulting any absent status to 0 (issue #478). The backend always returns
+ *  all six keys, but this keeps the type honest at the boundary. */
+function normalizeStatusCounts(
+  counts: Record<string, number> | null | undefined,
+): Record<StatusFilter, number> {
+  const c = counts ?? {};
+  return {
+    all: c.all ?? 0,
+    new: c.new ?? 0,
+    accepted: c.accepted ?? 0,
+    playing: c.playing ?? 0,
+    played: c.played ?? 0,
+    rejected: c.rejected ?? 0,
+  };
+}
+
+/** Read the persisted sort field for an event, falling back to the legacy
+ *  toggle then the default. Returns a valid {@link RequestSort}. */
+function readStoredSortField(code: string): RequestSort {
+  try {
+    const storedField = localStorage.getItem(`wrzdj-sortfield-${code}`);
+    if (storedField && isRequestSort(storedField)) return storedField;
+    return migrateLegacySort(localStorage.getItem(`wrzdj-sort-${code}`));
+  } catch {
+    return migrateLegacySort(null);
+  }
+}
+
 export default function EventQueuePage() {
   const { isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
@@ -41,6 +71,18 @@ export default function EventQueuePage() {
 
   const [event, setEvent] = useState<Event | ArchivedEvent | null>(null);
   const [requests, setRequests] = useState<SongRequest[]>([]);
+  // Growing-window pagination (issue #478): every refresh re-fetches
+  // [0, displayLimit) so live vote/status changes never drift the offset.
+  const INITIAL_DISPLAY_LIMIT = 100;
+  const [displayLimit, setDisplayLimit] = useState(INITIAL_DISPLAY_LIMIT);
+  const [requestTotal, setRequestTotal] = useState(0);
+  // Status filtering is server-side (issue #478): the active filter is lifted
+  // here so the 5s poll AND manual reloads fetch with it, and the tab counts
+  // come from the server's true per-status totals (not the loaded window).
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [statusCounts, setStatusCounts] = useState<Record<StatusFilter, number>>({
+    all: 0, new: 0, accepted: 0, playing: 0, played: 0, rejected: 0,
+  });
   const [playHistory, setPlayHistory] = useState<PlayHistoryItem[]>([]);
   const [playHistoryTotal, setPlayHistoryTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -136,28 +178,97 @@ export default function EventQueuePage() {
     }
   });
 
-  // Sort mode (persisted in localStorage per event)
-  const [sortMode, setSortMode] = useState<SortMode>(() => {
+  // Sort field + direction (persisted in localStorage per event, issue #478).
+  // Migrates the legacy single `wrzdj-sort-${code}` toggle: 'priority' →
+  // best_match, anything else → date_requested.
+  const [sortField, setSortField] = useState<RequestSort>(() => readStoredSortField(code));
+  const [sortDirection, setSortDirection] = useState<SortDirection>(() => {
     try {
-      const stored = localStorage.getItem(`wrzdj-sort-${code}`);
-      return stored === 'priority' ? 'priority' : 'chronological';
+      const storedDir = localStorage.getItem(`wrzdj-sortdir-${code}`);
+      if (storedDir === 'asc' || storedDir === 'desc') return storedDir;
     } catch {
-      return 'chronological';
+      // localStorage unavailable
     }
+    return SORT_FIELD_DEFAULT_DIRECTION[readStoredSortField(code)];
   });
 
-  const handleSortModeChange = useCallback((mode: SortMode) => {
-    setSortMode(mode);
+  // Changing the field snaps direction to that field's default (a separate
+  // toggle then flips it). Persist both for next session.
+  const handleSortFieldChange = useCallback((field: RequestSort) => {
+    const direction = SORT_FIELD_DEFAULT_DIRECTION[field];
+    setSortField(field);
+    setSortDirection(direction);
     try {
-      localStorage.setItem(`wrzdj-sort-${code}`, mode);
+      localStorage.setItem(`wrzdj-sortfield-${code}`, field);
+      localStorage.setItem(`wrzdj-sortdir-${code}`, direction);
     } catch {
       // localStorage unavailable
     }
   }, [code]);
 
-  // Ref so loadData/callbacks always use current sort mode
-  const sortModeRef = useRef(sortMode);
-  sortModeRef.current = sortMode;
+  const handleSortDirectionToggle = useCallback(() => {
+    setSortDirection((prev) => {
+      const next: SortDirection = prev === 'asc' ? 'desc' : 'asc';
+      try {
+        localStorage.setItem(`wrzdj-sortdir-${code}`, next);
+      } catch {
+        // localStorage unavailable
+      }
+      return next;
+    });
+  }, [code]);
+
+  // Refs so polling/SSE/mutation callbacks always read the current values.
+  const sortFieldRef = useRef(sortField);
+  sortFieldRef.current = sortField;
+  const sortDirectionRef = useRef(sortDirection);
+  sortDirectionRef.current = sortDirection;
+  const displayLimitRef = useRef(displayLimit);
+  displayLimitRef.current = displayLimit;
+  const statusFilterRef = useRef(statusFilter);
+  statusFilterRef.current = statusFilter;
+
+  // Map the tab filter to the API's `status` param: 'all' → undefined.
+  const filterToStatus = (filter: StatusFilter): string | undefined =>
+    filter === 'all' ? undefined : filter;
+
+  // Single growing-window fetch: always [0, displayLimit) with the current sort
+  // field/direction AND active status filter so the server returns a complete,
+  // honestly-totaled page (issue #478). Reads refs so polling/SSE/mutation
+  // callbacks pick up current values; callers may pass an explicit status to
+  // override the active filter (e.g. right after toggling it).
+  const reloadRequests = useCallback(
+    async (status?: string): Promise<SongRequest[]> => {
+      const resp = await api.getRequests(code, {
+        status: status ?? filterToStatus(statusFilterRef.current),
+        sort: sortFieldRef.current,
+        direction: sortDirectionRef.current,
+        limit: displayLimitRef.current,
+        offset: 0,
+      });
+      setRequests(resp.requests);
+      setRequestTotal(resp.total);
+      setStatusCounts(normalizeStatusCounts(resp.status_counts));
+      return resp.requests;
+    },
+    [code],
+  );
+
+  // Switching status tabs re-fetches server-side at offset 0 (issue #478),
+  // resetting the growing window so the new filter's total is honest. We pass
+  // the new status explicitly because the ref hasn't flushed this render yet.
+  const handleFilterChange = useCallback(
+    (filter: StatusFilter) => {
+      setStatusFilter(filter);
+      statusFilterRef.current = filter;
+      setDisplayLimit(INITIAL_DISPLAY_LIMIT);
+      displayLimitRef.current = INITIAL_DISPLAY_LIMIT;
+      void reloadRequests(filterToStatus(filter)).catch(() =>
+        setActionError('Failed to refresh requests'),
+      );
+    },
+    [reloadRequests],
+  );
 
   const toggleCompactMode = useCallback(() => {
     setCompactMode((prev) => {
@@ -180,12 +291,10 @@ export default function EventQueuePage() {
   // Beatport login modal state
   const [showBeatportLogin, setShowBeatportLogin] = useState(false);
 
-  // Tab title badge: show "(N) Event - WrzDJ" when backgrounded
-  const newRequestCount = useMemo(
-    () => requests.filter((r) => r.status === 'new').length,
-    [requests]
-  );
-  useTabTitle(event?.name ?? null, newRequestCount);
+  // Tab title badge: show "(N) Event - WrzDJ" when backgrounded. Uses the true
+  // server-side new count so it stays correct when a non-'new' filter is active
+  // (the loaded `requests` window no longer contains every new row, issue #478).
+  useTabTitle(event?.name ?? null, statusCounts.new);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -253,7 +362,13 @@ export default function EventQueuePage() {
     try {
       const [eventData, requestsData, historyData, displaySettings, tidalStatusData, beatportStatusData, nowPlayingData, bridgeStatusData] = await Promise.all([
         api.getEvent(code),
-        api.getRequests(code, { sort: sortModeRef.current }),
+        api.getRequests(code, {
+          status: filterToStatus(statusFilterRef.current),
+          sort: sortFieldRef.current,
+          direction: sortDirectionRef.current,
+          limit: displayLimitRef.current,
+          offset: 0,
+        }),
         api.getPlayHistory(code).catch((): undefined => undefined),
         api.getDisplaySettings(code).catch(() => ({ now_playing_hidden: false, now_playing_auto_hide_minutes: 10, requests_open: true, kiosk_display_only: false })),
         api.getTidalStatus().catch(() => ({ linked: false, user_id: null, expires_at: null, integration_enabled: true })),
@@ -262,7 +377,9 @@ export default function EventQueuePage() {
         api.getBridgeStatus(code).catch(() => ({ connected: false, device_name: null, last_seen: null, circuit_breaker_state: null, buffer_size: null, plugin_id: null, deck_count: null, uptime_seconds: null })),
       ]);
       setEvent(eventData);
-      setRequests(requestsData);
+      setRequests(requestsData.requests);
+      setRequestTotal(requestsData.total);
+      setStatusCounts(normalizeStatusCounts(requestsData.status_counts));
       if (historyData !== undefined) {
         setPlayHistory(historyData.items);
         setPlayHistoryTotal(historyData.total);
@@ -301,12 +418,20 @@ export default function EventQueuePage() {
         try {
           const [archivedEvents, requestsData] = await Promise.all([
             api.getArchivedEvents(),
-            api.getRequests(code, { sort: sortModeRef.current }), // Still works for owners
+            api.getRequests(code, {
+              status: filterToStatus(statusFilterRef.current),
+              sort: sortFieldRef.current,
+              direction: sortDirectionRef.current,
+              limit: displayLimitRef.current,
+              offset: 0,
+            }), // Still works for owners
           ]);
           const archivedEvent = archivedEvents.find((e) => e.code === code);
           if (archivedEvent) {
             setEvent(archivedEvent);
-            setRequests(requestsData);
+            setRequests(requestsData.requests);
+            setRequestTotal(requestsData.total);
+            setStatusCounts(normalizeStatusCounts(requestsData.status_counts));
             setEventStatus(archivedEvent.status);
             setError(null);
             return false; // Stop polling - event is expired
@@ -336,6 +461,20 @@ export default function EventQueuePage() {
 
   // Poll every 5 seconds unless stopped (SSE handles real-time updates).
   usePollingLoop(isAuthenticated, loadData, 5_000);
+
+  // Immediate re-fetch when the sort field/direction changes (issue #478, Bug 3)
+  // — otherwise the new order only appears on the next 5s poll. Skip the first
+  // render so we don't double-fetch alongside the initial load.
+  const sortChangeMountRef = useRef(true);
+  useEffect(() => {
+    if (sortChangeMountRef.current) {
+      sortChangeMountRef.current = false;
+      return;
+    }
+    setDisplayLimit(INITIAL_DISPLAY_LIMIT);
+    displayLimitRef.current = INITIAL_DISPLAY_LIMIT;
+    void reloadRequests().catch(() => setActionError('Failed to refresh requests'));
+  }, [sortField, sortDirection, reloadRequests]);
 
   // SSE: trigger immediate refresh on real-time events (new requests, bridge updates)
   const loadDataRef = useRef(loadData);
@@ -374,8 +513,7 @@ export default function EventQueuePage() {
     setAcceptingAll(true);
     try {
       await api.acceptAllRequests(code);
-      const updatedRequests = await api.getRequests(code, { sort: sortModeRef.current });
-      setRequests(updatedRequests);
+      await reloadRequests();
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Failed to accept all requests');
     } finally {
@@ -566,8 +704,7 @@ export default function EventQueuePage() {
         )
       );
       // Refresh to get updated sync_results_json from server
-      const updatedRequests = await api.getRequests(code, { sort: sortModeRef.current });
-      setRequests(updatedRequests);
+      await reloadRequests();
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Failed to sync to Tidal');
     } finally {
@@ -601,8 +738,7 @@ export default function EventQueuePage() {
     setLinkingTrack(true);
     try {
       await api.linkTidalTrack(requestId, tidalTrackId);
-      const updatedRequests = await api.getRequests(code, { sort: sortModeRef.current });
-      setRequests(updatedRequests);
+      await reloadRequests();
       setShowTidalPicker(null);
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Failed to link Tidal track');
@@ -638,8 +774,7 @@ export default function EventQueuePage() {
     try {
       await api.linkBeatportTrack(requestId, beatportTrackId);
       // Reload requests to get updated sync_results_json
-      const updatedRequests = await api.getRequests(code, { sort: sortModeRef.current });
-      setRequests(updatedRequests);
+      await reloadRequests();
       setShowBeatportPicker(null);
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Failed to link Beatport track');
@@ -766,8 +901,7 @@ export default function EventQueuePage() {
     setRejectingAll(true);
     try {
       await api.rejectAllRequests(code);
-      const updatedRequests = await api.getRequests(code, { sort: sortModeRef.current });
-      setRequests(updatedRequests);
+      await reloadRequests();
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Failed to reject all requests');
     } finally {
@@ -778,8 +912,7 @@ export default function EventQueuePage() {
   const handleBulkDelete = async (status?: string) => {
     try {
       await api.bulkDeleteRequests(code, status);
-      const updatedRequests = await api.getRequests(code, { sort: sortModeRef.current });
-      setRequests(updatedRequests);
+      await reloadRequests();
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Failed to bulk delete requests');
     }
@@ -802,14 +935,22 @@ export default function EventQueuePage() {
       },
     );
     // Refresh request list
-    const updatedRequests = await api.getRequests(code, { sort: sortModeRef.current });
-    setRequests(updatedRequests);
+    await reloadRequests();
   };
 
   const handleRefreshRequests = useCallback(async () => {
-    const updatedRequests = await api.getRequests(code, { sort: sortModeRef.current });
-    setRequests(updatedRequests);
-  }, [code]);
+    await reloadRequests();
+  }, [reloadRequests]);
+
+  // Grow the window by a page and re-fetch. When a status filter is active the
+  // caller passes it so `total` stays honest per-filter (issue #478).
+  const handleLoadMore = useCallback(async (status?: string) => {
+    const next = Math.min(displayLimitRef.current + 100, PUBLIC_PAGE_MAX);
+    if (next === displayLimitRef.current) return;
+    displayLimitRef.current = next;
+    setDisplayLimit(next);
+    await reloadRequests(status);
+  }, [reloadRequests]);
 
   if (isLoading || !isAuthenticated) {
     return (
@@ -994,8 +1135,15 @@ export default function EventQueuePage() {
             onSyncToTidal={handleSyncToTidal}
             onOpenTidalPicker={handleOpenTidalPicker}
             onScrollToSyncReport={handleScrollToSyncReport}
-            sortMode={sortMode}
-            onSortModeChange={handleSortModeChange}
+            sortField={sortField}
+            sortDirection={sortDirection}
+            onSortFieldChange={handleSortFieldChange}
+            onSortDirectionToggle={handleSortDirectionToggle}
+            total={requestTotal}
+            onLoadMore={handleLoadMore}
+            filter={statusFilter}
+            onFilterChange={handleFilterChange}
+            statusCounts={statusCounts}
           />
           <PlayHistorySection
             items={playHistory}
@@ -1072,8 +1220,15 @@ export default function EventQueuePage() {
               rejectingAll={rejectingAll}
               deletingRequest={deletingRequest}
               refreshingRequest={refreshingRequest}
-              sortMode={sortMode}
-              onSortModeChange={handleSortModeChange}
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSortFieldChange={handleSortFieldChange}
+              onSortDirectionToggle={handleSortDirectionToggle}
+              total={requestTotal}
+              onLoadMore={handleLoadMore}
+              filter={statusFilter}
+              onFilterChange={handleFilterChange}
+              statusCounts={statusCounts}
             />
           </div>
 

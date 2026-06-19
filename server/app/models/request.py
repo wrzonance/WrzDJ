@@ -47,6 +47,11 @@ class Request(Base):
     status: Mapped[str] = mapped_column(String(20), default=RequestStatus.NEW.value, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    # First moment this request entered ACCEPTED. Backs the DJ "date accepted"
+    # sort (issue #478): a historical fact preserved through later status changes,
+    # unlike updated_at which moves on every metadata refresh/play. NULL until the
+    # request is first accepted.
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     guest_id: Mapped[int | None] = mapped_column(
         ForeignKey("guests.id", ondelete="SET NULL"), nullable=True, index=True
     )

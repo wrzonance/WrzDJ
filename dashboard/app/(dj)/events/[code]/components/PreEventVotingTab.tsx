@@ -1,8 +1,19 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
-import { apiClient, PendingReviewRow } from '@/lib/api';
+import { apiClient, PendingReviewRow, PUBLIC_PAGE_MAX } from '@/lib/api';
+import type { SortDirection } from '@/lib/api-types';
+import {
+  PENDING_REVIEW_DEFAULT_DIRECTION,
+  PENDING_REVIEW_SORT_FIELDS,
+  REVIEW_ORDER,
+  toPendingReviewParams,
+  type PendingReviewSort,
+} from '@/lib/pending-review-sort';
+
+/** First page size; the growing window grows by this on each "Load More". */
+const PAGE_SIZE = 100;
 
 interface EventShape {
   code: string;
@@ -82,6 +93,11 @@ export default function PreEventVotingTab({
   onEventChange,
 }: Props) {
   const [pending, setPending] = useState<PendingReviewRow[]>([]);
+  const [pendingTotal, setPendingTotal] = useState(0);
+  const [displayLimit, setDisplayLimit] = useState(PAGE_SIZE);
+  const [sortField, setSortField] = useState<PendingReviewSort>(REVIEW_ORDER);
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [loadingMore, setLoadingMore] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [confirming, setConfirming] = useState<ConfirmAction | null>(null);
   const [topN, setTopN] = useState(20);
@@ -102,14 +118,66 @@ export default function PreEventVotingTab({
   const [syncResult, setSyncResult] = useState<{ queued: number } | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
 
+  // Re-fetch whenever the event, sort, or direction changes — each resets the
+  // growing window back to the first page. "Load More" drives its own fetch
+  // (loadMore) so its loading state stays meaningful. The effect intentionally
+  // re-runs only on the inputs below, mirroring the original code.code effect.
+  // Drops stale in-flight pending-review responses so an older fetch can't
+  // overwrite newer rows when sort/page change in quick succession.
+  const pendingFetchSeqRef = useRef(0);
+
   useEffect(() => {
-    refresh();
+    setDisplayLimit(PAGE_SIZE);
+    void fetchPage(PAGE_SIZE);
+  }, [event.code, sortField, sortDirection]);
 
-  }, [event.code]);
+  // Fetch the pending-review window from offset=0 up to `limit`. Every refresh
+  // re-fetches the whole current window so sort/paging stay consistent. Returns
+  // false (and skips state updates) on failure or when superseded by a newer
+  // fetch, so callers can fire-and-forget without unhandled rejections.
+  async function fetchPage(limit: number): Promise<boolean> {
+    const seq = ++pendingFetchSeqRef.current;
+    try {
+      const resp = await apiClient.getPendingReview(event.code, {
+        ...toPendingReviewParams(sortField, sortDirection),
+        limit,
+        offset: 0,
+      });
+      if (seq !== pendingFetchSeqRef.current) return false;
+      setPending(resp.requests);
+      setPendingTotal(resp.total);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 
-  async function refresh() {
-    const resp = await apiClient.getPendingReview(event.code);
-    setPending(resp.requests);
+  /** Re-fetch the current window (used after bulk actions). */
+  function refresh() {
+    return fetchPage(displayLimit);
+  }
+
+  function handleSortFieldChange(next: PendingReviewSort) {
+    setSortField(next);
+    // Snap direction to the field's natural default; Review order has none.
+    if (next !== REVIEW_ORDER) {
+      setSortDirection(PENDING_REVIEW_DEFAULT_DIRECTION[next]);
+    }
+  }
+
+  function handleSortDirectionToggle() {
+    setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'));
+  }
+
+  async function loadMore() {
+    const next = Math.min(displayLimit + PAGE_SIZE, PUBLIC_PAGE_MAX);
+    setLoadingMore(true);
+    try {
+      await fetchPage(next);
+      setDisplayLimit(next);
+    } finally {
+      setLoadingMore(false);
+    }
   }
 
   async function applyOverride(value: 'force_collection' | 'force_live' | null) {
@@ -256,7 +324,7 @@ export default function PreEventVotingTab({
         </div>
         <div className="pre-event-stat">
           <div className="pre-event-stat-label">Pending review</div>
-          <div className="pre-event-stat-value">{pending.length}</div>
+          <div className="pre-event-stat-value">{pendingTotal}</div>
         </div>
         <div className="pre-event-stat">
           <div className="pre-event-stat-label">Pick cap / guest</div>
@@ -433,8 +501,50 @@ export default function PreEventVotingTab({
 
       <div className="card">
         <h3 style={{ marginBottom: '0.75rem', fontSize: '1rem' }}>
-          Pending review ({pending.length})
+          Pending review ({pendingTotal})
         </h3>
+
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.375rem',
+            marginBottom: '0.75rem',
+          }}
+        >
+          <label
+            htmlFor="pending-sort-field"
+            style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}
+          >
+            Sort
+          </label>
+          <select
+            id="pending-sort-field"
+            className="input"
+            aria-label="Sort pending review by"
+            value={sortField}
+            onChange={(e) => handleSortFieldChange(e.target.value as PendingReviewSort)}
+            style={{ width: 'auto', padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+          >
+            {PENDING_REVIEW_SORT_FIELDS.map((f) => (
+              <option key={f.value} value={f.value}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+          {sortField !== REVIEW_ORDER && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={{ background: 'var(--surface-raised)', fontSize: '0.75rem', minWidth: '2rem' }}
+              onClick={handleSortDirectionToggle}
+              aria-label={`Sort direction: ${sortDirection === 'asc' ? 'ascending' : 'descending'}`}
+              title={sortDirection === 'asc' ? 'Ascending' : 'Descending'}
+            >
+              {sortDirection === 'asc' ? '↑' : '↓'}
+            </button>
+          )}
+        </div>
 
         <div className="pre-event-review-controls">
           <label>
@@ -471,8 +581,9 @@ export default function PreEventVotingTab({
             type="button"
             className="btn btn-sm btn-danger"
             onClick={() => bulk('reject_remaining')}
+            title="Rejects every still-pending request server-side — not just the rows loaded below."
           >
-            Reject remaining
+            Reject all remaining
           </button>
         </div>
 
@@ -526,6 +637,32 @@ export default function PreEventVotingTab({
               ))}
             </tbody>
           </table>
+        )}
+
+        {pending.length > 0 && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+              marginTop: '0.75rem',
+            }}
+          >
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+              Showing {pending.length} of {pendingTotal}
+            </span>
+            {pending.length < pendingTotal && pending.length < PUBLIC_PAGE_MAX && (
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{ background: 'var(--surface-raised)' }}
+                disabled={loadingMore}
+                onClick={loadMore}
+              >
+                {loadingMore ? 'Loading…' : 'Load More'}
+              </button>
+            )}
+          </div>
         )}
 
         {selected.size > 0 && (

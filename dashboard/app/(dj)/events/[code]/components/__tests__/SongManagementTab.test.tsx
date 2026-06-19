@@ -60,8 +60,15 @@ const baseProps = {
   beatportLinked: false,
   onAcceptTrack: vi.fn(),
   onRefreshRequests: vi.fn(),
-  sortMode: 'chronological' as const,
-  onSortModeChange: vi.fn(),
+  sortField: 'date_requested' as const,
+  sortDirection: 'desc' as const,
+  onSortFieldChange: vi.fn(),
+  onSortDirectionToggle: vi.fn(),
+  total: 1,
+  onLoadMore: vi.fn(),
+  filter: 'all' as const,
+  onFilterChange: vi.fn(),
+  statusCounts: { all: 1, new: 0, accepted: 1, playing: 0, played: 0, rejected: 0 },
 };
 
 describe('SongManagementTab', () => {

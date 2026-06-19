@@ -1218,7 +1218,12 @@ export interface paths {
         };
         /**
          * Pending Review
-         * @description Get pending review data source for DJ bulk-review.
+         * @description Paginated pending-review source for DJ bulk-review (issue #478).
+         *
+         *     ``total`` is the true count of pending rows before pagination, so the
+         *     Pre-Event tab never shows a capped page length as the queue size. Default
+         *     ordering stays the vote-ranked review order; bulk actions still operate
+         *     server-side against the full filtered set, not the loaded page.
          */
         get: operations["pending_review_api_events__code__pending_review_get"];
         put?: never;
@@ -1316,7 +1321,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Event Requests */
+        /**
+         * Get Event Requests
+         * @description Paginated, sorted request list. Owner sees requests regardless of status.
+         *
+         *     ``total`` is computed before pagination so the dashboard shows a truthful
+         *     count rather than inferring it from the returned page length (issue #478).
+         */
         get: operations["get_event_requests_api_events__code__requests_get"];
         put?: never;
         /** Submit Request */
@@ -5291,6 +5302,8 @@ export interface components {
         KioskDisplayResponse: {
             /** Accepted Queue */
             accepted_queue: components["schemas"]["PublicRequestInfo"][];
+            /** Accepted Queue Total */
+            accepted_queue_total: number;
             /** Banner Colors */
             banner_colors: string[] | null;
             /** Banner Kiosk Url */
@@ -5622,8 +5635,14 @@ export interface components {
         };
         /** PendingReviewResponse */
         PendingReviewResponse: {
+            direction: components["schemas"]["SortDirection"] | null;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
             /** Requests */
             requests: components["schemas"]["PendingReviewRow"][];
+            sort: components["schemas"]["RequestSort"] | null;
             /** Total */
             total: number;
         };
@@ -6154,8 +6173,33 @@ export interface components {
              */
             new_email: string;
         };
+        /**
+         * RequestListResponse
+         * @description Paginated DJ request list.
+         *
+         *     ``total`` is the true row count before pagination, so the dashboard never
+         *     infers the count from the returned page length (the #411 failure mode).
+         */
+        RequestListResponse: {
+            direction: components["schemas"]["SortDirection"];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Requests */
+            requests: components["schemas"]["RequestOut"][];
+            sort: components["schemas"]["RequestSort"];
+            /** Status Counts */
+            status_counts: {
+                [key: string]: number;
+            };
+            /** Total */
+            total: number;
+        };
         /** RequestOut */
         RequestOut: {
+            /** Accepted At */
+            accepted_at: string | null;
             /** Artist */
             artist: string;
             /** Artwork Url */
@@ -6203,6 +6247,12 @@ export interface components {
              */
             vote_count: number;
         };
+        /**
+         * RequestSort
+         * @description DJ-facing sort fields for the request list (issue #478).
+         * @enum {string}
+         */
+        RequestSort: "date_requested" | "date_accepted" | "upvotes" | "bpm" | "key" | "title" | "artist" | "best_match";
         /**
          * RequestSource
          * @enum {string}
@@ -6709,6 +6759,11 @@ export interface components {
             /** Target Energy */
             target_energy?: number | null;
         };
+        /**
+         * SortDirection
+         * @enum {string}
+         */
+        SortDirection: "asc" | "desc";
         /** StatusMessageResponse */
         StatusMessageResponse: {
             /** Message */
@@ -9492,7 +9547,12 @@ export interface operations {
     };
     pending_review_api_events__code__pending_review_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                offset?: number;
+                sort?: components["schemas"]["RequestSort"] | null;
+                direction?: components["schemas"]["SortDirection"] | null;
+            };
             header?: never;
             path: {
                 code: string;
@@ -9659,7 +9719,9 @@ export interface operations {
                 status?: components["schemas"]["RequestStatus"] | null;
                 since?: string | null;
                 limit?: number;
-                sort?: "chronological" | "priority";
+                offset?: number;
+                sort?: components["schemas"]["RequestSort"];
+                direction?: components["schemas"]["SortDirection"] | null;
             };
             header?: never;
             path: {
@@ -9675,7 +9737,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RequestOut"][];
+                    "application/json": components["schemas"]["RequestListResponse"];
                 };
             };
             /** @description Validation Error */
@@ -11032,7 +11094,10 @@ export interface operations {
     };
     get_kiosk_display_api_public_events__code__display_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
             header?: never;
             path: {
                 code: string;

@@ -179,7 +179,7 @@ vi.mock('@/lib/api', () => ({
 }));
 
 import { api, ApiError } from '@/lib/api';
-import type { SongRequest } from '@/lib/api';
+import type { SongRequest, RequestListResponse } from '@/lib/api';
 import EventQueuePage from '../page';
 
 function mockEvent(overrides = {}) {
@@ -205,15 +205,32 @@ function mockRequest(overrides: Partial<SongRequest> = {}): SongRequest {
     id: 1, event_id: 1, song_title: 'Strobe', artist: 'deadmau5',
     source: 'spotify', source_url: null, artwork_url: null, note: null, nickname: null,
     status: 'new', created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z', is_duplicate: false, raw_search_query: null,
+    updated_at: '2026-01-01T00:00:00Z', accepted_at: null, is_duplicate: false, raw_search_query: null,
     sync_results_json: null, genre: null, bpm: null, musical_key: null,
     vote_count: 0, priority_score: null, ...overrides,
   };
 }
 
+/** Wrap request rows in the #478 paginated envelope returned by getRequests. */
+function mockRequestList(
+  requests: SongRequest[] = [],
+  overrides: Partial<RequestListResponse> = {},
+): RequestListResponse {
+  return {
+    requests,
+    total: requests.length,
+    limit: 100,
+    offset: 0,
+    sort: 'date_requested',
+    direction: 'desc',
+    status_counts: { all: requests.length, new: 0, accepted: 0, playing: 0, played: 0, rejected: 0 },
+    ...overrides,
+  };
+}
+
 function setupDefaultMocks() {
   vi.mocked(api.getEvent).mockResolvedValue(mockEvent());
-  vi.mocked(api.getRequests).mockResolvedValue([]);
+  vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([]));
   vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
   vi.mocked(api.getDisplaySettings).mockResolvedValue({
     status: 'ok', now_playing_hidden: false, now_playing_auto_hide_minutes: 10,
@@ -358,7 +375,7 @@ describe('EventQueuePage', () => {
 
     it('shows expired state on 410 with archived data', async () => {
       vi.mocked(api.getEvent).mockRejectedValue(new ApiError('Expired', 410));
-      vi.mocked(api.getRequests).mockResolvedValue([mockRequest()]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
       vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
       vi.mocked(api.getDisplaySettings).mockResolvedValue({
         status: 'ok', now_playing_hidden: false, now_playing_auto_hide_minutes: 10,
@@ -385,7 +402,7 @@ describe('EventQueuePage', () => {
 
     it('shows error card on 410 without archived match', async () => {
       vi.mocked(api.getEvent).mockRejectedValue(new ApiError('Expired', 410));
-      vi.mocked(api.getRequests).mockResolvedValue([]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([]));
       vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
       vi.mocked(api.getDisplaySettings).mockResolvedValue({
         status: 'ok', now_playing_hidden: false, now_playing_auto_hide_minutes: 10,
@@ -427,7 +444,7 @@ describe('EventQueuePage', () => {
     it('stops on 404', async () => {
       vi.useFakeTimers();
       vi.mocked(api.getEvent).mockRejectedValue(new ApiError('Not found', 404));
-      vi.mocked(api.getRequests).mockResolvedValue([]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([]));
       vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
       vi.mocked(api.getDisplaySettings).mockResolvedValue({
         status: 'ok', now_playing_hidden: false, now_playing_auto_hide_minutes: 10,
@@ -529,7 +546,7 @@ describe('EventQueuePage', () => {
     it('auto-dismisses after 5s', async () => {
       vi.useFakeTimers();
       setupDefaultMocks();
-      vi.mocked(api.getRequests).mockResolvedValue([mockRequest()]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
       vi.mocked(api.updateRequestStatus).mockRejectedValue(new ApiError('Status error', 400));
 
       render(<EventQueuePage />);
@@ -559,7 +576,7 @@ describe('EventQueuePage', () => {
 
     it('calls updateRequestStatus via handler', async () => {
       setupDefaultMocks();
-      vi.mocked(api.getRequests).mockResolvedValue([mockRequest()]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
       vi.mocked(api.updateRequestStatus).mockResolvedValue(mockRequest({ status: 'accepted' }));
 
       render(<EventQueuePage />);
@@ -573,7 +590,7 @@ describe('EventQueuePage', () => {
 
     it('shows error on status update failure', async () => {
       setupDefaultMocks();
-      vi.mocked(api.getRequests).mockResolvedValue([mockRequest()]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
       vi.mocked(api.updateRequestStatus).mockRejectedValue(new ApiError('Invalid transition', 400));
 
       render(<EventQueuePage />);
@@ -590,7 +607,7 @@ describe('EventQueuePage', () => {
     it('calls acceptAllRequests', async () => {
       setupDefaultMocks();
       vi.mocked(api.acceptAllRequests).mockResolvedValue({ status: 'ok', accepted_count: 1 });
-      vi.mocked(api.getRequests).mockResolvedValue([mockRequest({ status: 'accepted' })]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest({ status: 'accepted' })]));
 
       render(<EventQueuePage />);
       await screen.findByText('Test Event');
@@ -715,7 +732,7 @@ describe('EventQueuePage', () => {
       vi.mocked(api.getArchivedEvents).mockResolvedValue([{
         ...mockEvent(), status: 'expired' as const, request_count: 1, archived_at: null,
       }]);
-      vi.mocked(api.getRequests).mockResolvedValue([mockRequest()]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
       vi.mocked(api.exportEventCsv).mockResolvedValue(undefined);
 
       render(<EventQueuePage />);
@@ -949,7 +966,7 @@ describe('EventQueuePage', () => {
       vi.mocked(api.getArchivedEvents).mockResolvedValue([{
         ...mockEvent(), status: 'expired' as const, request_count: 0, archived_at: null,
       }]);
-      vi.mocked(api.getRequests).mockResolvedValue([]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([]));
       vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
       vi.mocked(api.getDisplaySettings).mockResolvedValue({
         status: 'ok', now_playing_hidden: false, now_playing_auto_hide_minutes: 10,
@@ -980,7 +997,7 @@ describe('EventQueuePage', () => {
       vi.mocked(api.getArchivedEvents).mockResolvedValue([{
         ...mockEvent(), status: 'expired' as const, request_count: 1, archived_at: null,
       }]);
-      vi.mocked(api.getRequests).mockResolvedValue([mockRequest()]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
       vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
       vi.mocked(api.getDisplaySettings).mockResolvedValue({
         status: 'ok', now_playing_hidden: false, now_playing_auto_hide_minutes: 10,
@@ -1008,7 +1025,7 @@ describe('EventQueuePage', () => {
       vi.mocked(api.getArchivedEvents).mockResolvedValue([{
         ...mockEvent(), status: 'expired' as const, request_count: 0, archived_at: null,
       }]);
-      vi.mocked(api.getRequests).mockResolvedValue([]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([]));
       vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
       vi.mocked(api.getDisplaySettings).mockResolvedValue({
         status: 'ok', now_playing_hidden: false, now_playing_auto_hide_minutes: 10,
@@ -1032,7 +1049,7 @@ describe('EventQueuePage', () => {
   describe('Delete request', () => {
     it('calls deleteRequest via handler', async () => {
       setupDefaultMocks();
-      vi.mocked(api.getRequests).mockResolvedValue([mockRequest()]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
       vi.mocked(api.deleteRequest).mockResolvedValue(undefined);
 
       render(<EventQueuePage />);
@@ -1048,7 +1065,7 @@ describe('EventQueuePage', () => {
   describe('Refresh metadata', () => {
     it('calls refreshRequestMetadata via handler', async () => {
       setupDefaultMocks();
-      vi.mocked(api.getRequests).mockResolvedValue([mockRequest()]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
       vi.mocked(api.refreshRequestMetadata).mockResolvedValue(
         mockRequest({ genre: 'Electronic', bpm: 128 }),
       );
@@ -1067,7 +1084,7 @@ describe('EventQueuePage', () => {
     it('calls rejectAllRequests via handler', async () => {
       setupDefaultMocks();
       vi.mocked(api.rejectAllRequests).mockResolvedValue({ status: 'ok', count: 0 });
-      vi.mocked(api.getRequests).mockResolvedValue([]);
+      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([]));
 
       render(<EventQueuePage />);
       await screen.findByText('Test Event');
@@ -1088,6 +1105,105 @@ describe('EventQueuePage', () => {
 
       const backLink = screen.getByText(/Back to Dashboard/);
       expect(backLink.closest('a')).toHaveAttribute('href', '/dashboard');
+    });
+  });
+
+  describe('Server-side status filter + status counts (issue #478, Bugs 1 & 2)', () => {
+    it('passes server status_counts through to SongTab', async () => {
+      setupDefaultMocks();
+      vi.mocked(api.getRequests).mockResolvedValue(
+        mockRequestList([mockRequest()], {
+          status_counts: { all: 120, new: 80, accepted: 25, playing: 2, played: 10, rejected: 3 },
+        }),
+      );
+
+      render(<EventQueuePage />);
+      await screen.findByText('Test Event');
+
+      expect(capturedSongTabProps.statusCounts).toEqual({
+        all: 120, new: 80, accepted: 25, playing: 2, played: 10, rejected: 3,
+      });
+    });
+
+    it('refetches with the chosen status server-side when the filter changes', async () => {
+      setupDefaultMocks();
+
+      render(<EventQueuePage />);
+      await screen.findByText('Test Event');
+      vi.mocked(api.getRequests).mockClear();
+
+      const onFilterChange = capturedSongTabProps.onFilterChange as (f: string) => void;
+      await act(async () => { onFilterChange('accepted'); });
+
+      // First fetch after a filter change must carry status: 'accepted', offset 0.
+      expect(api.getRequests).toHaveBeenCalledWith(
+        'TEST',
+        expect.objectContaining({ status: 'accepted', offset: 0 }),
+      );
+    });
+
+    it("omits status (undefined) when the filter is 'all'", async () => {
+      setupDefaultMocks();
+
+      render(<EventQueuePage />);
+      await screen.findByText('Test Event');
+
+      const onFilterChange = capturedSongTabProps.onFilterChange as (f: string) => void;
+      // Move off 'all' then back to 'all'.
+      await act(async () => { onFilterChange('accepted'); });
+      vi.mocked(api.getRequests).mockClear();
+      await act(async () => { onFilterChange('all'); });
+
+      expect(api.getRequests).toHaveBeenCalledWith(
+        'TEST',
+        expect.objectContaining({ status: undefined, offset: 0 }),
+      );
+    });
+  });
+
+  describe('Immediate reload on sort change (issue #478, Bug 3)', () => {
+    it('refetches immediately when the sort field changes (not waiting for poll)', async () => {
+      setupDefaultMocks();
+
+      render(<EventQueuePage />);
+      await screen.findByText('Test Event');
+      vi.mocked(api.getRequests).mockClear();
+
+      const onSortFieldChange = capturedSongTabProps.onSortFieldChange as (f: string) => void;
+      await act(async () => { onSortFieldChange('upvotes'); });
+
+      expect(api.getRequests).toHaveBeenCalledWith(
+        'TEST',
+        expect.objectContaining({ sort: 'upvotes', offset: 0 }),
+      );
+    });
+
+    it('refetches immediately when the sort direction toggles', async () => {
+      setupDefaultMocks();
+
+      render(<EventQueuePage />);
+      await screen.findByText('Test Event');
+      vi.mocked(api.getRequests).mockClear();
+
+      const onSortDirectionToggle = capturedSongTabProps.onSortDirectionToggle as () => void;
+      await act(async () => { onSortDirectionToggle(); });
+
+      // Default field date_requested defaults desc → toggling yields asc.
+      expect(api.getRequests).toHaveBeenCalledWith(
+        'TEST',
+        expect.objectContaining({ direction: 'asc', offset: 0 }),
+      );
+    });
+
+    it('does not double-fetch on the initial mount (effect skips first render)', async () => {
+      vi.useFakeTimers();
+      setupDefaultMocks();
+
+      render(<EventQueuePage />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+      // Exactly one initial load — the sort-change effect must skip mount.
+      expect(api.getRequests).toHaveBeenCalledTimes(1);
     });
   });
 });

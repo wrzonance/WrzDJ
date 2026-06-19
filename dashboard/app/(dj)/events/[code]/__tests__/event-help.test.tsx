@@ -71,7 +71,10 @@ vi.mock('@/lib/api', () => ({
       expires_at: '2026-12-31T00:00:00Z', is_active: true,
       tidal_sync_enabled: false, beatport_sync_enabled: false,
     }),
-    getRequests: vi.fn().mockResolvedValue([]),
+    getRequests: vi.fn().mockResolvedValue({
+      requests: [], total: 0, limit: 100, offset: 0, sort: 'date_requested', direction: 'desc',
+      status_counts: { all: 0, new: 0, accepted: 0, playing: 0, played: 0, rejected: 0 },
+    }),
     getPlayHistory: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     getDisplaySettings: vi.fn().mockResolvedValue({
       now_playing_hidden: false, now_playing_auto_hide_minutes: 10,

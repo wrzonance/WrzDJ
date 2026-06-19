@@ -12,7 +12,9 @@ import { getRequestEmphasisStyle } from '@/lib/request-emphasis';
 import { safeExternalUrl } from '@/lib/safe-url';
 import { getVoteHeatStyle } from '@/lib/vote-heat';
 import { formatPriorityScore, getPriorityScoreColor } from '@/lib/priority-score';
-import type { SortMode } from '@/lib/priority-score';
+import { PUBLIC_PAGE_MAX } from '@/lib/api';
+import { SORT_FIELDS } from '@/lib/request-sort';
+import type { RequestSort, SortDirection } from '@/lib/api-types';
 
 interface RequestQueueSectionProps {
   requests: SongRequest[];
@@ -35,8 +37,20 @@ interface RequestQueueSectionProps {
   rejectingAll?: boolean;
   deletingRequest?: number | null;
   refreshingRequest?: number | null;
-  sortMode: SortMode;
-  onSortModeChange: (mode: SortMode) => void;
+  // Sort + growing-window pagination (issue #478). The server sorts
+  // authoritatively by field+direction and filters by status; this component is
+  // fully controlled — `requests` is the server-filtered page rendered as-is.
+  sortField: RequestSort;
+  sortDirection: SortDirection;
+  onSortFieldChange: (field: RequestSort) => void;
+  onSortDirectionToggle: () => void;
+  total: number;
+  onLoadMore: (status?: string) => Promise<void>;
+  // Active status filter (lifted to the page so the poll re-fetches with it) and
+  // true per-status totals for the tabs (independent of the loaded window).
+  filter: StatusFilter;
+  onFilterChange: (filter: StatusFilter) => void;
+  statusCounts: Record<StatusFilter, number>;
 }
 
 export function RequestQueueSection({
@@ -60,23 +74,21 @@ export function RequestQueueSection({
   rejectingAll,
   deletingRequest,
   refreshingRequest,
-  sortMode,
-  onSortModeChange,
+  sortField,
+  sortDirection,
+  onSortFieldChange,
+  onSortDirectionToggle,
+  total,
+  onLoadMore,
+  filter,
+  onFilterChange,
+  statusCounts,
 }: RequestQueueSectionProps) {
-  const [filter, setFilter] = useState<StatusFilter>('all');
   const [advancedMode, setAdvancedMode] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
   const [refreshingAll, setRefreshingAll] = useState(false);
   const [enrichingAll, setEnrichingAll] = useState(false);
-
-  const statusCounts = useMemo(() => {
-    const counts = { all: requests.length, new: 0, accepted: 0, playing: 0, played: 0, rejected: 0 };
-    for (const r of requests) {
-      const s = r.status as keyof typeof counts;
-      if (s in counts) counts[s]++;
-    }
-    return counts;
-  }, [requests]);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // Compute BPM context from the DJ's active set (accepted + playing)
   // so badges show proximity relative to the current musical direction
@@ -88,22 +100,12 @@ export function RequestQueueSection({
     return computeBpmContext(activeBpms);
   }, [requests]);
 
-  const filteredRequests = useMemo(() => {
-    const filtered = requests.filter((r) => (filter === 'all' ? true : r.status === filter));
-    // In priority mode, API returns pre-sorted results — preserve that order
-    if (sortMode === 'priority') return filtered;
-    if (filter === 'all') {
-      return [...filtered].sort((a, b) => {
-        const aBottom = a.status === 'played' ? 1 : 0;
-        const bBottom = b.status === 'played' ? 1 : 0;
-        return aBottom - bBottom;
-      });
-    }
-    return filtered;
-  }, [requests, filter, sortMode]);
-
+  // The server returns rows already sorted AND filtered by status (issue #478),
+  // so this component renders `requests` as-is — never reordering or filtering.
   const handleDeleteAll = async () => {
-    const count = filteredRequests.length;
+    // Bulk delete targets the whole server-side filtered set (true count), not
+    // just the loaded window. "all" deletes every status.
+    const count = filter === 'all' ? statusCounts.all : statusCounts[filter];
     if (count === 0) return;
     if (!window.confirm(`Delete all ${count} ${filter === 'all' ? '' : filter + ' '}request${count === 1 ? '' : 's'}? This cannot be undone.`)) return;
     setDeletingAll(true);
@@ -115,10 +117,10 @@ export function RequestQueueSection({
   };
 
   const handleRefreshAll = async () => {
-    if (filteredRequests.length === 0) return;
+    if (requests.length === 0) return;
     setRefreshingAll(true);
     try {
-      const ids = filteredRequests.map((r) => r.id);
+      const ids = requests.map((r) => r.id);
       for (const id of ids) {
         await onRefreshMetadata?.(id);
       }
@@ -135,23 +137,46 @@ export function RequestQueueSection({
             <button
               key={status}
               className={`tab ${filter === status ? 'active' : ''}`}
-              onClick={() => setFilter(status)}
+              onClick={() => onFilterChange(status)}
             >
               {status.charAt(0).toUpperCase() + status.slice(1)} ({statusCounts[status]})
             </button>
           ))}
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginLeft: 'auto' }}>
+          <label
+            htmlFor="request-sort-field"
+            style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}
+          >
+            Sort
+          </label>
+          <select
+            id="request-sort-field"
+            className="input"
+            aria-label="Sort requests by"
+            value={sortField}
+            onChange={(e) => onSortFieldChange(e.target.value as RequestSort)}
+            style={{ width: 'auto', padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+          >
+            {SORT_FIELDS.map((f) => (
+              <option key={f.value} value={f.value}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="btn btn-sm"
+            style={{ background: 'var(--surface-raised)', fontSize: '0.75rem', minWidth: '2rem' }}
+            onClick={onSortDirectionToggle}
+            aria-label={`Sort direction: ${sortDirection === 'asc' ? 'ascending' : 'descending'}`}
+            title={sortDirection === 'asc' ? 'Ascending' : 'Descending'}
+          >
+            {sortDirection === 'asc' ? '↑' : '↓'}
+          </button>
+        </div>
         {!isExpiredOrArchived && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginLeft: 'auto' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: sortMode === 'priority' ? 'var(--color-success)' : 'var(--text-secondary)', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={sortMode === 'priority'}
-                onChange={(e) => onSortModeChange(e.target.checked ? 'priority' : 'chronological')}
-                style={{ accentColor: 'var(--color-success)' }}
-              />
-              Best Match
-            </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
               <input
                 type="checkbox"
@@ -213,7 +238,7 @@ export function RequestQueueSection({
                   className="btn btn-sm"
                   style={{ background: 'var(--surface-raised)', fontSize: '0.7rem' }}
                   onClick={handleRefreshAll}
-                  disabled={refreshingAll || filteredRequests.length === 0}
+                  disabled={refreshingAll || requests.length === 0}
                 >
                   {refreshingAll ? 'Refreshing...' : 'Refresh All'}
                 </button>
@@ -221,7 +246,7 @@ export function RequestQueueSection({
                   className="btn btn-sm"
                   style={{ background: 'var(--color-danger-subtle)', fontSize: '0.7rem' }}
                   onClick={handleDeleteAll}
-                  disabled={deletingAll || filteredRequests.length === 0}
+                  disabled={deletingAll || (filter === 'all' ? statusCounts.all : statusCounts[filter]) === 0}
                 >
                   {deletingAll ? 'Deleting...' : 'Delete All'}
                 </button>
@@ -231,7 +256,7 @@ export function RequestQueueSection({
         )}
       </div>
 
-      {filteredRequests.length === 0 ? (
+      {requests.length === 0 ? (
         <div className="card" style={{ textAlign: 'center' }}>
           <p style={{ color: 'var(--text-secondary)' }}>
             {filter === 'all'
@@ -241,7 +266,7 @@ export function RequestQueueSection({
         </div>
       ) : (
         <div className="request-list scrollable-list" style={{ marginBottom: '1rem' }}>
-          {filteredRequests.map((request) => (
+          {requests.map((request) => (
             <div
               key={request.id}
               id={`request-${request.id}`}
@@ -350,7 +375,7 @@ export function RequestQueueSection({
                       {request.vote_count} {request.vote_count === 1 ? 'vote' : 'votes'}
                     </span>
                   )}
-                  {sortMode === 'priority' && request.priority_score != null && (
+                  {sortField === 'best_match' && request.priority_score != null && (
                     <Tooltip description="Combines votes, wait time, harmonic compatibility, and BPM energy match" delay={100}>
                       <span
                         style={{
@@ -461,6 +486,40 @@ export function RequestQueueSection({
           ))}
         </div>
       )}
+
+      {(() => {
+        // `requests` is the server's filtered page and `total` is that filter's
+        // true count, so "Showing X of Y" is honest per-filter. Hide once
+        // everything is loaded or we hit the cap.
+        const loaded = requests.length;
+        const hasMore = loaded < total && loaded < PUBLIC_PAGE_MAX;
+        if (loaded === 0) return null;
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+              Showing {loaded} of {total}
+            </span>
+            {hasMore && (
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{ background: 'var(--surface-raised)' }}
+                disabled={loadingMore}
+                onClick={async () => {
+                  setLoadingMore(true);
+                  try {
+                    await onLoadMore(filter === 'all' ? undefined : filter);
+                  } finally {
+                    setLoadingMore(false);
+                  }
+                }}
+              >
+                {loadingMore ? 'Loading…' : 'Load More'}
+              </button>
+            )}
+          </div>
+        );
+      })()}
     </>
   );
 }

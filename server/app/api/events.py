@@ -1,6 +1,5 @@
 import json
 from datetime import UTC, datetime
-from typing import Literal
 from urllib.parse import quote
 
 from fastapi import (
@@ -25,6 +24,7 @@ from app.api.deps import (
     require_verified_human_soft,
 )
 from app.core.config import get_settings
+from app.core.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.core.rate_limit import get_guest_id, limiter
 from app.models.event import Event
 from app.models.request import RequestStatus
@@ -53,12 +53,18 @@ from app.schemas.recommendation import (
     RecommendedTrack,
     TemplatePlaylistRequest,
 )
-from app.schemas.request import RequestCreate, RequestOut
+from app.schemas.request import (
+    RequestCreate,
+    RequestListResponse,
+    RequestOut,
+    RequestSort,
+    SortDirection,
+)
 from app.schemas.search import SearchResult
 from app.services.collect import (
     collection_settings_payload,
     execute_bulk_review,
-    get_pending_review_rows,
+    get_sorted_pending_review,
     update_collection_settings,
 )
 from app.services.event import (
@@ -94,6 +100,12 @@ from app.services.request import (
     create_request,
     get_requests_for_event,
     reject_all_new_requests,
+)
+from app.services.request_sort import (
+    DEFAULT_SORT_DIRECTION,
+    filtered_requests_query,
+    get_sorted_requests,
+    status_counts,
 )
 from app.services.sync.orchestrator import enrich_request_metadata, sync_requests_batch
 from app.services.sync.registry import get_connected_adapters
@@ -182,6 +194,7 @@ def _request_to_out(r) -> RequestOut:
         status=r.status,
         created_at=r.created_at,
         updated_at=r.updated_at,
+        accepted_at=r.accepted_at,
         raw_search_query=r.raw_search_query,
         sync_results_json=r.sync_results_json,
         vote_count=r.vote_count,
@@ -756,24 +769,74 @@ def bulk_delete_requests_endpoint(
     return BulkActionResponse(status="ok", count=count)
 
 
-@router.get("/{code}/requests", response_model=list[RequestOut])
+@router.get("/{code}/requests", response_model=RequestListResponse)
 @limiter.limit("60/minute")
 def get_event_requests(
     request: Request,
     status: RequestStatus | None = None,
     since: datetime | None = None,
-    limit: int = Query(default=100, ge=1, le=500),
-    sort: Literal["chronological", "priority"] = "chronological",
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+    sort: RequestSort = RequestSort.DATE_REQUESTED,
+    direction: SortDirection | None = None,
     event: Event = Depends(get_owned_event),
     db: Session = Depends(get_db),
-) -> list[RequestOut]:
-    # Owner can view requests regardless of event status
-    requests = get_requests_for_event(db, event, status, since, limit)
+) -> RequestListResponse:
+    """Paginated, sorted request list. Owner sees requests regardless of status.
 
-    if sort == "priority":
-        return _apply_priority_sort(requests, event, db)
+    ``total`` is computed before pagination so the dashboard shows a truthful
+    count rather than inferring it from the returned page length (issue #478).
+    """
+    resolved = direction or DEFAULT_SORT_DIRECTION[sort]
 
-    return [_request_to_out(r) for r in requests]
+    if sort == RequestSort.BEST_MATCH:
+        requests, total = _best_match_page(db, event, status, since, limit, offset, resolved)
+    else:
+        rows, total = get_sorted_requests(
+            db,
+            event,
+            status=status,
+            since=since,
+            sort=sort,
+            direction=resolved,
+            limit=limit,
+            offset=offset,
+        )
+        requests = [_request_to_out(r) for r in rows]
+
+    return RequestListResponse(
+        requests=requests,
+        total=total,
+        limit=limit,
+        offset=offset,
+        sort=sort,
+        direction=resolved,
+        status_counts=status_counts(db, event),
+    )
+
+
+def _best_match_page(
+    db: Session,
+    event: "Event",
+    status: RequestStatus | None,
+    since: datetime | None,
+    limit: int,
+    offset: int,
+    direction: SortDirection,
+) -> tuple[list[RequestOut], int]:
+    """Best Match (priority) sort with a true total, then paginate.
+
+    Priority scoring needs now-playing context and runs over the whole filtered
+    set, so we score everything, then slice the requested window. ``_apply_priority_sort``
+    ranks highest-score-first (desc); ``asc`` reverses it so the response's
+    ``direction`` metadata matches the order actually applied (issue #478).
+    """
+    base = filtered_requests_query(db, event, status, since)
+    total = base.count()
+    ordered = _apply_priority_sort(base.all(), event, db)
+    if direction == SortDirection.ASC:
+        ordered = list(reversed(ordered))
+    return ordered[offset : offset + limit], total
 
 
 def _apply_priority_sort(
@@ -1103,11 +1166,27 @@ def sync_collection_to_tidal(
 
 @router.get("/{code}/pending-review", response_model=PendingReviewResponse)
 def pending_review(
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+    sort: RequestSort | None = None,
+    direction: SortDirection | None = None,
     event: Event = Depends(get_event_for_dj_or_admin),
     db: Session = Depends(get_db),
 ):
-    """Get pending review data source for DJ bulk-review."""
-    rows = get_pending_review_rows(db, event.id)
+    """Paginated pending-review source for DJ bulk-review (issue #478).
+
+    ``total`` is the true count of pending rows before pagination, so the
+    Pre-Event tab never shows a capped page length as the queue size. Default
+    ordering stays the vote-ranked review order; bulk actions still operate
+    server-side against the full filtered set, not the loaded page.
+    """
+    # Resolve the direction up front so the response metadata reflects what was
+    # actually applied: when sort is omitted (default review order) there is no
+    # direction, even if the client passed one (issue #478).
+    resolved = (direction or DEFAULT_SORT_DIRECTION[sort]) if sort else None
+    rows, total = get_sorted_pending_review(
+        db, event.id, sort=sort, direction=resolved, limit=limit, offset=offset
+    )
     return PendingReviewResponse(
         requests=[
             PendingReviewRow(
@@ -1123,7 +1202,11 @@ def pending_review(
             )
             for r in rows
         ],
-        total=len(rows),
+        total=total,
+        limit=limit,
+        offset=offset,
+        sort=sort,
+        direction=resolved,
     )
 
 

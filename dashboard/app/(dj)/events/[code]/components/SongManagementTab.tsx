@@ -1,9 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import type { SongRequest, PlayHistoryItem, RecommendedTrack } from '@/lib/api-types';
-import type { SortMode } from '@/lib/priority-score';
+import type { SongRequest, PlayHistoryItem, RecommendedTrack, RequestSort, SortDirection } from '@/lib/api-types';
 import { RequestQueueSection } from './RequestQueueSection';
+import type { StatusFilter } from './types';
 import { SyncReportPanel } from './SyncReportPanel';
 import { PlayHistorySection } from './PlayHistorySection';
 import { RecommendationsCard } from './RecommendationsCard';
@@ -45,8 +45,15 @@ interface SongManagementTabProps {
   rejectingAll?: boolean;
   deletingRequest?: number | null;
   refreshingRequest?: number | null;
-  sortMode: SortMode;
-  onSortModeChange: (mode: SortMode) => void;
+  sortField: RequestSort;
+  sortDirection: SortDirection;
+  onSortFieldChange: (field: RequestSort) => void;
+  onSortDirectionToggle: () => void;
+  total: number;
+  onLoadMore: (status?: string) => Promise<void>;
+  filter: StatusFilter;
+  onFilterChange: (filter: StatusFilter) => void;
+  statusCounts: Record<StatusFilter, number>;
 }
 
 export function SongManagementTab(props: SongManagementTabProps) {
@@ -89,8 +96,15 @@ export function SongManagementTab(props: SongManagementTabProps) {
         rejectingAll={props.rejectingAll}
         deletingRequest={props.deletingRequest}
         refreshingRequest={props.refreshingRequest}
-        sortMode={props.sortMode}
-        onSortModeChange={props.onSortModeChange}
+        sortField={props.sortField}
+        sortDirection={props.sortDirection}
+        onSortFieldChange={props.onSortFieldChange}
+        onSortDirectionToggle={props.onSortDirectionToggle}
+        total={props.total}
+        onLoadMore={props.onLoadMore}
+        filter={props.filter}
+        onFilterChange={props.onFilterChange}
+        statusCounts={props.statusCounts}
       />
       </HelpSpot>
 

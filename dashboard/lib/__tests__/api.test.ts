@@ -1438,18 +1438,33 @@ describe('ApiClient', () => {
   // ========== Request Management ==========
 
   describe('getRequests', () => {
-    it('fetches all requests for an event', async () => {
+    // #478: the endpoint now returns a paginated envelope, not a bare array.
+    const envelope = (overrides: Record<string, unknown> = {}) => ({
+      requests: [],
+      total: 0,
+      limit: 100,
+      offset: 0,
+      sort: 'date_requested',
+      direction: 'desc',
+      ...overrides,
+    });
+
+    it('returns the paginated envelope for an event', async () => {
       api.setToken('test-token');
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => [
-          { id: 1, artist: 'A', song_title: 'S', status: 'new' },
-          { id: 2, artist: 'B', song_title: 'T', status: 'accepted' },
-        ],
+        json: async () => envelope({
+          requests: [
+            { id: 1, artist: 'A', song_title: 'S', status: 'new' },
+            { id: 2, artist: 'B', song_title: 'T', status: 'accepted' },
+          ],
+          total: 2,
+        }),
       });
 
-      const requests = await api.getRequests('ABC123');
-      expect(requests).toHaveLength(2);
+      const resp = await api.getRequests('ABC123');
+      expect(resp.requests).toHaveLength(2);
+      expect(resp.total).toBe(2);
 
       const [url] = mockFetch.mock.calls[0];
       expect(url).toContain('/api/events/ABC123/requests');
@@ -1458,10 +1473,7 @@ describe('ApiClient', () => {
 
     it('filters requests by status', async () => {
       api.setToken('test-token');
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => [{ id: 1, status: 'new' }],
-      });
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => envelope() });
 
       await api.getRequests('ABC123', { status: 'new' });
 
@@ -1469,30 +1481,128 @@ describe('ApiClient', () => {
       expect(url).toContain('status=new');
     });
 
-    it('appends sort parameter when specified', async () => {
+    it('appends sort + direction params when specified', async () => {
       api.setToken('test-token');
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => [{ id: 1, status: 'new', priority_score: 0.85 }],
-      });
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => envelope() });
 
-      await api.getRequests('ABC123', { sort: 'priority' });
+      await api.getRequests('ABC123', { sort: 'best_match', direction: 'desc' });
 
       const [url] = mockFetch.mock.calls[0];
-      expect(url).toContain('sort=priority');
+      expect(url).toContain('sort=best_match');
+      expect(url).toContain('direction=desc');
     });
 
-    it('omits sort parameter by default', async () => {
+    it('appends limit + offset params when specified', async () => {
       api.setToken('test-token');
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => [],
-      });
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => envelope() });
+
+      await api.getRequests('ABC123', { limit: 200, offset: 0 });
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('limit=200');
+      expect(url).toContain('offset=0');
+    });
+
+    it('sends offset=0 even though it is falsy (growing-window contract)', async () => {
+      api.setToken('test-token');
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => envelope() });
+
+      await api.getRequests('ABC123', { limit: 100, offset: 0 });
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('offset=0');
+    });
+
+    it('omits sort/direction/limit/offset by default', async () => {
+      api.setToken('test-token');
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => envelope() });
 
       await api.getRequests('ABC123');
 
       const [url] = mockFetch.mock.calls[0];
       expect(url).not.toContain('sort=');
+      expect(url).not.toContain('direction=');
+      expect(url).not.toContain('limit=');
+      expect(url).not.toContain('offset=');
+    });
+  });
+
+  describe('getPendingReview', () => {
+    // #478: pending-review now returns a paginated envelope, not a bare array.
+    const envelope = (overrides: Record<string, unknown> = {}) => ({
+      requests: [],
+      total: 0,
+      limit: 100,
+      offset: 0,
+      sort: null,
+      direction: null,
+      ...overrides,
+    });
+
+    it('returns the paginated envelope with the true total', async () => {
+      api.setToken('test-token');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () =>
+          envelope({
+            requests: [
+              {
+                id: 1,
+                song_title: 'S',
+                artist: 'A',
+                artwork_url: null,
+                vote_count: 5,
+                nickname: null,
+                created_at: '2026-04-21T12:00:00Z',
+                note: null,
+                status: 'new',
+              },
+            ],
+            total: 250,
+          }),
+      });
+
+      const resp = await api.getPendingReview('ABC123');
+      expect(resp.requests).toHaveLength(1);
+      expect(resp.total).toBe(250);
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/events/ABC123/pending-review');
+    });
+
+    it('omits sort/direction/limit/offset by default (Review order)', async () => {
+      api.setToken('test-token');
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => envelope() });
+
+      await api.getPendingReview('ABC123');
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).not.toContain('sort=');
+      expect(url).not.toContain('direction=');
+      expect(url).not.toContain('limit=');
+      expect(url).not.toContain('offset=');
+    });
+
+    it('appends sort + direction params when specified', async () => {
+      api.setToken('test-token');
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => envelope() });
+
+      await api.getPendingReview('ABC123', { sort: 'upvotes', direction: 'desc' });
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('sort=upvotes');
+      expect(url).toContain('direction=desc');
+    });
+
+    it('appends limit + offset params, sending offset=0 even though falsy', async () => {
+      api.setToken('test-token');
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => envelope() });
+
+      await api.getPendingReview('ABC123', { limit: 200, offset: 0 });
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('limit=200');
+      expect(url).toContain('offset=0');
     });
   });
 
@@ -1642,29 +1752,41 @@ describe('ApiClient', () => {
   });
 
   describe('getKioskDisplay', () => {
+    const kioskDisplayBody = {
+      event: { code: 'FRI001', name: 'Friday Night' },
+      qr_join_url: 'https://example.com/join/FRI001',
+      accepted_queue: [],
+      accepted_queue_total: 0,
+      now_playing: null,
+      now_playing_hidden: false,
+      requests_open: true,
+      kiosk_display_only: false,
+      updated_at: '2026-01-01T00:00:00Z',
+      banner_url: null,
+      banner_kiosk_url: null,
+      banner_colors: null,
+    };
+
     it('fetches kiosk display data', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          event: { code: 'FRI001', name: 'Friday Night' },
-          qr_join_url: 'https://example.com/join/FRI001',
-          accepted_queue: [],
-          now_playing: null,
-          now_playing_hidden: false,
-          requests_open: true,
-          kiosk_display_only: false,
-          updated_at: '2026-01-01T00:00:00Z',
-          banner_url: null,
-          banner_kiosk_url: null,
-          banner_colors: null,
-        }),
-      });
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => kioskDisplayBody });
 
       const result = await api.getKioskDisplay('FRI001');
       expect(result.event.name).toBe('Friday Night');
+      expect(result.accepted_queue_total).toBe(0);
 
       const [url] = mockFetch.mock.calls[0];
       expect(url).toContain('/api/public/events/FRI001/display');
+      expect(url).not.toContain('?');
+    });
+
+    it('appends limit and offset when provided', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => kioskDisplayBody });
+
+      await api.getKioskDisplay('FRI001', { limit: 200, offset: 100 });
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('limit=200');
+      expect(url).toContain('offset=100');
     });
   });
 

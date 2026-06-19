@@ -1,3 +1,4 @@
+from enum import Enum
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_validator
@@ -82,6 +83,9 @@ class RequestOut(BaseSchema):
     status: str
     created_at: IsoDatetime
     updated_at: IsoDatetime
+    # First moment the request entered ACCEPTED; null until first accepted.
+    # Backs the DJ "date accepted" sort (issue #478).
+    accepted_at: IsoDatetime | None = None
     is_duplicate: bool = False
     # Track metadata
     genre: str | None = None
@@ -93,5 +97,43 @@ class RequestOut(BaseSchema):
     sync_results_json: str | None = None
     # Voting
     vote_count: int = 0
-    # Priority scoring (populated only when sort=priority)
+    # Priority scoring (populated only when sort=best_match)
     priority_score: float | None = None
+
+
+class RequestSort(str, Enum):
+    """DJ-facing sort fields for the request list (issue #478)."""
+
+    DATE_REQUESTED = "date_requested"
+    DATE_ACCEPTED = "date_accepted"
+    UPVOTES = "upvotes"
+    BPM = "bpm"
+    KEY = "key"
+    TITLE = "title"
+    ARTIST = "artist"
+    BEST_MATCH = "best_match"
+
+
+class SortDirection(str, Enum):
+    ASC = "asc"
+    DESC = "desc"
+
+
+class RequestListResponse(BaseSchema):
+    """Paginated DJ request list.
+
+    ``total`` is the true row count before pagination, so the dashboard never
+    infers the count from the returned page length (the #411 failure mode).
+    """
+
+    requests: list[RequestOut]
+    total: int
+    limit: int
+    offset: int
+    sort: RequestSort
+    direction: SortDirection
+    # True per-status counts for the whole event, computed before pagination and
+    # independent of the active status/since/limit/offset (issue #478). Keys:
+    # all, new, accepted, playing, played, rejected (0 when absent). ``all`` is
+    # the cross-status total; ``total`` stays the active filter's count.
+    status_counts: dict[str, int]

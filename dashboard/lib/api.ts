@@ -78,6 +78,10 @@ import type {
   ShareTokenOut,
   SlotTargetOut,
   SongRequest,
+  PendingReviewResponse,
+  RequestListResponse,
+  RequestSort,
+  SortDirection,
   SystemSettings,
   SystemStats,
   TidalEventSettings,
@@ -185,6 +189,11 @@ export type {
   SharedSlotView,
   ShareTokenOut,
   SongRequest,
+  PendingReviewResponse,
+  PendingReviewRow,
+  RequestListResponse,
+  RequestSort,
+  SortDirection,
   SyncResultEntry,
   SystemSettings,
   SystemStats,
@@ -294,22 +303,9 @@ export interface CollectionSyncResponse {
   queued: number;
 }
 
-export interface PendingReviewRow {
-  id: number;
-  song_title: string;
-  artist: string;
-  artwork_url: string | null;
-  vote_count: number;
-  nickname: string | null;
-  created_at: string;
-  note: string | null;
-  status: 'new' | 'accepted' | 'playing' | 'played' | 'rejected';
-}
-
-export interface PendingReviewResponse {
-  requests: PendingReviewRow[];
-  total: number;
-}
+// Pre-event pending-review row + pagination envelope (issue #478) are
+// re-exported below from the generated OpenAPI surface (`PendingReviewRow` /
+// `PendingReviewResponse`), so the envelope stays in lockstep with the backend.
 
 export interface BulkReviewResponse {
   accepted: number;
@@ -1015,13 +1011,30 @@ class ApiClient {
     });
   }
 
+  /**
+   * DJ request list (issue #478). Returns the paginated envelope
+   * (`requests`/`total`/`limit`/`offset`/`sort`/`direction`) so the dashboard
+   * never infers the row count from a page length.
+   *
+   * `limit` clamps to {@link PUBLIC_PAGE_MAX} (mirrors backend MAX_PAGE_SIZE);
+   * sending a larger value returns HTTP 422.
+   */
   async getRequests(
     code: string,
-    options?: { status?: string; sort?: 'chronological' | 'priority' },
-  ): Promise<SongRequest[]> {
+    options?: {
+      status?: string;
+      sort?: RequestSort;
+      direction?: SortDirection;
+      limit?: number;
+      offset?: number;
+    },
+  ): Promise<RequestListResponse> {
     const params = new URLSearchParams();
     if (options?.status) params.set('status', options.status);
     if (options?.sort) params.set('sort', options.sort);
+    if (options?.direction) params.set('direction', options.direction);
+    if (options?.limit !== undefined) params.set('limit', String(options.limit));
+    if (options?.offset !== undefined) params.set('offset', String(options.offset));
     const qs = params.toString();
     return this.fetch(`/api/events/${code}/requests${qs ? `?${qs}` : ''}`);
   }
@@ -1218,8 +1231,15 @@ class ApiClient {
     return this.publicFetch(`${getApiUrl()}/api/public/events/${code}`);
   }
 
-  async getKioskDisplay(code: string): Promise<KioskDisplay> {
-    return this.publicFetch(`${getApiUrl()}/api/public/events/${code}/display`);
+  async getKioskDisplay(
+    code: string,
+    options?: { limit?: number; offset?: number },
+  ): Promise<KioskDisplay> {
+    const qs = new URLSearchParams();
+    if (options?.limit !== undefined) qs.set('limit', String(options.limit));
+    if (options?.offset !== undefined) qs.set('offset', String(options.offset));
+    const suffix = qs.toString() ? `?${qs}` : '';
+    return this.publicFetch(`${getApiUrl()}/api/public/events/${code}/display${suffix}`);
   }
 
   /**
@@ -2172,8 +2192,28 @@ class ApiClient {
     return this.fetch(`/api/events/${code}/collection/sync-tidal`, { method: 'POST' });
   }
 
-  async getPendingReview(code: string): Promise<PendingReviewResponse> {
-    return this.fetch(`/api/events/${code}/pending-review`);
+  /**
+   * Pre-event pending-review list (issue #478). Returns the paginated envelope
+   * (`requests`/`total`/`limit`/`offset`/`sort`/`direction`). Omitting `sort`
+   * yields the default vote-ranked "Review order" (votes desc, age asc); pass a
+   * `RequestSort` value to override. `limit` clamps to {@link PUBLIC_PAGE_MAX}.
+   */
+  async getPendingReview(
+    code: string,
+    options?: {
+      sort?: RequestSort;
+      direction?: SortDirection;
+      limit?: number;
+      offset?: number;
+    },
+  ): Promise<PendingReviewResponse> {
+    const params = new URLSearchParams();
+    if (options?.sort) params.set('sort', options.sort);
+    if (options?.direction) params.set('direction', options.direction);
+    if (options?.limit !== undefined) params.set('limit', String(options.limit));
+    if (options?.offset !== undefined) params.set('offset', String(options.offset));
+    const qs = params.toString();
+    return this.fetch(`/api/events/${code}/pending-review${qs ? `?${qs}` : ''}`);
   }
 
   async bulkReview(

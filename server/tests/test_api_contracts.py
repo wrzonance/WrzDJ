@@ -107,6 +107,7 @@ REQUEST_OUT_KEYS = {
     "status",
     "created_at",
     "updated_at",
+    "accepted_at",
     "is_duplicate",
     "raw_search_query",
     "sync_results_json",
@@ -115,6 +116,17 @@ REQUEST_OUT_KEYS = {
     "genre",
     "bpm",
     "musical_key",
+}
+
+# Paginated DJ request-list envelope (issue #478).
+REQUEST_LIST_RESPONSE_KEYS = {
+    "requests",
+    "total",
+    "limit",
+    "offset",
+    "sort",
+    "direction",
+    "status_counts",
 }
 
 ADMIN_USER_OUT_KEYS = {"id", "username", "is_active", "role", "created_at", "event_count"}
@@ -161,6 +173,7 @@ KIOSK_DISPLAY_KEYS = {
     "event",
     "qr_join_url",
     "accepted_queue",
+    "accepted_queue_total",
     "now_playing",
     "now_playing_hidden",
     "requests_open",
@@ -293,9 +306,11 @@ class TestRequestContracts:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert isinstance(data, list)
-        if data:
-            _assert_keys(data[0], REQUEST_OUT_KEYS, "GET /api/events/{code}/requests[0]")
+        _assert_keys(data, REQUEST_LIST_RESPONSE_KEYS, "GET /api/events/{code}/requests")
+        if data["requests"]:
+            _assert_keys(
+                data["requests"][0], REQUEST_OUT_KEYS, "GET /api/events/{code}/requests[0]"
+            )
 
     def test_update_request_shape(
         self, client: TestClient, auth_headers: dict, test_request: Request

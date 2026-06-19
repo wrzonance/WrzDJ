@@ -125,6 +125,9 @@ class KioskDisplayResponse(BaseModel):
     event: PublicEventInfo
     qr_join_url: str
     accepted_queue: list[PublicRequestInfo]
+    # True count of accepted requests before pagination — the kiosk shows this
+    # rather than the visible page length so the queue count is honest (#478).
+    accepted_queue_total: int
     now_playing: PublicRequestInfo | None
     now_playing_hidden: bool
     requests_open: bool = True
@@ -140,6 +143,8 @@ class KioskDisplayResponse(BaseModel):
 def get_kiosk_display(
     code: str,
     request: Request,
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> KioskDisplayResponse:
     """Get public kiosk display data for an event."""
@@ -161,9 +166,25 @@ def get_kiosk_display(
         base_url = str(request.base_url).rstrip("/")
     qr_join_url = f"{base_url}/join/{event.join_code}"
 
-    # Get accepted requests (status = 'accepted') sorted by vote_count desc, then updated_at asc
-    accepted_requests = [r for r in event.requests if r.status == RequestStatus.ACCEPTED.value]
-    accepted_requests.sort(key=lambda r: (-r.vote_count, r.updated_at))
+    # Accepted queue: count + sort + paginate in SQL with a true total before
+    # the page, rather than materializing event.requests and sorting in Python.
+    # Order preserves the prior display rule (votes desc, updated_at asc) plus a
+    # deterministic id tie-breaker so the growing window never skips/dupes (#478).
+    accepted_q = db.query(SongRequest).filter(
+        SongRequest.event_id == event.id,
+        SongRequest.status == RequestStatus.ACCEPTED.value,
+    )
+    accepted_queue_total = accepted_q.count()
+    accepted_requests = (
+        accepted_q.order_by(
+            SongRequest.vote_count.desc(),
+            SongRequest.updated_at.asc(),
+            SongRequest.id.desc(),
+        )
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
 
     accepted_queue = [
         PublicRequestInfo(
@@ -208,6 +229,7 @@ def get_kiosk_display(
         event=PublicEventInfo(code=event.join_code, name=event.name),
         qr_join_url=qr_join_url,
         accepted_queue=accepted_queue,
+        accepted_queue_total=accepted_queue_total,
         now_playing=now_playing,
         now_playing_hidden=now_playing_is_hidden,
         requests_open=event.requests_open,

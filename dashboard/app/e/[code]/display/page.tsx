@@ -3,11 +3,14 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
-import { api, ApiError, KioskDisplay, NowPlayingInfo, PlayHistoryItem } from '@/lib/api';
+import { api, ApiError, KioskDisplay, NowPlayingInfo, PlayHistoryItem, PUBLIC_PAGE_MAX } from '@/lib/api';
 import { useEventStream } from '@/lib/use-event-stream';
 import { usePollingLoop } from '@/lib/usePollingLoop';
 import { RequestModal } from './components/RequestModal';
 const AUTO_SCROLL_INTERVAL = 5000; // 5 seconds between auto-scrolls
+// Accepted-queue growing-window: start at 100 and grow by this step each refresh
+// (clamped to PUBLIC_PAGE_MAX) when the server reports more accepted requests.
+const PUBLIC_PAGE_MAX_INITIAL = 100;
 const SESSION_CHECK_INTERVAL = 10_000; // 10 seconds between kiosk session checks
 const SESSION_TOKEN_KEY = 'kiosk_session_token';
 const PAIR_CODE_KEY = 'kiosk_pair_code';
@@ -59,15 +62,39 @@ export default function KioskDisplayPage() {
   // Track whether initial load succeeded (ref avoids stale closure in useCallback)
   const hasLoadedRef = useRef(false);
 
+  // Automatic growing window for the accepted queue (#411 model): always fetch
+  // offset=0 with the current limit, and grow the limit gradually across refreshes
+  // when the server reports more accepted requests than we've loaded. The ref keeps
+  // the polling/SSE callbacks reading the current value without re-creating loadDisplay.
+  const [displayLimit, setDisplayLimit] = useState(PUBLIC_PAGE_MAX_INITIAL);
+  const displayLimitRef = useRef(displayLimit);
+  displayLimitRef.current = displayLimit;
+
+  // Drops stale loadDisplay responses (polling + SSE can overlap) so an older
+  // fetch can't overwrite newer queue data or apply a stale limit-growth step.
+  const loadSeqRef = useRef(0);
+
   // Load kiosk display data and StageLinQ data
   const loadDisplay = useCallback(async (): Promise<boolean> => {
+    const seq = ++loadSeqRef.current;
     try {
+      const limit = displayLimitRef.current;
       const [kioskData, nowPlayingData, historyData] = await Promise.all([
-        api.getKioskDisplay(code),
+        api.getKioskDisplay(code, { limit, offset: 0 }),
         api.getNowPlaying(code).catch((): undefined => undefined),
         api.getPlayHistory(code).catch((): undefined => undefined),
       ]);
+      // Drop this response if a newer loadDisplay started while we awaited.
+      if (seq !== loadSeqRef.current) return true;
       setDisplay(kioskData);
+      // Grow the window for the NEXT refresh if the server has more accepted
+      // requests than the page we just loaded (clamped to PUBLIC_PAGE_MAX).
+      if (
+        kioskData.accepted_queue_total > kioskData.accepted_queue.length &&
+        displayLimitRef.current < PUBLIC_PAGE_MAX
+      ) {
+        setDisplayLimit(Math.min(limit + PUBLIC_PAGE_MAX_INITIAL, PUBLIC_PAGE_MAX));
+      }
       // Only update stagelinq now-playing when the fetch succeeded;
       // on transient network errors (undefined), preserve the previous value
       if (nowPlayingData !== undefined) {
@@ -264,6 +291,10 @@ export default function KioskDisplayPage() {
 
   const bannerAccent = safeColor(display.banner_colors?.[0], '#3b82f6');
   const queue = display.accepted_queue;
+  // True accepted-queue size (before pagination). `queue` is only the loaded
+  // page, so use this for the headline count and a "showing X of Y" indicator.
+  const acceptedTotal = display.accepted_queue_total;
+  const hasMoreThanShown = acceptedTotal > queue.length;
   const maxVotes = Math.max(1, ...queue.map((r) => r.vote_count));
   const totalVotes = queue.reduce((s, r) => s + r.vote_count, 0);
 
@@ -616,6 +647,10 @@ export default function KioskDisplayPage() {
           align-items: center;
           gap: 14px;
           overflow: hidden;
+          /* Keep natural row height so a long accepted queue scrolls instead of
+             squishing: overflow:hidden zeroes the flex auto min-height, so without
+             flex-shrink:0 the column crushes every row to fit (issue #478). */
+          flex-shrink: 0;
         }
         .queue-item-top1 {
           border-color: var(--banner-accent-50, rgba(255,255,255,0.1));
@@ -1106,7 +1141,7 @@ export default function KioskDisplayPage() {
             <h1 className="kiosk-event-name">{display.event.name}</h1>
             <div className="kiosk-stats">
               <div className="kiosk-stat">
-                <span className="kiosk-stat-value">{queue.length}</span>
+                <span className="kiosk-stat-value">{acceptedTotal}</span>
                 <span className="kiosk-stat-label">QUEUE</span>
               </div>
               <div className="kiosk-stat">
@@ -1190,7 +1225,11 @@ export default function KioskDisplayPage() {
                 QUEUE
               </div>
               <div style={{ flex: 1 }} />
-              <span className="queue-track-count">{queue.length} TRACKS</span>
+              <span className="queue-track-count">
+                {hasMoreThanShown
+                  ? `${queue.length} OF ${acceptedTotal} TRACKS`
+                  : `${acceptedTotal} TRACKS`}
+              </span>
             </div>
             {queue.length > 0 ? (
               <div className="queue-list" ref={queueListRef}>

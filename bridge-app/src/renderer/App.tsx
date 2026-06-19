@@ -8,6 +8,7 @@ import { BridgeControls } from './components/BridgeControls.js';
 import { StatusPanel } from './components/StatusPanel.js';
 import { SettingsPanel } from './components/SettingsPanel.js';
 import { LogPanel } from './components/LogPanel.js';
+import { runningJoinCode } from './running-join-code.js';
 import type { EventInfo } from '../shared/types.js';
 
 export function App() {
@@ -32,6 +33,10 @@ export function App() {
   const handleEventRemoved = useCallback((code: string) => {
     setSelectedEvent((prev) => (prev?.code === code ? null : prev));
   }, []);
+
+  // Show the join code only when the selection still matches the running bridge,
+  // so changing selection mid-run can't display a different event's join code.
+  const displayJoinCode = runningJoinCode(selectedEvent, bridgeStatus.eventCode);
 
   // Loading state
   if (loading && !authState.isAuthenticated) {
@@ -71,9 +76,10 @@ export function App() {
         <BridgeControls
           status={bridgeStatus}
           selectedEventCode={selectedEvent?.code ?? null}
+          joinCode={displayJoinCode}
         />
 
-        <StatusPanel status={bridgeStatus} />
+        <StatusPanel status={bridgeStatus} joinCode={displayJoinCode} />
 
         <LogPanel entries={logEntries} onClear={clearLog} />
 

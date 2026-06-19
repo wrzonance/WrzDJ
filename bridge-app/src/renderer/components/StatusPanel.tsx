@@ -2,9 +2,11 @@ import type { BridgeStatus } from '../../shared/types.js';
 
 interface StatusPanelProps {
   status: BridgeStatus;
+  /** Live join code (what guests use / the dashboard shows) for display. */
+  joinCode: string | null;
 }
 
-export function StatusPanel({ status }: StatusPanelProps) {
+export function StatusPanel({ status, joinCode }: StatusPanelProps) {
   if (!status.isRunning) {
     return null;
   }
@@ -41,7 +43,7 @@ export function StatusPanel({ status }: StatusPanelProps) {
           </div>
           <div className="status-item">
             <div className="status-item-label">Event</div>
-            <div className="status-item-value">{status.eventCode || '-'}</div>
+            <div className="status-item-value">{joinCode || status.eventCode || '-'}</div>
           </div>
         </div>
 

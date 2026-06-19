@@ -10,6 +10,7 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
+    Response,
     UploadFile,
     status,
 )
@@ -18,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import (
     get_current_active_user,
+    get_current_user_optional,
     get_db,
     get_event_for_dj_or_admin,
     get_owned_event,
@@ -406,14 +408,21 @@ def get_event(
 def event_search(
     code: str,
     request: Request,
+    response: Response,
     q: str = Query(..., min_length=2, max_length=200),
     db: Session = Depends(get_db),
-    _human: int | None = Depends(require_verified_human_soft),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> list[SearchResult]:
     """Public search endpoint for event guests.
 
     Priority: Tidal (primary) → Spotify (fallback) → Beatport (event toggle).
     Results are filtered for junk, deduplicated by ISRC, and sorted by popularity.
+
+    Auth model: anonymous guests must pass the human-verification gate
+    (require_verified_human_soft). The authenticated event OWNER bypasses it —
+    the DJ dashboard "Search for Song" tool reuses this endpoint, and the DJ
+    holds a JWT but no guest wrzdj_human cookie, so without the bypass an
+    enforced gate would 403 them on their own event.
     """
     from app.services.beatport import search_beatport_tracks
     from app.services.intent_parser import parse_intent
@@ -429,6 +438,12 @@ def event_search(
 
     if lookup_result in (EventLookupResult.EXPIRED, EventLookupResult.ARCHIVED):
         raise HTTPException(status_code=410, detail="Event has expired")
+
+    # Owner (authenticated DJ) bypasses the guest human-verification gate;
+    # everyone else still passes through it (soft- or enforced-mode).
+    is_owner = current_user is not None and current_user.id == event_obj.created_by_user_id
+    if not is_owner:
+        require_verified_human_soft(request, response, db)
 
     sys_settings = get_system_settings(db)
     owner = event_obj.created_by

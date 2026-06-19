@@ -12,6 +12,7 @@ from app.services.auth import decode_token, get_user_by_username
 from app.services.event import get_event_by_code_for_owner
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -39,6 +40,31 @@ def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_
     # CRIT-2: reject tokens whose version doesn't match the user's current version
     if token_data.token_version != user.token_version:
         raise credentials_exception
+    return user
+
+
+def get_current_user_optional(
+    db: Session = Depends(get_db),
+    token: str | None = Depends(oauth2_scheme_optional),
+) -> User | None:
+    """Resolve the authenticated user if a valid bearer token is present, else None.
+
+    Unlike get_current_user, this NEVER raises — it is for endpoints that serve
+    both authenticated owners and anonymous guests (e.g. the public event search,
+    where a logged-in DJ should bypass the guest human-verification gate while an
+    anonymous guest still goes through it). An absent, malformed, expired, or
+    version-stale token all resolve to None rather than 401.
+    """
+    if not token:
+        return None
+    token_data = decode_token(token)
+    if token_data is None or token_data.username is None:
+        return None
+    user = get_user_by_username(db, token_data.username)
+    if user is None or not user.is_active:
+        return None
+    if token_data.token_version != user.token_version:
+        return None
     return user
 
 

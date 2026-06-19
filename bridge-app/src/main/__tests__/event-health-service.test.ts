@@ -15,8 +15,12 @@ describe('checkEventHealth', () => {
     const result = await checkEventHealth('https://api.wrzdj.com', 'ABC123');
 
     expect(result).toBe('active');
+    // Must hit the dual-resolver public event endpoint, which accepts EITHER the
+    // collection code or the join_code. The bridge holds the collection code, and
+    // the join-code-only /api/public/e/{code}/nowplaying would 404 on it — which
+    // the health check would misread as 'not_found' and stop a live bridge.
     expect(mockFetch).toHaveBeenCalledWith(
-      'https://api.wrzdj.com/api/public/e/ABC123/nowplaying',
+      'https://api.wrzdj.com/api/public/events/ABC123',
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
@@ -55,7 +59,7 @@ describe('checkEventHealth', () => {
     await checkEventHealth('https://api.wrzdj.com', 'A B/C');
 
     expect(mockFetch).toHaveBeenCalledWith(
-      'https://api.wrzdj.com/api/public/e/A%20B%2FC/nowplaying',
+      'https://api.wrzdj.com/api/public/events/A%20B%2FC',
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });

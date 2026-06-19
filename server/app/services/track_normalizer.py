@@ -29,12 +29,15 @@ MULTI_SPACE_RE = re.compile(r"\s{2,}")
 # metadata, e.g. "Get Low (ft. Ying Yang Twins)" or "Promiscuous [feat. Timbaland]".
 # Guests rarely type these, so strip them before fuzzy matching. "with" is
 # intentionally excluded here to avoid eating real title words ("Dancing With Myself").
+# All quantifiers are bounded ({n,m}) so the patterns stay linear-time — an
+# unbounded \s+ adjacent to a class that also matches spaces is a polynomial
+# (ReDoS) backtracking risk flagged by CodeQL.
 FEAT_PAREN_RE = re.compile(
-    r"[\(\[]\s*(?:featuring|feat|ft)\.?\s+[^\)\]]*[\)\]]",
+    r"[\(\[]\s{0,3}(?:featuring|feat|ft)\.?\s{1,3}[^\)\]]{0,100}[\)\]]",
     re.IGNORECASE,
 )
 FEAT_TRAILING_RE = re.compile(
-    r"\s+(?:featuring|feat|ft)\.?\s+.*$",
+    r"\s{1,3}(?:featuring|feat|ft)\.?\s{1,3}.{0,150}$",
     re.IGNORECASE,
 )
 

@@ -87,6 +87,22 @@ class TestNormalizeTrackTitle:
         # "with" is not a feat marker in titles — don't eat real words.
         assert normalize_track_title("Dancing With Myself") == "Dancing With Myself"
 
+    def test_feat_regexes_are_linear_on_pathological_input(self):
+        # ReDoS guard (CodeQL polynomial-regex alert): the feat patterns must
+        # not backtrack quadratically on a long run of spaces after "(ft ".
+        # Bounded quantifiers keep them linear; the unbounded versions were
+        # O(n^2) and took seconds on this input.
+        import time
+
+        from app.services.track_normalizer import FEAT_PAREN_RE, FEAT_TRAILING_RE
+
+        payload = "(ft " + " " * 100_000
+        start = time.perf_counter()
+        FEAT_PAREN_RE.sub(" ", payload)
+        FEAT_TRAILING_RE.sub("", payload)
+        elapsed = time.perf_counter() - start
+        assert elapsed < 0.2, f"feat regexes took {elapsed:.3f}s (possible ReDoS)"
+
 
 class TestNormalizeArtist:
     """Tests for normalize_artist()."""

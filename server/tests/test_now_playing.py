@@ -618,6 +618,35 @@ class TestHandleNowPlayingUpdate:
 
         assert result.album_art_url is None
 
+    @patch("app.services.now_playing.lookup_spotify_album_art", return_value=None)
+    @patch("app.services.now_playing.lookup_tidal_album_art")
+    def test_art_lookup_runs_before_staging_request_mutation(
+        self,
+        mock_tidal,
+        mock_spotify,
+        db: Session,
+        test_event: Event,
+        accepted_request: Request,
+    ):
+        """Regression: lookup_tidal_album_art can refresh the owner's Tidal token,
+        which commits the session. It must run before the request->PLAYING mutation
+        is staged, so a token-refresh commit can't prematurely persist a
+        half-applied bridge update. At lookup time the matched request must still be
+        ACCEPTED (not yet PLAYING).
+        """
+        seen: dict[str, str] = {}
+
+        def capture(_db, _owner, _title, _artist):
+            req = db.query(Request).filter(Request.id == accepted_request.id).first()
+            seen["status_at_lookup"] = req.status
+            return None
+
+        mock_tidal.side_effect = capture
+
+        handle_now_playing_update(db, "TEST01", "Blue Monday", "New Order")
+
+        assert seen["status_at_lookup"] == RequestStatus.ACCEPTED.value
+
     def test_event_not_found(self, db: Session):
         """Returns None for non-existent event."""
         result = handle_now_playing_update(db, "INVALID", "Test", "Test")

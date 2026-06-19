@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatAgentError, useAgentChat } from '../useAgentChat';
+import type { BuilderCommit } from '../useSetDocumentHistory';
 
 const mockApi = vi.hoisted(() => ({
   critiqueSet: vi.fn(),
@@ -48,6 +49,71 @@ describe('useAgentChat', () => {
       slots: [],
       affected_transition_scores: [],
     });
+  });
+
+  function mutatingResult() {
+    return {
+      message: 'Rebuilt.',
+      assistant_message: assistantMessage({
+        tool_calls: [
+          {
+            id: 'a1',
+            name: 'autobuild',
+            args: {},
+            rationale: 'Rebuild from pool',
+            result: {},
+            mutating: true,
+            display_summary: 'Rebuilt the set.',
+          },
+        ],
+      }),
+      tool_calls: [],
+      slots: [],
+      affected_transition_scores: [],
+    };
+  }
+
+  it('routes a mutating turn through commit as one labeled undo entry', async () => {
+    mockApi.chatWithSetAgent.mockResolvedValue(mutatingResult());
+    const commit = vi.fn((...args: unknown[]) => (args[1] as () => Promise<unknown>)());
+    const onMutationApplied = vi.fn();
+
+    const { result } = renderHook(() =>
+      useAgentChat(9, {
+        open: true,
+        onMutationApplied,
+        commit: commit as unknown as BuilderCommit,
+      }),
+    );
+    await act(async () => {
+      await result.current.send('rebuild the set');
+    });
+
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(commit.mock.calls[0][0]).toBe('Agent · rebuild the set');
+    const shouldRecord = commit.mock.calls[0][2] as unknown as (r: {
+      tool_calls: { mutating: boolean }[];
+      assistant_message: { tool_calls: { mutating: boolean }[] };
+    }) => boolean;
+    expect(
+      shouldRecord({ tool_calls: [], assistant_message: { tool_calls: [{ mutating: true }] } }),
+    ).toBe(true);
+    expect(
+      shouldRecord({ tool_calls: [], assistant_message: { tool_calls: [{ mutating: false }] } }),
+    ).toBe(false);
+    expect(onMutationApplied).not.toHaveBeenCalled();
+  });
+
+  it('falls back to onMutationApplied when no commit is provided', async () => {
+    mockApi.chatWithSetAgent.mockResolvedValue(mutatingResult());
+    const onMutationApplied = vi.fn();
+
+    const { result } = renderHook(() => useAgentChat(9, { open: true, onMutationApplied }));
+    await act(async () => {
+      await result.current.send('rebuild the set');
+    });
+
+    expect(onMutationApplied).toHaveBeenCalledTimes(1);
   });
 
   it('loads the critique on mount', async () => {

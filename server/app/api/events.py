@@ -658,9 +658,10 @@ def submit_request(
     code: str,
     request_data: RequestCreate,
     request: Request,
+    response: Response,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    _human: int | None = Depends(require_verified_human_soft),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> RequestOut:
     event, lookup_result = get_event_by_public_code_with_status(db, code)
 
@@ -672,6 +673,14 @@ def submit_request(
 
     if lookup_result == EventLookupResult.ARCHIVED:
         raise HTTPException(status_code=410, detail="Event has been archived")
+
+    # Owner (authenticated DJ) bypasses the guest human-verification gate; the DJ
+    # dashboard "Add" button in the song-search modal reuses this endpoint and the
+    # DJ holds a JWT but no guest wrzdj_human cookie, so an enforced gate would 403
+    # them on their own event. Everyone else still passes through it (soft/enforced).
+    is_owner = current_user is not None and current_user.id == event.created_by_user_id
+    if not is_owner:
+        require_verified_human_soft(request, response, db)
 
     if not event.requests_open:
         raise HTTPException(status_code=403, detail="Requests are closed for this event")

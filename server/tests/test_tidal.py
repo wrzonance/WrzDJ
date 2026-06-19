@@ -11,6 +11,7 @@ from app.models.event import Event
 from app.models.request import Request, RequestStatus, TidalSyncStatus
 from app.models.user import User
 from app.schemas.tidal import TidalSearchResult
+from app.services.sync.base import SyncStatus
 from app.services.tidal import (
     _track_to_result,
     cancel_device_login,
@@ -488,6 +489,26 @@ class TestTidalSyncPipeline:
         entries = json.loads(tidal_request.sync_results_json)
         tidal_entry = next(e for e in entries if e["service"] == "tidal")
         assert tidal_entry["status"] == "not_found"
+
+    def test_record_tidal_sync_result_tolerates_non_dict_entries(self):
+        """Upsert must not crash on corrupt/legacy sync_results_json with non-dict items."""
+        import json
+
+        from app.services.tidal import _record_tidal_sync_result
+
+        request = MagicMock()
+        request.sync_results_json = json.dumps(
+            ["corrupt-string", {"service": "tidal", "status": "error"}, {"service": "beatport"}]
+        )
+
+        _record_tidal_sync_result(request, SyncStatus.ADDED, url="u", track_id="t")
+
+        entries = json.loads(request.sync_results_json)
+        tidal = [e for e in entries if isinstance(e, dict) and e.get("service") == "tidal"]
+        assert len(tidal) == 1
+        assert tidal[0]["status"] == "added"
+        # other services' entries are preserved
+        assert any(isinstance(e, dict) and e.get("service") == "beatport" for e in entries)
 
 
 class TestPlaylistSelfHeal:

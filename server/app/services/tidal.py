@@ -657,7 +657,7 @@ def _record_tidal_sync_result(
     except (json.JSONDecodeError, TypeError):
         entries = []
 
-    entries = [e for e in entries if e.get("service") != "tidal"]
+    entries = [e for e in entries if isinstance(e, dict) and e.get("service") != "tidal"]
     entries.append(
         {
             "service": "tidal",

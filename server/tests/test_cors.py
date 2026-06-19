@@ -5,7 +5,9 @@ causing preflight failures on the Tidal settings endpoint in production.
 """
 
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.testclient import TestClient
 
+from app import main
 from app.main import CORS_ALLOW_METHODS, app
 
 
@@ -33,3 +35,34 @@ class TestCorsConfiguration:
             None,
         )
         assert cors_mw is not None, "CORSMiddleware not found on app"
+
+    def test_cors_allows_kiosk_pair_nonce_preflight_in_production(self, monkeypatch):
+        """Prod CORS must allow the X-Pair-Nonce header on the kiosk pair preflight.
+
+        Regression: a browser pairing a kiosk POSTs /api/public/kiosk/pair with a
+        custom X-Pair-Nonce header, which triggers a CORS preflight. Under
+        non-wildcard (production) origins the header was absent from allow_headers,
+        so the preflight returned 400 "Disallowed CORS headers" and the kiosk page
+        surfaced "Failed to create pairing session" — the device could never
+        create a fresh pairing after being unpaired.
+        """
+        monkeypatch.setattr(main.settings, "cors_origins", "https://app.wrzdj.com")
+        prod_app = main.create_app()
+
+        # No context manager → lifespan/background tasks stay off; the preflight is
+        # short-circuited by CORSMiddleware before routing, so no DB is needed.
+        client = TestClient(prod_app)
+        resp = client.options(
+            "/api/public/kiosk/pair",
+            headers={
+                "Origin": "https://app.wrzdj.com",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "x-pair-nonce",
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+        allowed = resp.headers.get("access-control-allow-headers", "").lower()
+        assert "x-pair-nonce" in allowed, (
+            f"X-Pair-Nonce not allowed by prod CORS; allow-headers={allowed!r}"
+        )

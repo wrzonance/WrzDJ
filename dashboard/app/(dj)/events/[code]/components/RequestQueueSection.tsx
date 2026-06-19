@@ -11,6 +11,7 @@ import { computeBpmContext } from '@/lib/bpm-stats';
 import { getRequestEmphasisStyle } from '@/lib/request-emphasis';
 import { safeExternalUrl } from '@/lib/safe-url';
 import { getVoteHeatStyle } from '@/lib/vote-heat';
+import { formatRequestTimestamp } from '@/lib/format-time';
 import { formatPriorityScore, getPriorityScoreColor } from '@/lib/priority-score';
 import { PUBLIC_PAGE_MAX } from '@/lib/api';
 import { SORT_FIELDS } from '@/lib/request-sort';
@@ -359,7 +360,7 @@ export function RequestQueueSection({
                 }} />
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
                   <p style={{ fontSize: '0.75rem', margin: 0 }}>
-                    {new Date(request.created_at).toLocaleTimeString()}
+                    {formatRequestTimestamp(request.created_at)}
                   </p>
                   {request.vote_count > 0 && (
                     <span

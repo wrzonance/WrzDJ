@@ -360,7 +360,9 @@ export default function EventQueuePage() {
 
   const loadData = useCallback(async (): Promise<boolean> => {
     try {
-      const [eventData, requestsData, historyData, displaySettings, tidalStatusData, beatportStatusData, nowPlayingData, bridgeStatusData] = await Promise.all([
+      // Fetch the event and the collection-code-keyed data together (one round-trip).
+      // getEvent stays in this batch so the request queue isn't delayed behind it.
+      const [eventData, requestsData, displaySettings, tidalStatusData, beatportStatusData] = await Promise.all([
         api.getEvent(code),
         api.getRequests(code, {
           status: filterToStatus(statusFilterRef.current),
@@ -369,12 +371,20 @@ export default function EventQueuePage() {
           limit: displayLimitRef.current,
           offset: 0,
         }),
-        api.getPlayHistory(code).catch((): undefined => undefined),
         api.getDisplaySettings(code).catch(() => ({ now_playing_hidden: false, now_playing_auto_hide_minutes: 10, requests_open: true, kiosk_display_only: false })),
         api.getTidalStatus().catch(() => ({ linked: false, user_id: null, expires_at: null, integration_enabled: true })),
         api.getBeatportStatus().catch(() => ({ linked: false, expires_at: null, configured: false, subscription: null, integration_enabled: true })),
-        api.getNowPlaying(code).catch((): undefined => undefined),
-        api.getBridgeStatus(code).catch(() => ({ connected: false, device_name: null, last_seen: null, circuit_breaker_state: null, buffer_size: null, plugin_id: null, deck_count: null, uptime_seconds: null })),
+      ]);
+      // The three live-display endpoints (now-playing / bridge-status / history)
+      // resolve strictly by join_code (post-#324/#328 public-URL contract), so they
+      // need event.join_code — passing the collection `code` this route is keyed on
+      // would 404 in a loop. Fire them once join_code is known; they're non-critical
+      // so the extra hop never blocks the queue/event data above.
+      const liveCode = eventData.join_code;
+      const [historyData, nowPlayingData, bridgeStatusData] = await Promise.all([
+        api.getPlayHistory(liveCode).catch((): undefined => undefined),
+        api.getNowPlaying(liveCode).catch((): undefined => undefined),
+        api.getBridgeStatus(liveCode).catch(() => ({ connected: false, device_name: null, last_seen: null, circuit_breaker_state: null, buffer_size: null, plugin_id: null, deck_count: null, uptime_seconds: null })),
       ]);
       setEvent(eventData);
       setRequests(requestsData.requests);

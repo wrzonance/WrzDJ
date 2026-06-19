@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
-import type { AgentChatMessage, SetCritique } from '@/lib/api-types';
+import type { AgentChatMessage, AgentChatOut, SetCritique } from '@/lib/api-types';
+import type { BuilderCommit } from './useSetDocumentHistory';
 
 export type Persona = 'peer' | 'pro';
 
@@ -67,7 +68,13 @@ export function useAgentChat(
     open,
     refreshToken = 0,
     onMutationApplied,
-  }: { open: boolean; refreshToken?: number; onMutationApplied: () => void },
+    commit,
+  }: {
+    open: boolean;
+    refreshToken?: number;
+    onMutationApplied: () => void;
+    commit?: BuilderCommit;
+  },
 ): AgentChatController {
   const [persona, setPersona] = useState<Persona>('peer');
   const [critique, setCritique] = useState<SetCritique | null>(null);
@@ -158,7 +165,11 @@ export function useAgentChat(
     setBusy(true);
     setError(null);
     try {
-      const result = await api.chatWithSetAgent(setId, { message });
+      const didMutate = (res: AgentChatOut) =>
+        [...res.tool_calls, ...res.assistant_message.tool_calls].some((tool) => tool.mutating);
+      const label = `Agent · ${message.slice(0, 40)}`;
+      const action = () => api.chatWithSetAgent(setId, { message });
+      const result = commit ? await commit(label, action, didMutate) : await action();
       setEntries((prev) => [
         ...prev.filter((entry) => entry.id !== pendingEntry.id),
         {
@@ -171,8 +182,9 @@ export function useAgentChat(
         },
         result.assistant_message,
       ]);
-      const mutatingTools = [...result.tool_calls, ...result.assistant_message.tool_calls];
-      if (mutatingTools.some((tool) => tool.mutating)) onMutationApplied();
+      // With commit, the published snapshot bumps snapshotVersion and the
+      // workspace reloads; only the no-history fallback needs the manual refresh.
+      if (!commit && didMutate(result)) onMutationApplied();
     } catch (err) {
       setEntries((prev) => prev.filter((entry) => entry.id !== pendingEntry.id));
       setError(formatAgentError(err));

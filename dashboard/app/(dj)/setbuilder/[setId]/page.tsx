@@ -468,6 +468,7 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
               onToggle={() => setChatOpen((open) => !open)}
               refreshToken={refreshToken}
               onMutationApplied={() => setRefreshToken((v) => v + 1)}
+              commit={historyEnabled ? history.commit : undefined}
             />
           </div>
         )}
@@ -477,6 +478,7 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
           setId={Number(setId)}
           refreshToken={refreshToken}
           onMutationApplied={() => setRefreshToken((v) => v + 1)}
+          commit={historyEnabled ? history.commit : undefined}
         />
       )}
       {toast && (

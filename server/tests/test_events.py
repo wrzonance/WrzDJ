@@ -1702,3 +1702,60 @@ class TestEventSearchOwnerBypass:
 
         assert response.status_code == 403
         assert response.json()["detail"]["code"] == "human_verification_required"
+
+
+class TestSubmitRequestOwnerBypass:
+    """POST /api/events/{code}/requests: authenticated event owners bypass the
+    guest human-verification gate; everyone else is still gated when enforced.
+
+    Regression for the production 403 a DJ hit using the dashboard "Add" button
+    in the song-search modal: the DJ is JWT-authenticated but holds no guest
+    wrzdj_human cookie, so with human_verification_enforced=True the public
+    submit endpoint rejected them with 403 on their own event.
+    """
+
+    def test_owner_bypasses_human_gate_when_enforced(
+        self, client: TestClient, db: Session, test_event: Event, auth_headers: dict
+    ):
+        """Event owner with a valid JWT submits a request even with enforcement
+        on and no human cookie (was 403 before the fix)."""
+        _enforce_human_verification(db)
+
+        response = client.post(
+            f"/api/events/{test_event.code}/requests",
+            json={"artist": "Avicii", "title": "Levels"},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["song_title"] == "Levels"
+
+    def test_anonymous_still_gated_when_enforced(
+        self, client: TestClient, db: Session, test_event: Event
+    ):
+        """A request with no JWT and no human cookie stays 403 when enforced."""
+        _enforce_human_verification(db)
+
+        response = client.post(
+            f"/api/events/{test_event.code}/requests",
+            json={"artist": "Avicii", "title": "Levels"},
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "human_verification_required"
+
+    def test_non_owner_authenticated_still_gated_when_enforced(
+        self, client: TestClient, db: Session, test_event: Event, admin_headers: dict
+    ):
+        """A different authenticated user (not the event owner) is still gated:
+        the bypass is owner-only, not 'any logged-in user'."""
+        _enforce_human_verification(db)
+
+        response = client.post(
+            f"/api/events/{test_event.code}/requests",
+            json={"artist": "Avicii", "title": "Levels"},
+            headers=admin_headers,
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "human_verification_required"

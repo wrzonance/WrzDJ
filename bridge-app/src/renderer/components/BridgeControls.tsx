@@ -5,9 +5,11 @@ import type { BridgeStatus } from '../../shared/types.js';
 interface BridgeControlsProps {
   status: BridgeStatus;
   selectedEventCode: string | null;
+  /** Live join code (what guests use / the dashboard shows) for display. */
+  joinCode: string | null;
 }
 
-export function BridgeControls({ status, selectedEventCode }: BridgeControlsProps) {
+export function BridgeControls({ status, selectedEventCode, joinCode }: BridgeControlsProps) {
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +77,7 @@ export function BridgeControls({ status, selectedEventCode }: BridgeControlsProp
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <span className="status-dot status-dot-green" />
-            <span>Running for event <strong>{status.eventCode}</strong></span>
+            <span>Running for event <strong>{joinCode ?? status.eventCode}</strong></span>
           </div>
           <button className="btn btn-danger btn-sm" onClick={handleStop} disabled={busy}>
             {stopping ? 'Stopping...' : 'Stop Bridge'}

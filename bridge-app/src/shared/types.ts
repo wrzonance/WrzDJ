@@ -93,7 +93,10 @@ export interface PluginMeta {
 /** Event info from the backend */
 export interface EventInfo {
   readonly id: number;
+  /** Internal collection code — the identifier the bridge API resolves by. */
   readonly code: string;
+  /** Live join code (QR target) — the code guests use and the DJ dashboard shows. */
+  readonly joinCode: string;
   readonly name: string;
   readonly isActive: boolean;
   readonly expiresAt: string;

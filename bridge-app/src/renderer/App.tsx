@@ -71,9 +71,10 @@ export function App() {
         <BridgeControls
           status={bridgeStatus}
           selectedEventCode={selectedEvent?.code ?? null}
+          joinCode={selectedEvent?.joinCode ?? null}
         />
 
-        <StatusPanel status={bridgeStatus} />
+        <StatusPanel status={bridgeStatus} joinCode={selectedEvent?.joinCode ?? null} />
 
         <LogPanel entries={logEntries} onClear={clearLog} />
 

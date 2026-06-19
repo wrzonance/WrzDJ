@@ -102,7 +102,7 @@ export function EventSelector({ selectedCode, onSelect, onEventRemoved }: EventS
             onClick={() => onSelect(event)}
           >
             <span className="event-item-name">{event.name}</span>
-            <span className="event-item-code">{event.code}</span>
+            <span className="event-item-code">{event.joinCode}</span>
           </div>
         ))}
       </div>

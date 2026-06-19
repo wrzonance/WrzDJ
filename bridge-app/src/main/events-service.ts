@@ -3,6 +3,7 @@ import type { EventInfo } from '../shared/types.js';
 interface EventResponse {
   id: number;
   code: string;
+  join_code: string;
   name: string;
   is_active: boolean;
   expires_at: string;
@@ -35,6 +36,7 @@ export async function fetchEvents(
     .map((e) => ({
       id: e.id,
       code: e.code,
+      joinCode: e.join_code,
       name: e.name,
       isActive: e.is_active,
       expiresAt: e.expires_at,

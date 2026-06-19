@@ -5,6 +5,7 @@ Third-party OAuth scopes don't have access to playlist creation,
 so we use tidalapi's device login which has first-party credentials.
 """
 
+import json
 import logging
 import threading
 from dataclasses import dataclass, field
@@ -19,6 +20,7 @@ from app.models.event import Event
 from app.models.request import Request, RequestStatus, TidalSyncStatus
 from app.models.user import User
 from app.schemas.tidal import TidalSearchResult, TidalSyncResult
+from app.services.sync.base import SyncStatus
 from app.services.track_normalizer import artist_match_score, primary_artist
 
 logger = logging.getLogger(__name__)
@@ -632,6 +634,42 @@ def poll_tidal_collection_removals(db: Session, event: Event) -> int:
     return count
 
 
+def _record_tidal_sync_result(
+    request: Request,
+    status: SyncStatus,
+    *,
+    url: str | None = None,
+    track_id: str | None = None,
+    error: str | None = None,
+) -> None:
+    """Upsert this request's Tidal entry in sync_results_json.
+
+    The dashboard badge renders from sync_results_json. The multi-service
+    orchestrator writes it on auto-sync; the manual retry path (sync_request_to_tidal)
+    must do the same, or a retry that actually succeeds never turns the chip green.
+    Uses the same status vocabulary ("added"/"not_found"/"error") so both paths
+    render identically.
+    """
+    try:
+        entries = json.loads(request.sync_results_json) if request.sync_results_json else []
+        if not isinstance(entries, list):
+            entries = []
+    except (json.JSONDecodeError, TypeError):
+        entries = []
+
+    entries = [e for e in entries if e.get("service") != "tidal"]
+    entries.append(
+        {
+            "service": "tidal",
+            "status": status.value,
+            "url": url,
+            "track_id": track_id,
+            "error": error,
+        }
+    )
+    request.sync_results_json = json.dumps(entries)
+
+
 def sync_request_to_tidal(
     db: Session,
     request: Request,
@@ -664,6 +702,8 @@ def sync_request_to_tidal(
 
     track = search_track(db, user, request.artist, request.song_title)
     if not track:
+        _record_tidal_sync_result(request, SyncStatus.NOT_FOUND, error="Track not found on Tidal")
+        db.commit()
         return TidalSyncResult(
             request_id=request.id,
             status=TidalSyncStatus.NOT_FOUND,
@@ -671,6 +711,9 @@ def sync_request_to_tidal(
         )
 
     if add_track_to_playlist(db, user, playlist_id, track.track_id):
+        _record_tidal_sync_result(
+            request, SyncStatus.ADDED, url=track.tidal_url, track_id=track.track_id
+        )
         db.commit()
         return TidalSyncResult(
             request_id=request.id,
@@ -678,6 +721,10 @@ def sync_request_to_tidal(
             tidal_track_id=track.track_id,
         )
     else:
+        _record_tidal_sync_result(
+            request, SyncStatus.ERROR, error="Failed to add track to playlist"
+        )
+        db.commit()
         return TidalSyncResult(
             request_id=request.id,
             status=TidalSyncStatus.ERROR,

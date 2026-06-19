@@ -425,6 +425,70 @@ class TestTidalSyncPipeline:
         assert result.status == TidalSyncStatus.ERROR
         assert "add track" in result.error.lower()
 
+    @patch("app.services.tidal.add_track_to_playlist")
+    @patch("app.services.tidal.search_track")
+    @patch("app.services.tidal.create_event_playlist")
+    def test_successful_sync_updates_sync_results_json_to_added(
+        self,
+        mock_create_playlist: MagicMock,
+        mock_search: MagicMock,
+        mock_add: MagicMock,
+        db: Session,
+        tidal_request: Request,
+    ):
+        """A successful manual sync must replace a stale error entry with 'added'.
+
+        The dashboard badge renders from sync_results_json; without this the chip
+        stays red after a retry that actually succeeded (feedback loop missing on
+        the manual path).
+        """
+        import json
+
+        tidal_request.sync_results_json = json.dumps(
+            [{"service": "tidal", "status": "error", "error": "old failure"}]
+        )
+        db.commit()
+
+        mock_create_playlist.return_value = "playlist123"
+        mock_search.return_value = TidalSearchResult(
+            track_id="track789",
+            title="Test Song",
+            artist="Test Artist",
+            tidal_url="https://tidal.com/browse/track/track789",
+        )
+        mock_add.return_value = True
+
+        result = sync_request_to_tidal(db, tidal_request)
+
+        assert result.status == TidalSyncStatus.SYNCED
+        entries = json.loads(tidal_request.sync_results_json)
+        tidal_entries = [e for e in entries if e["service"] == "tidal"]
+        assert len(tidal_entries) == 1  # upsert, not appended twice
+        assert tidal_entries[0]["status"] == "added"
+        assert tidal_entries[0]["url"] == "https://tidal.com/browse/track/track789"
+
+    @patch("app.services.tidal.search_track")
+    @patch("app.services.tidal.create_event_playlist")
+    def test_not_found_sync_updates_sync_results_json(
+        self,
+        mock_create_playlist: MagicMock,
+        mock_search: MagicMock,
+        db: Session,
+        tidal_request: Request,
+    ):
+        """A not-found manual sync records 'not_found' so the badge shows T?."""
+        import json
+
+        mock_create_playlist.return_value = "playlist123"
+        mock_search.return_value = None
+
+        result = sync_request_to_tidal(db, tidal_request)
+
+        assert result.status == TidalSyncStatus.NOT_FOUND
+        entries = json.loads(tidal_request.sync_results_json)
+        tidal_entry = next(e for e in entries if e["service"] == "tidal")
+        assert tidal_entry["status"] == "not_found"
+
 
 class TestPlaylistSelfHeal:
     """A stored Tidal playlist deleted out-of-band must self-heal, not fail forever.

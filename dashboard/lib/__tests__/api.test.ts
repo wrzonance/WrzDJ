@@ -176,6 +176,49 @@ describe('ApiClient', () => {
     });
   });
 
+  // A kiosk is a trusted DJ-paired device with no JWT and no human-verification
+  // cookie. It identifies itself with its X-Kiosk-Session token so the public
+  // event endpoints bypass the human gate (issue #514). Normal guest/DJ flows
+  // must NOT send the header.
+  describe('kiosk session header', () => {
+    afterEach(() => {
+      api.setKioskSession(null);
+    });
+
+    it('eventSearch sends X-Kiosk-Session when a kiosk session is set', async () => {
+      api.setKioskSession('kiosk-token-abc');
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => [] });
+
+      await api.eventSearch('JOIN42', 'strobe');
+
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/events/JOIN42/search');
+      expect(options.headers['X-Kiosk-Session']).toBe('kiosk-token-abc');
+    });
+
+    it('submitRequest sends X-Kiosk-Session when a kiosk session is set', async () => {
+      api.setKioskSession('kiosk-token-abc');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 1, artist: 'A', song_title: 'T', status: 'new' }),
+      });
+
+      await api.submitRequest('JOIN42', 'deadmau5', 'Strobe');
+
+      const [, options] = mockFetch.mock.calls[0];
+      expect(options.headers['X-Kiosk-Session']).toBe('kiosk-token-abc');
+    });
+
+    it('omits X-Kiosk-Session for normal guest/DJ flows (no kiosk session)', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => [] });
+
+      await api.eventSearch('JOIN42', 'strobe');
+
+      const [, options] = mockFetch.mock.calls[0];
+      expect(options.headers['X-Kiosk-Session']).toBeUndefined();
+    });
+  });
+
   describe('getPlayHistory', () => {
     it('fetches play history with default parameters', async () => {
       const mockHistoryResponse = {

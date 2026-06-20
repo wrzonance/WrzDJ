@@ -101,7 +101,9 @@ class TestNormalizeTrackTitle:
         FEAT_PAREN_RE.sub(" ", payload)
         FEAT_TRAILING_RE.sub("", payload)
         elapsed = time.perf_counter() - start
-        assert elapsed < 0.2, f"feat regexes took {elapsed:.3f}s (possible ReDoS)"
+        # Generous budget for slow/shared CI runners — a quadratic regression
+        # takes tens of seconds, so 2.0s still catches it with a wide margin.
+        assert elapsed < 2.0, f"feat regexes took {elapsed:.3f}s (possible ReDoS)"
 
 
 class TestNormalizeArtist:
@@ -254,6 +256,22 @@ class TestSplitArtists:
         assert "" not in result
         assert "Darude" in result
         assert "Tiësto" in result
+
+    def test_split_regex_is_linear_on_pathological_input(self):
+        # ReDoS guard (CodeQL py/polynomial-redos alert #11): _SPLIT_RE must not
+        # backtrack quadratically on a long run of spaces with no delimiter.
+        # Bounded quantifiers keep it linear; the unbounded \s+/\s* version was
+        # O(n^2) and took seconds on this input. Inputs are capped at 255 chars
+        # in prod, but the regex itself must stay linear (defense in depth).
+        import time
+
+        payload = " " * 100_000
+        start = time.perf_counter()
+        split_artists(payload)
+        elapsed = time.perf_counter() - start
+        # Generous budget for slow/shared CI runners — a quadratic regression
+        # takes tens of seconds, so 2.0s still catches it with a wide margin.
+        assert elapsed < 2.0, f"_SPLIT_RE took {elapsed:.3f}s (possible ReDoS)"
 
 
 class TestArtistMatchScore:

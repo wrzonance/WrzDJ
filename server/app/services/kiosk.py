@@ -7,6 +7,7 @@ from datetime import timedelta
 from sqlalchemy.orm import Session
 
 from app.core.time import utcnow
+from app.models.event import Event
 from app.models.kiosk import Kiosk
 
 # Same safe alphabet as event codes — no O/0/I/1
@@ -57,6 +58,21 @@ def get_kiosk_by_pair_code(db: Session, code: str) -> Kiosk | None:
 def get_kiosk_by_session_token(db: Session, token: str) -> Kiosk | None:
     """Find a kiosk by its session token."""
     return db.query(Kiosk).filter(Kiosk.session_token == token).first()
+
+
+def is_trusted_kiosk_for_event(db: Session, session_token: str | None, event: Event) -> bool:
+    """True when `session_token` identifies an active kiosk paired to `event`.
+
+    A DJ-paired kiosk is a trusted physical device controlled by the event
+    owner, so — like the authenticated owner — it bypasses the guest
+    human-verification gate on public event endpoints. Scoped to the kiosk's
+    assigned event (its stored collection `code`) so one kiosk's token cannot
+    vouch for a different event, and only `active` kiosks qualify.
+    """
+    if not session_token:
+        return False
+    kiosk = get_kiosk_by_session_token(db, session_token)
+    return kiosk is not None and kiosk.status == "active" and kiosk.event_code == event.code
 
 
 def get_kiosk_by_id(db: Session, kiosk_id: int) -> Kiosk | None:

@@ -82,6 +82,7 @@ vi.mock('@/lib/api', () => ({
     getNowPlaying: vi.fn(),
     getPlayHistory: vi.fn(),
     getKioskAssignment: vi.fn(),
+    setKioskSession: vi.fn(),
     search: vi.fn(),
     submitRequest: vi.fn(),
   },

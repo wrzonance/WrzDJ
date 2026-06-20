@@ -139,6 +139,18 @@ export default function KioskDisplayPage() {
     onBridgeStatusChanged: () => { loadDisplayRef.current(); },
   });
 
+  // Register the kiosk's session token with the API client so the request
+  // modal's search/submit calls carry X-Kiosk-Session and bypass the guest
+  // human-verification gate (issue #514). Cleared on unmount so the token never
+  // leaks into a non-kiosk client.
+  useEffect(() => {
+    const token = typeof window !== 'undefined'
+      ? localStorage.getItem(SESSION_TOKEN_KEY)
+      : null;
+    api.setKioskSession(token);
+    return () => api.setKioskSession(null);
+  }, []);
+
   // Check kiosk session validity — detect unpair
   useEffect(() => {
     const token = typeof window !== 'undefined'

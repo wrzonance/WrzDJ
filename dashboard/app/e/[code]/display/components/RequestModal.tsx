@@ -18,6 +18,8 @@ export function RequestModal({ code, onClose, onRequestsClosed }: RequestModalPr
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [selectedSong, setSelectedSong] = useState<SearchResult | null>(null);
   const [note, setNote] = useState('');
   const [nickname, setNickname] = useState('');
@@ -102,12 +104,17 @@ export function RequestModal({ code, onClose, onRequestsClosed }: RequestModalPr
 
     setSearching(true);
     setSearchResults([]);
+    setSearchError(null);
     try {
-      const results = await api.search(searchQuery);
+      // Public guest endpoint — the kiosk has no DJ login. Using api.search()
+      // (the DJ-only /api/search) here returned 401 and silently showed nothing.
+      const results = await api.eventSearch(code, searchQuery);
       setSearchResults(results);
     } catch {
       setSearchResults([]);
+      setSearchError('Search failed — please try again.');
     } finally {
+      setHasSearched(true);
       setSearching(false);
     }
   };
@@ -300,6 +307,10 @@ export function RequestModal({ code, onClose, onRequestsClosed }: RequestModalPr
                 {searching ? '...' : 'Search'}
               </button>
             </form>
+            {searchError && <p className="search-feedback search-feedback-error">{searchError}</p>}
+            {!searchError && hasSearched && !searching && searchResults.length === 0 && (
+              <p className="search-feedback">No songs found</p>
+            )}
             {searchResults.length > 0 && (
               <div className={`search-results${showKeyboard ? ' search-results-compact' : ''}`}>
                 {searchResults.map((result, index) => (

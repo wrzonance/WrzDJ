@@ -91,6 +91,7 @@ from app.services.export import (
     generate_export_filename,
     generate_play_history_export_filename,
 )
+from app.services.kiosk import is_trusted_kiosk_for_event
 from app.services.now_playing import (
     get_manual_hide_setting,
     get_play_history,
@@ -439,10 +440,13 @@ def event_search(
     if lookup_result in (EventLookupResult.EXPIRED, EventLookupResult.ARCHIVED):
         raise HTTPException(status_code=410, detail="Event has expired")
 
-    # Owner (authenticated DJ) bypasses the guest human-verification gate;
-    # everyone else still passes through it (soft- or enforced-mode).
+    # The authenticated owner AND a paired kiosk (a trusted physical device on
+    # this event) both bypass the guest human-verification gate. The kiosk holds
+    # no JWT and no wrzdj_human cookie, so without this an enforced gate 403s
+    # every kiosk search (issue #514). Everyone else passes through the gate.
     is_owner = current_user is not None and current_user.id == event_obj.created_by_user_id
-    if not is_owner:
+    is_kiosk = is_trusted_kiosk_for_event(db, request.headers.get("X-Kiosk-Session"), event_obj)
+    if not is_owner and not is_kiosk:
         require_verified_human_soft(request, response, db)
 
     sys_settings = get_system_settings(db)
@@ -674,12 +678,14 @@ def submit_request(
     if lookup_result == EventLookupResult.ARCHIVED:
         raise HTTPException(status_code=410, detail="Event has been archived")
 
-    # Owner (authenticated DJ) bypasses the guest human-verification gate; the DJ
-    # dashboard "Add" button in the song-search modal reuses this endpoint and the
-    # DJ holds a JWT but no guest wrzdj_human cookie, so an enforced gate would 403
-    # them on their own event. Everyone else still passes through it (soft/enforced).
+    # The authenticated owner (DJ dashboard "Add" button) AND a paired kiosk (a
+    # trusted physical device on this event) both bypass the guest
+    # human-verification gate. Neither holds a wrzdj_human cookie, so an enforced
+    # gate would 403 them — the kiosk submit path included (issue #514). Everyone
+    # else still passes through it (soft/enforced).
     is_owner = current_user is not None and current_user.id == event.created_by_user_id
-    if not is_owner:
+    is_kiosk = is_trusted_kiosk_for_event(db, request.headers.get("X-Kiosk-Session"), event)
+    if not is_owner and not is_kiosk:
         require_verified_human_soft(request, response, db)
 
     if not event.requests_open:

@@ -415,10 +415,22 @@ function getApiUrl(): string {
 
 class ApiClient {
   private token: string | null = null;
+  private kioskSession: string | null = null;
   private onUnauthorized: (() => void) | null = null;
 
   setToken(token: string | null) {
     this.token = token;
+  }
+
+  /**
+   * Register the kiosk's session token. A paired kiosk is a trusted physical
+   * device with no JWT and no human-verification cookie, so it sends this token
+   * as X-Kiosk-Session on the public event search/submit endpoints to bypass
+   * the guest human-verification gate (issue #514). Set once on the kiosk
+   * display page; null on every other client.
+   */
+  setKioskSession(token: string | null) {
+    this.kioskSession = token;
   }
 
   /**
@@ -1096,6 +1108,7 @@ class ApiClient {
   ): Promise<SongRequest> {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+    if (this.kioskSession) headers['X-Kiosk-Session'] = this.kioskSession;
     const doFetch = () =>
       fetch(`${getApiUrl()}/api/events/${code}/requests`, {
         method: 'POST',
@@ -1144,6 +1157,7 @@ class ApiClient {
       // have no token and fall through to the cookie-based gate + reverify retry.
       const headers: Record<string, string> = {};
       if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+      if (this.kioskSession) headers['X-Kiosk-Session'] = this.kioskSession;
       return fetch(`${getApiUrl()}/api/events/${code}/search?q=${encodeURIComponent(query)}`, {
         credentials: 'include',
         headers,

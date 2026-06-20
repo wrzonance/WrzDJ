@@ -59,6 +59,7 @@ vi.mock('@/lib/api', () => ({
     getNowPlaying: vi.fn().mockResolvedValue(null),
     getPlayHistory: vi.fn().mockResolvedValue({ items: [] }),
     getKioskAssignment: vi.fn(),
+    setKioskSession: vi.fn(),
   },
   ApiError: class extends Error { status = 0; },
   PUBLIC_PAGE_MAX: 500,

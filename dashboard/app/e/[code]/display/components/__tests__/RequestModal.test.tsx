@@ -23,6 +23,7 @@ vi.mock('simple-keyboard', () => ({
 vi.mock('@/lib/api', () => ({
   api: {
     search: vi.fn(),
+    eventSearch: vi.fn(),
     submitRequest: vi.fn(),
   },
   ApiError: class ApiError extends Error {
@@ -88,11 +89,11 @@ describe('RequestModal', () => {
     await act(async () => {
       fireEvent.submit(screen.getByRole('button', { name: 'Search' }));
     });
-    expect(api.search).not.toHaveBeenCalled();
+    expect(api.eventSearch).not.toHaveBeenCalled();
   });
 
   it('searches and displays results', async () => {
-    vi.mocked(api.search).mockResolvedValue(mockResults);
+    vi.mocked(api.eventSearch).mockResolvedValue(mockResults);
 
     renderModal();
 
@@ -103,14 +104,34 @@ describe('RequestModal', () => {
       fireEvent.submit(screen.getByRole('button', { name: 'Search' }));
     });
 
-    expect(api.search).toHaveBeenCalledWith('strobe');
+    expect(api.eventSearch).toHaveBeenCalledWith('TEST01', 'strobe');
     expect(screen.getByText('Strobe')).toBeInTheDocument();
     expect(screen.getByText('deadmau5')).toBeInTheDocument();
     expect(screen.getByText('Levels')).toBeInTheDocument();
   });
 
-  it('handles search error gracefully', async () => {
-    vi.mocked(api.search).mockRejectedValue(new Error('Network error'));
+  // Regression: the kiosk is an un-authenticated guest device. It previously
+  // called api.search() (the DJ-only /api/search, which 401s without a JWT),
+  // so search silently returned nothing. It must call the PUBLIC event endpoint
+  // (api.eventSearch) with the event code, and never the DJ-only api.search.
+  it('searches via the public event endpoint, not the DJ-only endpoint', async () => {
+    vi.mocked(api.eventSearch).mockResolvedValue(mockResults);
+
+    renderModal();
+
+    fireEvent.change(screen.getByPlaceholderText('Search for a song...'), {
+      target: { value: 'strobe' },
+    });
+    await act(async () => {
+      fireEvent.submit(screen.getByRole('button', { name: 'Search' }));
+    });
+
+    expect(api.eventSearch).toHaveBeenCalledWith('TEST01', 'strobe');
+    expect(api.search).not.toHaveBeenCalled();
+  });
+
+  it('shows an error message when search fails', async () => {
+    vi.mocked(api.eventSearch).mockRejectedValue(new Error('Network error'));
 
     renderModal();
 
@@ -121,12 +142,28 @@ describe('RequestModal', () => {
       fireEvent.submit(screen.getByRole('button', { name: 'Search' }));
     });
 
-    // Should not crash — results are empty
+    // Should not crash, no results, and a visible error (no longer silent)
     expect(screen.queryByText('Strobe')).not.toBeInTheDocument();
+    expect(screen.getByText('Search failed — please try again.')).toBeInTheDocument();
+  });
+
+  it('shows "No songs found" when search returns no results', async () => {
+    vi.mocked(api.eventSearch).mockResolvedValue([]);
+
+    renderModal();
+
+    fireEvent.change(screen.getByPlaceholderText('Search for a song...'), {
+      target: { value: 'asdfqwer' },
+    });
+    await act(async () => {
+      fireEvent.submit(screen.getByRole('button', { name: 'Search' }));
+    });
+
+    expect(screen.getByText('No songs found')).toBeInTheDocument();
   });
 
   it('selects a song and shows confirmation view', async () => {
-    vi.mocked(api.search).mockResolvedValue(mockResults);
+    vi.mocked(api.eventSearch).mockResolvedValue(mockResults);
 
     renderModal();
 
@@ -148,7 +185,7 @@ describe('RequestModal', () => {
   });
 
   it('goes back from confirmation to search results', async () => {
-    vi.mocked(api.search).mockResolvedValue(mockResults);
+    vi.mocked(api.eventSearch).mockResolvedValue(mockResults);
 
     renderModal();
 
@@ -167,7 +204,7 @@ describe('RequestModal', () => {
   });
 
   it('submits request and shows success message', async () => {
-    vi.mocked(api.search).mockResolvedValue(mockResults);
+    vi.mocked(api.eventSearch).mockResolvedValue(mockResults);
     vi.mocked(api.submitRequest).mockResolvedValue({
       id: 1,
       artist: 'deadmau5',
@@ -195,7 +232,7 @@ describe('RequestModal', () => {
   });
 
   it('shows "Vote Added!" for duplicate requests', async () => {
-    vi.mocked(api.search).mockResolvedValue(mockResults);
+    vi.mocked(api.eventSearch).mockResolvedValue(mockResults);
     vi.mocked(api.submitRequest).mockResolvedValue({
       id: 1,
       artist: 'deadmau5',
@@ -224,7 +261,7 @@ describe('RequestModal', () => {
   });
 
   it('auto-closes after 2.5s on success', async () => {
-    vi.mocked(api.search).mockResolvedValue(mockResults);
+    vi.mocked(api.eventSearch).mockResolvedValue(mockResults);
     vi.mocked(api.submitRequest).mockResolvedValue({
       id: 1,
       artist: 'deadmau5',
@@ -259,7 +296,7 @@ describe('RequestModal', () => {
   });
 
   it('calls onRequestsClosed on 403 error', async () => {
-    vi.mocked(api.search).mockResolvedValue(mockResults);
+    vi.mocked(api.eventSearch).mockResolvedValue(mockResults);
     vi.mocked(api.submitRequest).mockRejectedValue(
       new (ApiError as unknown as new (msg: string, status: number) => Error)('Requests closed', 403)
     );
@@ -345,7 +382,7 @@ describe('RequestModal', () => {
     });
 
     it('keeps keyboard visible after search so touch-through does not close modal', async () => {
-      vi.mocked(api.search).mockResolvedValue(mockResults);
+      vi.mocked(api.eventSearch).mockResolvedValue(mockResults);
 
       const { container } = renderModal();
 
@@ -367,7 +404,7 @@ describe('RequestModal', () => {
     });
 
     it('shows keyboard for note input after selecting a song', async () => {
-      vi.mocked(api.search).mockResolvedValue(mockResults);
+      vi.mocked(api.eventSearch).mockResolvedValue(mockResults);
 
       const { container } = renderModal();
 
@@ -387,7 +424,7 @@ describe('RequestModal', () => {
     });
 
     it('labels keyboard done key "Submit" on confirm view to trigger submission', async () => {
-      vi.mocked(api.search).mockResolvedValue(mockResults);
+      vi.mocked(api.eventSearch).mockResolvedValue(mockResults);
 
       renderModal();
 
@@ -420,7 +457,7 @@ describe('RequestModal', () => {
   });
 
   it('renders placeholder icon for results without album art', async () => {
-    vi.mocked(api.search).mockResolvedValue([
+    vi.mocked(api.eventSearch).mockResolvedValue([
       {
         title: 'No Art Song', artist: 'Unknown', spotify_id: 'sp3', url: null, album_art: null,
         album: null, popularity: 0, preview_url: null, source: 'spotify' as const,

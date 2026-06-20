@@ -126,13 +126,18 @@ def score_track_match(title_score: float, artist_score: float) -> float:
     return title_score * 0.6 + artist_score * 0.4
 
 
-# Splitting pattern: comma, ampersand, "and", "x" (collab), feat variants
+# Splitting pattern: comma, ampersand, "and", "x" (collab), feat variants.
+# Whitespace quantifiers are bounded ({n,m}) so the pattern stays linear-time —
+# an unbounded \s+/\s* adjacent to a literal delimiter is a polynomial (ReDoS)
+# backtracking risk flagged by CodeQL (py/polynomial-redos). Real artist
+# metadata never has >3 spaces around a delimiter, and the public request path
+# collapses whitespace runs to a single space before this ever runs.
 _SPLIT_RE = re.compile(
-    r"\s*,\s*"  # comma
-    r"|\s+&\s+"  # ampersand
-    r"|\s+and\s+"  # "and" keyword
-    r"|\s+x\s+"  # "x" collab
-    r"|\s+(?:featuring|feat\.?|ft\.?|with)\s+",  # feat variants
+    r"\s{0,3},\s{0,3}"  # comma
+    r"|\s{1,3}&\s{1,3}"  # ampersand
+    r"|\s{1,3}and\s{1,3}"  # "and" keyword
+    r"|\s{1,3}x\s{1,3}"  # "x" collab
+    r"|\s{1,3}(?:featuring|feat\.?|ft\.?|with)\s{1,3}",  # feat variants
     re.IGNORECASE,
 )
 

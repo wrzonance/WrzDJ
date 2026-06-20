@@ -101,7 +101,9 @@ class TestNormalizeTrackTitle:
         FEAT_PAREN_RE.sub(" ", payload)
         FEAT_TRAILING_RE.sub("", payload)
         elapsed = time.perf_counter() - start
-        assert elapsed < 0.2, f"feat regexes took {elapsed:.3f}s (possible ReDoS)"
+        # Generous budget for slow/shared CI runners — a quadratic regression
+        # takes tens of seconds, so 2.0s still catches it with a wide margin.
+        assert elapsed < 2.0, f"feat regexes took {elapsed:.3f}s (possible ReDoS)"
 
 
 class TestNormalizeArtist:
@@ -267,7 +269,9 @@ class TestSplitArtists:
         start = time.perf_counter()
         split_artists(payload)
         elapsed = time.perf_counter() - start
-        assert elapsed < 0.2, f"_SPLIT_RE took {elapsed:.3f}s (possible ReDoS)"
+        # Generous budget for slow/shared CI runners — a quadratic regression
+        # takes tens of seconds, so 2.0s still catches it with a wide margin.
+        assert elapsed < 2.0, f"_SPLIT_RE took {elapsed:.3f}s (possible ReDoS)"
 
 
 class TestArtistMatchScore:

@@ -962,6 +962,15 @@ export default function KioskDisplayPage() {
           gap: 0.5rem;
           margin-bottom: 1rem;
         }
+        .search-feedback {
+          margin: 0.5rem 0 1rem;
+          text-align: center;
+          color: #9ca3af;
+          font-size: 1rem;
+        }
+        .search-feedback-error {
+          color: #f87171;
+        }
         .search-input {
           flex: 1;
           background: #374151;

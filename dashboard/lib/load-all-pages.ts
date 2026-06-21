@@ -11,6 +11,11 @@ export const REQUEST_LOAD_CAP = 2000;
 export interface PageFetchResult<T> {
   requests: T[];
   total: number;
+  /**
+   * Server-authoritative per-status counts (issue #521). Pagination-independent,
+   * so it's identical across pages; optional so non-counting callers can omit it.
+   */
+  statusCounts?: Record<string, number>;
 }
 
 export type PageFetcher<T> = (opts: {
@@ -23,6 +28,11 @@ export interface LoadAllResult<T> {
   requests: T[];
   total: number;
   capped: boolean;
+  /**
+   * Last server-reported status_counts, when the fetcher supplies it (issue #521).
+   * The capped client renders these instead of counting its truncated set.
+   */
+  statusCounts?: Record<string, number>;
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -48,6 +58,7 @@ export async function loadAllPages<T>(
   const acc: T[] = [];
   let total = 0;
   let offset = 0;
+  let statusCounts: Record<string, number> | undefined;
 
   for (;;) {
     throwIfAborted(signal);
@@ -55,6 +66,7 @@ export async function loadAllPages<T>(
     throwIfAborted(signal);
 
     total = page.total;
+    if (page.statusCounts) statusCounts = page.statusCounts;
     acc.push(...page.requests);
     offset += page.requests.length;
 
@@ -67,5 +79,5 @@ export async function loadAllPages<T>(
 
   const capped = total > REQUEST_LOAD_CAP;
   const requests = capped ? acc.slice(0, REQUEST_LOAD_CAP) : acc;
-  return { requests, total, capped };
+  return { requests, total, capped, statusCounts };
 }

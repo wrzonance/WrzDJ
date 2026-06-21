@@ -8,6 +8,7 @@ import { loadAllPages, type PageFetcher } from './load-all-pages';
 import {
   computeStatusCounts,
   filterByStatus,
+  normalizeStatusCounts,
   sortRequests,
   type ClientSortField,
 } from './request-sort';
@@ -53,6 +54,7 @@ export function useEventRequests(params: {
 
   const [allRequests, setAllRequests] = useState<SongRequest[]>([]);
   const [serverTotal, setServerTotal] = useState(0);
+  const [serverStatusCounts, setServerStatusCounts] = useState<Record<string, number> | null>(null);
   const [capped, setCapped] = useState(false);
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
@@ -86,7 +88,7 @@ export function useEventRequests(params: {
         limit,
         offset,
       });
-      return { requests: resp.requests, total: resp.total };
+      return { requests: resp.requests, total: resp.total, statusCounts: resp.status_counts };
     };
 
     try {
@@ -94,6 +96,7 @@ export function useEventRequests(params: {
       if (controller.signal.aborted) return;
       setAllRequests(res.requests);
       setServerTotal(res.total);
+      setServerStatusCounts(res.statusCounts ?? null);
       setCapped(res.capped);
       setError(null);
     } catch (err) {
@@ -141,7 +144,14 @@ export function useEventRequests(params: {
     return sortRequests(filtered, sortField as ClientSortField, sortDirection);
   }, [allRequests, statusFilter, sortField, sortDirection]);
 
-  const statusCounts = useMemo(() => computeStatusCounts(allRequests), [allRequests]);
+  // The capped view holds only the first 2000 rows, so counting it would
+  // undercount the tabs — use the backend's authoritative, pagination-independent
+  // counts there (issue #521). The non-capped path stays client-derived so counts
+  // update live on optimistic in-memory patches without waiting for a refetch.
+  const statusCounts = useMemo(
+    () => (capped ? normalizeStatusCounts(serverStatusCounts) : computeStatusCounts(allRequests)),
+    [capped, serverStatusCounts, allRequests],
+  );
   const total = capped ? serverTotal : allRequests.length;
 
   return {

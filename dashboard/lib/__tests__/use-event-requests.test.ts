@@ -180,4 +180,68 @@ describe('useEventRequests', () => {
     });
     expect(result.current.loading).toBe(false);
   });
+
+  it('uses server status_counts when the event is capped (issue #521)', async () => {
+    // 5000-row event: the client can hold only the 2000-row cap, so counts derived
+    // from the in-memory set would undercount. The hook must surface the backend's
+    // authoritative per-status counts instead.
+    const serverCounts = { all: 5000, new: 4200, accepted: 600, playing: 0, played: 150, rejected: 50 };
+    getRequestsSpy.mockImplementation(
+      async (_code: string, options?: { limit?: number; offset?: number }) => {
+        const offset = options?.offset ?? 0;
+        const limit = options?.limit ?? 500;
+        const remaining = Math.max(0, 5000 - offset);
+        const ids = Array.from({ length: Math.min(limit, remaining) }, (_, i) => offset + i);
+        const resp = mockList(ids, 5000);
+        resp.status_counts = serverCounts;
+        return resp;
+      },
+    );
+    const { result } = renderHook(() =>
+      useEventRequests({
+        code: 'EVT',
+        enabled: true,
+        sortField: 'date_requested',
+        sortDirection: 'desc',
+        statusFilter: 'all',
+      }),
+    );
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+    expect(result.current.capped).toBe(true);
+    expect(result.current.allRequests).toHaveLength(2000); // client view truncated
+    expect(result.current.total).toBe(5000);
+    // Authoritative counts, not the capped-set length (which would be all:2000/new:2000).
+    expect(result.current.statusCounts.all).toBe(5000);
+    expect(result.current.statusCounts.new).toBe(4200);
+    expect(result.current.statusCounts.accepted).toBe(600);
+  });
+
+  it('keeps live client-derived counts on the non-capped path (issue #521)', async () => {
+    // Non-capped: counts must update LIVE on optimistic in-memory patches (a DJ
+    // accepting a request) without waiting for a refetch — so this path stays
+    // client-derived rather than frozen at the last server snapshot.
+    const { result } = renderHook(() =>
+      useEventRequests({
+        code: 'EVT',
+        enabled: true,
+        sortField: 'date_requested',
+        sortDirection: 'desc',
+        statusFilter: 'all',
+      }),
+    );
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+    expect(result.current.statusCounts.new).toBe(3);
+    expect(result.current.statusCounts.accepted).toBe(0);
+    act(() => {
+      result.current.setAllRequests((prev) =>
+        prev.map((r, i) => (i === 0 ? { ...r, status: 'accepted' } : r)),
+      );
+    });
+    expect(result.current.statusCounts.new).toBe(2);
+    expect(result.current.statusCounts.accepted).toBe(1);
+  });
 });

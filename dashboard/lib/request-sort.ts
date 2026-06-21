@@ -183,6 +183,24 @@ export function computeStatusCounts(
   return counts;
 }
 
+/**
+ * Coerce a server `status_counts` map into the strict StatusFilter-keyed record
+ * (issue #521). Used on the capped path, where the in-memory set is truncated and
+ * `computeStatusCounts` would undercount: the backend's authoritative counts are
+ * pagination-independent. Missing keys default to 0; unknown keys are ignored.
+ */
+export function normalizeStatusCounts(
+  raw: Record<string, number> | null | undefined,
+): Record<StatusFilter, number> {
+  const counts: Record<StatusFilter, number> = { ...EMPTY_STATUS_COUNTS };
+  if (!raw) return counts;
+  for (const key of Object.keys(counts) as StatusFilter[]) {
+    const value = raw[key];
+    if (typeof value === 'number' && Number.isFinite(value)) counts[key] = value;
+  }
+  return counts;
+}
+
 /** Filter rows by status tab; 'all' returns the full set. */
 export function filterByStatus<T extends SortableRequestRow>(
   rows: readonly T[],

@@ -59,4 +59,24 @@ describe('loadAllPages', () => {
     });
     await expect(loadAllPages(fetcher, { signal: controller.signal })).rejects.toThrow();
   });
+
+  it('surfaces server status_counts from the fetcher (issue #521)', async () => {
+    const counts = { all: 5000, new: 4200, accepted: 600, playing: 0, played: 150, rejected: 50 };
+    const fetcher: PageFetcher<{ id: number }> = vi.fn(async ({ limit, offset }) => ({
+      total: 5000,
+      statusCounts: counts,
+      requests: Array.from({ length: Math.max(0, Math.min(limit, 5000 - offset)) }, (_, i) => ({
+        id: offset + i,
+      })),
+    }));
+    const res = await loadAllPages(fetcher);
+    expect(res.capped).toBe(true);
+    expect(res.requests).toHaveLength(REQUEST_LOAD_CAP); // client view is truncated
+    expect(res.statusCounts).toEqual(counts); // ...but counts are authoritative
+  });
+
+  it('leaves statusCounts undefined when the fetcher omits it', async () => {
+    const res = await loadAllPages(makeFetcher(30));
+    expect(res.statusCounts).toBeUndefined();
+  });
 });

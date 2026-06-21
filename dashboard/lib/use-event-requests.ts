@@ -65,7 +65,12 @@ export function useEventRequests(params: {
   sortFieldRef.current = sortField;
 
   const runLoad = useCallback(async () => {
-    if (!enabled) return;
+    if (!enabled) {
+      // Clear loading too: if `enabled` flips false mid-flight, the prior load's
+      // abort skips its `finally`, so this early return must reset it itself.
+      setLoading(false);
+      return;
+    }
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;

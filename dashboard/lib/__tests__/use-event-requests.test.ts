@@ -159,4 +159,25 @@ describe('useEventRequests', () => {
     });
     expect(getRequestsSpy).not.toHaveBeenCalled();
   });
+
+  it('clears loading when enabled flips false mid-flight (CodeRabbit #520)', async () => {
+    const { result, rerender } = renderHook(
+      (props: { enabled: boolean }) =>
+        useEventRequests({
+          code: 'EVT',
+          enabled: props.enabled,
+          sortField: 'date_requested',
+          sortDirection: 'desc',
+          statusFilter: 'all',
+        }),
+      { initialProps: { enabled: true } },
+    );
+    // Disable before the in-flight load resolves; the disabled early-return must
+    // still clear the loading flag rather than leave it stuck true.
+    rerender({ enabled: false });
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+    expect(result.current.loading).toBe(false);
+  });
 });

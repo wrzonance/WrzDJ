@@ -111,6 +111,20 @@ describe('computeStatusCounts', () => {
     expect(c.all).toBe(2);
     expect(c.new).toBe(1);
   });
+  it('ignores prototype-key statuses (own-property check, CodeRabbit #520)', () => {
+    // `status in counts` would match inherited Object.prototype keys; an
+    // own-property check must treat these like any other unknown status.
+    const rows = [
+      row({ id: 1, status: 'toString' }),
+      row({ id: 2, status: 'constructor' }),
+      row({ id: 3, status: 'new' }),
+    ];
+    const c = computeStatusCounts(rows);
+    expect(c.all).toBe(3);
+    expect(c.new).toBe(1);
+    // No NaN/garbage leaked into the known keys.
+    expect(c).toEqual({ all: 3, new: 1, accepted: 0, playing: 0, played: 0, rejected: 0 });
+  });
 });
 
 describe('filterByStatus', () => {

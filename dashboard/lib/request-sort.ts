@@ -175,7 +175,8 @@ export function computeStatusCounts(
   const counts: Record<StatusFilter, number> = { ...EMPTY_STATUS_COUNTS };
   for (const r of rows) {
     counts.all += 1;
-    if (r.status !== 'all' && r.status in counts) {
+    // Own-property check (not `in`) so prototype keys like "toString" never match.
+    if (r.status !== 'all' && Object.prototype.hasOwnProperty.call(counts, r.status)) {
       counts[r.status as StatusFilter] += 1;
     }
   }

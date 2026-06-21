@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { apiClient, PendingReviewRow } from '@/lib/api';
 import type { SortDirection } from '@/lib/api-types';
-import { loadAllPages, type PageFetcher } from '@/lib/load-all-pages';
+import { loadAllPages, REQUEST_LOAD_CAP, type PageFetcher } from '@/lib/load-all-pages';
 import {
   PENDING_REVIEW_DEFAULT_DIRECTION,
   PENDING_REVIEW_SORT_FIELDS,
@@ -645,7 +645,7 @@ export default function PreEventVotingTab({
                 role="status"
                 style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}
               >
-                Showing 2000 of {pendingTotal} requests — sort/filter limited to these.
+                Showing {REQUEST_LOAD_CAP} of {pendingTotal} requests — sort/filter limited to these.
               </span>
             )}
           </div>

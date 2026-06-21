@@ -14,6 +14,7 @@ import { getVoteHeatStyle } from '@/lib/vote-heat';
 import { formatRequestTimestamp } from '@/lib/format-time';
 import { formatPriorityScore, getPriorityScoreColor } from '@/lib/priority-score';
 import { PUBLIC_PAGE_MAX } from '@/lib/api';
+import { REQUEST_LOAD_CAP } from '@/lib/load-all-pages';
 import { SORT_FIELDS } from '@/lib/request-sort';
 import type { RequestSort, SortDirection } from '@/lib/api-types';
 
@@ -52,7 +53,7 @@ interface RequestQueueSectionProps {
   filter: StatusFilter;
   onFilterChange: (filter: StatusFilter) => void;
   statusCounts: Record<StatusFilter, number>;
-  /** True when the event exceeds the 2000-row in-memory cap (issue #489). */
+  /** True when the event exceeds the in-memory cap (REQUEST_LOAD_CAP, issue #489). */
   capped?: boolean;
 }
 
@@ -504,7 +505,7 @@ export function RequestQueueSection({
             color: 'var(--text-secondary)',
           }}
         >
-          Showing 2000 of {total} requests — sort/filter limited to these.
+          Showing {REQUEST_LOAD_CAP} of {total} requests — sort/filter limited to these.
         </div>
       )}
 

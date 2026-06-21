@@ -27,6 +27,62 @@ from app.services.tidal import remove_track_from_collection_playlist
 router = APIRouter()
 
 
+def _enrich_with_fresh_session(request_id: int) -> None:
+    """Run enrichment in its own DB session.
+
+    FastAPI keeps the request-scoped `db` open until all background tasks finish;
+    passing it (or a live row) pins the pool connection through the slow external
+    metadata lookups. A fresh `SessionLocal()` releases its connection as soon as
+    the task ends (issue #505).
+    """
+    from app.db.session import SessionLocal
+
+    session = SessionLocal()
+    try:
+        enrich_request_metadata(session, request_id)
+    finally:
+        session.close()
+
+
+def _sync_request_to_services_with_fresh_session(request_id: int) -> None:
+    """Run sync_request_to_services in its own DB session.
+
+    Re-queries the request by ID (its event + DJ resolve via relationships) so no
+    request-scoped session or live ORM row is pinned during the sync API calls
+    (issue #505).
+    """
+    from app.db.session import SessionLocal
+    from app.models.request import Request as SongRequest
+
+    session = SessionLocal()
+    try:
+        request = session.get(SongRequest, request_id)
+        if request:
+            sync_request_to_services(session, request)
+    finally:
+        session.close()
+
+
+def _remove_collection_track_with_fresh_session(request_id: int, track_id: str) -> None:
+    """Run remove_track_from_collection_playlist in its own DB session.
+
+    Re-queries the request by ID (its event + DJ resolve via relationships) so no
+    request-scoped session is pinned during the Tidal removal call (issue #505).
+    """
+    from app.db.session import SessionLocal
+    from app.models.request import Request as SongRequest
+
+    session = SessionLocal()
+    try:
+        request = session.get(SongRequest, request_id)
+        if request:
+            remove_track_from_collection_playlist(
+                session, request.event.created_by, request.event, track_id
+            )
+    finally:
+        session.close()
+
+
 def _request_to_out(r) -> RequestOut:
     return RequestOut(
         id=r.id,
@@ -73,10 +129,12 @@ def update_request(
     except InvalidStatusTransitionError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Sync to connected services when request is accepted (non-blocking background task)
+    # Sync to connected services when request is accepted (non-blocking background task).
+    # Pass the ID so the task uses a fresh, promptly-closed session instead of
+    # pinning the request-scoped connection through the sync API calls (issue #505).
     if update_data.status == RequestStatus.ACCEPTED:
         if get_connected_adapters(request.event.created_by):
-            background_tasks.add_task(sync_request_to_services, db, request)
+            background_tasks.add_task(_sync_request_to_services_with_fresh_session, request.id)
 
     # Remove from Tidal collection playlist when a synced collection request is rejected.
     # Requires bidirectional sync to be enabled — tidal_sync_enabled alone is not enough.
@@ -88,10 +146,8 @@ def update_request(
         and request.event.tidal_collection_bidirectional
     ):
         background_tasks.add_task(
-            remove_track_from_collection_playlist,
-            db,
-            request.event.created_by,
-            request.event,
+            _remove_collection_track_with_fresh_session,
+            request.id,
             request.tidal_collection_track_id,
         )
 
@@ -155,6 +211,6 @@ def refresh_request_metadata(
         raise HTTPException(status_code=403, detail="Not authorized to update this request")
 
     cleared = clear_request_metadata(db, song_request)
-    background_tasks.add_task(enrich_request_metadata, db, cleared.id)
+    background_tasks.add_task(_enrich_with_fresh_session, cleared.id)
 
     return _request_to_out(cleared)

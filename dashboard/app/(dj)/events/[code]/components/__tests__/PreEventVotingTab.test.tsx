@@ -194,9 +194,9 @@ describe("PreEventVotingTab", () => {
     });
   });
 
-  // ---- Pagination + sort (issue #478) ----
+  // ---- Client-side load-all + sort (issue #489) ----
 
-  it("fetches the first page in default Review order (no sort param)", async () => {
+  it("loads the full set in default Review order (no sort param)", async () => {
     render(
       <PreEventVotingTab
         event={baseEvent}
@@ -206,14 +206,20 @@ describe("PreEventVotingTab", () => {
       />
     );
     await waitFor(() => {
+      // Chunked loader pages from offset 0 at PUBLIC_PAGE_MAX with no sort param.
       expect(apiClient.getPendingReview).toHaveBeenCalledWith("ABC", {
-        limit: 100,
+        limit: PUBLIC_PAGE_MAX,
         offset: 0,
       });
     });
   });
 
-  it("re-fetches with sort + direction when the Sort select changes", async () => {
+  it("sorts a simple field in memory without a re-fetch", async () => {
+    vi.mocked(apiClient.getPendingReview).mockResolvedValue(
+      // Vote-ranked server order: 3, 2, 1.
+      envelope([makeRow(3), makeRow(2), makeRow(1)], 3)
+    );
+
     render(
       <PreEventVotingTab
         event={baseEvent}
@@ -222,23 +228,28 @@ describe("PreEventVotingTab", () => {
         onEventChange={vi.fn()}
       />
     );
-    await waitFor(() => expect(apiClient.getPendingReview).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByText("Song 3")).toBeInTheDocument());
+    const callsAfterLoad = vi.mocked(apiClient.getPendingReview).mock.calls.length;
 
+    // Sort by Title ascending → "Song 1" before "Song 2" before "Song 3".
     fireEvent.change(screen.getByLabelText(/sort pending review by/i), {
-      target: { value: "upvotes" },
+      target: { value: "title" },
     });
 
     await waitFor(() => {
-      expect(apiClient.getPendingReview).toHaveBeenCalledWith("ABC", {
-        sort: "upvotes",
-        direction: "desc",
-        limit: 100,
-        offset: 0,
-      });
+      const rows = screen.getAllByText(/^Song \d$/).map((el) => el.textContent);
+      expect(rows).toEqual(["Song 1", "Song 2", "Song 3"]);
     });
+    // No additional network fetch — the sort is purely client-side.
+    expect(apiClient.getPendingReview).toHaveBeenCalledTimes(callsAfterLoad);
   });
 
-  it("snaps direction to the field default and toggles it", async () => {
+  it("renders Review order as the server returned it (no client re-sort)", async () => {
+    // Server vote-rank order is 2, 3, 1 (not numeric / not title order).
+    vi.mocked(apiClient.getPendingReview).mockResolvedValue(
+      envelope([makeRow(2), makeRow(3), makeRow(1)], 3)
+    );
+
     render(
       <PreEventVotingTab
         event={baseEvent}
@@ -247,29 +258,41 @@ describe("PreEventVotingTab", () => {
         onEventChange={vi.fn()}
       />
     );
-    await waitFor(() => expect(apiClient.getPendingReview).toHaveBeenCalled());
 
-    // Title defaults to ascending; the toggle then flips it to descending.
+    await waitFor(() => expect(screen.getByText("Song 2")).toBeInTheDocument());
+    const rows = screen.getAllByText(/^Song \d$/).map((el) => el.textContent);
+    expect(rows).toEqual(["Song 2", "Song 3", "Song 1"]);
+  });
+
+  it("snaps direction to the field default and toggles it (in memory)", async () => {
+    vi.mocked(apiClient.getPendingReview).mockResolvedValue(
+      envelope([makeRow(1), makeRow(2), makeRow(3)], 3)
+    );
+
+    render(
+      <PreEventVotingTab
+        event={baseEvent}
+        tidalConnected={false}
+        tidalIntegrationEnabled={false}
+        onEventChange={vi.fn()}
+      />
+    );
+    await waitFor(() => expect(screen.getByText("Song 1")).toBeInTheDocument());
+
+    // Title defaults to ascending: Song 1, 2, 3.
     fireEvent.change(screen.getByLabelText(/sort pending review by/i), {
       target: { value: "title" },
     });
     await waitFor(() => {
-      expect(apiClient.getPendingReview).toHaveBeenCalledWith("ABC", {
-        sort: "title",
-        direction: "asc",
-        limit: 100,
-        offset: 0,
-      });
+      const rows = screen.getAllByText(/^Song \d$/).map((el) => el.textContent);
+      expect(rows).toEqual(["Song 1", "Song 2", "Song 3"]);
     });
 
+    // Toggle to descending: Song 3, 2, 1.
     fireEvent.click(screen.getByRole("button", { name: /sort direction/i }));
     await waitFor(() => {
-      expect(apiClient.getPendingReview).toHaveBeenCalledWith("ABC", {
-        sort: "title",
-        direction: "desc",
-        limit: 100,
-        offset: 0,
-      });
+      const rows = screen.getAllByText(/^Song \d$/).map((el) => el.textContent);
+      expect(rows).toEqual(["Song 3", "Song 2", "Song 1"]);
     });
   });
 
@@ -286,34 +309,7 @@ describe("PreEventVotingTab", () => {
     expect(screen.queryByRole("button", { name: /sort direction/i })).not.toBeInTheDocument();
   });
 
-  it("shows 'Showing X of N' from the envelope total and Load More grows the window", async () => {
-    vi.mocked(apiClient.getPendingReview)
-      .mockResolvedValueOnce(envelope([makeRow(1), makeRow(2)], 250))
-      .mockResolvedValueOnce(envelope([makeRow(1), makeRow(2), makeRow(3)], 250));
-
-    render(
-      <PreEventVotingTab
-        event={baseEvent}
-        tidalConnected={false}
-        tidalIntegrationEnabled={false}
-        onEventChange={vi.fn()}
-      />
-    );
-
-    await waitFor(() => expect(screen.getByText(/showing 2 of 250/i)).toBeInTheDocument());
-
-    fireEvent.click(screen.getByRole("button", { name: /load more/i }));
-
-    // Second call asks for the grown window (limit 200) from offset 0.
-    await waitFor(() => {
-      expect(apiClient.getPendingReview).toHaveBeenLastCalledWith("ABC", {
-        limit: 200,
-        offset: 0,
-      });
-    });
-  });
-
-  it("hides Load More once the loaded count reaches the envelope total", async () => {
+  it("shows 'Showing X of N' and never a Load More button", async () => {
     vi.mocked(apiClient.getPendingReview).mockResolvedValue(
       envelope([makeRow(1), makeRow(2)], 2)
     );
@@ -331,16 +327,16 @@ describe("PreEventVotingTab", () => {
     expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument();
   });
 
-  it("clamps the growing window to PUBLIC_PAGE_MAX on Load More", async () => {
-    // Enough total to keep Load More alive; we click until the requested limit
-    // would exceed the cap and assert it is clamped to PUBLIC_PAGE_MAX. The
-    // mock always echoes the requested limit's worth of (one) row so the loaded
-    // count never trips the row-length gate — isolating the limit clamp.
+  it("shows the cap banner when the set exceeds the 2000-row cap", async () => {
+    // total claims 5000 but the loader stops at the 2000 cap; mock a chunk that
+    // always returns a full PUBLIC_PAGE_MAX page so the loader reaches the cap.
     vi.mocked(apiClient.getPendingReview).mockImplementation(async (_code, opts) => ({
-      requests: [makeRow(1)],
-      total: 100_000,
-      limit: opts?.limit ?? 100,
-      offset: 0,
+      requests: Array.from({ length: opts?.limit ?? PUBLIC_PAGE_MAX }, (_, i) =>
+        makeRow((opts?.offset ?? 0) + i + 1)
+      ),
+      total: 5000,
+      limit: opts?.limit ?? PUBLIC_PAGE_MAX,
+      offset: opts?.offset ?? 0,
       sort: null,
       direction: null,
     }));
@@ -353,24 +349,10 @@ describe("PreEventVotingTab", () => {
         onEventChange={vi.fn()}
       />
     );
-    await waitFor(() => expect(screen.getByRole("button", { name: /load more/i })).toBeInTheDocument());
 
-    // Click Load More many times; the requested limit grows by 100 but clamps.
-    // Wait for each click's fetch to actually land (incremental call count),
-    // otherwise the loop races ahead and the clamp assertion can false-pass.
-    const baseCalls = vi.mocked(apiClient.getPendingReview).mock.calls.length;
-    for (let i = 0; i < 10; i++) {
-      fireEvent.click(screen.getByRole("button", { name: /load more/i }));
-      await waitFor(() =>
-        expect(apiClient.getPendingReview).toHaveBeenCalledTimes(baseCalls + i + 1),
-      );
-    }
-
-    const requestedLimits = vi
-      .mocked(apiClient.getPendingReview)
-      .mock.calls.map(([, opts]) => opts?.limit ?? 0);
-    expect(Math.max(...requestedLimits)).toBeLessThanOrEqual(PUBLIC_PAGE_MAX);
-    // The window actually reached the cap rather than stopping short.
-    expect(requestedLimits.at(-1)).toBe(PUBLIC_PAGE_MAX);
+    await waitFor(() =>
+      expect(screen.getByText(/Showing 2000 of 5000 requests/i)).toBeInTheDocument()
+    );
+    expect(screen.getByText(/sort\/filter limited to these/i)).toBeInTheDocument();
   });
 });

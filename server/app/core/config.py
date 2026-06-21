@@ -191,6 +191,35 @@ class Settings(BaseSettings):
         return self.env == "production"
 
 
+_FERNET_KEY_HINT = (
+    'Generate with: python -c "from cryptography.fernet import Fernet; '
+    'print(Fernet.generate_key().decode())"'
+)
+
+
+def _fernet_key_error(key: str) -> str | None:
+    """Return an error message if ``key`` is non-empty but not a valid Fernet
+    key, else None. Empty input is ignored (presence is checked separately).
+
+    Uses the same ``Fernet`` constructor as ``app.core.encryption`` so the
+    accepted shape can never drift from what the runtime actually loads. This
+    catches a 64-char ``openssl rand -hex 32`` value at startup instead of at
+    the first OAuth token encryption (#504).
+    """
+    if not key:
+        return None
+    from cryptography.fernet import Fernet
+
+    try:
+        Fernet(key.encode())
+    except (ValueError, TypeError):
+        return (
+            "TOKEN_ENCRYPTION_KEY is not a valid Fernet key (must be 32 url-safe "
+            f"base64-encoded bytes = 44 chars; a hex string is rejected). {_FERNET_KEY_HINT}"
+        )
+    return None
+
+
 def validate_settings(settings: Settings) -> None:
     """Validate required settings and print helpful error messages."""
     errors = []
@@ -205,11 +234,9 @@ def validate_settings(settings: Settings) -> None:
                 "set to your frontend domain (e.g., https://app.wrzdj.com)"
             )
         if not settings.token_encryption_key:
-            errors.append(
-                "TOKEN_ENCRYPTION_KEY must be set in production. "
-                'Generate with: python -c "from cryptography.fernet import Fernet; '
-                'print(Fernet.generate_key().decode())"'
-            )
+            errors.append(f"TOKEN_ENCRYPTION_KEY must be set in production. {_FERNET_KEY_HINT}")
+        elif fernet_error := _fernet_key_error(settings.token_encryption_key):
+            errors.append(fernet_error)
         if not settings.human_cookie_secret:
             errors.append(
                 "HUMAN_COOKIE_SECRET must be set in production. "

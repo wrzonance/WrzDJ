@@ -4,8 +4,9 @@ import base64
 import secrets
 
 import pytest
+from cryptography.fernet import Fernet
 
-from app.core.config import Settings
+from app.core.config import Settings, _fernet_key_error, validate_settings
 
 
 def _make_settings(**overrides) -> Settings:
@@ -60,3 +61,47 @@ class TestEffectiveHumanCookieSecret:
         s = _make_settings(env="production", human_cookie_secret="")
         with pytest.raises(RuntimeError, match="HUMAN_COOKIE_SECRET"):
             _ = s.effective_human_cookie_secret
+
+
+class TestFernetKeyError:
+    """Shape-validate TOKEN_ENCRYPTION_KEY so a malformed key fails loud at
+    startup instead of crashing at the first OAuth token encryption (#504).
+    """
+
+    def test_valid_fernet_key_returns_none(self) -> None:
+        assert _fernet_key_error(Fernet.generate_key().decode()) is None
+
+    def test_hex_key_returns_error(self) -> None:
+        # `openssl rand -hex 32` → 64 hex chars: not a valid Fernet key.
+        hex_key = secrets.token_hex(32)
+        assert len(hex_key) == 64
+        err = _fernet_key_error(hex_key)
+        assert err is not None
+        assert "Fernet" in err
+
+    def test_empty_returns_none(self) -> None:
+        # Presence is checked separately; shape check ignores empty input.
+        assert _fernet_key_error("") is None
+
+
+class TestValidateSettingsFernetShape:
+    """validate_settings() must reject a hex TOKEN_ENCRYPTION_KEY in production."""
+
+    def _prod_settings(self, token_key: str) -> Settings:
+        return _make_settings(
+            env="production",
+            jwt_secret="prod-secret-not-default",
+            cors_origins="https://app.example.com",
+            human_cookie_secret=base64.urlsafe_b64encode(secrets.token_bytes(32)).decode(),
+            token_encryption_key=token_key,
+        )
+
+    def test_hex_token_key_exits(self) -> None:
+        s = self._prod_settings(secrets.token_hex(32))
+        with pytest.raises(SystemExit):
+            validate_settings(s)
+
+    def test_valid_fernet_token_key_passes(self) -> None:
+        s = self._prod_settings(Fernet.generate_key().decode())
+        # Should not raise SystemExit.
+        validate_settings(s)

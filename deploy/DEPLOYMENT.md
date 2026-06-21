@@ -29,7 +29,7 @@ cp deploy/.env.example deploy/.env
 #   POSTGRES_PASSWORD, JWT_SECRET, TOKEN_ENCRYPTION_KEY, HUMAN_COOKIE_SECRET,
 #   CORS_ORIGINS, PUBLIC_URL, NEXT_PUBLIC_API_URL
 # Optional integrations (leave blank if unused):
-#   SPOTIFY_*, TIDAL_*, BEATPORT_*, TURNSTILE_*, ANTHROPIC_API_KEY, RESEND_*, BRIDGE_API_KEY
+#   SPOTIFY_*, TIDAL_*, BEATPORT_*, TURNSTILE_*, RESEND_*, BRIDGE_API_KEY
 
 # 3. Deploy
 ./deploy/deploy-ghcr.sh              # pulls latest, restarts stack, waits for /health
@@ -164,7 +164,9 @@ openssl rand -hex 32
 Fill in all required values in `deploy/.env`:
 - `POSTGRES_PASSWORD` - secure database password
 - `JWT_SECRET` - generated secret above
-- `TOKEN_ENCRYPTION_KEY` - `openssl rand -hex 32` (Fernet key for OAuth tokens at rest)
+- `TOKEN_ENCRYPTION_KEY` - Fernet key for OAuth tokens at rest. Generate with:
+  `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
+  (a 44-char url-safe-base64 key — **not** `openssl rand -hex 32`, which is rejected at startup)
 - `HUMAN_COOKIE_SECRET` - `openssl rand -base64 32` (signs `wrzdj_human` verification cookie)
 - `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` - Spotify Developer Dashboard
 - `TIDAL_CLIENT_ID` / `TIDAL_CLIENT_SECRET` - Tidal Developer Portal (playlist sync)
@@ -173,8 +175,11 @@ Fill in all required values in `deploy/.env`:
 - `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` - Cloudflare Turnstile (human verification + DJ self-reg CAPTCHA)
 - `RESEND_API_KEY` - Resend transactional email (guest email verification + cross-device merge)
 - `EMAIL_FROM_ADDRESS` - verified send-from address (e.g. `noreply@send.yourdomain.com`)
-- `ANTHROPIC_API_KEY` - optional, enables AI Assist recommendations
 - `SOUNDCHARTS_APP_ID` / `SOUNDCHARTS_API_KEY` - optional, third candidate source for recommendations
+
+> **Note:** `ANTHROPIC_API_KEY` no longer enables AI Assist. The env-var credential
+> path was removed in #343; LLM credentials now flow through the LLM Gateway connector
+> system (configured in-app, see `ARCHITECTURE.md`). Setting `ANTHROPIC_API_KEY` has no effect.
 
 ### 3. Configure nginx
 

@@ -362,12 +362,11 @@ See `deploy/DEPLOYMENT.md` for full setup instructions.
 ENV=production
 DATABASE_URL=<PostgreSQL connection string>
 JWT_SECRET=<openssl rand -hex 32>
-TOKEN_ENCRYPTION_KEY=<openssl rand -hex 32>
+TOKEN_ENCRYPTION_KEY=<Fernet key: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())">
 SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET
 TIDAL_CLIENT_ID / TIDAL_CLIENT_SECRET
 BEATPORT_CLIENT_ID / BEATPORT_CLIENT_SECRET
 BRIDGE_API_KEY=<openssl rand -hex 32>
-ANTHROPIC_API_KEY=<optional, enables AI Assist recommendations>
 TURNSTILE_SITE_KEY / TURNSTILE_SECRET_KEY  # Cloudflare Turnstile (human verification + DJ self-reg)
 HUMAN_COOKIE_SECRET=<openssl rand -base64 32>  # signs wrzdj_human cookie
 RESEND_API_KEY  # email verification provider

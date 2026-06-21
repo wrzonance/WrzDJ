@@ -52,6 +52,8 @@ interface RequestQueueSectionProps {
   filter: StatusFilter;
   onFilterChange: (filter: StatusFilter) => void;
   statusCounts: Record<StatusFilter, number>;
+  /** True when the event exceeds the 2000-row in-memory cap (issue #489). */
+  capped?: boolean;
 }
 
 export function RequestQueueSection({
@@ -84,6 +86,7 @@ export function RequestQueueSection({
   filter,
   onFilterChange,
   statusCounts,
+  capped,
 }: RequestQueueSectionProps) {
   const [advancedMode, setAdvancedMode] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
@@ -488,10 +491,27 @@ export function RequestQueueSection({
         </div>
       )}
 
+      {capped && (
+        <div
+          role="status"
+          style={{
+            padding: '0.625rem 0.875rem',
+            marginBottom: '0.75rem',
+            background: 'var(--surface-raised)',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            fontSize: '0.8rem',
+            color: 'var(--text-secondary)',
+          }}
+        >
+          Showing 2000 of {total} requests — sort/filter limited to these.
+        </div>
+      )}
+
       {(() => {
-        // `requests` is the server's filtered page and `total` is that filter's
-        // true count, so "Showing X of Y" is honest per-filter. Hide once
-        // everything is loaded or we hit the cap.
+        // `requests` is the filtered set and `total` is its count, so
+        // "Showing X of Y" is honest. In client-side mode (issue #489) the full
+        // set is loaded, so loaded === total and "Load More" never shows.
         const loaded = requests.length;
         const hasMore = loaded < total && loaded < PUBLIC_PAGE_MAX;
         if (loaded === 0) return null;

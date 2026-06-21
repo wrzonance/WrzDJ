@@ -739,9 +739,11 @@ def accept_all_requests_endpoint(
     accepted = accept_all_new_requests(db, event)
 
     # Trigger batch sync — one background task for all accepted requests
-    # Uses sequential search + batch playlist add to avoid API rate limiting
+    # Uses sequential search + batch playlist add to avoid API rate limiting.
+    # Pass IDs (not the request `db` or live rows) so the task uses a fresh,
+    # promptly-closed session instead of pinning the pool connection (issue #505).
     if accepted and get_connected_adapters(event.created_by):
-        background_tasks.add_task(sync_requests_batch, db, accepted)
+        background_tasks.add_task(_sync_requests_with_fresh_session, [r.id for r in accepted])
 
     if accepted:
         publish_event(
@@ -1189,7 +1191,11 @@ def sync_collection_to_tidal(
     ]
 
     if eligible:
-        background_tasks.add_task(sync_collection_requests_batch, db, user, event, eligible)
+        # Pass IDs so the task re-queries in a fresh session instead of holding
+        # the request-scoped connection through the Tidal API calls (issue #505).
+        background_tasks.add_task(
+            _sync_collection_requests_with_fresh_session, event.id, [r.id for r in eligible]
+        )
 
     return {"queued": len(eligible)}
 
@@ -1253,10 +1259,13 @@ def bulk_review(
     # Beatport/MusicBrainz cascade) — this works regardless of whether the DJ
     # has any sync adapters connected. sync_requests_batch only adds to a
     # connected user's playlists; if no adapters, it returns early as a no-op.
+    # Pass IDs through the fresh-session helpers so each task opens and closes its
+    # own connection instead of pinning the request-scoped one across N enrich
+    # calls + the batch sync (issue #505).
     if accepted_rows:
         for row in accepted_rows:
-            background_tasks.add_task(enrich_request_metadata, db, row.id)
-        background_tasks.add_task(sync_requests_batch, db, accepted_rows)
+            background_tasks.add_task(_enrich_with_fresh_session, row.id)
+        background_tasks.add_task(_sync_requests_with_fresh_session, [r.id for r in accepted_rows])
 
     # Direction 1: remove rejected+synced tracks from the Tidal collection playlist.
     # Requires bidirectional sync to be enabled — tidal_sync_enabled alone is not enough.
@@ -1266,10 +1275,8 @@ def bulk_review(
         ]
         if track_ids_to_remove:
             background_tasks.add_task(
-                remove_collection_tracks_batch,
-                db,
-                event.created_by,
-                event,
+                _remove_collection_tracks_with_fresh_session,
+                event.id,
                 track_ids_to_remove,
             )
 
@@ -1311,6 +1318,46 @@ def _sync_requests_with_fresh_session(request_ids: list[int]) -> None:
         rows = session.query(SongRequest).filter(SongRequest.id.in_(request_ids)).all()
         if rows:
             sync_requests_batch(session, rows)
+    finally:
+        session.close()
+
+
+def _sync_collection_requests_with_fresh_session(event_id: int, request_ids: list[int]) -> None:
+    """Run sync_collection_requests_batch in its own DB session.
+
+    Re-queries the event (for its DJ + Tidal settings) and the requests by ID so
+    no request-scoped session or live ORM rows are pinned during the Tidal API
+    calls (issue #505).
+    """
+    from app.db.session import SessionLocal
+    from app.models.request import Request as SongRequest
+
+    session = SessionLocal()
+    try:
+        event = session.get(Event, event_id)
+        if not event:
+            return
+        rows = session.query(SongRequest).filter(SongRequest.id.in_(request_ids)).all()
+        if rows:
+            sync_collection_requests_batch(session, event.created_by, event, rows)
+    finally:
+        session.close()
+
+
+def _remove_collection_tracks_with_fresh_session(event_id: int, track_ids: list[str]) -> None:
+    """Run remove_collection_tracks_batch in its own DB session.
+
+    Re-queries the event (for its DJ + collection playlist) by ID so no
+    request-scoped session is pinned during the Tidal removal calls (issue #505).
+    """
+    from app.db.session import SessionLocal
+
+    session = SessionLocal()
+    try:
+        event = session.get(Event, event_id)
+        if not event:
+            return
+        remove_collection_tracks_batch(session, event.created_by, event, track_ids)
     finally:
         session.close()
 

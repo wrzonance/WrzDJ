@@ -1,19 +1,17 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
-import { apiClient, PendingReviewRow, PUBLIC_PAGE_MAX } from '@/lib/api';
+import { apiClient, PendingReviewRow } from '@/lib/api';
 import type { SortDirection } from '@/lib/api-types';
+import { loadAllPages, REQUEST_LOAD_CAP, type PageFetcher } from '@/lib/load-all-pages';
 import {
   PENDING_REVIEW_DEFAULT_DIRECTION,
   PENDING_REVIEW_SORT_FIELDS,
   REVIEW_ORDER,
-  toPendingReviewParams,
   type PendingReviewSort,
 } from '@/lib/pending-review-sort';
-
-/** First page size; the growing window grows by this on each "Load More". */
-const PAGE_SIZE = 100;
+import { sortRequests, type ClientSortField } from '@/lib/request-sort';
 
 interface EventShape {
   code: string;
@@ -92,12 +90,14 @@ export default function PreEventVotingTab({
   tidalIntegrationEnabled,
   onEventChange,
 }: Props) {
-  const [pending, setPending] = useState<PendingReviewRow[]>([]);
+  // The whole pending-review set is loaded once (chunked to the 2000 cap) and
+  // sorted/filtered in memory (issue #489): `allPending` is the loaded set in the
+  // server's vote-ranked Review order; `pending` is the in-memory sorted view.
+  const [allPending, setAllPending] = useState<PendingReviewRow[]>([]);
   const [pendingTotal, setPendingTotal] = useState(0);
-  const [displayLimit, setDisplayLimit] = useState(PAGE_SIZE);
+  const [capped, setCapped] = useState(false);
   const [sortField, setSortField] = useState<PendingReviewSort>(REVIEW_ORDER);
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
-  const [loadingMore, setLoadingMore] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [confirming, setConfirming] = useState<ConfirmAction | null>(null);
   const [topN, setTopN] = useState(20);
@@ -118,44 +118,44 @@ export default function PreEventVotingTab({
   const [syncResult, setSyncResult] = useState<{ queued: number } | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
 
-  // Re-fetch whenever the event, sort, or direction changes — each resets the
-  // growing window back to the first page. "Load More" drives its own fetch
-  // (loadMore) so its loading state stays meaningful. The effect intentionally
-  // re-runs only on the inputs below, mirroring the original code.code effect.
-  // Drops stale in-flight pending-review responses so an older fetch can't
-  // overwrite newer rows when sort/page change in quick succession.
+  // Load the whole pending-review set once (chunked to the 2000 cap) in the
+  // server's Review order, then sort in memory (issue #489). A sequence ref drops
+  // stale in-flight responses so an older load can't overwrite newer rows.
   const pendingFetchSeqRef = useRef(0);
 
-  useEffect(() => {
-    setDisplayLimit(PAGE_SIZE);
-    void fetchPage(PAGE_SIZE);
-  }, [event.code, sortField, sortDirection]);
-
-  // Fetch the pending-review window from offset=0 up to `limit`. Every refresh
-  // re-fetches the whole current window so sort/paging stay consistent. Returns
-  // false (and skips state updates) on failure or when superseded by a newer
-  // fetch, so callers can fire-and-forget without unhandled rejections.
-  async function fetchPage(limit: number): Promise<boolean> {
+  const fetchAll = useCallback(async (): Promise<void> => {
     const seq = ++pendingFetchSeqRef.current;
+    // Fetch in the stable default Review order (no sort param) so the chunked
+    // offset paging stitches deterministically; client-sort happens below.
+    const fetcher: PageFetcher<PendingReviewRow> = async ({ limit, offset }) => {
+      const resp = await apiClient.getPendingReview(event.code, { limit, offset });
+      return { requests: resp.requests, total: resp.total };
+    };
     try {
-      const resp = await apiClient.getPendingReview(event.code, {
-        ...toPendingReviewParams(sortField, sortDirection),
-        limit,
-        offset: 0,
-      });
-      if (seq !== pendingFetchSeqRef.current) return false;
-      setPending(resp.requests);
-      setPendingTotal(resp.total);
-      return true;
+      const res = await loadAllPages(fetcher);
+      if (seq !== pendingFetchSeqRef.current) return;
+      setAllPending(res.requests);
+      setPendingTotal(res.total);
+      setCapped(res.capped);
     } catch {
-      return false;
+      // Keep the last-good set on failure.
     }
-  }
+  }, [event.code]);
 
-  /** Re-fetch the current window (used after bulk actions). */
-  function refresh() {
-    return fetchPage(displayLimit);
-  }
+  // Reload only when the event changes; sort/direction are applied in memory.
+  useEffect(() => {
+    void fetchAll();
+  }, [fetchAll]);
+
+  /** Re-load the full set (used after bulk actions). */
+  const refresh = fetchAll;
+
+  // Client-sorted view: Review order renders as the server returned it; simple
+  // fields sort the in-memory set instantly (no re-fetch).
+  const pending = useMemo(() => {
+    if (sortField === REVIEW_ORDER) return allPending;
+    return sortRequests(allPending, sortField as ClientSortField, sortDirection);
+  }, [allPending, sortField, sortDirection]);
 
   function handleSortFieldChange(next: PendingReviewSort) {
     setSortField(next);
@@ -167,17 +167,6 @@ export default function PreEventVotingTab({
 
   function handleSortDirectionToggle() {
     setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'));
-  }
-
-  async function loadMore() {
-    const next = Math.min(displayLimit + PAGE_SIZE, PUBLIC_PAGE_MAX);
-    setLoadingMore(true);
-    try {
-      await fetchPage(next);
-      setDisplayLimit(next);
-    } finally {
-      setLoadingMore(false);
-    }
   }
 
   async function applyOverride(value: 'force_collection' | 'force_live' | null) {
@@ -643,24 +632,21 @@ export default function PreEventVotingTab({
           <div
             style={{
               display: 'flex',
-              alignItems: 'center',
-              gap: '0.75rem',
+              flexDirection: 'column',
+              gap: '0.5rem',
               marginTop: '0.75rem',
             }}
           >
             <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
               Showing {pending.length} of {pendingTotal}
             </span>
-            {pending.length < pendingTotal && pending.length < PUBLIC_PAGE_MAX && (
-              <button
-                type="button"
-                className="btn btn-sm"
-                style={{ background: 'var(--surface-raised)' }}
-                disabled={loadingMore}
-                onClick={loadMore}
+            {capped && (
+              <span
+                role="status"
+                style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}
               >
-                {loadingMore ? 'Loading…' : 'Load More'}
-              </button>
+                Showing {REQUEST_LOAD_CAP} of {pendingTotal} requests — sort/filter limited to these.
+              </span>
             )}
           </div>
         )}

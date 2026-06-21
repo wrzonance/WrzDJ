@@ -198,3 +198,17 @@ describe('RequestQueueSection Load More', () => {
     expect(onLoadMore).toHaveBeenCalledWith(undefined);
   });
 });
+
+describe('RequestQueueSection cap banner (issue #489)', () => {
+  it('shows the cap banner when capped', () => {
+    const reqs = Array.from({ length: 3 }, (_, i) => makeRequest({ id: i + 1 }));
+    render(<RequestQueueSection {...baseProps({ requests: reqs, total: 5000, capped: true })} />);
+    expect(screen.getByText(/Showing 2000 of 5000 requests/i)).toBeInTheDocument();
+    expect(screen.getByText(/sort\/filter limited to these/i)).toBeInTheDocument();
+  });
+
+  it('omits the cap banner when not capped', () => {
+    render(<RequestQueueSection {...baseProps()} />);
+    expect(screen.queryByText(/sort\/filter limited to these/i)).toBeNull();
+  });
+});

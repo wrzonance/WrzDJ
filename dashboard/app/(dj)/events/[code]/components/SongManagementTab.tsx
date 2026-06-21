@@ -54,6 +54,8 @@ interface SongManagementTabProps {
   filter: StatusFilter;
   onFilterChange: (filter: StatusFilter) => void;
   statusCounts: Record<StatusFilter, number>;
+  /** True when the event exceeds the 2000-row in-memory cap (issue #489). */
+  capped?: boolean;
 }
 
 export function SongManagementTab(props: SongManagementTabProps) {
@@ -105,6 +107,7 @@ export function SongManagementTab(props: SongManagementTabProps) {
         filter={props.filter}
         onFilterChange={props.onFilterChange}
         statusCounts={props.statusCounts}
+        capped={props.capped}
       />
       </HelpSpot>
 

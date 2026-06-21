@@ -127,6 +127,9 @@ vi.mock('@/components/EventErrorCard', () => ({
 
 // Mock API
 vi.mock('@/lib/api', () => ({
+  // useEventRequests → load-all-pages imports PUBLIC_PAGE_MAX; vitest throws on
+  // any undefined named export of a mocked module, so it must be provided here.
+  PUBLIC_PAGE_MAX: 500,
   api: {
     getEvent: vi.fn(),
     getRequests: vi.fn(),
@@ -1132,24 +1135,34 @@ describe('EventQueuePage', () => {
     });
   });
 
-  describe('Server-side status filter + status counts (issue #478, Bugs 1 & 2)', () => {
-    it('passes server status_counts through to SongTab', async () => {
+  describe('Client-side status filter + status counts (issue #489)', () => {
+    it('computes tab counts from the in-memory set, not server status_counts', async () => {
       setupDefaultMocks();
+      // The whole event loads client-side; counts come from the loaded rows'
+      // statuses (server `status_counts` is ignored).
       vi.mocked(api.getRequests).mockResolvedValue(
-        mockRequestList([mockRequest()], {
-          status_counts: { all: 120, new: 80, accepted: 25, playing: 2, played: 10, rejected: 3 },
-        }),
+        mockRequestList(
+          [
+            mockRequest({ id: 1, status: 'new' }),
+            mockRequest({ id: 2, status: 'new' }),
+            mockRequest({ id: 3, status: 'accepted' }),
+          ],
+          { status_counts: { all: 999, new: 999, accepted: 999, playing: 9, played: 9, rejected: 9 } },
+        ),
       );
 
       render(<EventQueuePage />);
       await screen.findByText('Test Event');
+      await waitFor(() =>
+        expect((capturedSongTabProps.statusCounts as Record<string, number>).all).toBe(3),
+      );
 
       expect(capturedSongTabProps.statusCounts).toEqual({
-        all: 120, new: 80, accepted: 25, playing: 2, played: 10, rejected: 3,
+        all: 3, new: 2, accepted: 1, playing: 0, played: 0, rejected: 0,
       });
     });
 
-    it('refetches with the chosen status server-side when the filter changes', async () => {
+    it('changes the filter without a server re-fetch (in-memory)', async () => {
       setupDefaultMocks();
 
       render(<EventQueuePage />);
@@ -1159,34 +1172,14 @@ describe('EventQueuePage', () => {
       const onFilterChange = capturedSongTabProps.onFilterChange as (f: string) => void;
       await act(async () => { onFilterChange('accepted'); });
 
-      // First fetch after a filter change must carry status: 'accepted', offset 0.
-      expect(api.getRequests).toHaveBeenCalledWith(
-        'TEST',
-        expect.objectContaining({ status: 'accepted', offset: 0 }),
-      );
-    });
-
-    it("omits status (undefined) when the filter is 'all'", async () => {
-      setupDefaultMocks();
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      const onFilterChange = capturedSongTabProps.onFilterChange as (f: string) => void;
-      // Move off 'all' then back to 'all'.
-      await act(async () => { onFilterChange('accepted'); });
-      vi.mocked(api.getRequests).mockClear();
-      await act(async () => { onFilterChange('all'); });
-
-      expect(api.getRequests).toHaveBeenCalledWith(
-        'TEST',
-        expect.objectContaining({ status: undefined, offset: 0 }),
-      );
+      // The filter prop updates, but no new request fetch is triggered.
+      expect(capturedSongTabProps.filter).toBe('accepted');
+      expect(api.getRequests).not.toHaveBeenCalled();
     });
   });
 
-  describe('Immediate reload on sort change (issue #478, Bug 3)', () => {
-    it('refetches immediately when the sort field changes (not waiting for poll)', async () => {
+  describe('Client-side sort (issue #489)', () => {
+    it('changes a simple sort field without a server re-fetch', async () => {
       setupDefaultMocks();
 
       render(<EventQueuePage />);
@@ -1196,13 +1189,12 @@ describe('EventQueuePage', () => {
       const onSortFieldChange = capturedSongTabProps.onSortFieldChange as (f: string) => void;
       await act(async () => { onSortFieldChange('upvotes'); });
 
-      expect(api.getRequests).toHaveBeenCalledWith(
-        'TEST',
-        expect.objectContaining({ sort: 'upvotes', offset: 0 }),
-      );
+      // upvotes is a client-sorted field — instant, no network.
+      expect(capturedSongTabProps.sortField).toBe('upvotes');
+      expect(api.getRequests).not.toHaveBeenCalled();
     });
 
-    it('refetches immediately when the sort direction toggles', async () => {
+    it('toggles sort direction without a server re-fetch', async () => {
       setupDefaultMocks();
 
       render(<EventQueuePage />);
@@ -1212,21 +1204,18 @@ describe('EventQueuePage', () => {
       const onSortDirectionToggle = capturedSongTabProps.onSortDirectionToggle as () => void;
       await act(async () => { onSortDirectionToggle(); });
 
-      // Default field date_requested defaults desc → toggling yields asc.
-      expect(api.getRequests).toHaveBeenCalledWith(
-        'TEST',
-        expect.objectContaining({ direction: 'asc', offset: 0 }),
-      );
+      expect(capturedSongTabProps.sortDirection).toBe('asc');
+      expect(api.getRequests).not.toHaveBeenCalled();
     });
 
-    it('does not double-fetch on the initial mount (effect skips first render)', async () => {
+    it('does not double-fetch on the initial mount', async () => {
       vi.useFakeTimers();
       setupDefaultMocks();
 
       render(<EventQueuePage />);
       await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
-      // Exactly one initial load — the sort-change effect must skip mount.
+      // Exactly one initial load from the request hook.
       expect(api.getRequests).toHaveBeenCalledTimes(1);
     });
   });

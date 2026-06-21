@@ -64,6 +64,44 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _enrich_with_fresh_session(request_id: int) -> None:
+    """Run enrichment in its own DB session.
+
+    FastAPI keeps the request-scoped `db` open until all background tasks finish;
+    passing it (or a live row) pins the pool connection through the slow external
+    metadata lookups. A fresh `SessionLocal()` releases its connection as soon as
+    the task ends (issue #505).
+    """
+    from app.db.session import SessionLocal
+
+    session = SessionLocal()
+    try:
+        enrich_request_metadata(session, request_id)
+    finally:
+        session.close()
+
+
+def _sync_collection_requests_with_fresh_session(event_id: int, request_ids: list[int]) -> None:
+    """Run sync_collection_requests_batch in its own DB session.
+
+    Re-queries the event (for its DJ + Tidal settings) and the requests by ID so
+    no request-scoped session or live ORM rows are pinned during the Tidal API
+    calls (issue #505).
+    """
+    from app.db.session import SessionLocal
+
+    session = SessionLocal()
+    try:
+        event = session.get(Event, event_id)
+        if not event:
+            return
+        rows = session.query(SongRequest).filter(SongRequest.id.in_(request_ids)).all()
+        if rows:
+            sync_collection_requests_batch(session, event.created_by, event, rows)
+    finally:
+        session.close()
+
+
 def _get_event_or_404(db: Session, code: str) -> Event:
     # Resolve by EITHER public code (collection or join). Collect's gates
     # (require_verified_human / require_email_verified) still enforce auth, so
@@ -462,12 +500,12 @@ def submit(
     db.add(row)
     db.commit()
     db.refresh(row)
+    # Pass IDs so each task opens and closes its own session instead of pinning
+    # the request-scoped connection through the slow external API calls (issue #505).
     if not (row.genre and row.bpm and row.musical_key):
-        background_tasks.add_task(enrich_request_metadata, db, row.id)
+        background_tasks.add_task(_enrich_with_fresh_session, row.id)
     if event.tidal_sync_enabled and get_system_settings(db).tidal_enabled:
-        background_tasks.add_task(
-            sync_collection_requests_batch, db, event.created_by, event, [row]
-        )
+        background_tasks.add_task(_sync_collection_requests_with_fresh_session, event.id, [row.id])
     log_activity(
         db,
         level="info",

@@ -191,6 +191,56 @@ class Settings(BaseSettings):
         return self.env == "production"
 
 
+_FERNET_KEY_HINT = (
+    'Generate with: python -c "from cryptography.fernet import Fernet; '
+    'print(Fernet.generate_key().decode())"'
+)
+
+
+def _fernet_key_error(key: str) -> str | None:
+    """Return an error message if ``key`` is non-empty but not a valid Fernet
+    key, else None. Empty input is ignored (presence is checked separately).
+
+    Uses the same ``Fernet`` constructor as ``app.core.encryption`` so the
+    accepted shape can never drift from what the runtime actually loads. This
+    catches a 64-char ``openssl rand -hex 32`` value at startup instead of at
+    the first OAuth token encryption (#504).
+    """
+    if not key:
+        return None
+    from cryptography.fernet import Fernet
+
+    try:
+        Fernet(key.encode())
+    except (ValueError, TypeError):
+        return (
+            "TOKEN_ENCRYPTION_KEY is not a valid Fernet key (must be 32 url-safe "
+            f"base64-encoded bytes = 44 chars; a hex string is rejected). {_FERNET_KEY_HINT}"
+        )
+    return None
+
+
+def _fernet_key_list_error(keys: str, setting_name: str) -> str | None:
+    """Validate a comma-separated Fernet key list (rotation support).
+
+    Parses ``keys`` exactly as ``app.core.encryption._get_fernet`` does (strip
+    whitespace, drop empties) so validation mirrors what the runtime loads, then
+    shape-checks every remaining entry. Returns the first error (naming the
+    setting + 1-based entry index) or None. Empty/blank input → "no valid keys".
+    """
+    key_list = [key.strip() for key in keys.split(",") if key.strip()]
+    if not key_list:
+        return f"{setting_name} contains no valid keys. {_FERNET_KEY_HINT}"
+
+    # For a single key, keep the plain setting name; only a rotation list (>1
+    # entry) gets the "entry N" qualifier so operators can spot which key is bad.
+    for index, key in enumerate(key_list, start=1):
+        if error := _fernet_key_error(key):
+            target = setting_name if len(key_list) == 1 else f"{setting_name} entry {index}"
+            return error.replace("TOKEN_ENCRYPTION_KEY", target, 1)
+    return None
+
+
 def validate_settings(settings: Settings) -> None:
     """Validate required settings and print helpful error messages."""
     errors = []
@@ -204,12 +254,21 @@ def validate_settings(settings: Settings) -> None:
                 "CORS_ORIGINS should not be '*' in production - "
                 "set to your frontend domain (e.g., https://app.wrzdj.com)"
             )
-        if not settings.token_encryption_key:
+        # Mirror app.core.encryption: prefer the rotation list, fall back to the
+        # single legacy key. Validate whichever source the runtime will load so a
+        # malformed rotation list fails at startup and a valid rotation-only
+        # config is not rejected as "missing".
+        token_keys = settings.token_encryption_keys or settings.token_encryption_key
+        token_keys_name = (
+            "TOKEN_ENCRYPTION_KEYS" if settings.token_encryption_keys else "TOKEN_ENCRYPTION_KEY"
+        )
+        if not token_keys:
             errors.append(
-                "TOKEN_ENCRYPTION_KEY must be set in production. "
-                'Generate with: python -c "from cryptography.fernet import Fernet; '
-                'print(Fernet.generate_key().decode())"'
+                "TOKEN_ENCRYPTION_KEY or TOKEN_ENCRYPTION_KEYS must be set in production. "
+                f"{_FERNET_KEY_HINT}"
             )
+        elif fernet_error := _fernet_key_list_error(token_keys, token_keys_name):
+            errors.append(fernet_error)
         if not settings.human_cookie_secret:
             errors.append(
                 "HUMAN_COOKIE_SECRET must be set in production. "

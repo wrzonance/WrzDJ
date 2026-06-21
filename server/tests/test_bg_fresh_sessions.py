@@ -11,6 +11,8 @@ exception, and (b) endpoints schedule IDs / lists-of-IDs, never ORM objects or
 the request session.
 """
 
+import pytest
+
 import app.api.collect as collect_module
 import app.api.events as events_module
 import app.api.requests as requests_module
@@ -69,10 +71,10 @@ def test_enrich_helper_closes_session_on_exception(monkeypatch):
 
     monkeypatch.setattr(events_module, "enrich_request_metadata", boom)
 
-    try:
+    # Assert the error actually propagates — the helper must NOT swallow it — so
+    # the regression also guards against a future try/except hiding failures.
+    with pytest.raises(RuntimeError):
         events_module._enrich_with_fresh_session(123)
-    except RuntimeError:
-        pass
 
     assert spy.closed is True
 

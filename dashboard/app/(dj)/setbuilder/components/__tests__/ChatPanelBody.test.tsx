@@ -95,10 +95,13 @@ describe('ChatPanelBody', () => {
     };
   }
 
-  it('shows an undo hint on a destructive autobuild tool card', () => {
-    render(<ChatPanelBody chat={makeController({ entries: [entryWithTool('autobuild')] })} />);
-    expect(screen.getByTestId('agent-undo-hint')).toHaveTextContent(/undo/i);
-  });
+  it.each([['autobuild'], ['fill_to_duration']])(
+    'shows an undo hint on a destructive %s tool card',
+    (name) => {
+      render(<ChatPanelBody chat={makeController({ entries: [entryWithTool(name)] })} />);
+      expect(screen.getByTestId('agent-undo-hint')).toHaveTextContent(/undo/i);
+    },
+  );
 
   it('does not show the undo hint on a non-destructive tool card', () => {
     render(<ChatPanelBody chat={makeController({ entries: [entryWithTool('swap_slots')] })} />);

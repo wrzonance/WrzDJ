@@ -211,6 +211,32 @@ def _agent_tools() -> list[ToolSpec]:
                 "required": ["event", "rationale"],
             },
         ),
+        ToolSpec(
+            name="import_from_tidal",
+            description=(
+                "Import a connected-account Tidal playlist into the set's track pool. "
+                "'playlist' is a playlist name (substring) or id; zero/several matches "
+                "return the options."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {"playlist": {"type": "string"}, "rationale": {"type": "string"}},
+                "required": ["playlist", "rationale"],
+            },
+        ),
+        ToolSpec(
+            name="import_from_beatport",
+            description=(
+                "Import a connected-account Beatport playlist into the set's track pool. "
+                "'playlist' is a playlist name (substring) or id; zero/several matches "
+                "return the options."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {"playlist": {"type": "string"}, "rationale": {"type": "string"}},
+                "required": ["playlist", "rationale"],
+            },
+        ),
         _critique_tool(),
     ]
 

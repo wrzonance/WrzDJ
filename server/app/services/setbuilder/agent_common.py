@@ -34,6 +34,8 @@ MUTATION_TOOLS = {
     "add_pairing",
     "remove_pairing",
     "import_from_event",
+    "import_from_tidal",
+    "import_from_beatport",
 }
 
 

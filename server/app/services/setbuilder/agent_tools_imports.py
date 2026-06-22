@@ -18,6 +18,7 @@ from app.models.event import Event
 from app.models.set import Set
 from app.models.set_pool import SetPoolSource
 from app.models.user import User
+from app.services import beatport, tidal
 from app.services.setbuilder import pool
 from app.services.setbuilder.agent_common import AgentToolError
 
@@ -100,3 +101,80 @@ def _tool_import_from_event(
     )
     added, deduped = pool.import_candidates(db, set_obj, source, candidates, commit=False)
     return _import_summary(source, added, deduped), set()
+
+
+def _connected_playlist_import(
+    db: Session,
+    set_obj: Set,
+    payload: dict[str, Any],
+    *,
+    kind: str,
+    connected_attr: str,
+    list_playlists: Callable[[Session, User], list],
+    fetch_candidates: Callable[[Session, User, str], list],
+    fetch_error_types: tuple[type[Exception], ...],
+) -> tuple[dict[str, Any], set[int]]:
+    """Resolve a connected-account playlist by name/id and import it.
+
+    Shared by import_from_tidal/beatport. ``fetch_error_types`` is the tuple of
+    exceptions the fetch may raise (empty for beatport, which returns []).
+    """
+    owner = _owner(db, set_obj)
+    if not getattr(owner, connected_attr):
+        raise AgentToolError(f"Connect your {kind.capitalize()} account first.")
+    playlists = list_playlists(db, owner)
+    if not playlists:
+        raise AgentToolError(f"No {kind.capitalize()} playlists found on your account.")
+    playlist = _resolve_one(
+        str(payload.get("playlist") or ""),
+        playlists,
+        id_of=lambda p: p.id,
+        name_of=lambda p: p.name,
+        what=f"{kind} playlist",
+    )
+    try:
+        candidates = fetch_candidates(db, owner, playlist.id)
+    except fetch_error_types as exc:
+        raise AgentToolError(f"Couldn't fetch that {kind.capitalize()} playlist.") from exc
+    if not candidates:
+        raise AgentToolError(f"That {kind.capitalize()} playlist has no importable tracks.")
+    source = pool.get_or_create_source(
+        db,
+        set_obj,
+        kind=kind,
+        external_ref=str(playlist.id),
+        label=playlist.name,
+        meta=f"{kind.capitalize()} playlist",
+    )
+    added, deduped = pool.import_candidates(db, set_obj, source, candidates, commit=False)
+    return _import_summary(source, added, deduped), set()
+
+
+def _tool_import_from_tidal(
+    db: Session, set_obj: Set, payload: dict[str, Any]
+) -> tuple[dict[str, Any], set[int]]:
+    return _connected_playlist_import(
+        db,
+        set_obj,
+        payload,
+        kind="tidal",
+        connected_attr="tidal_access_token",
+        list_playlists=tidal.list_user_playlists,
+        fetch_candidates=pool.candidates_from_tidal,
+        fetch_error_types=(tidal.TidalFetchError,),
+    )
+
+
+def _tool_import_from_beatport(
+    db: Session, set_obj: Set, payload: dict[str, Any]
+) -> tuple[dict[str, Any], set[int]]:
+    return _connected_playlist_import(
+        db,
+        set_obj,
+        payload,
+        kind="beatport",
+        connected_attr="beatport_access_token",
+        list_playlists=beatport.list_user_playlists,
+        fetch_candidates=pool.candidates_from_beatport,
+        fetch_error_types=(),
+    )

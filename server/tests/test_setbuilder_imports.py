@@ -200,3 +200,111 @@ def test_import_from_event_missing_arg_errors(db: Session, test_user: User):
     _mk_event(db, test_user, "Friday Wedding", "EVT900")
     with pytest.raises(AgentToolError, match="name or id"):
         apply_tool_call(db, set_obj, "import_from_event", {"rationale": "no event arg"})
+
+
+# --- import_from_tidal -------------------------------------------------------
+
+
+from types import SimpleNamespace  # noqa: E402
+
+
+def _connect(db: Session, user: User, *, tidal: bool = False, beatport: bool = False) -> None:
+    if tidal:
+        user.tidal_access_token = "tok"
+    if beatport:
+        user.beatport_access_token = "tok"
+    db.commit()
+
+
+def test_import_from_tidal_resolves_and_imports(db: Session, test_user: User, monkeypatch):
+    set_obj = _mk_set(db, test_user)
+    _connect(db, test_user, tidal=True)
+    monkeypatch.setattr(
+        "app.services.tidal.list_user_playlists",
+        lambda d, u: [
+            SimpleNamespace(id="pl-1", name="Peak Hours"),
+            SimpleNamespace(id="pl-2", name="Warmup"),
+        ],
+    )
+    monkeypatch.setattr(
+        "app.services.setbuilder.pool.candidates_from_tidal",
+        lambda d, u, pid: [
+            pool.PoolCandidate(title="T1", artist="A1"),
+            pool.PoolCandidate(title="T2", artist="A2"),
+        ],
+    )
+
+    result, positions = apply_tool_call(
+        db, set_obj, "import_from_tidal", {"playlist": "peak", "rationale": "Bring the peak set."}
+    )
+
+    assert positions == set()
+    assert result["added"] == 2
+    assert result["source_kind"] == "tidal"
+    assert result["source_label"] == "Peak Hours"
+
+
+def test_import_from_tidal_not_connected_errors(db: Session, test_user: User):
+    set_obj = _mk_set(db, test_user)
+    with pytest.raises(AgentToolError, match="Connect your Tidal"):
+        apply_tool_call(db, set_obj, "import_from_tidal", {"playlist": "x", "rationale": "r"})
+
+
+def test_import_from_tidal_fetch_error_maps_to_tool_error(
+    db: Session, test_user: User, monkeypatch
+):
+    from app.services.tidal import TidalFetchError
+
+    set_obj = _mk_set(db, test_user)
+    _connect(db, test_user, tidal=True)
+    monkeypatch.setattr(
+        "app.services.tidal.list_user_playlists",
+        lambda d, u: [SimpleNamespace(id="pl-1", name="Peak Hours")],
+    )
+
+    def boom(d, u, pid):
+        raise TidalFetchError("nope")
+
+    monkeypatch.setattr("app.services.setbuilder.pool.candidates_from_tidal", boom)
+    with pytest.raises(AgentToolError, match="Couldn't fetch that Tidal"):
+        apply_tool_call(db, set_obj, "import_from_tidal", {"playlist": "peak", "rationale": "r"})
+
+
+# --- import_from_beatport ----------------------------------------------------
+
+
+def test_import_from_beatport_resolves_and_imports(db: Session, test_user: User, monkeypatch):
+    set_obj = _mk_set(db, test_user)
+    _connect(db, test_user, beatport=True)
+    monkeypatch.setattr(
+        "app.services.beatport.list_user_playlists",
+        lambda d, u: [SimpleNamespace(id="bp-9", name="Tech House")],
+    )
+    monkeypatch.setattr(
+        "app.services.setbuilder.pool.candidates_from_beatport",
+        lambda d, u, pid: [pool.PoolCandidate(title="B1", artist="A1")],
+    )
+
+    result, _ = apply_tool_call(
+        db, set_obj, "import_from_beatport", {"playlist": "tech", "rationale": "Tech house pool."}
+    )
+    assert result["added"] == 1
+    assert result["source_kind"] == "beatport"
+
+
+def test_import_from_beatport_empty_fetch_errors(db: Session, test_user: User, monkeypatch):
+    set_obj = _mk_set(db, test_user)
+    _connect(db, test_user, beatport=True)
+    monkeypatch.setattr(
+        "app.services.beatport.list_user_playlists",
+        lambda d, u: [SimpleNamespace(id="bp-9", name="Tech House")],
+    )
+    monkeypatch.setattr(
+        "app.services.setbuilder.pool.candidates_from_beatport", lambda d, u, pid: []
+    )
+    with pytest.raises(AgentToolError, match="no importable tracks"):
+        apply_tool_call(db, set_obj, "import_from_beatport", {"playlist": "tech", "rationale": "r"})
+
+
+def test_import_playlist_tools_in_mutation_tools():
+    assert {"import_from_tidal", "import_from_beatport"} <= MUTATION_TOOLS

@@ -37,6 +37,12 @@ def _tool_autobuild(
     """
     result = build_set(db, set_obj, commit=False)
     affected = {slot.position for slot in result.slots}
+    logger.info(
+        "setbuilder autobuild: set %s rebuilt to %s slots (%s refinement iterations)",
+        set_obj.id,
+        result.slot_count,
+        result.iterations,
+    )
     return {"slot_count": result.slot_count, "iterations": result.iterations}, affected
 
 

@@ -26,6 +26,7 @@ MUTATION_TOOLS = {
     "set_curve_point",
     "remove_curve_point",
     "apply_curve_template",
+    "autobuild",
     "set_target",
     "lock_slot",
     "unlock_slot",

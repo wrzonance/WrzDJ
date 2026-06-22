@@ -158,6 +158,13 @@ def _tool_display_summary(
         return f"{verb} {transition}."
     if name == "remove_pairing":
         return f"Unpinned the transition {result.get('from_label')} → {result.get('into_label')}."
+    if name == "autobuild":
+        slots = int(result.get("slot_count") or 0)
+        iterations = int(result.get("iterations") or 0)
+        return (
+            f"Rebuilt the set: {slots} slot{'s' if slots != 1 else ''}, "
+            f"{iterations} refinement pass{'es' if iterations != 1 else ''}."
+        )
     return name.replace("_", " ").capitalize() + "."
 
 

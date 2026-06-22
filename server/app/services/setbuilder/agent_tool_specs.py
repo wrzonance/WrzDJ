@@ -122,6 +122,20 @@ def _agent_tools() -> list[ToolSpec]:
             },
         ),
         ToolSpec(
+            name="autobuild",
+            description=(
+                "Regenerate the ENTIRE set order from the pool and energy curve "
+                "(deterministic pass 1). This REPLACES the current hand-arranged "
+                "order wholesale; locked slots and saved pairings are preserved. "
+                "Destructive — use only when the DJ asks to rebuild / auto-arrange."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {"rationale": {"type": "string"}},
+                "required": ["rationale"],
+            },
+        ),
+        ToolSpec(
             name="analyze_transition",
             description="Analyze one transition by destination slot position.",
             input_schema={

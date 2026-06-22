@@ -60,6 +60,7 @@ from app.services.setbuilder.agent_tools_sensing import (
     _tool_summarize_set,
     _track_summary,
 )
+from app.services.setbuilder.agent_tools_structural import _tool_autobuild
 from app.services.setbuilder.pass1_deterministic import (
     TransitionScore,
     recompute_transition_scores,
@@ -317,6 +318,7 @@ def apply_tool_call(
         "set_curve_point": _tool_set_curve_point,
         "remove_curve_point": _tool_remove_curve_point,
         "apply_curve_template": _tool_apply_curve_template,
+        "autobuild": _tool_autobuild,
         "set_target": _tool_set_target,
         "lock_slot": _tool_lock_slot,
         "unlock_slot": _tool_unlock_slot,

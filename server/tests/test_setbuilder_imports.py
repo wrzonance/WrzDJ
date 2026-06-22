@@ -1,5 +1,7 @@
 """Tests for the connected-service import agent tools (#524, #442 Family 4a)."""
 
+from types import SimpleNamespace
+
 import pytest
 from sqlalchemy.orm import Session
 
@@ -203,9 +205,6 @@ def test_import_from_event_missing_arg_errors(db: Session, test_user: User):
 
 
 # --- import_from_tidal -------------------------------------------------------
-
-
-from types import SimpleNamespace  # noqa: E402
 
 
 def _connect(db: Session, user: User, *, tidal: bool = False, beatport: bool = False) -> None:

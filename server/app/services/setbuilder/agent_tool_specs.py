@@ -198,6 +198,19 @@ def _agent_tools() -> list[ToolSpec]:
             ),
             input_schema={"type": "object", "properties": {}},
         ),
+        ToolSpec(
+            name="import_from_event",
+            description=(
+                "Import a DJ-owned event's song requests into the set's track pool. "
+                "The 'event' argument is an event name (case-insensitive substring) or its "
+                "numeric id; if it matches zero or several events the tool returns the options."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {"event": {"type": "string"}, "rationale": {"type": "string"}},
+                "required": ["event", "rationale"],
+            },
+        ),
         _critique_tool(),
     ]
 

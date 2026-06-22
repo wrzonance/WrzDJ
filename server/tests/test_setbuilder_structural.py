@@ -298,3 +298,38 @@ def test_fill_to_duration_display_summary_is_human_readable():
         {},
     )
     assert none_added == "No tracks added; set already ~10 min of ~10 min target."
+
+
+def test_duration_for_falls_back_to_average_when_missing():
+    from app.services.setbuilder.agent_tools_structural import (
+        AVG_TRACK_LENGTH_SEC,
+        _duration_for,
+    )
+
+    class _FakeTrack:
+        duration_sec = None
+
+    assert _duration_for(None) == AVG_TRACK_LENGTH_SEC
+    assert _duration_for(_FakeTrack()) == AVG_TRACK_LENGTH_SEC
+    _FakeTrack.duration_sec = 0
+    assert _duration_for(_FakeTrack()) == AVG_TRACK_LENGTH_SEC
+    _FakeTrack.duration_sec = 180
+    assert _duration_for(_FakeTrack()) == 180
+
+
+def test_fill_to_duration_display_summary_notes_cap():
+    capped = _tool_display_summary(
+        "fill_to_duration",
+        {"rationale": "x"},
+        {
+            "inserted_count": 2,
+            "estimated_total_sec": 420,
+            "target_duration_sec": 9999,
+            "capped": True,
+            "pool_exhausted": False,
+        },
+        {},
+        {},
+    )
+    assert "Added 2 tracks toward target" in capped
+    assert "Hit the per-turn insert cap." in capped

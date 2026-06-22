@@ -52,7 +52,7 @@ class BuildResult:
     transition_scores: list[TransitionScore]
 
 
-def build_set(db: Session, set_obj: Set) -> BuildResult:
+def build_set(db: Session, set_obj: Set, *, commit: bool = True) -> BuildResult:
     """Build and persist a deterministic ordered set from the set pool."""
     pool_tracks = _pool_tracks(db, set_obj.id)
     locked = _locked_slots(db, set_obj.id)
@@ -92,8 +92,8 @@ def build_set(db: Session, set_obj: Set) -> BuildResult:
         targets=targets,
         key_strictness=set_obj.key_strictness,
     )
-    slots = _persist_slots(db, set_obj.id, locked_by_pos, chosen, targets)
-    scores = recompute_transition_scores(db, set_obj, slots)
+    slots = _persist_slots(db, set_obj.id, locked_by_pos, chosen, targets, commit=commit)
+    scores = recompute_transition_scores(db, set_obj, slots, commit=commit)
     return BuildResult(
         slots=slots,
         slot_count=slot_count,
@@ -424,6 +424,8 @@ def _persist_slots(
     locked_by_pos: dict[int, SetSlot],
     chosen: list[TrackMeta | None],
     targets: list[float],
+    *,
+    commit: bool = True,
 ) -> list[SetSlot]:
     for slot in (
         db.query(SetSlot)
@@ -449,5 +451,8 @@ def _persist_slots(
                 target_energy=targets[pos],
             )
         )
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return _ordered_slots(db, set_id)

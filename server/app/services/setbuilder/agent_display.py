@@ -158,6 +158,24 @@ def _tool_display_summary(
         return f"{verb} {transition}."
     if name == "remove_pairing":
         return f"Unpinned the transition {result.get('from_label')} → {result.get('into_label')}."
+    if name == "autobuild":
+        slots = int(result.get("slot_count") or 0)
+        iterations = int(result.get("iterations") or 0)
+        return (
+            f"Rebuilt the set: {slots} slot{'s' if slots != 1 else ''}, "
+            f"{iterations} refinement pass{'es' if iterations != 1 else ''}."
+        )
+    if name == "fill_to_duration":
+        added = int(result.get("inserted_count") or 0)
+        now_min = int(result.get("estimated_total_sec") or 0) // 60
+        target_min = int(result.get("target_duration_sec") or 0) // 60
+        if added == 0:
+            return f"No tracks added; set already ~{now_min} min of ~{target_min} min target."
+        base = (
+            f"Added {added} track{'s' if added != 1 else ''} toward target; "
+            f"now ~{now_min} min of ~{target_min} min."
+        )
+        return f"{base} Hit the per-turn insert cap." if result.get("capped") else base
     return name.replace("_", " ").capitalize() + "."
 
 

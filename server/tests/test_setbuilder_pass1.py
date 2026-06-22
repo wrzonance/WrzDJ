@@ -99,3 +99,21 @@ def test_saved_pairing_boost_keeps_adjacent_pair(db: Session, test_user: User):
     result = build_set(db, set_obj)
 
     assert [slot.track_id for slot in result.slots] == ["tidal:a", "tidal:b"]
+
+
+def test_build_set_commit_false_defers_persistence_to_caller(db: Session, test_user: User):
+    set_obj = _mk_set(db, test_user, duration=7 * 60)
+    src = _mk_source(db, set_obj)
+    for idx in range(4):
+        _mk_track(db, set_obj, src, idx)
+
+    # commit=False only flushes, so a rollback discards the generated slots.
+    build_set(db, set_obj, commit=False)
+    assert db.query(SetSlot).filter(SetSlot.set_id == set_obj.id).count() > 0
+    db.rollback()
+    assert db.query(SetSlot).filter(SetSlot.set_id == set_obj.id).count() == 0
+
+    # Default commit=True persists across a rollback.
+    build_set(db, set_obj)
+    db.rollback()
+    assert db.query(SetSlot).filter(SetSlot.set_id == set_obj.id).count() > 0

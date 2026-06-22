@@ -227,6 +227,25 @@ def test_fill_to_duration_errors_without_target(db: Session, test_user: User):
         apply_tool_call(db, set_obj, "fill_to_duration", {"rationale": "Fill it."})
 
 
+def test_fill_to_duration_zero_target_is_noop(db: Session, test_user: User):
+    # A target of 0 is a valid assigned value (set_target allows min 0), not
+    # "missing": fill treats it as already met and appends nothing instead of
+    # raising. Regression for the `if not target` → `if target is None` fix.
+    set_obj = _mk_set(db, test_user, n_tracks=3, n_slots=1, duration=7 * 60)
+    set_obj.target_duration_sec = 0
+    db.commit()
+
+    result, positions = apply_tool_call(
+        db, set_obj, "fill_to_duration", {"rationale": "Target is zero."}
+    )
+
+    assert result["inserted_count"] == 0
+    assert result["capped"] is False
+    assert result["pool_exhausted"] is False
+    assert positions == set()
+    assert db.query(SetSlot).filter(SetSlot.set_id == set_obj.id).count() == 1
+
+
 def test_fill_to_duration_never_moves_locked_slot(db: Session, test_user: User):
     set_obj = _mk_set(db, test_user, n_tracks=5, n_slots=0, duration=4 * 210)
     db.add(SetSlot(set_id=set_obj.id, position=0, track_id="tidal:0", locked=True))

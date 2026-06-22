@@ -55,7 +55,10 @@ def _tool_fill_to_duration(
     than ``MAX_FILL_INSERTS`` in one turn.
     """
     target = set_obj.target_duration_sec
-    if not target:
+    # Explicit None check: a target of 0 is a valid (if unusual) assigned value —
+    # the loop below treats it as "already met" and appends nothing, rather than
+    # erroring as if no target were set.
+    if target is None:
         raise AgentToolError("Set a target duration first (target_duration_sec).")
 
     pool = _pool_tracks(db, set_obj.id)

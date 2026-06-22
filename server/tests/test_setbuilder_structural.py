@@ -177,3 +177,124 @@ def test_autobuild_display_summary_is_human_readable():
         "autobuild", {"rationale": "x"}, {"slot_count": 1, "iterations": 1}, {}, {}
     )
     assert one == "Rebuilt the set: 1 slot, 1 refinement pass."
+
+
+def test_fill_to_duration_stops_at_target(db: Session, test_user: User):
+    # 1 seeded slot (210s) + 4 unused tracks; target 840s needs 3 more (4*210=840).
+    set_obj = _mk_set(db, test_user, n_tracks=5, n_slots=1, duration=4 * 210)
+
+    result, positions = apply_tool_call(
+        db, set_obj, "fill_to_duration", {"rationale": "Fill to the target."}
+    )
+
+    assert result["inserted_count"] == 3
+    assert result["estimated_total_sec"] == 4 * 210
+    assert result["capped"] is False
+    assert result["pool_exhausted"] is False
+    assert db.query(SetSlot).filter(SetSlot.set_id == set_obj.id).count() == 4
+    assert positions == {1, 2, 3}
+
+
+def test_fill_to_duration_stops_when_pool_exhausted(db: Session, test_user: User):
+    # Only 2 unused tracks but the target wants far more — stop, flag exhausted.
+    set_obj = _mk_set(db, test_user, n_tracks=3, n_slots=1, duration=99 * 210)
+
+    result, _ = apply_tool_call(
+        db, set_obj, "fill_to_duration", {"rationale": "Use everything available."}
+    )
+
+    assert result["inserted_count"] == 2
+    assert result["pool_exhausted"] is True
+    assert result["capped"] is False
+
+
+def test_fill_to_duration_respects_insert_cap(monkeypatch, db: Session, test_user: User):
+    set_obj = _mk_set(db, test_user, n_tracks=6, n_slots=1, duration=99 * 210)
+    monkeypatch.setattr("app.services.setbuilder.agent_tools_structural.MAX_FILL_INSERTS", 2)
+
+    result, _ = apply_tool_call(db, set_obj, "fill_to_duration", {"rationale": "Bounded fill."})
+
+    assert result["inserted_count"] == 2
+    assert result["capped"] is True
+
+
+def test_fill_to_duration_errors_without_target(db: Session, test_user: User):
+    set_obj = _mk_set(db, test_user, n_tracks=3, n_slots=1, duration=7 * 60)
+    set_obj.target_duration_sec = None
+    db.commit()
+
+    with pytest.raises(AgentToolError, match="target duration"):
+        apply_tool_call(db, set_obj, "fill_to_duration", {"rationale": "Fill it."})
+
+
+def test_fill_to_duration_never_moves_locked_slot(db: Session, test_user: User):
+    set_obj = _mk_set(db, test_user, n_tracks=5, n_slots=0, duration=4 * 210)
+    db.add(SetSlot(set_id=set_obj.id, position=0, track_id="tidal:0", locked=True))
+    db.commit()
+
+    apply_tool_call(db, set_obj, "fill_to_duration", {"rationale": "Append after the pin."})
+
+    locked = (
+        db.query(SetSlot)
+        .filter(SetSlot.set_id == set_obj.id, SetSlot.locked == True)  # noqa: E712
+        .one()
+    )
+    assert locked.position == 0
+    assert locked.track_id == "tidal:0"
+
+
+def test_fill_to_duration_requires_rationale(db: Session, test_user: User):
+    set_obj = _mk_set(db, test_user, n_tracks=3, n_slots=1, duration=7 * 60)
+
+    with pytest.raises(AgentToolError, match="rationale"):
+        apply_tool_call(db, set_obj, "fill_to_duration", {})
+
+
+def test_fill_to_duration_in_mutation_tools():
+    assert "fill_to_duration" in MUTATION_TOOLS
+
+
+def test_fill_to_duration_leaves_event_requests_untouched(
+    db: Session, test_user: User, test_request: Request
+):
+    set_obj = _mk_set(db, test_user, n_tracks=5, n_slots=1, duration=4 * 210)
+    before_count = db.query(Request).count()
+    before_title = test_request.song_title
+
+    apply_tool_call(db, set_obj, "fill_to_duration", {"rationale": "Fill to target."})
+
+    db.refresh(test_request)
+    assert db.query(Request).count() == before_count
+    assert test_request.song_title == before_title
+
+
+def test_fill_to_duration_display_summary_is_human_readable():
+    added = _tool_display_summary(
+        "fill_to_duration",
+        {"rationale": "x"},
+        {
+            "inserted_count": 3,
+            "estimated_total_sec": 840,
+            "target_duration_sec": 840,
+            "capped": False,
+            "pool_exhausted": False,
+        },
+        {},
+        {},
+    )
+    assert added == "Added 3 tracks toward target; now ~14 min of ~14 min."
+
+    none_added = _tool_display_summary(
+        "fill_to_duration",
+        {"rationale": "x"},
+        {
+            "inserted_count": 0,
+            "estimated_total_sec": 600,
+            "target_duration_sec": 600,
+            "capped": False,
+            "pool_exhausted": False,
+        },
+        {},
+        {},
+    )
+    assert none_added == "No tracks added; set already ~10 min of ~10 min target."

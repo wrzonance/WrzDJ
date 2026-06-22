@@ -136,6 +136,20 @@ def _agent_tools() -> list[ToolSpec]:
             },
         ),
         ToolSpec(
+            name="fill_to_duration",
+            description=(
+                "Append pool tracks not already in the set, in pool order, until "
+                "the set reaches its target_duration_sec. Requires a duration "
+                "target. Never moves locked slots; the number of inserts is capped "
+                "per turn. Can add many slots at once — destructive-ish."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {"rationale": {"type": "string"}},
+                "required": ["rationale"],
+            },
+        ),
+        ToolSpec(
             name="analyze_transition",
             description="Analyze one transition by destination slot position.",
             input_schema={

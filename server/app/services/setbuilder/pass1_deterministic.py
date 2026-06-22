@@ -454,5 +454,7 @@ def _persist_slots(
     if commit:
         db.commit()
     else:
+        # Agent path (autobuild): flush so _ordered_slots sees the new rows, but
+        # leave the transaction open so the chat turn owns the commit/rollback.
         db.flush()
     return _ordered_slots(db, set_id)

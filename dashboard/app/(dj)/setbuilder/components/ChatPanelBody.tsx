@@ -5,6 +5,8 @@ import type { AppliedToolCall, SetCritique, TransitionScore } from '@/lib/api-ty
 import type { AgentChatController, Persona } from './useAgentChat';
 import styles from '../setbuilder.module.css';
 
+const DESTRUCTIVE_TOOL_NAMES = new Set(['autobuild', 'fill_to_duration']);
+
 function flagTone(type: string): string {
   if (type === 'transition_brilliant') return styles.flagBrilliant;
   if (type === 'energy_dip' || type === 'banger_buried' || type === 'vibe_clash') {
@@ -93,6 +95,11 @@ function ToolCard({ tool }: { tool: AppliedToolCall }) {
         <div className={styles.toolSummary}>{summary}</div>
         {rationale && rationale !== summary && (
           <div className={styles.toolRationale}>{rationale}</div>
+        )}
+        {DESTRUCTIVE_TOOL_NAMES.has(tool.name) && (
+          <div className={styles.toolUndoHint} data-testid="agent-undo-hint">
+            Rebuilt your whole set — press ⌘Z (or Undo) to revert.
+          </div>
         )}
         {skippedLocks.map((reason) => (
           <div key={reason} className={styles.toolRationale} data-testid="agent-lock-skip">

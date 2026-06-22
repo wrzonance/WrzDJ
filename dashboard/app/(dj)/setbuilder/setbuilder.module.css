@@ -870,6 +870,12 @@
   font-style: italic;
 }
 
+.toolUndoHint {
+  margin-top: 0.3rem;
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+}
+
 .scoreUpdate {
   display: flex;
   flex-wrap: wrap;

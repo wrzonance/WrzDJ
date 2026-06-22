@@ -73,4 +73,35 @@ describe('ChatPanelBody', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     expect(send).toHaveBeenCalledTimes(1);
   });
+
+  function entryWithTool(name: string) {
+    return {
+      id: 3,
+      role: 'assistant' as const,
+      content: 'Rebuilt the set: 12 slots, 3 refinement passes.',
+      display_summary: 'Rebuilt the set: 12 slots, 3 refinement passes.',
+      tool_calls: [
+        {
+          id: `${name}-1`,
+          name,
+          args: { rationale: 'Rebuild' },
+          rationale: null,
+          result: { slot_count: 12, iterations: 3 },
+          mutating: true,
+          display_summary: 'Rebuilt the set: 12 slots, 3 refinement passes.',
+        },
+      ],
+      affected_transition_scores: [],
+    };
+  }
+
+  it('shows an undo hint on a destructive autobuild tool card', () => {
+    render(<ChatPanelBody chat={makeController({ entries: [entryWithTool('autobuild')] })} />);
+    expect(screen.getByTestId('agent-undo-hint')).toHaveTextContent(/undo/i);
+  });
+
+  it('does not show the undo hint on a non-destructive tool card', () => {
+    render(<ChatPanelBody chat={makeController({ entries: [entryWithTool('swap_slots')] })} />);
+    expect(screen.queryByTestId('agent-undo-hint')).not.toBeInTheDocument();
+  });
 });

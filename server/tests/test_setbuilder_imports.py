@@ -118,6 +118,8 @@ def test_import_from_event_resolves_by_name_and_imports(db: Session, test_user: 
             pool.PoolCandidate(title="B", artist="Y"),
         ]
 
+    # Patch on the pool module object — agent_tools_imports calls
+    # pool.candidates_from_event (attribute lookup), so this intercepts it.
     monkeypatch.setattr("app.services.setbuilder.pool.candidates_from_event", fake_candidates)
 
     result, positions = apply_tool_call(
@@ -191,3 +193,10 @@ def test_import_from_event_display_summary():
     assert (
         s == "Imported 18 tracks from event 'Friday Wedding' into the pool (3 duplicates skipped)."
     )
+
+
+def test_import_from_event_missing_arg_errors(db: Session, test_user: User):
+    set_obj = _mk_set(db, test_user)
+    _mk_event(db, test_user, "Friday Wedding", "EVT900")
+    with pytest.raises(AgentToolError, match="name or id"):
+        apply_tool_call(db, set_obj, "import_from_event", {"rationale": "no event arg"})

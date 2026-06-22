@@ -62,7 +62,10 @@ def _import_summary(source: SetPoolSource, added: int, deduped: int) -> dict[str
 
 
 def _owner(db: Session, set_obj: Set) -> User:
-    return db.get(User, set_obj.owner_id)
+    owner = db.get(User, set_obj.owner_id)
+    if owner is None:
+        raise AgentToolError("Set owner not found.")
+    return owner
 
 
 def _tool_import_from_event(
@@ -75,9 +78,15 @@ def _tool_import_from_event(
     if not events:
         raise AgentToolError("You have no events to import from.")
     event = _resolve_one(
-        str(payload["event"]), events, id_of=lambda e: e.id, name_of=lambda e: e.name, what="event"
+        str(payload.get("event") or ""),
+        events,
+        id_of=lambda e: e.id,
+        name_of=lambda e: e.name,
+        what="event",
     )
     resolved = pool.candidates_from_event(db, owner, event.id)
+    # Defensive: candidates_from_event re-validates owner scope; unreachable once
+    # _resolve_one matched an owned event, but keeps the guard if that contract changes.
     if resolved is None:
         raise AgentToolError("Event not found")
     _, candidates = resolved

@@ -38,7 +38,11 @@ def _resolve_one(
     """
     q = query.strip()
     if not q:
-        raise AgentToolError(f"Provide a {what} name or id.")
+        raise AgentToolError(f"Provide the {what} name or id.")
+    # Digit-only queries are pure id lookups: a source whose NAME is all digits
+    # cannot be matched this way — callers pass a name substring for those. A
+    # digit query that matches no id falls through to the no-match error, which
+    # lists the available names so the caller can retry.
     if q.isdigit():
         matches = [it for it in items if str(id_of(it)) == q]
     else:
@@ -89,7 +93,7 @@ def _tool_import_from_event(
     # Defensive: candidates_from_event re-validates owner scope; unreachable once
     # _resolve_one matched an owned event, but keeps the guard if that contract changes.
     if resolved is None:
-        raise AgentToolError("Event not found")
+        raise AgentToolError("Event not found.")
     _, candidates = resolved
     source = pool.get_or_create_source(
         db,

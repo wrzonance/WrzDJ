@@ -175,10 +175,14 @@ def test_import_from_event_leaves_requests_untouched(db: Session, test_user: Use
     db.commit()
     before_count = db.query(Request).count()
 
-    apply_tool_call(
+    result, _ = apply_tool_call(
         db, set_obj, "import_from_event", {"event": str(event.id), "rationale": "Import by id."}
     )
 
+    # Two-sided pin: the pool actually grew (the import did real work) AND the
+    # source requests table is untouched.
+    assert result["added"] >= 1
+    assert db.query(SetPoolTrack).filter(SetPoolTrack.set_id == set_obj.id).count() >= 1
     db.refresh(req)
     assert db.query(Request).count() == before_count
     assert req.song_title == "Real Song"

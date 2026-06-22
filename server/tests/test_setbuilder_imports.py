@@ -308,3 +308,11 @@ def test_import_from_beatport_empty_fetch_errors(db: Session, test_user: User, m
 
 def test_import_playlist_tools_in_mutation_tools():
     assert {"import_from_tidal", "import_from_beatport"} <= MUTATION_TOOLS
+
+
+def test_import_from_tidal_no_playlists_errors(db: Session, test_user: User, monkeypatch):
+    set_obj = _mk_set(db, test_user)
+    _connect(db, test_user, tidal=True)
+    monkeypatch.setattr("app.services.tidal.list_user_playlists", lambda d, u: [])
+    with pytest.raises(AgentToolError, match="No Tidal playlists found"):
+        apply_tool_call(db, set_obj, "import_from_tidal", {"playlist": "x", "rationale": "r"})

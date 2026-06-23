@@ -1411,6 +1411,12 @@ export interface paths {
          *
          *     Priority: Tidal (primary) → Spotify (fallback) → Beatport (event toggle).
          *     Results are filtered for junk, deduplicated by ISRC, and sorted by popularity.
+         *
+         *     Auth model: anonymous guests must pass the human-verification gate
+         *     (require_verified_human_soft). The authenticated event OWNER bypasses it —
+         *     the DJ dashboard "Search for Song" tool reuses this endpoint, and the DJ
+         *     holds a JWT but no guest wrzdj_human cookie, so without the bypass an
+         *     enforced gate would 403 them on their own event.
          */
         get: operations["event_search_api_events__code__search_get"];
         put?: never;
@@ -4900,15 +4906,9 @@ export interface components {
             bpm_range_high: number | null;
             /** Bpm Range Low */
             bpm_range_low: number | null;
-            /**
-             * Dominant Genres
-             * @default []
-             */
+            /** Dominant Genres */
             dominant_genres: string[];
-            /**
-             * Dominant Keys
-             * @default []
-             */
+            /** Dominant Keys */
             dominant_keys: string[];
             /**
              * Enriched Count
@@ -6067,15 +6067,9 @@ export interface components {
              */
             llm_available: boolean;
             profile: components["schemas"]["EventMusicProfile"];
-            /**
-             * Services Used
-             * @default []
-             */
+            /** Services Used */
             services_used: string[];
-            /**
-             * Suggestions
-             * @default []
-             */
+            /** Suggestions */
             suggestions: components["schemas"]["RecommendedTrack"][];
             /**
              * Total Candidates Searched
@@ -7206,10 +7200,7 @@ export interface components {
              * @default false
              */
             frictionless_join_default: boolean;
-            /**
-             * Help Pages Seen
-             * @default []
-             */
+            /** Help Pages Seen */
             help_pages_seen: string[];
             /** Id */
             id: number;

@@ -33,6 +33,7 @@ from app.services.setbuilder.agent_tools_imports import (
     _tool_import_from_beatport,
     _tool_import_from_event,
     _tool_import_from_tidal,
+    _tool_import_from_url,
 )
 from app.services.setbuilder.agent_tools_mutations import (
     _tool_add_pairing,
@@ -333,6 +334,7 @@ def apply_tool_call(
         "import_from_event": _tool_import_from_event,
         "import_from_tidal": _tool_import_from_tidal,
         "import_from_beatport": _tool_import_from_beatport,
+        "import_from_url": _tool_import_from_url,
         "analyze_transition": _tool_analyze_transition,
         "explain_transition": _tool_explain_transition,
         "get_track_vibes": _tool_get_track_vibes,

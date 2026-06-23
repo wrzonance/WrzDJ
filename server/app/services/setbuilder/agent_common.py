@@ -36,6 +36,7 @@ MUTATION_TOOLS = {
     "import_from_event",
     "import_from_tidal",
     "import_from_beatport",
+    "import_from_url",
 }
 
 

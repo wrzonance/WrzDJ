@@ -15,7 +15,7 @@ class UserOut(BaseSchema):
     email: str | None = None
     role: str
     created_at: datetime
-    help_pages_seen: list[str] = []
+    help_pages_seen: list[str] = Field(default_factory=list)
     pending_email: str | None = None
     frictionless_join_default: bool = False
 

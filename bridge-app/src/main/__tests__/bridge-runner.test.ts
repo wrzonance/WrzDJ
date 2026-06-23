@@ -539,6 +539,64 @@ describe('BridgeRunner', () => {
     expect(logs.some((l) => l.message.includes('ABC123'))).toBe(true);
   });
 
+  it('stops the bridge on a 401 without retrying or recording a circuit failure', async () => {
+    await runner.start(TEST_CONFIG);
+    expect(runner.getStatus().backendReachable).toBe(true);
+
+    // Spy on the private circuit breaker so we can prove a 401 is treated as an
+    // auth problem, NOT a backend-availability failure.
+    const circuitBreaker = (runner as unknown as Record<string, unknown>).circuitBreaker as {
+      recordFailure: () => void;
+      recordSuccess: () => void;
+    };
+    const recordFailure = vi.spyOn(circuitBreaker, 'recordFailure');
+    const stopSpy = vi.spyOn(runner, 'stop');
+
+    // Only the FIRST POST gets a 401 (expired session token); the deferred
+    // shutdown status-POST that stop() issues succeeds, so it can't be confused
+    // for a retry of the 401'd request.
+    mockFetch.mockClear();
+    mockFetch
+      .mockResolvedValueOnce({ status: 401, ok: false, text: () => Promise.resolve('') })
+      .mockResolvedValue({ ok: true, text: () => Promise.resolve('') });
+
+    // A connection event triggers postBridgeStatus → postWithRetry.
+    const pluginBridge = (runner as unknown as Record<string, unknown>).pluginBridge as {
+      emit: (event: string, ...args: unknown[]) => boolean;
+    };
+    pluginBridge.emit('connection', { connected: true, deviceName: 'Test Device' });
+
+    // Resolve the 401 POST only — the retry loop returns immediately on 401 with
+    // NO backoff sleep, so a single microtask flush is enough to settle it.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const statusPostsBeforeStop = mockFetch.mock.calls.filter(
+      (call) =>
+        typeof call[0] === 'string' &&
+        call[0].includes('/bridge/status') &&
+        call[1]?.method === 'POST',
+    );
+    // Exactly one status POST — the 401 short-circuited the loop (no 2s/4s/8s retry).
+    expect(statusPostsBeforeStop).toHaveLength(1);
+
+    // Advancing through the full retry window must NOT produce a retry of that POST.
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    // 401 is an auth problem — it must NOT count as a circuit/backend failure,
+    // and backendReachable must be left untouched (no false "backend down").
+    expect(recordFailure).not.toHaveBeenCalled();
+    expect(runner.getStatus().backendReachable).toBe(true);
+
+    // The bridge is stopped with the session-expiry reason.
+    expect(stopSpy).toHaveBeenCalledWith('Session expired — please log in again');
+    expect(runner.isRunning).toBe(false);
+    expect(runner.getStatus().stopReason).toBe('Session expired — please log in again');
+
+    // Restore mock before afterEach cleanup.
+    mockFetch.mockResolvedValue({ ok: true, text: () => Promise.resolve('') });
+  });
+
   it('logs setbuilder transport command payloads from the command poller', () => {
     const logs: Array<{ message: string; level: string }> = [];
     runner.on('log', (msg: { message: string; level: string }) => logs.push(msg));

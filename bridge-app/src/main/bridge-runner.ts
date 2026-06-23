@@ -12,6 +12,15 @@ import { EventEmitter } from 'events';
 import { PluginBridge } from '@bridge/plugin-bridge.js';
 import { getPlugin } from '@bridge/plugin-registry.js';
 import { CircuitBreaker } from '@bridge/circuit-breaker.js';
+import {
+  DELETE_BACKOFF_MS,
+  DELETE_MAX_RETRIES,
+  INITIAL_BACKOFF_MS,
+  MAX_RETRIES,
+  computeBackoff,
+  fetchWithTimeout,
+  sleep,
+} from '@bridge/http-retry.js';
 import { CommandPoller } from '@bridge/command-poller.js';
 import type { BridgeCommand } from '@bridge/command-poller.js';
 import { Logger, type LogLevel } from '@bridge/logger.js';
@@ -26,11 +35,6 @@ import type { BridgeRunnerConfig, BridgeStatus, DeckDisplay, IpcLogMessage, Trac
 // Register built-in plugins
 import '@bridge/plugins/index.js';
 
-const MAX_RETRIES = 3;
-const INITIAL_BACKOFF_MS = 2000;
-const FETCH_TIMEOUT_MS = 10_000;
-const DELETE_MAX_RETRIES = 2;
-const DELETE_BACKOFF_MS = 1000;
 const HEALTH_CHECK_INTERVAL_MS = 30_000;
 
 /**
@@ -332,24 +336,6 @@ export class BridgeRunner extends EventEmitter {
   // --- HTTP communication ---
 
   /**
-   * Make a fetch request with an AbortController timeout.
-   */
-  private async fetchWithTimeout(
-    url: string,
-    options: RequestInit,
-    timeoutMs: number = FETCH_TIMEOUT_MS,
-  ): Promise<Response> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
-      return await fetch(url, { ...options, signal: controller.signal });
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  }
-
-  /**
    * POST with retry logic and circuit breaker.
    * Returns true if successful, false on failure.
    * Stops bridge on 401 (token expiry).
@@ -369,7 +355,7 @@ export class BridgeRunner extends EventEmitter {
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const response = await this.fetchWithTimeout(`${this.config.apiUrl}${endpoint}`, {
+        const response = await fetchWithTimeout(`${this.config.apiUrl}${endpoint}`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -403,9 +389,9 @@ export class BridgeRunner extends EventEmitter {
       } catch (err) {
         lastError = err as Error;
         if (attempt < MAX_RETRIES) {
-          const backoff = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
+          const backoff = computeBackoff(INITIAL_BACKOFF_MS, attempt);
           this.log(`Retry ${attempt + 1}/${MAX_RETRIES} in ${backoff}ms: ${lastError.message}`, 'warn');
-          await new Promise((resolve) => setTimeout(resolve, backoff));
+          await sleep(backoff);
         }
       }
     }
@@ -477,7 +463,7 @@ export class BridgeRunner extends EventEmitter {
 
     for (let attempt = 0; attempt <= DELETE_MAX_RETRIES; attempt++) {
       try {
-        const response = await this.fetchWithTimeout(`${this.config.apiUrl}${endpoint}`, {
+        const response = await fetchWithTimeout(`${this.config.apiUrl}${endpoint}`, {
           method: 'DELETE',
           headers: {
             'X-Bridge-API-Key': this.config.apiKey,
@@ -494,9 +480,9 @@ export class BridgeRunner extends EventEmitter {
       } catch (err) {
         const message = (err as Error).message;
         if (attempt < DELETE_MAX_RETRIES) {
-          const backoff = DELETE_BACKOFF_MS * Math.pow(2, attempt);
+          const backoff = computeBackoff(DELETE_BACKOFF_MS, attempt);
           this.log(`DELETE ${endpoint} retry ${attempt + 1}/${DELETE_MAX_RETRIES} in ${backoff}ms: ${message}`, 'warn');
-          await new Promise((resolve) => setTimeout(resolve, backoff));
+          await sleep(backoff);
         } else {
           this.log(`DELETE ${endpoint} failed after ${DELETE_MAX_RETRIES + 1} attempts: ${message}`, 'error');
         }

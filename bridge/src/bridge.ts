@@ -9,17 +9,20 @@
  */
 import { config } from "./config.js";
 import { CircuitBreaker } from "./circuit-breaker.js";
+import {
+  DELETE_BACKOFF_MS,
+  DELETE_MAX_RETRIES,
+  INITIAL_BACKOFF_MS,
+  MAX_RETRIES,
+  computeBackoff,
+  fetchWithTimeout,
+  sleep,
+} from "./http-retry.js";
 import { Logger } from "./logger.js";
 import { TrackHistoryBuffer } from "./track-history-buffer.js";
 import type { BridgeStatusPayload, DetailedBridgeStatus, NowPlayingPayload } from "./types.js";
 
 const log = new Logger("Bridge");
-
-const MAX_RETRIES = 3;
-const INITIAL_BACKOFF_MS = 2000;
-const FETCH_TIMEOUT_MS = 10_000;
-const DELETE_MAX_RETRIES = 2;
-const DELETE_BACKOFF_MS = 1000;
 
 /** Module start time for uptime calculation */
 const startTime = Date.now();
@@ -104,24 +107,6 @@ export function updateLastTrack(artist: string, title: string): void {
 }
 
 /**
- * Make a fetch request with an AbortController timeout.
- */
-async function fetchWithTimeout(
-  url: string,
-  options: RequestInit,
-  timeoutMs: number = FETCH_TIMEOUT_MS,
-): Promise<Response> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
-/**
  * Make an HTTP POST with retry logic and circuit breaker.
  * Returns true if the request succeeded, false if it failed after all retries.
  */
@@ -158,9 +143,9 @@ async function postWithRetry(
     } catch (err) {
       lastError = err as Error;
       if (attempt < MAX_RETRIES) {
-        const backoff = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
+        const backoff = computeBackoff(INITIAL_BACKOFF_MS, attempt);
         log.warn(`Retry ${attempt + 1}/${MAX_RETRIES} in ${backoff}ms: ${lastError.message}`);
-        await new Promise((resolve) => setTimeout(resolve, backoff));
+        await sleep(backoff);
       }
     }
   }
@@ -246,9 +231,9 @@ export async function clearNowPlaying(): Promise<void> {
     } catch (err) {
       const message = (err as Error).message;
       if (attempt < DELETE_MAX_RETRIES) {
-        const backoff = DELETE_BACKOFF_MS * Math.pow(2, attempt);
+        const backoff = computeBackoff(DELETE_BACKOFF_MS, attempt);
         log.warn(`DELETE ${endpoint} retry ${attempt + 1}/${DELETE_MAX_RETRIES} in ${backoff}ms: ${message}`);
-        await new Promise((resolve) => setTimeout(resolve, backoff));
+        await sleep(backoff);
       } else {
         log.error(`DELETE ${endpoint} failed after ${DELETE_MAX_RETRIES + 1} attempts: ${message}`);
       }

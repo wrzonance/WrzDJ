@@ -25,3 +25,29 @@ export function buildMovedIds(
   if (slots.some((s, idx) => s.locked && without[idx] !== s.id)) return null;
   return without;
 }
+
+/**
+ * Pure helper: given the current ordered slots, a slot id being dragged, and
+ * an insertion index, return the new ordered id array — or null if the move is
+ * a no-op, targets an unknown slot, or would displace a locked slot anchor.
+ *
+ * This is the desktop drag-and-drop counterpart to buildMovedIds (one-step
+ * move). The two are intentionally separate parallel implementations of the
+ * same locked-slot-anchor invariant — do NOT merge them.
+ */
+export function buildReorderedIds(
+  slots: SlotView[],
+  slotId: number,
+  insertIdx: number,
+): number[] | null {
+  const fromIdx = slots.findIndex((s) => s.id === slotId);
+  if (fromIdx < 0) return null;
+  const target = insertIdx > fromIdx ? insertIdx - 1 : insertIdx;
+  if (target === fromIdx) return null; // no-op
+  const ids = slots.map((s) => s.id);
+  const without = ids.filter((id) => id !== slotId);
+  without.splice(target, 0, slotId);
+  // Locked slots are immovable anchors — reject any move that shifts one.
+  if (slots.some((s, idx) => s.locked && without[idx] !== s.id)) return null;
+  return without;
+}

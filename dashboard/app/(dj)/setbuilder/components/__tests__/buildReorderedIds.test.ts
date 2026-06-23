@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildReorderedIds } from '../BuilderWorkspace';
+import { buildReorderedIds } from '../reorderMath';
 import type { SlotView } from '../types';
 
 function slot(id: number, locked = false): SlotView {

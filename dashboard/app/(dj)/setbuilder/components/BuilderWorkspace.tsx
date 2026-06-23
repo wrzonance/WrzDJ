@@ -29,30 +29,9 @@ import {
   slotStartSec,
   totalDuration,
 } from './transportMath';
-import { buildMovedIds } from './reorderMath';
+import { buildMovedIds, buildReorderedIds } from './reorderMath';
+import { insertPoolTrackIntoDocument, lockSlotsInDocument } from './documentMath';
 import sbStyles from '../setbuilder.module.css';
-
-/**
- * Pure helper: given the current ordered slots, a slot id being dragged, and
- * an insertion index, return the new ordered id array — or null if the move is
- * a no-op, targets an unknown slot, or would displace a locked slot anchor.
- */
-export function buildReorderedIds(
-  slots: SlotView[],
-  slotId: number,
-  insertIdx: number,
-): number[] | null {
-  const fromIdx = slots.findIndex((s) => s.id === slotId);
-  if (fromIdx < 0) return null;
-  const target = insertIdx > fromIdx ? insertIdx - 1 : insertIdx;
-  if (target === fromIdx) return null; // no-op
-  const ids = slots.map((s) => s.id);
-  const without = ids.filter((id) => id !== slotId);
-  without.splice(target, 0, slotId);
-  // Locked slots are immovable anchors — reject any move that shifts one.
-  if (slots.some((s, idx) => s.locked && without[idx] !== s.id)) return null;
-  return without;
-}
 
 const SCRUB_KEY = 'wrzdj.transport.scrubEnabled';
 
@@ -86,53 +65,6 @@ const DEFAULT_TARGET_SETTINGS: TargetSettings = {
   targetDurationSec: null,
   avgTransitionOverlapSec: 8,
 };
-
-type DocumentPoolTrack = SetDocumentSnapshot['pool']['tracks'][number];
-
-function slotTrackIdFromPoolTrack(track: DocumentPoolTrack): string {
-  return track.track_id ?? `pool:${track.id}`;
-}
-
-function insertPoolTrackIntoDocument(
-  snapshot: SetDocumentSnapshot,
-  poolTrackId: number,
-  insertIdx: number,
-): SetDocumentSnapshot {
-  const track = snapshot.pool.tracks.find((candidate) => candidate.id === poolTrackId);
-  if (!track) throw new Error('Pool track not found');
-  const sortedSlots = [...snapshot.slots].sort((a, b) => a.position - b.position || a.id - b.id);
-  const boundedIdx = Math.max(0, Math.min(insertIdx, sortedSlots.length));
-  const nextId = Math.max(0, ...sortedSlots.map((slot) => slot.id)) + 1;
-  const nextSlots = [...sortedSlots];
-  nextSlots.splice(boundedIdx, 0, {
-    id: nextId,
-    position: boundedIdx,
-    track_id: slotTrackIdFromPoolTrack(track),
-    locked: false,
-    notes: null,
-    transition_score: null,
-    transition_warnings: null,
-    target_energy: null,
-  });
-  return {
-    ...snapshot,
-    slots: nextSlots.map((slot, position) => ({ ...slot, position })),
-  };
-}
-
-function lockSlotsInDocument(
-  snapshot: SetDocumentSnapshot,
-  slotIds: number[],
-  locked: boolean,
-): SetDocumentSnapshot {
-  const idSet = new Set(slotIds);
-  return {
-    ...snapshot,
-    slots: snapshot.slots.map((slot) =>
-      idSet.has(slot.id) ? { ...slot, locked } : slot,
-    ),
-  };
-}
 
 function TimelineSummary({
   projection,

@@ -176,6 +176,17 @@ def _tool_display_summary(
             f"now ~{now_min} min of ~{target_min} min."
         )
         return f"{base} Hit the per-turn insert cap." if result.get("capped") else base
+    if name in {"import_from_event", "import_from_tidal", "import_from_beatport"}:
+        added = int(result.get("added") or 0)
+        deduped = int(result.get("deduped") or 0)
+        label = result.get("source_label") or "source"
+        where = {
+            "event": f"event '{label}'",
+            "tidal": f"Tidal playlist '{label}'",
+            "beatport": f"Beatport playlist '{label}'",
+        }.get(result.get("source_kind"), label)
+        dup = f" ({deduped} duplicate{'s' if deduped != 1 else ''} skipped)" if deduped else ""
+        return f"Imported {added} track{'s' if added != 1 else ''} from {where} into the pool{dup}."
     return name.replace("_", " ").capitalize() + "."
 
 

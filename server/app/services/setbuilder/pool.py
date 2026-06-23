@@ -143,6 +143,8 @@ def import_candidates(
     set_obj: Set,
     source: SetPoolSource,
     candidates: Iterable[PoolCandidate],
+    *,
+    commit: bool = True,
 ) -> tuple[int, int]:
     """Insert candidates into the pool, deduping against existing tracks.
 
@@ -197,7 +199,10 @@ def import_candidates(
             seen_isrcs.add(isrc)
         added += 1
 
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return added, deduped
 
 

@@ -29,6 +29,11 @@ from app.services.setbuilder.agent_common import (
 )
 from app.services.setbuilder.agent_display import _tool_display_summary
 from app.services.setbuilder.agent_tool_specs import _agent_tools, _critique_tool
+from app.services.setbuilder.agent_tools_imports import (
+    _tool_import_from_beatport,
+    _tool_import_from_event,
+    _tool_import_from_tidal,
+)
 from app.services.setbuilder.agent_tools_mutations import (
     _tool_add_pairing,
     _tool_add_slow_window,
@@ -325,6 +330,9 @@ def apply_tool_call(
         "unlock_slot": _tool_unlock_slot,
         "add_pairing": _tool_add_pairing,
         "remove_pairing": _tool_remove_pairing,
+        "import_from_event": _tool_import_from_event,
+        "import_from_tidal": _tool_import_from_tidal,
+        "import_from_beatport": _tool_import_from_beatport,
         "analyze_transition": _tool_analyze_transition,
         "explain_transition": _tool_explain_transition,
         "get_track_vibes": _tool_get_track_vibes,

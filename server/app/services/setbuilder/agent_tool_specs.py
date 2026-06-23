@@ -237,6 +237,20 @@ def _agent_tools() -> list[ToolSpec]:
                 "required": ["playlist", "rationale"],
             },
         ),
+        ToolSpec(
+            name="import_from_url",
+            description=(
+                "Import a public Spotify or Tidal playlist URL into the set's track pool. "
+                "'url' is the full https playlist link. Tidal URLs require a connected Tidal "
+                "account; unsupported hosts (Apple Music / YouTube / SoundCloud / Beatport) "
+                "return a clear message — use import_from_beatport for Beatport."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {"url": {"type": "string"}, "rationale": {"type": "string"}},
+                "required": ["url", "rationale"],
+            },
+        ),
         _critique_tool(),
     ]
 

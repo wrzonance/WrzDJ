@@ -21,6 +21,7 @@ from app.models.user import User
 from app.services import beatport, tidal
 from app.services.setbuilder import pool
 from app.services.setbuilder.agent_common import AgentToolError
+from app.services.setbuilder.playlist_url import InvalidPlaylistUrl, parse_public_playlist_url
 
 
 def _resolve_one(
@@ -182,3 +183,41 @@ def _tool_import_from_beatport(
         fetch_candidates=pool.candidates_from_beatport,
         fetch_error_types=(),
     )
+
+
+def _tool_import_from_url(
+    db: Session, set_obj: Set, payload: dict[str, Any]
+) -> tuple[dict[str, Any], set[int]]:
+    """Import a public Spotify/Tidal playlist URL into the pool.
+
+    Reuses the SSRF-safe parser (parse-only, https + exact-host allowlist) and
+    the existing public-URL fetch path. Invalid/unsupported URLs and fetch
+    failures surface as AgentToolError; Tidal URLs require a connected account
+    (the fetch path raises PoolImportError with that message). Mirrors the REST
+    ``import_pool_url`` handler so source dedupe stays consistent across paths.
+    """
+    owner = _owner(db, set_obj)
+    try:
+        parsed = parse_public_playlist_url(str(payload.get("url") or ""))
+    except InvalidPlaylistUrl as exc:
+        raise AgentToolError(str(exc)) from exc
+    if not parsed.supported:
+        raise AgentToolError(parsed.message or "That playlist provider isn't supported yet.")
+    try:
+        name, candidates = pool.candidates_from_public_url(
+            db, owner, parsed.provider, parsed.playlist_id
+        )
+    except pool.PoolImportError as exc:
+        raise AgentToolError(str(exc)) from exc
+    if not candidates:
+        raise AgentToolError("That playlist has no importable tracks.")
+    source = pool.get_or_create_source(
+        db,
+        set_obj,
+        kind="public_url",
+        external_ref=f"{parsed.provider}:{parsed.playlist_id}",
+        label=name,
+        meta=f"Public {parsed.provider} playlist",
+    )
+    added, deduped = pool.import_candidates(db, set_obj, source, candidates, commit=False)
+    return _import_summary(source, added, deduped), set()

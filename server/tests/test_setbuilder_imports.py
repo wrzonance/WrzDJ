@@ -319,3 +319,108 @@ def test_import_from_tidal_no_playlists_errors(db: Session, test_user: User, mon
     monkeypatch.setattr("app.services.tidal.list_user_playlists", lambda d, u: [])
     with pytest.raises(AgentToolError, match="No Tidal playlists found"):
         apply_tool_call(db, set_obj, "import_from_tidal", {"playlist": "x", "rationale": "r"})
+
+
+# --- import_from_url (public Spotify/Tidal playlist URLs, #442 Family 4b) -----
+
+# A real, well-formed Spotify playlist URL — exercised through the real
+# parse_public_playlist_url so the parse->fetch wiring (provider + id) is pinned;
+# only the network fetch (pool.candidates_from_public_url) is monkeypatched.
+_SPOTIFY_URL = "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"
+_SPOTIFY_PID = "37i9dQZF1DXcBWIGoYBM5M"
+
+
+def test_import_from_url_resolves_and_imports(db: Session, test_user: User, monkeypatch):
+    set_obj = _mk_set(db, test_user)
+
+    def fake_candidates(d, u, provider, pid):
+        assert provider == "spotify"
+        assert pid == _SPOTIFY_PID
+        return "Summer Vibes", [
+            pool.PoolCandidate(title="U1", artist="A1"),
+            pool.PoolCandidate(title="U2", artist="A2"),
+        ]
+
+    monkeypatch.setattr("app.services.setbuilder.pool.candidates_from_public_url", fake_candidates)
+
+    result, positions = apply_tool_call(
+        db, set_obj, "import_from_url", {"url": _SPOTIFY_URL, "rationale": "Pull the public set."}
+    )
+
+    assert positions == set()
+    assert result == {
+        "added": 2,
+        "deduped": 0,
+        "source_label": "Summer Vibes",
+        "source_kind": "public_url",
+    }
+    assert db.query(SetPoolTrack).filter(SetPoolTrack.set_id == set_obj.id).count() == 2
+
+
+def test_import_from_url_invalid_url_errors(db: Session, test_user: User):
+    set_obj = _mk_set(db, test_user)
+    with pytest.raises(AgentToolError, match="https"):
+        apply_tool_call(
+            db, set_obj, "import_from_url", {"url": "ftp://example.com/x", "rationale": "r"}
+        )
+
+
+def test_import_from_url_unsupported_provider_errors(db: Session, test_user: User):
+    set_obj = _mk_set(db, test_user)
+    with pytest.raises(AgentToolError, match="Apple Music"):
+        apply_tool_call(
+            db,
+            set_obj,
+            "import_from_url",
+            {"url": "https://music.apple.com/us/playlist/foo/pl.u-123", "rationale": "r"},
+        )
+
+
+def test_import_from_url_fetch_error_maps_to_tool_error(db: Session, test_user: User, monkeypatch):
+    set_obj = _mk_set(db, test_user)
+
+    def boom(d, u, provider, pid):
+        raise pool.PoolImportError("Couldn't fetch that Spotify playlist — is it public?")
+
+    monkeypatch.setattr("app.services.setbuilder.pool.candidates_from_public_url", boom)
+    with pytest.raises(AgentToolError, match="Couldn't fetch that Spotify"):
+        apply_tool_call(db, set_obj, "import_from_url", {"url": _SPOTIFY_URL, "rationale": "r"})
+
+
+def test_import_from_url_empty_errors(db: Session, test_user: User, monkeypatch):
+    set_obj = _mk_set(db, test_user)
+    monkeypatch.setattr(
+        "app.services.setbuilder.pool.candidates_from_public_url",
+        lambda d, u, provider, pid: ("Empty Playlist", []),
+    )
+    with pytest.raises(AgentToolError, match="no importable tracks"):
+        apply_tool_call(db, set_obj, "import_from_url", {"url": _SPOTIFY_URL, "rationale": "r"})
+
+
+def test_import_from_url_requires_rationale(db: Session, test_user: User):
+    set_obj = _mk_set(db, test_user)
+    with pytest.raises(AgentToolError, match="rationale"):
+        apply_tool_call(db, set_obj, "import_from_url", {"url": _SPOTIFY_URL})
+
+
+def test_import_from_url_missing_arg_errors(db: Session, test_user: User):
+    set_obj = _mk_set(db, test_user)
+    with pytest.raises(AgentToolError, match="empty"):
+        apply_tool_call(db, set_obj, "import_from_url", {"rationale": "no url arg"})
+
+
+def test_import_from_url_in_mutation_tools():
+    assert "import_from_url" in MUTATION_TOOLS
+
+
+def test_import_from_url_display_summary():
+    s = _tool_display_summary(
+        "import_from_url",
+        {"rationale": "x"},
+        {"added": 12, "deduped": 2, "source_label": "Summer Vibes", "source_kind": "public_url"},
+        {},
+        {},
+    )
+    assert (
+        s == "Imported 12 tracks from playlist 'Summer Vibes' into the pool (2 duplicates skipped)."
+    )

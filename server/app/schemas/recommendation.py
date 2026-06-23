@@ -25,16 +25,16 @@ class EventMusicProfile(BaseModel):
     avg_bpm: float | None = None
     bpm_range_low: float | None = None
     bpm_range_high: float | None = None
-    dominant_keys: list[str] = []
-    dominant_genres: list[str] = []
+    dominant_keys: list[str] = Field(default_factory=list)
+    dominant_genres: list[str] = Field(default_factory=list)
     track_count: int = 0
     enriched_count: int = 0
 
 
 class RecommendationResponse(BaseModel):
-    suggestions: list[RecommendedTrack] = []
+    suggestions: list[RecommendedTrack] = Field(default_factory=list)
     profile: EventMusicProfile
-    services_used: list[str] = []
+    services_used: list[str] = Field(default_factory=list)
     total_candidates_searched: int = 0
     llm_available: bool = False
 
@@ -52,11 +52,11 @@ class LLMQueryInfo(BaseModel):
 
 
 class LLMRecommendationResponse(BaseModel):
-    suggestions: list[RecommendedTrack] = []
+    suggestions: list[RecommendedTrack] = Field(default_factory=list)
     profile: EventMusicProfile
-    services_used: list[str] = []
+    services_used: list[str] = Field(default_factory=list)
     total_candidates_searched: int = 0
-    llm_queries: list[LLMQueryInfo] = []
+    llm_queries: list[LLMQueryInfo] = Field(default_factory=list)
     llm_available: bool = True
     llm_model: str = ""
 
@@ -71,7 +71,7 @@ class PlaylistInfo(BaseModel):
 
 
 class PlaylistListResponse(BaseModel):
-    playlists: list[PlaylistInfo] = []
+    playlists: list[PlaylistInfo] = Field(default_factory=list)
 
 
 class TemplatePlaylistRequest(BaseModel):

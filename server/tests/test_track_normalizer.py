@@ -8,6 +8,7 @@ from app.services.track_normalizer import (
     is_remix_title,
     normalize_artist,
     normalize_bpm_to_context,
+    normalize_isrc,
     normalize_track,
     normalize_track_title,
     primary_artist,
@@ -432,3 +433,15 @@ class TestIsOriginalMixName:
 
     def test_just_remastered(self):
         assert is_original_mix_name("Remastered") is False
+
+
+class TestNormalizeIsrc:
+    """Tests for normalize_isrc()."""
+
+    def test_normalize_isrc_strips_and_uppercases(self):
+        assert normalize_isrc("us-um7-1900764") == "USUM71900764"
+        assert normalize_isrc("  usum71900764 ") == "USUM71900764"
+
+    def test_normalize_isrc_empty_is_none(self):
+        assert normalize_isrc("") is None
+        assert normalize_isrc(None) is None

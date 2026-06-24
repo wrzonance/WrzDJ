@@ -266,3 +266,18 @@ def normalize_track(title: str, artist: str) -> NormalizedTrack:
         remix_type=remix_type,
         has_named_remix=remix_artist is not None,
     )
+
+
+def normalize_isrc(isrc: str | None) -> str | None:
+    """Uppercase, trim, and strip hyphens/spaces so an ISRC matches as a key.
+
+    Args:
+        isrc: Raw ISRC string (e.g., "us-um7-1900764" or "  USUM71900764 ")
+
+    Returns:
+        Normalized ISRC in uppercase with no hyphens/spaces, or None if empty.
+    """
+    if not isrc:
+        return None
+    cleaned = isrc.strip().upper().replace("-", "").replace(" ", "")
+    return cleaned or None

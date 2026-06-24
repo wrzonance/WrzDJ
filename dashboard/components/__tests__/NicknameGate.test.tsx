@@ -2,6 +2,12 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NicknameGate } from '../NicknameGate';
 
+// Controllable dev-bypass flag for bypass tests below.
+let devBypassActive = false;
+vi.mock('../../lib/devAuthBypass', () => ({
+  isDevAuthBypassActive: () => devBypassActive,
+}));
+
 vi.mock('../../lib/api', () => {
   class ApiError extends Error {
     status: number;
@@ -81,6 +87,7 @@ describe('NicknameGate', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    devBypassActive = false; // reset to off before each test
     mockGetProfile.mockResolvedValue(emptyProfile);
     mockSetProfile.mockResolvedValue({ ...emptyProfile, nickname: 'TestUser' });
     mockRequestCode.mockResolvedValue({ sent: true });
@@ -555,5 +562,24 @@ describe('NicknameGate — existing behavior coverage', () => {
     expect(onComplete).toHaveBeenCalledWith(
       expect.objectContaining({ nickname: 'Alex', emailVerified: true }),
     );
+  });
+
+  describe('dev auth bypass', () => {
+    it('calls onComplete immediately with dev stub — no API calls', async () => {
+      devBypassActive = true;
+      const bypassComplete = vi.fn();
+      render(<NicknameGate code="TEST" onComplete={bypassComplete} />);
+
+      await waitFor(() => expect(bypassComplete).toHaveBeenCalledOnce());
+      expect(bypassComplete).toHaveBeenCalledWith({
+        nickname: 'dev',
+        emailVerified: false,
+        submissionCount: 0,
+        submissionCap: 0,
+      });
+
+      // Must not have called any profile API
+      expect(mockGetProfile).not.toHaveBeenCalled();
+    });
   });
 });

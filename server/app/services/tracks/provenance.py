@@ -17,6 +17,10 @@ SOURCE_PRECEDENCE: dict[str, int] = {
     "tidal": 50,
     "musicbrainz": 50,
     "community": 40,
+    # Pre-store data backfilled from existing Request columns (#541): carries no
+    # original-source record, so it sits lowest above the unknown floor — any real
+    # later enrichment cleanly overrides it, and it never downgrades a real source.
+    "legacy": 30,
     "llm": 10,
 }
 

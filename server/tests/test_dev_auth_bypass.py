@@ -89,3 +89,57 @@ class TestGateBypassIntegration:
         # Identity resolved by the bypass → NOT 401 (200 vote, or a post-identity
         # votability status — never the "guest identity required" 401).
         assert r2.status_code != 401, r2.text
+
+
+class TestLeakedDevGuestCannotBackdoorProd:
+    """Codex [P1]: the reserved dev guest token must be UNRESOLVABLE when the bypass is
+    off, and the dev guest must not be pre-verified — so even if the row leaks into a
+    production DB it can never become a backdoor."""
+
+    def _req(self, token=None):
+        from starlette.requests import Request
+
+        headers = [(b"cookie", f"wrzdj_guest={token}".encode())] if token else []
+        return Request({"type": "http", "headers": headers})
+
+    def test_leaked_dev_token_rejected_when_bypass_off(self, db):
+        from app.core.rate_limit import (
+            _DEV_BYPASS_GUEST_TOKEN,
+            _dev_bypass_guest_id,
+            get_guest_id,
+        )
+
+        _dev_bypass_guest_id(db)  # simulate the dev guest row leaking into this DB
+        # Default test settings → bypass off → the known token must NOT resolve.
+        assert get_guest_id(self._req(_DEV_BYPASS_GUEST_TOKEN), db) is None
+
+    def test_dev_token_resolves_when_bypass_on(self, db):
+        from app.core.rate_limit import (
+            _DEV_BYPASS_GUEST_TOKEN,
+            _dev_bypass_guest_id,
+            get_guest_id,
+        )
+
+        gid = _dev_bypass_guest_id(db)
+        bypass = Settings(env="development", dev_auth_bypass=True)
+        with patch.object(config, "get_settings", lambda: bypass):
+            assert get_guest_id(self._req(_DEV_BYPASS_GUEST_TOKEN), db) == gid
+
+    def test_normal_token_still_resolves_when_bypass_off(self, db):
+        from app.core.rate_limit import get_guest_id
+        from app.core.time import utcnow
+        from app.models.guest import Guest
+
+        g = Guest(token="normal-guest-token-aaaaaaaa", created_at=utcnow(), last_seen_at=utcnow())
+        db.add(g)
+        db.commit()
+        db.refresh(g)
+        assert get_guest_id(self._req("normal-guest-token-aaaaaaaa"), db) == g.id
+
+    def test_dev_guest_is_not_pre_verified(self, db):
+        from app.core.rate_limit import _DEV_BYPASS_GUEST_TOKEN, _dev_bypass_guest_id
+        from app.models.guest import Guest
+
+        _dev_bypass_guest_id(db)
+        g = db.query(Guest).filter(Guest.token == _DEV_BYPASS_GUEST_TOKEN).first()
+        assert g.verified_email is None and g.email_verified_at is None

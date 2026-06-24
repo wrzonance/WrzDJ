@@ -54,6 +54,7 @@ from app.schemas.setbuilder import (
     PlaybackReportSummary,
     PlaybackSlotOutcomeOut,
     PlayHistoryFeedbackOut,
+    PoolCoverageOut,
     PoolImportEventIn,
     PoolImportManualIn,
     PoolImportPlaylistIn,
@@ -112,6 +113,9 @@ from app.services.setbuilder import (
     set_service,
     vibe_enrichment,
     vibe_resolver,
+)
+from app.services.setbuilder import (
+    coverage as pool_coverage_service,
 )
 from app.services.setbuilder.playlist_url import InvalidPlaylistUrl, parse_public_playlist_url
 
@@ -665,10 +669,15 @@ def build_set(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> BuildSetResponse:
-    """Run deterministic pass 1 after explicit user confirmation."""
+    """Run deterministic pass 1 after explicit user confirmation.
+
+    Coverage of the five required pool→builder fields is computed and returned so
+    the build-confirmation dialog can show data completeness and a SOFT,
+    overridable warning (#542/#538) — the build itself is never blocked on it."""
     set_obj = _get_owned_or_404(db, set_id, current_user)
     if not payload.confirmed:
         raise HTTPException(status_code=400, detail="Build requires explicit confirmation")
+    coverage = pool_coverage_service.coverage_for_set(db, set_obj.id)
     result = pass1_deterministic.build_set(db, set_obj)
     db.expire(set_obj, ["slots"])
     return BuildSetResponse(
@@ -676,6 +685,7 @@ def build_set(
         iterations=result.iterations,
         slots=_slots_out(db, set_obj),
         transition_scores=_transition_scores_out(result.transition_scores),
+        coverage=PoolCoverageOut(**coverage),
     )
 
 
@@ -1079,6 +1089,7 @@ def import_pool_event(
         label=event.name,
         meta="WrzDJ event requests",
     )
+    candidates = pool.hydrate_candidates_from_store(db, candidates, user=current_user)
     added, deduped = pool.import_candidates(db, set_obj, source, candidates)
     return _import_result(db, set_obj.id, source, added, deduped)
 
@@ -1108,6 +1119,7 @@ def import_pool_tidal(
         label=payload.label or "Tidal playlist",
         meta="Tidal playlist",
     )
+    candidates = pool.hydrate_candidates_from_store(db, candidates, user=current_user)
     added, deduped = pool.import_candidates(db, set_obj, source, candidates)
     return _import_result(db, set_obj.id, source, added, deduped)
 
@@ -1133,6 +1145,7 @@ def import_pool_beatport(
         label=payload.label or "Beatport playlist",
         meta="Beatport playlist",
     )
+    candidates = pool.hydrate_candidates_from_store(db, candidates, user=current_user)
     added, deduped = pool.import_candidates(db, set_obj, source, candidates)
     return _import_result(db, set_obj.id, source, added, deduped)
 
@@ -1192,6 +1205,7 @@ def import_pool_url(
         label=name,
         meta=f"Public {parsed.provider} playlist",
     )
+    candidates = pool.hydrate_candidates_from_store(db, candidates, user=current_user)
     added, deduped = pool.import_candidates(db, set_obj, source, candidates)
     return _import_result(db, set_obj.id, source, added, deduped)
 
@@ -1223,7 +1237,8 @@ def import_pool_manual(
     source = pool.get_or_create_source(
         db, set_obj, kind="manual", external_ref=None, label="Manual", meta="Single-track search"
     )
-    added, deduped = pool.import_candidates(db, set_obj, source, [candidate])
+    candidates = pool.hydrate_candidates_from_store(db, [candidate], user=current_user)
+    added, deduped = pool.import_candidates(db, set_obj, source, candidates)
     return _import_result(db, set_obj.id, source, added, deduped)
 
 

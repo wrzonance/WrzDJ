@@ -186,7 +186,10 @@ def _agent_tools() -> list[ToolSpec]:
         ),
         ToolSpec(
             name="analyze_pool_gaps",
-            description=("Report pool coverage holes: missing Camelot keys and sparse BPM bands."),
+            description=(
+                "Report pool coverage holes: missing Camelot keys, sparse BPM bands, "
+                "and how many tracks are missing genre or energy."
+            ),
             input_schema={"type": "object", "properties": {}},
         ),
         ToolSpec(

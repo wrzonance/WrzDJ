@@ -2715,6 +2715,10 @@ export interface paths {
         /**
          * Build Set
          * @description Run deterministic pass 1 after explicit user confirmation.
+         *
+         *     Coverage of the five required pool→builder fields is computed and returned so
+         *     the build-confirmation dialog can show data completeness and a SOFT,
+         *     overridable warning (#542/#538) — the build itself is never blocked on it.
          */
         post: operations["build_set_api_setbuilder_sets__set_id__build_post"];
         delete?: never;
@@ -4249,6 +4253,7 @@ export interface components {
          * @description Result of the deterministic pass.
          */
         BuildSetResponse: {
+            coverage: components["schemas"]["PoolCoverageOut"];
             /** Iterations */
             iterations: number;
             /** Slot Count */
@@ -5785,6 +5790,27 @@ export interface components {
             num_tracks: number;
             /** Source */
             source: string;
+        };
+        /**
+         * PoolCoverageOut
+         * @description Pre-build coverage of the five required pool→builder contract fields (#542).
+         *
+         *     A SOFT, overridable signal surfaced in the build-confirmation dialog (#538):
+         *     ``missing`` is the per-field count of pool tracks lacking each field,
+         *     ``fully_covered_count`` how many carry all five, and ``ready`` whether the
+         *     pool clears the readiness threshold. The build is never hard-blocked on this.
+         */
+        PoolCoverageOut: {
+            /** Fully Covered Count */
+            fully_covered_count: number;
+            /** Missing */
+            missing: {
+                [key: string]: number;
+            };
+            /** Pool Size */
+            pool_size: number;
+            /** Ready */
+            ready: boolean;
         };
         /**
          * PoolImportEventIn

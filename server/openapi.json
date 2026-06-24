@@ -1710,6 +1710,9 @@
       "BuildSetResponse": {
         "description": "Result of the deterministic pass.",
         "properties": {
+          "coverage": {
+            "$ref": "#/components/schemas/PoolCoverageOut"
+          },
           "iterations": {
             "title": "Iterations",
             "type": "integer"
@@ -1734,6 +1737,7 @@
           }
         },
         "required": [
+          "coverage",
           "iterations",
           "slot_count",
           "slots",
@@ -6230,6 +6234,38 @@
           "source"
         ],
         "title": "PlaylistInfo",
+        "type": "object"
+      },
+      "PoolCoverageOut": {
+        "description": "Pre-build coverage of the five required pool\u2192builder contract fields (#542).\n\nA SOFT, overridable signal surfaced in the build-confirmation dialog (#538):\n``missing`` is the per-field count of pool tracks lacking each field,\n``fully_covered_count`` how many carry all five, and ``ready`` whether the\npool clears the readiness threshold. The build is never hard-blocked on this.",
+        "properties": {
+          "fully_covered_count": {
+            "title": "Fully Covered Count",
+            "type": "integer"
+          },
+          "missing": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Missing",
+            "type": "object"
+          },
+          "pool_size": {
+            "title": "Pool Size",
+            "type": "integer"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "fully_covered_count",
+          "missing",
+          "pool_size",
+          "ready"
+        ],
+        "title": "PoolCoverageOut",
         "type": "object"
       },
       "PoolImportEventIn": {
@@ -18337,7 +18373,7 @@
     },
     "/api/setbuilder/sets/{set_id}/build": {
       "post": {
-        "description": "Run deterministic pass 1 after explicit user confirmation.",
+        "description": "Run deterministic pass 1 after explicit user confirmation.\n\nCoverage of the five required pool\u2192builder fields is computed and returned so\nthe build-confirmation dialog can show data completeness and a SOFT,\noverridable warning (#542/#538) \u2014 the build itself is never blocked on it.",
         "operationId": "build_set_api_setbuilder_sets__set_id__build_post",
         "parameters": [
           {

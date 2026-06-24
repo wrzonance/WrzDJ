@@ -10,6 +10,7 @@ normalized artist+title signature (via services/track_normalizer). The
 first import wins — the original source tag is preserved.
 """
 
+import dataclasses
 import hashlib
 import logging
 from collections.abc import Iterable
@@ -17,13 +18,17 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
+from app.core.time import utcnow
 from app.models.event import Event
 from app.models.request import Request, RequestStatus
 from app.models.set import Set
 from app.models.set_pool import SetPoolSource, SetPoolTrack
 from app.models.user import User
 from app.services.recommendation.camelot import parse_key
-from app.services.track_normalizer import normalize_track
+from app.services.recommendation.enrichment import enrich_track
+from app.services.track_normalizer import normalize_track, valid_isrc
+from app.services.tracks.provenance import is_cache_authoritative
+from app.services.tracks.store import TrackIdentity, get_track, upsert_track
 
 logger = logging.getLogger(__name__)
 
@@ -204,6 +209,306 @@ def import_candidates(
     else:
         db.flush()
     return added, deduped
+
+
+# ---------------------------------------------------------------------------
+# Master tracks store resolution (#542)
+#
+# Every import flow runs `hydrate_candidates_from_store` BEFORE `import_candidates`
+# so each candidate is enriched once and reused across sets/events via the global
+# `tracks` store — the pool-side mirror of the request-side cache-aside (#541).
+# `import_candidates` stays a pure dedupe-insert.
+
+# Pool→builder contract fields mapped to (PoolCandidate attr, store attr). `key`
+# resolves to the store's Camelot `musical_key`; the rest are 1:1. These are the
+# fields hydrated DOWN from a store row onto a candidate.
+_CONTRACT_FIELDS: tuple[tuple[str, str], ...] = (
+    ("bpm", "bpm"),
+    ("key", "musical_key"),
+    ("genre", "genre"),
+    ("duration_sec", "duration_sec"),
+    ("energy", "energy"),
+)
+
+# The cache short-circuit (skip the provider cascade) gates on the fields the
+# wired providers (`enrich_track` = Beatport→Tidal) can actually fill. Energy is
+# DELIBERATELY excluded: it comes only from Soundcharts/Lexicon (currently dark,
+# #543/#544), so gating on it would re-hit Beatport/Tidal on every import and
+# defeat the dedupe win. Energy completeness is still reported by `pool_coverage`
+# for the build gate — the two concerns are separate.
+_CACHE_GATE_FIELDS: tuple[str, ...] = ("bpm", "musical_key", "genre", "duration_sec")
+
+
+def hydrate_candidates_from_store(
+    db: Session,
+    candidates: Iterable[PoolCandidate],
+    *,
+    user: User | None = None,
+    commit: bool = True,
+) -> list[PoolCandidate]:
+    """Resolve each candidate to the master `tracks` store and fill its gaps.
+
+    Per candidate (immutably — a NEW PoolCandidate is returned, never mutated):
+      1. Resolve the store row by ISRC → signature.
+      2. Trusted+complete row → hydrate the candidate's missing fields from it
+         (ZERO API calls — the dedupe win).
+      3. Store miss but the candidate already carries fields → upsert to POPULATE
+         the store from the candidate (ZERO API calls).
+      4. Genuine gaps AND a connected `user` → run the provider cascade once
+         (`enrich_track`), write the result back to the store, then hydrate.
+      5. Gaps with no connected `user` → return the candidate unchanged.
+
+    ``commit`` follows ``import_candidates``: the REST import flows commit the
+    store write durably (commit-first, so it never poisons the import); the agent
+    import tools pass ``commit=False`` so the store write rides the single
+    agent-turn transaction and rolls back with it (a dropped cache row is
+    harmless and recomputes next import).
+
+    Per-candidate failures are isolated and logged (the import must not abort
+    over a best-effort store write); the candidate falls through unhydrated.
+    """
+    resolved: list[PoolCandidate] = []
+    for candidate in candidates:
+        try:
+            resolved.append(_hydrate_one(db, candidate, user, commit=commit))
+        except Exception:
+            # commit=False (agent turn): the session may be poisoned and the turn
+            # owns the transaction — re-raise so the turn rolls back atomically
+            # rather than continuing on a broken session. commit=True (REST): each
+            # candidate is independent and no pool rows are committed yet, so we
+            # recover the session and import this one unhydrated.
+            if not commit:
+                raise
+            logger.warning(
+                "Pool store hydration failed for '%s' by '%s'; importing as-is.",
+                candidate.title,
+                candidate.artist,
+            )
+            db.rollback()
+            resolved.append(candidate)
+    return resolved
+
+
+def _hydrate_one(
+    db: Session, candidate: PoolCandidate, user: User | None, *, commit: bool
+) -> PoolCandidate:
+    """Resolve one candidate against the store and return a gap-filled copy."""
+    title = (candidate.title or "").strip()
+    artist = (candidate.artist or "").strip()
+    if not title or not artist:
+        return candidate
+    isrc = valid_isrc(candidate.isrc)
+    sig = dedupe_signature(artist, title)
+
+    row = get_track(db, isrc=isrc, signature=sig)
+    if row is not None and _row_trusted_complete(row):
+        return _hydrate_from_row(candidate, row)
+
+    # Candidate carries usable fields the store lacks → populate the store from it.
+    if _candidate_has_provider_fields(candidate):
+        _write_candidate_to_store(
+            db, candidate, title=title, artist=artist, sig=sig, isrc=isrc, commit=commit
+        )
+        return candidate
+
+    # Genuine gaps: only a connected DJ can run the provider cascade.
+    if user is None:
+        return candidate
+    return _enrich_and_writeback(
+        db, candidate, user, title=title, artist=artist, sig=sig, commit=commit
+    )
+
+
+def _row_trusted_complete(row) -> bool:
+    """True when the store row carries every provider-fillable contract field
+    (bpm/key/genre/duration) AND each comes from a real measured/authoritative
+    provider (the 50+ precedence tier).
+
+    Energy is excluded by design (see ``_CACHE_GATE_FIELDS``). A low-trust/legacy
+    row is NOT served as a cache hit (mirrors the request-side ``_trio_trusted``):
+    falling through lets a connected DJ's real providers upgrade it rather than
+    copying unupgraded values onto every future pool."""
+    prov = row.provenance or {}
+    for store_attr in _CACHE_GATE_FIELDS:
+        value = (
+            (row.camelot or row.musical_key)
+            if store_attr == "musical_key"
+            else getattr(row, store_attr)
+        )
+        if value is None:
+            return False
+        if not is_cache_authoritative(prov.get(store_attr, {}).get("source", "")):
+            return False
+    return True
+
+
+def _hydrate_from_row(candidate: PoolCandidate, row) -> PoolCandidate:
+    """Return a copy of the candidate with each MISSING field filled from the row.
+
+    Existing candidate values win (an import that already carries data keeps it);
+    only gaps are filled. ``key`` takes the row's Camelot ``musical_key`` (or
+    ``camelot``) so ``import_candidates`` derives the pool ``camelot`` from it."""
+    updates: dict[str, object] = {}
+    for cand_attr, store_attr in _CONTRACT_FIELDS:
+        if getattr(candidate, cand_attr) is not None:
+            continue
+        row_value = (
+            row.camelot or row.musical_key
+            if store_attr == "musical_key"
+            else getattr(row, store_attr)
+        )
+        if row_value is not None:
+            updates[cand_attr] = row_value
+    return dataclasses.replace(candidate, **updates) if updates else candidate
+
+
+def _candidate_has_provider_fields(candidate: PoolCandidate) -> bool:
+    """True if the candidate carries at least one core provider field worth
+    persisting (bpm/key/genre) — i.e. it arrived from a metadata-rich playlist
+    import (Beatport/Tidal) rather than an empty Spotify/manual row."""
+    return any((candidate.bpm is not None, candidate.key, candidate.genre))
+
+
+def _candidate_source(candidate: PoolCandidate) -> str:
+    """Map a candidate's namespaced ``track_id`` prefix to a store source name.
+
+    Beatport/Tidal/manual carry real provider-grade metadata; Spotify/request/
+    unprefixed carry only what was typed/seeded, so they attribute ``legacy``
+    (lowest precedence) and never masquerade as an authoritative provider."""
+    track_id = candidate.track_id or ""
+    prefix = track_id.split(":", 1)[0] if ":" in track_id else ""
+    if prefix in ("beatport", "tidal", "manual"):
+        return prefix
+    return "legacy"
+
+
+def _write_candidate_to_store(
+    db: Session,
+    candidate: PoolCandidate,
+    *,
+    title: str,
+    artist: str,
+    sig: str,
+    isrc: str | None,
+    commit: bool,
+) -> None:
+    """Upsert the candidate's carried fields into the store (commit-first when
+    ``commit``).
+
+    Commits any pending work FIRST so a store-write failure can't poison an
+    outer transaction (mirrors the request-side ``_safe_upsert_track``); the
+    store is strictly additive."""
+    source = _candidate_source(candidate)
+    values: dict[str, object] = {}
+    if candidate.bpm is not None:
+        values["bpm"] = float(candidate.bpm)
+    key_camelot = camelot_code(candidate.key)
+    if key_camelot:
+        values["musical_key"] = key_camelot
+    if candidate.genre:
+        values["genre"] = candidate.genre
+    if candidate.duration_sec is not None:
+        values["duration_sec"] = candidate.duration_sec
+    if candidate.energy is not None:
+        values["energy"] = candidate.energy
+    if not values:
+        return
+    sources = {field: source for field in values}
+    _safe_upsert(
+        db,
+        title=title,
+        artist=artist,
+        sig=sig,
+        isrc=isrc,
+        values=values,
+        sources=sources,
+        commit=commit,
+    )
+
+
+def _enrich_and_writeback(
+    db: Session,
+    candidate: PoolCandidate,
+    user: User,
+    *,
+    title: str,
+    artist: str,
+    sig: str,
+    commit: bool,
+) -> PoolCandidate:
+    """Run the provider cascade once, write the result back, and hydrate.
+
+    `enrich_track` (Beatport→Tidal) is the same gap-fill the recommendation
+    surface uses; its result is upserted to the store at provider precedence so
+    the next import of this recording is served from cache."""
+    profile = enrich_track(db, user, title, artist)
+    values: dict[str, object] = {}
+    if profile.bpm is not None:
+        values["bpm"] = float(profile.bpm)
+    key_camelot = camelot_code(profile.key)
+    if key_camelot:
+        values["musical_key"] = key_camelot
+    if profile.genre:
+        values["genre"] = profile.genre
+    if profile.duration_seconds is not None:
+        values["duration_sec"] = profile.duration_seconds
+    if not values:
+        return candidate
+    source = profile.source if profile.source in ("beatport", "tidal") else "legacy"
+    sources = {field: source for field in values}
+    _safe_upsert(
+        db,
+        title=title,
+        artist=artist,
+        sig=sig,
+        isrc=None,
+        values=values,
+        sources=sources,
+        commit=commit,
+    )
+    row = get_track(db, signature=sig)
+    return _hydrate_from_row(candidate, row) if row is not None else candidate
+
+
+def _safe_upsert(
+    db: Session,
+    *,
+    title: str,
+    artist: str,
+    sig: str,
+    isrc: str | None,
+    values: dict[str, object],
+    sources: dict[str, str],
+    commit: bool,
+) -> None:
+    """Store upsert with the import's commit discipline.
+
+    REST path (``commit=True``): commit-first — durably flush outer work, then
+    write the store on top, rolling back only the store write on failure (never
+    the import). Agent path (``commit=False``): just flush, so the store write
+    rides the single agent-turn transaction (and rolls back with it on undo)."""
+    if not commit:
+        upsert_track(
+            db,
+            identity=TrackIdentity(title=title, artist=artist, signature=sig, isrc=isrc),
+            values=values,
+            sources=sources,
+            fetched_at=utcnow(),
+        )
+        return
+    db.commit()
+    try:
+        upsert_track(
+            db,
+            identity=TrackIdentity(title=title, artist=artist, signature=sig, isrc=isrc),
+            values=values,
+            sources=sources,
+            fetched_at=utcnow(),
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.warning("Pool store upsert failed for '%s' by '%s'.", title, artist)
 
 
 # ---------------------------------------------------------------------------

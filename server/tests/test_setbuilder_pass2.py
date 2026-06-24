@@ -737,6 +737,9 @@ def _mk_set_with_pool(db: Session, user: User, tracks: list[dict]) -> Set:
                 bpm=row.get("bpm"),
                 key=row.get("key"),
                 camelot=row.get("camelot"),
+                genre=row.get("genre"),
+                energy=row.get("energy"),
+                duration_sec=row.get("duration_sec"),
                 dedupe_sig=f"gap-sig-{idx}",
             )
             for idx, row in enumerate(tracks)
@@ -781,6 +784,30 @@ def test_analyze_pool_gaps_reports_missing_keys_and_sparse_bands(db: Session, te
     assert sparse and sparse <= band_labels
 
 
+def test_analyze_pool_gaps_reports_energy_and_genre_coverage(db: Session, test_user: User):
+    # 3 tracks: only one carries genre; two carry energy. analyze_pool_gaps must
+    # report genre + energy coverage sourced from the resolved pool rows (#542),
+    # not the previously-dead energy column.
+    set_obj = _mk_set_with_pool(
+        db,
+        test_user,
+        [
+            {"camelot": "8A", "bpm": 124, "genre": "House", "energy": 6},
+            {"camelot": "9A", "bpm": 128, "energy": 7},
+            {"camelot": "10A", "bpm": 130},
+        ],
+    )
+
+    gaps, affected = apply_tool_call(db, set_obj, "analyze_pool_gaps", {})
+
+    assert affected == set()
+    assert gaps["pool_size"] == 3
+    assert gaps["genre_track_count"] == 1
+    assert gaps["energy_track_count"] == 2
+    assert gaps["missing_genre_count"] == 2
+    assert gaps["missing_energy_count"] == 1
+
+
 def test_analyze_pool_gaps_empty_pool_is_everything_a_gap(db: Session, test_user: User):
     set_obj = _mk_set_with_pool(db, test_user, [])
 
@@ -790,6 +817,10 @@ def test_analyze_pool_gaps_empty_pool_is_everything_a_gap(db: Session, test_user
     assert gaps["pool_size"] == 0
     assert gaps["keyed_track_count"] == 0
     assert gaps["bpm_track_count"] == 0
+    assert gaps["genre_track_count"] == 0
+    assert gaps["energy_track_count"] == 0
+    assert gaps["missing_genre_count"] == 0
+    assert gaps["missing_energy_count"] == 0
     assert len(gaps["missing_camelot_keys"]) == 24
     assert gaps["bpm_bands"] == []
     assert gaps["sparse_bands"] == []
@@ -852,12 +883,17 @@ def test_tool_display_summary_analyze_pool_gaps():
             "pool_size": 4,
             "missing_camelot_keys": ["1A", "1B"],
             "sparse_bands": [{"label": "130-140", "min": 130, "max": 140, "count": 1}],
+            "missing_genre_count": 2,
+            "missing_energy_count": 3,
         },
         {},
         {},
     )
 
-    assert summary == "Analyzed pool gaps over 4 tracks: 2 missing Camelot keys, 1 sparse BPM band."
+    assert summary == (
+        "Analyzed pool gaps over 4 tracks: 2 missing Camelot keys, 1 sparse BPM band, "
+        "2 missing genre, 3 missing energy."
+    )
 
 
 def _meta(**overrides) -> TrackMeta:

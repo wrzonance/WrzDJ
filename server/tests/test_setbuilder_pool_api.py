@@ -123,6 +123,36 @@ class TestEventImport:
         )
         assert resp.status_code == 404
 
+    def test_import_already_enriched_pool_calls_zero_providers(
+        self, client, db, auth_headers, set_id, test_event, monkeypatch
+    ):
+        """#542 acceptance criterion: importing an already-enriched pool performs
+        ZERO provider enrichment calls (served from the candidate/store), and the
+        master store is populated from the carried fields for later reuse."""
+        from app.models.track import Track
+        from app.services.setbuilder import pool as pool_mod
+        from app.services.setbuilder.pool import dedupe_signature
+
+        _seed_requests(db, test_event)  # "Pool Track A" arrives complete
+
+        def _boom(*a, **k):  # pragma: no cover - must never run
+            raise AssertionError("enrich_track must not run for already-enriched candidates")
+
+        monkeypatch.setattr(pool_mod, "enrich_track", _boom)
+
+        resp = client.post(
+            f"/api/setbuilder/sets/{set_id}/pool/import/event",
+            json={"event_id": test_event.id},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        # The complete request populated the store from its carried fields.
+        sig = dedupe_signature("Artist A", "Pool Track A")
+        row = db.query(Track).filter(Track.signature == sig).one()
+        assert row.bpm == 126.0
+        assert row.genre == "House"
+        assert row.musical_key == "8A"
+
     def test_reimport_event_dedupes_and_reuses_source(
         self, client, db, auth_headers, set_id, test_event
     ):

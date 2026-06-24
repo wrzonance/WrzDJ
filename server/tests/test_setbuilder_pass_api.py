@@ -65,6 +65,28 @@ def test_build_set_endpoint_creates_timeline(client, auth_headers, db):
     assert body["slots"][0]["title"] == "Track 0"
 
 
+def test_build_set_response_carries_pool_coverage(client, auth_headers, db):
+    # #542: the build response exposes pool coverage so the FE build-confirm
+    # dialog can show "fully enriched: N/M" and a soft, overridable warning.
+    set_obj = _mk_set(client, auth_headers)
+    _mk_pool(db, set_obj["id"])  # 4 tracks, all fields EXCEPT genre
+
+    resp = client.post(
+        f"/api/setbuilder/sets/{set_obj['id']}/build",
+        json={"confirmed": True},
+        headers=auth_headers,
+    )
+
+    assert resp.status_code == 200, resp.json()
+    coverage = resp.json()["coverage"]
+    assert coverage["pool_size"] == 4
+    # Every track is missing genre → none fully covered → soft not-ready warning.
+    assert coverage["fully_covered_count"] == 0
+    assert coverage["missing"]["genre"] == 4
+    assert coverage["missing"]["bpm"] == 0
+    assert coverage["ready"] is False
+
+
 def test_pass_endpoints_owner_isolation(client, auth_headers, db, test_user):
     from app.models.set import Set
     from app.models.user import User

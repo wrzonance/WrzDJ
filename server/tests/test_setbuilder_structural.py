@@ -65,6 +65,12 @@ def test_autobuild_regenerates_order_and_reports_counts(db: Session, test_user: 
     assert result["slot_count"] > 0
     assert isinstance(result["iterations"], int)
     assert positions == {s.position for s in slots}
+    # #542: autobuild surfaces pool coverage (soft/advisory). The structural pool
+    # carries every field except genre, so none are fully covered.
+    coverage = result["coverage"]
+    assert coverage["pool_size"] == 4
+    assert coverage["missing"]["genre"] == 4
+    assert coverage["fully_covered_count"] == 0
 
 
 def test_autobuild_preserves_locked_slot(db: Session, test_user: User):

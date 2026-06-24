@@ -123,6 +123,36 @@ class TestEventImport:
         )
         assert resp.status_code == 404
 
+    def test_import_already_enriched_pool_calls_zero_providers(
+        self, client, db, auth_headers, set_id, test_event, monkeypatch
+    ):
+        """#542 acceptance criterion: importing an already-enriched pool performs
+        ZERO provider enrichment calls (served from the candidate/store), and the
+        master store is populated from the carried fields for later reuse."""
+        from app.models.track import Track
+        from app.services.setbuilder import pool as pool_mod
+        from app.services.setbuilder.pool import dedupe_signature
+
+        _seed_requests(db, test_event)  # "Pool Track A" arrives complete
+
+        def _boom(*a, **k):  # pragma: no cover - must never run
+            raise AssertionError("enrich_track must not run for already-enriched candidates")
+
+        monkeypatch.setattr(pool_mod, "enrich_track", _boom)
+
+        resp = client.post(
+            f"/api/setbuilder/sets/{set_id}/pool/import/event",
+            json={"event_id": test_event.id},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        # The complete request populated the store from its carried fields.
+        sig = dedupe_signature("Artist A", "Pool Track A")
+        row = db.query(Track).filter(Track.signature == sig).one()
+        assert row.bpm == 126.0
+        assert row.genre == "House"
+        assert row.musical_key == "8A"
+
     def test_reimport_event_dedupes_and_reuses_source(
         self, client, db, auth_headers, set_id, test_event
     ):
@@ -170,6 +200,53 @@ class TestPlaylistImports:
         assert (body["added"], body["deduped"]) == (1, 0)
         assert body["source"]["kind"] == "tidal"
         assert body["source"]["label"] == "Friday Warmup"
+
+    def test_hydration_failure_on_first_candidate_keeps_source_and_imports_rest(
+        self, client, auth_headers, set_id, db, monkeypatch
+    ):
+        """#554 FIX 1: a candidate whose hydration raises must not roll back the
+        freshly-created (uncommitted) source row, or import_candidates would then
+        insert pool tracks against a stale source.id (orphan/FK break). The source
+        must survive and the remaining candidates must still import against it."""
+        from app.models.set_pool import SetPoolSource, SetPoolTrack
+        from app.services.setbuilder import pool as pool_mod
+        from app.services.setbuilder.pool import PoolCandidate
+
+        monkeypatch.setattr(
+            "app.services.setbuilder.pool.candidates_from_tidal",
+            lambda db, user, pid: [
+                PoolCandidate(track_id="tidal:1", title="Boom Song", artist="Boom Artist"),
+                PoolCandidate(
+                    track_id="tidal:2", title="Good Song", artist="Good Artist", bpm=128.0, key="8A"
+                ),
+            ],
+        )
+
+        # Make ONLY the first candidate's hydration blow up mid-flow.
+        real_hydrate_one = pool_mod._hydrate_one
+
+        def _explode_first(db_, candidate, user, *, commit):
+            if candidate.title == "Boom Song":
+                raise RuntimeError("simulated hydration failure")
+            return real_hydrate_one(db_, candidate, user, commit=commit)
+
+        monkeypatch.setattr(pool_mod, "_hydrate_one", _explode_first)
+
+        resp = client.post(
+            f"/api/setbuilder/sets/{set_id}/pool/import/tidal",
+            json={"playlist_id": "abc-123", "label": "Resilient"},
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 200, resp.json()
+        source_id = resp.json()["source"]["id"]
+        # The source row survived the per-candidate rollback ...
+        survived = db.query(SetPoolSource).filter(SetPoolSource.id == source_id).one_or_none()
+        assert survived is not None
+        # ... and every imported pool track references that LIVE source (no orphan).
+        tracks = db.query(SetPoolTrack).filter(SetPoolTrack.set_id == set_id).all()
+        assert tracks  # at least the non-failing candidate imported
+        assert all(t.source_id == source_id for t in tracks)
 
     def test_import_tidal_fetch_failure_502(self, client, auth_headers, set_id, monkeypatch):
         from app.services.tidal import TidalFetchError
@@ -292,7 +369,12 @@ class TestUrlImport:
 
 
 class TestManualImport:
-    def test_manual_import(self, client, auth_headers, set_id):
+    def test_manual_import_does_not_mint_provider_track_id(self, client, auth_headers, set_id):
+        # #554 FIX 7 (P1): a manual pick must NOT mint an authoritative
+        # beatport:/tidal: track_id from client-supplied source_service +
+        # source_track_id (that prefix is the authority signal _candidate_source
+        # trusts). Even with a client-supplied tidal source_track_id, track_id stays
+        # null so the metadata is stored at legacy precedence, not as provider data.
         resp = client.post(
             f"/api/setbuilder/sets/{set_id}/pool/import/manual",
             json={
@@ -310,8 +392,25 @@ class TestManualImport:
         assert body["added"] == 1
         assert body["source"]["kind"] == "manual"
         track = body["pool"]["tracks"][0]
-        assert track["track_id"] == "tidal:555"
+        assert track["track_id"] is None  # NOT "tidal:555" — no forged authority
         assert track["camelot"] == "8A"
+
+    def test_manual_import_keeps_spotify_reference_id(self, client, auth_headers, set_id):
+        # Spotify is non-authoritative (legacy) and the one provider the FE sends an
+        # id for, so a spotify: reference is retained.
+        resp = client.post(
+            f"/api/setbuilder/sets/{set_id}/pool/import/manual",
+            json={
+                "title": "One More Time",
+                "artist": "Daft Punk",
+                "source_service": "spotify",
+                "source_track_id": "0DiWol3AO6WpXZgp0goxAV",
+            },
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        track = resp.json()["pool"]["tracks"][0]
+        assert track["track_id"] == "spotify:0DiWol3AO6WpXZgp0goxAV"
 
     def test_manual_dedupe_toast_counts(self, client, auth_headers, set_id):
         payload = {"title": "Bad Romance", "artist": "Lady Gaga"}

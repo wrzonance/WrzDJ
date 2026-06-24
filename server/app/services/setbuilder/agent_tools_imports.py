@@ -104,6 +104,7 @@ def _tool_import_from_event(
         label=event.name,
         meta="WrzDJ event requests",
     )
+    candidates = pool.hydrate_candidates_from_store(db, candidates, user=owner, commit=False)
     added, deduped = pool.import_candidates(db, set_obj, source, candidates, commit=False)
     return _import_summary(source, added, deduped), set()
 
@@ -151,6 +152,7 @@ def _connected_playlist_import(
         label=playlist.name,
         meta=f"{kind.capitalize()} playlist",
     )
+    candidates = pool.hydrate_candidates_from_store(db, candidates, user=owner, commit=False)
     added, deduped = pool.import_candidates(db, set_obj, source, candidates, commit=False)
     return _import_summary(source, added, deduped), set()
 
@@ -219,5 +221,6 @@ def _tool_import_from_url(
         label=name,
         meta=f"Public {parsed.provider} playlist",
     )
+    candidates = pool.hydrate_candidates_from_store(db, candidates, user=owner, commit=False)
     added, deduped = pool.import_candidates(db, set_obj, source, candidates, commit=False)
     return _import_summary(source, added, deduped), set()

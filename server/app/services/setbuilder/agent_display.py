@@ -136,10 +136,13 @@ def _tool_display_summary(
     if name == "analyze_pool_gaps":
         missing = result.get("missing_camelot_keys") or []
         sparse = result.get("sparse_bands") or []
+        missing_genre = int(result.get("missing_genre_count") or 0)
+        missing_energy = int(result.get("missing_energy_count") or 0)
         return (
             f"Analyzed pool gaps over {int(result.get('pool_size') or 0)} tracks: "
             f"{len(missing)} missing Camelot key{'s' if len(missing) != 1 else ''}, "
-            f"{len(sparse)} sparse BPM band{'s' if len(sparse) != 1 else ''}."
+            f"{len(sparse)} sparse BPM band{'s' if len(sparse) != 1 else ''}, "
+            f"{missing_genre} missing genre, {missing_energy} missing energy."
         )
     if name == "critique_set":
         grade = result.get("overall_grade")
@@ -161,10 +164,16 @@ def _tool_display_summary(
     if name == "autobuild":
         slots = int(result.get("slot_count") or 0)
         iterations = int(result.get("iterations") or 0)
-        return (
+        summary = (
             f"Rebuilt the set: {slots} slot{'s' if slots != 1 else ''}, "
             f"{iterations} refinement pass{'es' if iterations != 1 else ''}."
         )
+        coverage = result.get("coverage") or {}
+        pool_size = int(coverage.get("pool_size") or 0)
+        fully = int(coverage.get("fully_covered_count") or 0)
+        if pool_size and fully < pool_size:
+            summary += f" {fully}/{pool_size} pool tracks fully enriched."
+        return summary
     if name == "fill_to_duration":
         added = int(result.get("inserted_count") or 0)
         now_min = int(result.get("estimated_total_sec") or 0) // 60

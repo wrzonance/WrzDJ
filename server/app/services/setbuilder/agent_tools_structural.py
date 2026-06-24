@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.models.set import Set
 from app.services.setbuilder.agent_common import AgentToolError, _ordered_slots, _pool_tracks
 from app.services.setbuilder.agent_tools_mutations import _insert_track_at
+from app.services.setbuilder.coverage import coverage_for_set
 from app.services.setbuilder.pass1_deterministic import AVG_TRACK_LENGTH_SEC, build_set
 from app.services.setbuilder.pass1_deterministic import _track_meta as _pass1_track_meta
 
@@ -35,15 +36,27 @@ def _tool_autobuild(
     already honors locked slots and saved pairings. Runs with ``commit=False``
     so the agent turn commits/rolls back as one unit.
     """
+    # Coverage of the five required pool→builder fields BEFORE the rebuild, so the
+    # agent can warn the DJ about under-enriched tracks (#542). Soft/advisory only:
+    # autobuild proceeds regardless, mirroring the REST build's overridable gate.
+    coverage = coverage_for_set(db, set_obj.id)
     result = build_set(db, set_obj, commit=False)
     affected = {slot.position for slot in result.slots}
     logger.info(
-        "setbuilder autobuild: set %s rebuilt to %s slots (%s refinement iterations)",
+        "setbuilder autobuild: set %s rebuilt to %s slots (%s refinement iterations); "
+        "pool coverage ready=%s (%s/%s fully enriched)",
         set_obj.id,
         result.slot_count,
         result.iterations,
+        coverage["ready"],
+        coverage["fully_covered_count"],
+        coverage["pool_size"],
     )
-    return {"slot_count": result.slot_count, "iterations": result.iterations}, affected
+    return {
+        "slot_count": result.slot_count,
+        "iterations": result.iterations,
+        "coverage": coverage,
+    }, affected
 
 
 def _duration_for(track) -> int:

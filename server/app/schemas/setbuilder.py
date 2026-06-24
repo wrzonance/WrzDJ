@@ -443,6 +443,21 @@ class TransitionScoreOut(BaseModel):
     warnings: list[str]
 
 
+class PoolCoverageOut(BaseModel):
+    """Pre-build coverage of the five required pool→builder contract fields (#542).
+
+    A SOFT, overridable signal surfaced in the build-confirmation dialog (#538):
+    ``missing`` is the per-field count of pool tracks lacking each field,
+    ``fully_covered_count`` how many carry all five, and ``ready`` whether the
+    pool clears the readiness threshold. The build is never hard-blocked on this.
+    """
+
+    pool_size: int
+    fully_covered_count: int
+    ready: bool
+    missing: dict[str, int]
+
+
 class BuildSetResponse(BaseModel):
     """Result of the deterministic pass."""
 
@@ -450,6 +465,7 @@ class BuildSetResponse(BaseModel):
     iterations: int
     slots: list[SlotOut]
     transition_scores: list[TransitionScoreOut]
+    coverage: PoolCoverageOut
 
 
 class SlotOrderRequest(BaseModel):

@@ -255,26 +255,40 @@ def _energy_profile(values: list[float | None]) -> dict[str, Any]:
 def _tool_analyze_pool_gaps(
     db: Session, set_obj: Set, payload: dict[str, Any]
 ) -> tuple[dict[str, Any], set[int]]:
-    """Read-only coverage report over the set's pool (missing keys + BPM bands)."""
+    """Read-only coverage report over the set's pool: missing Camelot keys, BPM
+    bands, and genre + energy coverage (#542).
+
+    Genre + energy are read straight from the resolved pool rows (which #542's
+    store hydration now fills), not from the previously-dead pool energy column —
+    consistent with the build-gate ``coverage.pool_coverage`` field set."""
     del payload
-    metas = [_pass1_track_meta(t) for t in _pool_tracks(db, set_obj.id)]
+    pool = _pool_tracks(db, set_obj.id)
+    metas = [_pass1_track_meta(t) for t in pool]
     camelot_keys = [str(pos) for pos in (parse_key(m.key) for m in metas) if pos is not None]
     bpms = [float(m.bpm) for m in metas if m.bpm is not None]
+    genre_count = sum(1 for t in pool if t.genre)
+    energy_count = sum(1 for t in pool if t.energy is not None)
     present = set(camelot_keys)
     missing = [key for key in ALL_CAMELOT_KEYS if key not in present]
     bands = _bpm_bands(set_obj, bpms)
     logger.debug(
-        "Set %s analyze_pool_gaps: pool=%d keyed=%d bpm=%d missing_keys=%d",
+        "Set %s analyze_pool_gaps: pool=%d keyed=%d bpm=%d genre=%d energy=%d missing_keys=%d",
         set_obj.id,
         len(metas),
         len(camelot_keys),
         len(bpms),
+        genre_count,
+        energy_count,
         len(missing),
     )
     return {
         "pool_size": len(metas),
         "keyed_track_count": len(camelot_keys),
         "bpm_track_count": len(bpms),
+        "genre_track_count": genre_count,
+        "energy_track_count": energy_count,
+        "missing_genre_count": len(metas) - genre_count,
+        "missing_energy_count": len(metas) - energy_count,
         "missing_camelot_keys": missing,
         "bpm_bands": bands,
         "sparse_bands": [b for b in bands if b["count"] < SPARSE_BAND_THRESHOLD],

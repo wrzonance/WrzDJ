@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from app.models.track import Track
+from app.services.tracks import store
 from app.services.tracks.store import TrackIdentity, get_track, upsert_track
 
 
@@ -290,3 +291,147 @@ def test_energy_check_constraint_rejects_out_of_range(db):
     with pytest.raises(IntegrityError):
         db.flush()
     db.rollback()
+
+
+# ---------------------------------------------------------------------------
+# #540 debt: concurrent-insert reconciliation (spec §5)
+#
+# Two callers both miss in get_track for the same new identity and both create a
+# Track; the first INSERT wins and the second must NOT raise IntegrityError — it
+# must roll back its savepoint, re-read the now-existing row, and apply the
+# precedence-guarded merge onto it. Net: exactly one row, no lost writes.
+#
+# The race is exercised deterministically in a single session by monkeypatching
+# get_track so its FIRST call returns None (the TOCTOU window where the caller
+# believes the row is absent) while a conflicting row is already committed; later
+# calls delegate to the real lookup so reconciliation can re-read the winner.
+# ---------------------------------------------------------------------------
+
+
+def _first_call_none(monkeypatch):
+    """Patch store.get_track so the first invocation returns None, then real.
+
+    Returns a one-element list whose item is the count of times the patched
+    first-None branch was taken (proves the reconciliation path ran).
+    """
+    real_get_track = store.get_track
+    state = {"calls": 0, "forced_none": 0}
+
+    def fake_get_track(db, **kwargs):
+        state["calls"] += 1
+        if state["calls"] == 1:
+            state["forced_none"] += 1
+            return None  # simulate the TOCTOU miss
+        return real_get_track(db, **kwargs)
+
+    monkeypatch.setattr(store, "get_track", fake_get_track)
+    return state
+
+
+def test_upsert_reconciles_concurrent_signature_insert(db, monkeypatch):
+    """A racing signature INSERT loses cleanly: re-read existing row, merge, one row."""
+    # A concurrent caller already created+committed the row with measured energy.
+    upsert_track(
+        db,
+        identity=TrackIdentity(title="S", artist="D", signature="sig-race"),
+        values={"energy": 8, "bpm": 120.0},
+        sources={"energy": "soundcharts", "bpm": "beatport"},
+        fetched_at=T0,
+    )
+    db.commit()
+
+    state = _first_call_none(monkeypatch)
+
+    # This caller thinks the row is absent (first get_track → None), tries to
+    # INSERT the same signature, hits the unique constraint, and must reconcile.
+    track = upsert_track(
+        db,
+        identity=TrackIdentity(title="S", artist="D", signature="sig-race"),
+        values={"energy": 3, "genre": "trance"},
+        sources={"energy": "llm", "genre": "musicbrainz"},
+        fetched_at=T0,
+    )
+
+    # (a) no exception — reached here. (e) the first-None reconciliation branch ran.
+    assert state["forced_none"] == 1, "reconciliation path was not exercised"
+
+    # (b) exactly one row for that signature.
+    rows = db.query(Track).filter(Track.signature == "sig-race").all()
+    assert len(rows) == 1
+    row = rows[0]
+    assert track.id == row.id
+
+    # (c) precedence-correct merge: musicbrainz (50) wrote a new field; llm (10)
+    #     did NOT downgrade the measured soundcharts (50) energy.
+    assert row.genre == "trance"
+    assert row.provenance["genre"]["source"] == "musicbrainz"
+    assert row.energy == 8, "low-precedence llm must not clobber measured energy"
+    assert row.provenance["energy"]["source"] == "soundcharts"
+
+    # (d) no pre-existing value was lost.
+    assert row.bpm == 120.0
+    assert row.provenance["bpm"]["source"] == "beatport"
+
+
+def test_upsert_reconciles_concurrent_isrc_insert(db, monkeypatch):
+    """A racing INSERT colliding on the ISRC unique constraint reconciles too."""
+    upsert_track(
+        db,
+        identity=TrackIdentity(title="S", artist="D", signature="sig-isrc-a", isrc="FIXXX9999999"),
+        values={"bpm": 128.0},
+        sources={"bpm": "beatport"},
+        fetched_at=T0,
+    )
+    db.commit()
+
+    state = _first_call_none(monkeypatch)
+
+    # Different signature, SAME ISRC → collides on uq_tracks_isrc, must reconcile
+    # onto the existing ISRC row (ISRC is authoritative).
+    track = upsert_track(
+        db,
+        identity=TrackIdentity(title="S", artist="D", signature="sig-isrc-b", isrc="FIXXX9999999"),
+        values={"genre": "house"},
+        sources={"genre": "musicbrainz"},
+        fetched_at=T0,
+    )
+
+    assert state["forced_none"] == 1, "reconciliation path was not exercised"
+
+    rows = db.query(Track).filter(Track.isrc == "FIXXX9999999").all()
+    assert len(rows) == 1
+    row = rows[0]
+    assert track.id == row.id
+    assert row.signature == "sig-isrc-a"  # original row survived
+    assert row.genre == "house"  # merged onto it
+    assert row.bpm == 128.0  # pre-existing value not lost
+
+
+def test_upsert_reraises_when_conflict_unreconcilable(db, monkeypatch):
+    """If get_track keeps returning None after a real IntegrityError, re-raise.
+
+    A genuine unique violation that cannot be reconciled (the conflicting row is
+    not findable) must not be silently swallowed.
+    """
+    # Commit a real conflicting row so the INSERT genuinely violates the constraint.
+    upsert_track(
+        db,
+        identity=TrackIdentity(title="S", artist="D", signature="sig-unrec"),
+        values={"bpm": 100.0},
+        sources={"bpm": "beatport"},
+        fetched_at=T0,
+    )
+    db.commit()
+
+    # get_track ALWAYS returns None → caller inserts, collides, re-reads, still
+    # finds nothing → the IntegrityError must propagate.
+    monkeypatch.setattr(store, "get_track", lambda db, **kw: None)
+
+    with pytest.raises(IntegrityError):
+        upsert_track(
+            db,
+            identity=TrackIdentity(title="S", artist="D", signature="sig-unrec"),
+            values={"energy": 5},
+            sources={"energy": "llm"},
+            fetched_at=T0,
+        )

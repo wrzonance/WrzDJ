@@ -9,6 +9,25 @@ from app.models.track import Track
 from app.services.track_normalizer import normalize_isrc
 from app.services.tracks.provenance import KNOWN_SOURCES, FieldProvenance, should_overwrite
 
+# Columns NOT writable via the `values` dict: identity fields come from
+# TrackIdentity (signature/title/artist/isrc/soundcharts_uuid) and these are
+# ORM-managed (id/provenance/created_at/updated_at). `values` carries enrichment
+# fields only; any other key is a caller bug and must be rejected, not silently
+# set as a non-persisted instance attribute while provenance claims a write.
+_NON_VALUE_FIELDS = frozenset(
+    {
+        "id",
+        "signature",
+        "title",
+        "artist",
+        "isrc",
+        "soundcharts_uuid",
+        "provenance",
+        "created_at",
+        "updated_at",
+    }
+)
+
 
 def get_track(
     db: Session, *, isrc: str | None = None, signature: str | None = None
@@ -55,6 +74,13 @@ def upsert_track(
     no DB write) if sources keys don't cover all values keys, or if any source
     name is unknown."""
     # --- Validate inputs BEFORE any DB mutation ---
+    writable = {attr.key for attr in Track.__mapper__.column_attrs} - _NON_VALUE_FIELDS
+    unknown_fields = set(values) - writable
+    if unknown_fields:
+        raise ValueError(
+            f"upsert_track: unknown writable field(s) {sorted(unknown_fields)}; "
+            f"allowed fields are {sorted(writable)}"
+        )
     missing = set(values) - set(sources)
     if missing:
         raise ValueError(

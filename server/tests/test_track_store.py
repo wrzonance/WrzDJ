@@ -171,6 +171,36 @@ def test_upsert_raises_for_unknown_source(db):
     assert db.query(Track).filter(Track.signature == "sig-bad-src").count() == 0
 
 
+def test_upsert_raises_for_unknown_field(db):
+    """A values key that is not a writable enrichment column → ValueError, no row.
+
+    Without this guard, setattr would create a non-persisted instance attribute
+    while provenance recorded a write (silent data-contract mismatch).
+    """
+    with pytest.raises(ValueError, match="unknown writable field"):
+        upsert_track(
+            db,
+            identity=TrackIdentity(title="T", artist="A", signature="sig-bad-field"),
+            values={"enrgy": 8},  # typo for "energy"
+            sources={"enrgy": "soundcharts"},
+            fetched_at=T0,
+        )
+    assert db.query(Track).filter(Track.signature == "sig-bad-field").count() == 0
+
+
+def test_upsert_rejects_identity_field_in_values(db):
+    """Identity columns (set via TrackIdentity) are not writable through values."""
+    with pytest.raises(ValueError, match="unknown writable field"):
+        upsert_track(
+            db,
+            identity=TrackIdentity(title="T", artist="A", signature="sig-ident"),
+            values={"signature": "hijack"},
+            sources={"signature": "manual"},
+            fetched_at=T0,
+        )
+    assert db.query(Track).filter(Track.signature == "sig-ident").count() == 0
+
+
 # ---------------------------------------------------------------------------
 # Fix 4: ISRC-authoritative on conflict (ISRC match wins over signature)
 # ---------------------------------------------------------------------------

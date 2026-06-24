@@ -864,15 +864,20 @@ def candidate_from_manual(
 ) -> PoolCandidate:
     """Build a candidate from a manual search pick (validated at the API layer).
 
-    A real ``source_track_id`` (only present for providers that expose a usable id)
-    mints a server-trusted ``beatport:<id>``/``tidal:<id>`` track_id. A manual pick
-    that carries no such id stays ``track_id=None`` → stored as ``legacy``: the
-    client-asserted ``source_service`` alone is NOT trusted as provenance (it is
-    unverifiable and would let a client poison the shared store — see
-    ``_candidate_source``, #554 P1)."""
+    ``source_service``/``source_track_id`` are CLIENT input, so this must NEVER mint
+    an authoritative ``beatport:``/``tidal:`` track_id from them — that prefix is the
+    authority signal ``_candidate_source`` trusts, and forging it would let a crafted
+    request write fabricated provider-grade data into the shared, multi-tenant store
+    (#554 P1). Authoritative beatport/tidal prefixes come ONLY from the server-side
+    playlist builders (``candidates_from_beatport``/``candidates_from_tidal``), which
+    mint them from the DJ's OAuth'd server-side fetch — never from this path.
+
+    We keep ONLY a non-authoritative ``spotify:<id>`` reference (Spotify resolves to
+    ``legacy`` in ``_candidate_source`` regardless, and it is the one provider the FE
+    actually sends an id for). Everything else stays ``track_id=None`` → ``legacy``."""
     track_id = None
-    if source_track_id and source_service != "manual":
-        track_id = f"{source_service}:{source_track_id}"
+    if source_track_id and source_service == "spotify":
+        track_id = f"spotify:{source_track_id}"
     return PoolCandidate(
         track_id=track_id,
         title=title,

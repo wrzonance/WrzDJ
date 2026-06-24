@@ -369,7 +369,12 @@ class TestUrlImport:
 
 
 class TestManualImport:
-    def test_manual_import(self, client, auth_headers, set_id):
+    def test_manual_import_does_not_mint_provider_track_id(self, client, auth_headers, set_id):
+        # #554 FIX 7 (P1): a manual pick must NOT mint an authoritative
+        # beatport:/tidal: track_id from client-supplied source_service +
+        # source_track_id (that prefix is the authority signal _candidate_source
+        # trusts). Even with a client-supplied tidal source_track_id, track_id stays
+        # null so the metadata is stored at legacy precedence, not as provider data.
         resp = client.post(
             f"/api/setbuilder/sets/{set_id}/pool/import/manual",
             json={
@@ -387,8 +392,25 @@ class TestManualImport:
         assert body["added"] == 1
         assert body["source"]["kind"] == "manual"
         track = body["pool"]["tracks"][0]
-        assert track["track_id"] == "tidal:555"
+        assert track["track_id"] is None  # NOT "tidal:555" — no forged authority
         assert track["camelot"] == "8A"
+
+    def test_manual_import_keeps_spotify_reference_id(self, client, auth_headers, set_id):
+        # Spotify is non-authoritative (legacy) and the one provider the FE sends an
+        # id for, so a spotify: reference is retained.
+        resp = client.post(
+            f"/api/setbuilder/sets/{set_id}/pool/import/manual",
+            json={
+                "title": "One More Time",
+                "artist": "Daft Punk",
+                "source_service": "spotify",
+                "source_track_id": "0DiWol3AO6WpXZgp0goxAV",
+            },
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        track = resp.json()["pool"]["tracks"][0]
+        assert track["track_id"] == "spotify:0DiWol3AO6WpXZgp0goxAV"
 
     def test_manual_dedupe_toast_counts(self, client, auth_headers, set_id):
         payload = {"title": "Bad Romance", "artist": "Lady Gaga"}

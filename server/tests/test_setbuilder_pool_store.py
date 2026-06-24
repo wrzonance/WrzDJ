@@ -394,6 +394,47 @@ class TestManualPickProvenance:
         assert row is not None
         assert row.provenance["bpm"]["source"] == "legacy"
 
+    def test_forged_beatport_track_id_cannot_mint_authority(self):
+        """#554 FIX 7 (P1): even a crafted POST that supplies BOTH
+        source_service="beatport" AND a source_track_id must NOT mint a
+        ``beatport:`` prefix — that prefix is the authority signal _candidate_source
+        trusts. candidate_from_manual must never forge it from client input."""
+        pick = pool.candidate_from_manual(
+            title="Pwned",
+            artist="Attacker",
+            bpm=200.0,
+            key="1A",
+            genre="Fabricated",
+            source_service="beatport",
+            source_track_id="123",  # the attack: a fake id to force a beatport: prefix
+        )
+        assert pick.track_id is None
+        assert pool._candidate_source(pick) == "legacy"
+
+    def test_forged_tidal_track_id_cannot_mint_authority(self):
+        pick = pool.candidate_from_manual(
+            title="Pwned2",
+            artist="Attacker",
+            bpm=180.0,
+            source_service="tidal",
+            source_track_id="456",
+        )
+        assert pick.track_id is None
+        assert pool._candidate_source(pick) == "legacy"
+
+    def test_manual_spotify_pick_mints_spotify_prefix_but_stays_legacy(self):
+        """Spotify is the one provider the FE sends an id for; it may keep a
+        ``spotify:`` reference id, but Spotify is non-authoritative so the source
+        still resolves to ``legacy``."""
+        pick = pool.candidate_from_manual(
+            title="Get Lucky",
+            artist="Daft Punk",
+            source_service="spotify",
+            source_track_id="69kOkLUCkxyZ",
+        )
+        assert pick.track_id == "spotify:69kOkLUCkxyZ"
+        assert pool._candidate_source(pick) == "legacy"
+
     def test_manual_spotify_pick_stays_legacy(self, db, dj_user, monkeypatch):
         self._no_enrich(monkeypatch)
         pick = pool.candidate_from_manual(

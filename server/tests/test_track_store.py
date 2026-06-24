@@ -109,3 +109,28 @@ def test_upsert_allows_higher_precedence_override(db):
     )
     row = db.query(Track).filter(Track.signature == "sig-o").one()
     assert row.energy == 6 and row.provenance["energy"]["source"] == "lexicon"
+
+
+def test_upsert_backfills_isrc_onto_signature_row(db):
+    # First seen with no ISRC (e.g. manual add)
+    upsert_track(
+        db,
+        identity=TrackIdentity(title="Sandstorm", artist="Darude", signature="sig-bf"),
+        values={"bpm": 136.0},
+        sources={"bpm": "manual"},
+        fetched_at=T0,
+    )
+    # Later seen WITH an ISRC, same signature → backfill, one row
+    upsert_track(
+        db,
+        identity=TrackIdentity(
+            title="Sandstorm", artist="Darude", signature="sig-bf", isrc="FIXXX1234567"
+        ),
+        values={"energy": 9},
+        sources={"energy": "soundcharts"},
+        fetched_at=T0,
+    )
+    rows = db.query(Track).filter(Track.signature == "sig-bf").all()
+    assert len(rows) == 1
+    assert rows[0].isrc == "FIXXX1234567"
+    assert rows[0].bpm == 136.0 and rows[0].energy == 9

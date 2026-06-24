@@ -64,6 +64,10 @@ def upsert_track(
         )
         db.add(track)
 
+    # Backfill ISRC onto signature-matched row if it was previously missing
+    if norm_isrc and not track.isrc:
+        track.isrc = norm_isrc
+
     prov: dict = dict(track.provenance or {})
     for field, value in values.items():
         if should_overwrite(prov.get(field), sources[field]):

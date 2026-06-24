@@ -75,7 +75,7 @@ Value queries (e.g. "energy of ISRC X") are plain indexed column lookups — the
 
 ```python
 def get_track(db, *, isrc: str | None = None, signature: str | None = None) -> Track | None
-def upsert_track(db, *, identity: TrackIdentity, values: dict, provenance: dict[str, FieldProvenance]) -> Track
+def upsert_track(db, *, identity: TrackIdentity, values: dict, sources: dict[str, str], fetched_at: datetime) -> Track
 ```
 
 - `TrackIdentity` carries title, artist, isrc?, signature, soundcharts_uuid?.
@@ -87,6 +87,7 @@ def upsert_track(db, *, identity: TrackIdentity, values: dict, provenance: dict[
   ```
 - **Per-field precedence ("don't downgrade"):** `upsert_track` overwrites a field only when the new source's precedence ≥ the existing field's source precedence (or the field is null). Precedence (higher wins):
   `manual/own-override 100 · lexicon(measured) 90 · soundcharts/beatport/tidal/musicbrainz 50 · community 40 · llm(inferred) 10`.
+- **Boundary validation (as-built):** `upsert_track` takes `sources: dict[field,str]` + `fetched_at` (not a pre-built provenance dict); it constructs/serializes each `FieldProvenance` internally. Before any mutation it raises `ValueError` for any `values` field lacking a matching `sources` entry, or any source not in `KNOWN_SOURCES` (= `SOURCE_PRECEDENCE` keys) — guaranteeing no partial writes and failing loud on unknown sources. `energy` is additionally range-checked 0–10 by a DB `CheckConstraint`.
 - **Concurrency:** unique constraints on `isrc`/`signature`; on IntegrityError, re-read and merge (mirrors `uq_set_pool_track_sig`).
 
 ## 6. Data flow — cache-aside populate-and-reuse

@@ -88,15 +88,81 @@ def get_client_ip(request: Request) -> str:
 limiter = Limiter(key_func=get_client_ip, enabled=get_settings().is_rate_limit_enabled)
 
 
+# Reserved guest token for the DEV_AUTH_BYPASS dev guest. It is honored ONLY when
+# the bypass is active; a request presenting this token is rejected outright when the
+# bypass is off, so even if the dev guest row leaks into another DB (staging->prod
+# promotion, backup restore, dev dump) it can NEVER be a production backdoor. The dev
+# guest is also deliberately NOT email-verified, so it could not pass require_email_
+# verified via the normal path even if it were somehow resolved (defense in depth).
+_DEV_BYPASS_GUEST_TOKEN = "dev-auth-bypass-guest"  # nosec B105 - reserved token, not a secret
+
+
+def is_inert_dev_token(token: str | None) -> bool:
+    """True when `token` is the reserved dev-bypass token AND the bypass is OFF.
+
+    Such a token must be ignored by EVERY guest-identity entry point (get_guest_id
+    and the /guest/identify path), so a leaked dev guest row can never be resolved,
+    claimed, or re-tokenized in production. Single source of truth for that rule.
+    """
+    if token != _DEV_BYPASS_GUEST_TOKEN:
+        return False
+    from app.core.config import get_settings
+
+    return not get_settings().auth_bypass_enabled
+
+
 def get_guest_id(request: Request, db: Session) -> int | None:
-    """Read wrzdj_guest cookie and return the Guest.id, or None."""
+    """Read the wrzdj_guest cookie and return the Guest.id, or None.
+
+    Under DEV_AUTH_BYPASS (dev only) a cookieless request resolves to a stable dev
+    guest, so headless tests need no guest cookie on ANY guest endpoint (this is the
+    single identity chokepoint the gates and the inline-resolving routes share).
+    Inert in production — see Settings.auth_bypass_enabled.
+    """
+    from app.core.config import get_settings
     from app.models.guest import Guest
 
+    bypass = get_settings().auth_bypass_enabled
+
     token = request.cookies.get("wrzdj_guest")
-    if not token:
-        return None
-    guest = db.query(Guest).filter(Guest.token == token).first()
-    return guest.id if guest else None
+    if token:
+        # Never resolve the reserved dev token unless the bypass is active — a leaked
+        # dev guest row must not become a production backdoor.
+        if is_inert_dev_token(token):
+            return None
+        guest = db.query(Guest).filter(Guest.token == token).first()
+        if guest:
+            return guest.id
+
+    if bypass:
+        return _dev_bypass_guest_id(db)
+    return None
+
+
+def _dev_bypass_guest_id(db: Session) -> int:
+    """Get-or-create the stable DEV_AUTH_BYPASS guest. DEV-ONLY (callers guard).
+
+    The row is intentionally minimal and NOT email-verified: the email gate is opened
+    by the explicit require_email_verified bypass, so this row never needs — and must
+    not carry — a pre-verified identity that could be abused if it leaked into prod.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    from app.core.time import utcnow
+    from app.models.guest import Guest
+
+    guest = db.query(Guest).filter(Guest.token == _DEV_BYPASS_GUEST_TOKEN).first()
+    if guest:
+        return guest.id
+    guest = Guest(token=_DEV_BYPASS_GUEST_TOKEN, created_at=utcnow(), last_seen_at=utcnow())
+    db.add(guest)
+    try:
+        db.commit()
+    except IntegrityError:  # concurrent create — re-read the winner
+        db.rollback()
+        return db.query(Guest).filter(Guest.token == _DEV_BYPASS_GUEST_TOKEN).first().id
+    db.refresh(guest)
+    return guest.id
 
 
 def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> Response:

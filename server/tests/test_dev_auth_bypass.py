@@ -143,3 +143,22 @@ class TestLeakedDevGuestCannotBackdoorProd:
         _dev_bypass_guest_id(db)
         g = db.query(Guest).filter(Guest.token == _DEV_BYPASS_GUEST_TOKEN).first()
         assert g.verified_email is None and g.email_verified_at is None
+
+    def test_identify_cannot_claim_leaked_dev_row(self, client, db):
+        """/guest/identify must not let an attacker claim or re-tokenize a leaked dev
+        guest row via its known cookie when the bypass is off (Codex P2 — that path
+        does not go through get_guest_id)."""
+        from app.core.rate_limit import _DEV_BYPASS_GUEST_TOKEN, _dev_bypass_guest_id
+        from app.models.guest import Guest
+
+        dev_id = _dev_bypass_guest_id(db)  # leaked dev row (no fingerprint, not verified)
+        client.cookies.clear()
+        client.cookies.set("wrzdj_guest", _DEV_BYPASS_GUEST_TOKEN)
+        r = client.post("/api/public/guest/identify", json={"fingerprint_hash": "attacker-fp-zzz"})
+        assert r.status_code == 200, r.text
+        db.expire_all()
+        dev = db.query(Guest).filter(Guest.token == _DEV_BYPASS_GUEST_TOKEN).first()
+        # Attacker fingerprint must NOT be written onto the leaked dev row, and the
+        # resolved identity must not be the dev row.
+        assert dev.fingerprint_hash is None
+        assert r.json().get("guest_id") != dev_id

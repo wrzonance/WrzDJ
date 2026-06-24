@@ -34,7 +34,13 @@ def identify(
     db: Session = Depends(get_db),
 ) -> JSONResponse:
     """Resolve guest identity via cookie token and/or browser fingerprint."""
+    from app.core.rate_limit import is_inert_dev_token
+
     token_from_cookie = request.cookies.get("wrzdj_guest")
+    # A leaked dev-bypass guest row must not be claimable or re-tokenizable here when
+    # the bypass is off — drop the reserved token so identity resolves as cookieless.
+    if is_inert_dev_token(token_from_cookie):
+        token_from_cookie = None
     user_agent = (request.headers.get("user-agent") or "")[:512]
 
     result = identify_guest(

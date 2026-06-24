@@ -97,6 +97,20 @@ limiter = Limiter(key_func=get_client_ip, enabled=get_settings().is_rate_limit_e
 _DEV_BYPASS_GUEST_TOKEN = "dev-auth-bypass-guest"  # nosec B105 - reserved token, not a secret
 
 
+def is_inert_dev_token(token: str | None) -> bool:
+    """True when `token` is the reserved dev-bypass token AND the bypass is OFF.
+
+    Such a token must be ignored by EVERY guest-identity entry point (get_guest_id
+    and the /guest/identify path), so a leaked dev guest row can never be resolved,
+    claimed, or re-tokenized in production. Single source of truth for that rule.
+    """
+    if token != _DEV_BYPASS_GUEST_TOKEN:
+        return False
+    from app.core.config import get_settings
+
+    return not get_settings().auth_bypass_enabled
+
+
 def get_guest_id(request: Request, db: Session) -> int | None:
     """Read the wrzdj_guest cookie and return the Guest.id, or None.
 
@@ -114,7 +128,7 @@ def get_guest_id(request: Request, db: Session) -> int | None:
     if token:
         # Never resolve the reserved dev token unless the bypass is active — a leaked
         # dev guest row must not become a production backdoor.
-        if token == _DEV_BYPASS_GUEST_TOKEN and not bypass:
+        if is_inert_dev_token(token):
             return None
         guest = db.query(Guest).filter(Guest.token == token).first()
         if guest:

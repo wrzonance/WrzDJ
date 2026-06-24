@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models.track import Track
 from app.services.track_normalizer import normalize_isrc
-from app.services.tracks.provenance import FieldProvenance, should_overwrite
+from app.services.tracks.provenance import KNOWN_SOURCES, FieldProvenance, should_overwrite
 
 
 def get_track(
@@ -51,8 +51,25 @@ def upsert_track(
     fetched_at: datetime,
 ) -> Track:
     """Insert or update the master row, writing each field's value + provenance
-    entry. Precedence gating is added in Task 6; ISRC backfill in Task 7."""
+    entry. Inputs are validated before any mutation — ValueError is raised (with
+    no DB write) if sources keys don't cover all values keys, or if any source
+    name is unknown."""
+    # --- Validate inputs BEFORE any DB mutation ---
+    missing = set(values) - set(sources)
+    if missing:
+        raise ValueError(
+            f"upsert_track: every values key must have a matching sources entry; "
+            f"missing sources for: {sorted(missing)}"
+        )
+    unknown = {src for src in sources.values() if src not in KNOWN_SOURCES}
+    if unknown:
+        raise ValueError(
+            f"upsert_track: unknown source(s) {sorted(unknown)}; "
+            f"known sources are {sorted(KNOWN_SOURCES)}"
+        )
+
     norm_isrc = normalize_isrc(identity.isrc)
+    # ISRC match is authoritative; signature is only a fallback.
     track = get_track(db, isrc=norm_isrc, signature=identity.signature)
     if track is None:
         track = Track(
@@ -67,6 +84,10 @@ def upsert_track(
     # Backfill ISRC onto signature-matched row if it was previously missing
     if norm_isrc and not track.isrc:
         track.isrc = norm_isrc
+
+    # Backfill soundcharts_uuid if the row was created without one
+    if identity.soundcharts_uuid and not track.soundcharts_uuid:
+        track.soundcharts_uuid = identity.soundcharts_uuid
 
     prov: dict = dict(track.provenance or {})
     for field, value in values.items():

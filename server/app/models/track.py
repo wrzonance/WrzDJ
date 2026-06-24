@@ -7,7 +7,16 @@ source/freshness lives in the `provenance` JSON sidecar (see services/tracks).
 
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Float,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.time import utcnow
@@ -19,11 +28,12 @@ class Track(Base):
     __table_args__ = (
         UniqueConstraint("isrc", name="uq_tracks_isrc"),
         UniqueConstraint("signature", name="uq_tracks_signature"),
+        CheckConstraint("energy >= 0 AND energy <= 10", name="ck_tracks_energy_range"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    isrc: Mapped[str | None] = mapped_column(String(15), nullable=True, index=True)
-    signature: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    isrc: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    signature: Mapped[str] = mapped_column(String(64), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     artist: Mapped[str] = mapped_column(String(255), nullable=False)
     soundcharts_uuid: Mapped[str | None] = mapped_column(String(36), nullable=True)

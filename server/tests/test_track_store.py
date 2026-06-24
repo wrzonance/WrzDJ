@@ -2,6 +2,9 @@
 
 from datetime import datetime
 
+import pytest
+from sqlalchemy.exc import IntegrityError
+
 from app.models.track import Track
 from app.services.tracks.store import TrackIdentity, get_track, upsert_track
 
@@ -134,3 +137,102 @@ def test_upsert_backfills_isrc_onto_signature_row(db):
     assert len(rows) == 1
     assert rows[0].isrc == "FIXXX1234567"
     assert rows[0].bpm == 136.0 and rows[0].energy == 9
+
+
+# ---------------------------------------------------------------------------
+# Fix 1 / Fix 2: input validation — no partial write, clear error messages
+# ---------------------------------------------------------------------------
+
+
+def test_upsert_raises_if_sources_key_missing(db):
+    """values has 'energy' but sources is missing 'energy' → ValueError, no row created."""
+    with pytest.raises(ValueError, match="sources"):
+        upsert_track(
+            db,
+            identity=TrackIdentity(title="T", artist="A", signature="sig-missing-src"),
+            values={"energy": 8, "genre": "x"},
+            sources={"energy": "soundcharts"},  # genre not in sources
+            fetched_at=T0,
+        )
+    # no row must have been committed
+    assert db.query(Track).filter(Track.signature == "sig-missing-src").count() == 0
+
+
+def test_upsert_raises_for_unknown_source(db):
+    """Typo'd source name → ValueError naming the offending source."""
+    with pytest.raises(ValueError, match="sondcharts"):
+        upsert_track(
+            db,
+            identity=TrackIdentity(title="T", artist="A", signature="sig-bad-src"),
+            values={"energy": 8},
+            sources={"energy": "sondcharts"},  # typo
+            fetched_at=T0,
+        )
+    assert db.query(Track).filter(Track.signature == "sig-bad-src").count() == 0
+
+
+# ---------------------------------------------------------------------------
+# Fix 4: ISRC-authoritative on conflict (ISRC match wins over signature)
+# ---------------------------------------------------------------------------
+
+
+def test_upsert_isrc_match_wins_over_different_signature(db):
+    """Row A created with sigA + ISRC; upserting with sigB + same ISRC updates row A, no new row."""
+    upsert_track(
+        db,
+        identity=TrackIdentity(title="T", artist="A", signature="sigA", isrc="FIXXX1111111"),
+        values={"bpm": 120.0},
+        sources={"bpm": "beatport"},
+        fetched_at=T0,
+    )
+    upsert_track(
+        db,
+        identity=TrackIdentity(title="T", artist="A", signature="sigB", isrc="FIXXX1111111"),
+        values={"genre": "house"},
+        sources={"genre": "musicbrainz"},
+        fetched_at=T0,
+    )
+    rows = db.query(Track).filter(Track.isrc == "FIXXX1111111").all()
+    assert len(rows) == 1, "ISRC match must be authoritative; no duplicate row for sigB"
+    assert rows[0].signature == "sigA"  # original row, not a new one
+    assert rows[0].genre == "house"  # value was written onto the ISRC row
+
+
+# ---------------------------------------------------------------------------
+# Fix 5: backfill soundcharts_uuid like ISRC
+# ---------------------------------------------------------------------------
+
+
+def test_upsert_backfills_soundcharts_uuid(db):
+    """Row first created without soundcharts_uuid; second upsert with one → backfilled, one row."""
+    upsert_track(
+        db,
+        identity=TrackIdentity(title="T", artist="A", signature="sig-sc1"),
+        values={"bpm": 120.0},
+        sources={"bpm": "beatport"},
+        fetched_at=T0,
+    )
+    upsert_track(
+        db,
+        identity=TrackIdentity(title="T", artist="A", signature="sig-sc1", soundcharts_uuid="u-1"),
+        values={"genre": "techno"},
+        sources={"genre": "soundcharts"},
+        fetched_at=T0,
+    )
+    rows = db.query(Track).filter(Track.signature == "sig-sc1").all()
+    assert len(rows) == 1
+    assert rows[0].soundcharts_uuid == "u-1"
+
+
+# ---------------------------------------------------------------------------
+# Fix 7: energy CHECK constraint (0–10 range enforced by DB)
+# ---------------------------------------------------------------------------
+
+
+def test_energy_check_constraint_rejects_out_of_range(db):
+    """Inserting energy=50 must raise IntegrityError due to CHECK constraint."""
+    t = Track(signature="sig-energy-bad", title="T", artist="A", energy=50)
+    db.add(t)
+    with pytest.raises(IntegrityError):
+        db.flush()
+    db.rollback()

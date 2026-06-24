@@ -39,3 +39,21 @@ def test_track_unique_constraints():
     names = {c.name for c in Track.__table__.constraints}
     assert "uq_tracks_isrc" in names
     assert "uq_tracks_signature" in names
+
+
+def test_track_no_redundant_indexes():
+    """isrc and signature must NOT have a separate non-unique index.
+
+    The UniqueConstraint already provides an index; a redundant ix_ is waste.
+    """
+    idx_names = {i.name for i in Track.__table__.indexes}
+    assert "ix_tracks_isrc" not in idx_names, "redundant non-unique index on isrc"
+    assert "ix_tracks_signature" not in idx_names, "redundant non-unique index on signature"
+
+
+def test_track_energy_check_constraint_present():
+    """CheckConstraint for energy range must exist on the table."""
+    from sqlalchemy import CheckConstraint
+
+    check_names = {c.name for c in Track.__table__.constraints if isinstance(c, CheckConstraint)}
+    assert "ck_tracks_energy_range" in check_names

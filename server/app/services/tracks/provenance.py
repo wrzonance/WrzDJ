@@ -20,6 +20,8 @@ SOURCE_PRECEDENCE: dict[str, int] = {
     "llm": 10,
 }
 
+KNOWN_SOURCES: frozenset[str] = frozenset(SOURCE_PRECEDENCE)
+
 
 class FieldProvenance(BaseModel):
     source: str

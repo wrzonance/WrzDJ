@@ -35,7 +35,7 @@ def upgrade() -> None:
         sa.Column("camelot", sa.String(length=3), nullable=True),
         sa.Column("genre", sa.String(length=100), nullable=True),
         sa.Column("duration_sec", sa.Integer(), nullable=True),
-        sa.Column("energy", sa.Integer(), nullable=True),
+        sa.Column("energy", sa.Integer(), nullable=True),  # 0-10; see ck_tracks_energy_range
         sa.Column("danceability", sa.Float(), nullable=True),
         sa.Column("valence", sa.Float(), nullable=True),
         sa.Column("acousticness", sa.Float(), nullable=True),
@@ -52,12 +52,9 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("isrc", name="uq_tracks_isrc"),
         sa.UniqueConstraint("signature", name="uq_tracks_signature"),
+        sa.CheckConstraint("energy >= 0 AND energy <= 10", name="ck_tracks_energy_range"),
     )
-    op.create_index(op.f("ix_tracks_isrc"), "tracks", ["isrc"], unique=False)
-    op.create_index(op.f("ix_tracks_signature"), "tracks", ["signature"], unique=False)
 
 
 def downgrade() -> None:
-    op.drop_index(op.f("ix_tracks_signature"), table_name="tracks")
-    op.drop_index(op.f("ix_tracks_isrc"), table_name="tracks")
     op.drop_table("tracks")

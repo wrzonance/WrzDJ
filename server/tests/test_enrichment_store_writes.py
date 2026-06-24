@@ -946,6 +946,11 @@ def test_isrc_first_cache_hit_across_variant_signature(db: Session, bp_user: Use
     monkeypatch.setattr("app.services.beatport.search_beatport_tracks", beatport_spy)
     monkeypatch.setattr("app.services.sync.enrichment_pipeline.lookup_artist_genre", _Spy(None))
     monkeypatch.setattr("app.services.tidal.search_tidal_tracks", _Spy([]))
+    # Pin the Soundcharts gate OFF so the cache-hit energy-backfill arm can't make
+    # a real API call if the env happens to enable it (config-coupled flakiness).
+    monkeypatch.setattr(
+        "app.services.sync.enrichment_pipeline.get_settings", lambda: _settings_stub(enabled=False)
+    )
 
     enrich_request_metadata(db, request.id)
 
@@ -997,9 +1002,94 @@ def test_complete_submission_with_isrc_collapses_no_duplicate(
     monkeypatch.setattr("app.services.beatport.search_beatport_tracks", _Spy([]))
     monkeypatch.setattr("app.services.sync.enrichment_pipeline.lookup_artist_genre", _Spy(None))
     monkeypatch.setattr("app.services.tidal.search_tidal_tracks", _Spy([]))
+    # Pin the Soundcharts gate OFF so the seeded-row energy-backfill arm can't make
+    # a real API call if the env happens to enable it (config-coupled flakiness).
+    monkeypatch.setattr(
+        "app.services.sync.enrichment_pipeline.get_settings", lambda: _settings_stub(enabled=False)
+    )
 
     enrich_request_metadata(db, request.id)
 
     rows = db.query(Track).filter(Track.isrc == "USABC7654321").all()
     assert len(rows) == 1, "complete submission with ISRC must collapse onto the existing row"
     assert rows[0].signature == "existing-sig-for-isrc"  # no second signature-only row
+
+
+def test_signature_fallback_not_trusted_for_different_isrc(db: Session, bp_user: User, monkeypatch):
+    """REGRESSION (Codex #550): a request carrying ISRC_A must NOT short-circuit on a
+    signature-matched row whose ISRC differs (a different release of the same
+    artist/title). The fast path would otherwise serve the wrong recording's data
+    and skip providers — so providers must run instead."""
+    from app.models.track import Track
+
+    sig = dedupe_signature("deadmau5", "Strobe")
+    db.add(
+        Track(
+            signature=sig,
+            isrc="USREL0000001",  # a DIFFERENT recording's ISRC
+            title="Strobe",
+            artist="deadmau5",
+            genre="Trance",
+            bpm=130.0,
+            musical_key="8A",
+            provenance={
+                f: {"source": "beatport", "fetched_at": "2026-06-24T00:00:00"}
+                for f in ("genre", "bpm", "musical_key")
+            },
+        )
+    )
+    db.commit()
+
+    event = _make_event(db, bp_user, "ISRCDIF", "ISRCDF")
+    request = _make_request(db, event, "Strobe", "deadmau5", "isrc_diff", isrc="USREL0000002")
+    beatport_spy = _Spy([_beatport_hit("Strobe", "deadmau5")])
+    monkeypatch.setattr("app.services.beatport.search_beatport_tracks", beatport_spy)
+    monkeypatch.setattr("app.services.sync.enrichment_pipeline.lookup_artist_genre", _Spy(None))
+    monkeypatch.setattr("app.services.tidal.search_tidal_tracks", _Spy([]))
+    monkeypatch.setattr(
+        "app.services.sync.enrichment_pipeline.get_settings", lambda: _settings_stub(enabled=False)
+    )
+
+    enrich_request_metadata(db, request.id)
+
+    assert beatport_spy.calls == 1  # different-ISRC row not trusted → providers ran
+
+
+def test_isrc_backfilled_onto_isrc_less_cache_hit(db: Session, bp_user: User, monkeypatch):
+    """A trusted ISRC-less cached row is still used on the fast path, and the
+    request's ISRC is backfilled onto it so future lookups are ISRC-keyed (#552)."""
+    from app.models.track import Track
+
+    sig = dedupe_signature("deadmau5", "Strobe")
+    db.add(
+        Track(
+            signature=sig,
+            isrc=None,  # no ISRC yet
+            title="Strobe",
+            artist="deadmau5",
+            genre="Trance",
+            bpm=130.0,
+            musical_key="8A",
+            provenance={
+                f: {"source": "beatport", "fetched_at": "2026-06-24T00:00:00"}
+                for f in ("genre", "bpm", "musical_key")
+            },
+        )
+    )
+    db.commit()
+
+    event = _make_event(db, bp_user, "ISRCBF", "ISRCBW")
+    request = _make_request(db, event, "Strobe", "deadmau5", "isrc_bf", isrc="USNEW0000001")
+    beatport_spy = _Spy([_beatport_hit("Strobe", "deadmau5")])
+    monkeypatch.setattr("app.services.beatport.search_beatport_tracks", beatport_spy)
+    monkeypatch.setattr("app.services.sync.enrichment_pipeline.lookup_artist_genre", _Spy(None))
+    monkeypatch.setattr("app.services.tidal.search_tidal_tracks", _Spy([]))
+    monkeypatch.setattr(
+        "app.services.sync.enrichment_pipeline.get_settings", lambda: _settings_stub(enabled=False)
+    )
+
+    enrich_request_metadata(db, request.id)
+
+    assert beatport_spy.calls == 0  # ISRC-less trusted row → short-circuit, no providers
+    track = get_track(db, signature=sig)
+    assert track.isrc == "USNEW0000001"  # request's ISRC backfilled onto the row

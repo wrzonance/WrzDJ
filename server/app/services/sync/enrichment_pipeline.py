@@ -40,6 +40,7 @@ from app.services.track_normalizer import (
     is_original_mix_name,
     is_remix_title,
     normalize_bpm_to_context,
+    normalize_isrc,
     primary_artist,
     score_track_match,
 )
@@ -481,14 +482,25 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
     # providers — the dedupe win that makes the same song requested at two events
     # cost one set of API calls, not two (#541). A trio that is only ``legacy``
     # sourced is NOT authoritative — fall through so real providers can upgrade it.
-    cached = get_track(db, isrc=request.isrc, signature=sig)
-    if cached is not None and _trio_trusted(cached):
+    req_isrc = normalize_isrc(request.isrc)
+    cached = get_track(db, isrc=req_isrc, signature=sig)
+    # A signature fallback must NOT serve a DIFFERENT recording: if the request
+    # carries an ISRC but the cached row has a different non-null ISRC (same
+    # artist/title, different release/remaster), fall through to the providers so
+    # the request's own recording is resolved (#552). An ISRC-less cached row is
+    # still trusted, and gets the request's ISRC backfilled below.
+    isrc_compatible = req_isrc is None or cached is None or cached.isrc in (None, req_isrc)
+    if cached is not None and isrc_compatible and _trio_trusted(cached):
         if not request.genre:
             request.genre = cached.genre
         if not request.bpm:
             request.bpm = cached.bpm
         if not request.musical_key:
             request.musical_key = cached.musical_key
+        # Backfill the request's ISRC onto a previously ISRC-less row: the ISRC
+        # lookup above missed, so this cannot collide with another row's ISRC.
+        if req_isrc and cached.isrc is None:
+            cached.isrc = req_isrc
         # The trio (genre/bpm/key) is complete, so the full provider cascade is
         # skipped. But energy may still be missing on this row — when the gate is
         # on, backfill ONLY the Soundcharts audio features onto the existing row

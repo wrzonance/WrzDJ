@@ -131,6 +131,36 @@ class TestRecommendationsEndpoint:
         assert "music services" in response.json()["detail"].lower()
 
     @patch("app.services.recommendation.service.generate_recommendations")
+    @patch(
+        "app.services.recommendation.service._soundcharts_related_available",
+        return_value=True,
+    )
+    def test_200_no_service_but_soundcharts_related_enabled(
+        self,
+        mock_available,
+        mock_generate,
+        client: TestClient,
+        auth_headers: dict,
+        event_with_requests: Event,
+    ):
+        """Issue #556: with no Tidal/Beatport but the Soundcharts related-tracks
+        source enabled, the endpoint serves recommendations instead of 503."""
+        mock_generate.return_value = RecommendationResult(
+            suggestions=[],
+            event_profile=EventProfile(track_count=0),
+            enriched_count=0,
+            total_candidates_searched=1,
+            services_used=["soundcharts"],
+        )
+
+        response = client.post(
+            f"/api/events/{event_with_requests.code}/recommendations",
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        assert response.json()["services_used"] == ["soundcharts"]
+
+    @patch("app.services.recommendation.service.generate_recommendations")
     def test_200_empty_suggestions_no_requests(
         self,
         mock_generate,

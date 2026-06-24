@@ -776,7 +776,66 @@ def _search_candidates(
         if tidal_candidates:
             services_used.add("tidal")
 
+    # Soundcharts related-tracks (#556): provider-agnostic candidate discovery
+    # seeded from the event's own tracks (ISRC from the master store). Runs even
+    # with NO connected service — that is the whole point of the source. Dark by
+    # default: only fires when the paid related endpoint is explicitly enabled
+    # AND credentials are configured, so it can never spend by default.
+    sc_related_candidates, sc_related_searched = _search_soundcharts_related(db, requests)
+    if sc_related_candidates:
+        candidates.extend(sc_related_candidates)
+        total_searched += sc_related_searched
+        services_used.add("soundcharts")
+
     return candidates, sorted(services_used), total_searched
+
+
+def _search_soundcharts_related(
+    db: Session,
+    requests: list | None,
+) -> tuple[list[TrackProfile], int]:
+    """Discover candidates via the Soundcharts related-tracks source (#556).
+
+    Returns ``([], 0)`` unless the dark-by-default related endpoint is enabled
+    and credentials are configured. Seeds from accepted/played requests, then
+    junk-filters the results with the same helpers as the other sources.
+    """
+    if not requests:
+        return [], 0
+
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    if not settings.soundcharts_related_tracks_enabled:
+        return [], 0
+    if not settings.soundcharts_app_id or not settings.soundcharts_api_key:
+        return [], 0
+
+    from app.services.recommendation.soundcharts_candidates import related_candidates_from_seeds
+
+    related, seeds_used = related_candidates_from_seeds(db, requests)
+    filtered = [
+        c
+        for c in related
+        if not is_unwanted_version(c.title)
+        and not _is_blocked_genre(c.genre)
+        and not _is_junk_candidate(c.title, c.artist)
+        and not _is_stock_music_artist(c.artist)
+    ]
+    return filtered, seeds_used
+
+
+def _soundcharts_related_available() -> bool:
+    """True when the dark-by-default Soundcharts related-tracks source can run
+    (explicitly enabled AND credentials configured)."""
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    return bool(
+        settings.soundcharts_related_tracks_enabled
+        and settings.soundcharts_app_id
+        and settings.soundcharts_api_key
+    )
 
 
 def _filter_unverified_artists(
@@ -1043,11 +1102,15 @@ def generate_recommendations(
     # Step 1: Fetch existing requests
     requests = _get_accepted_played_requests(db, event)
 
-    # Check if any services are connected
+    # Check if any candidate source is available. Tidal/Beatport need a connected
+    # account; the Soundcharts related-tracks source (#556) is provider-agnostic
+    # and works with no connected service, so it keeps recommendations alive for a
+    # DJ who hasn't linked anything — when explicitly enabled (dark by default).
     has_tidal = bool(user.tidal_access_token)
     has_beatport = bool(user.beatport_access_token)
+    has_soundcharts_related = _soundcharts_related_available()
 
-    if not has_tidal and not has_beatport:
+    if not has_tidal and not has_beatport and not has_soundcharts_related:
         return RecommendationResult(
             suggestions=[],
             event_profile=EventProfile(track_count=0),

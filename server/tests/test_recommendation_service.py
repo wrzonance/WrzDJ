@@ -298,6 +298,64 @@ class TestGenerateRecommendations:
         assert result.services_used == []
         assert result.event_profile.track_count == 0
 
+    @patch(
+        "app.services.recommendation.mb_verify.verify_artists_batch",
+        return_value={"Related Artist": True},
+    )
+    @patch(
+        "app.services.recommendation.soundcharts_candidates.related_candidates_from_seeds",
+    )
+    @patch("app.services.recommendation.service.enrich_event_tracks")
+    @patch("app.services.recommendation.service._get_accepted_played_requests")
+    def test_soundcharts_related_with_no_connected_service(
+        self, mock_requests, mock_enrich, mock_related, mock_mb
+    ):
+        """Issue #556: a DJ with no Tidal/Beatport still gets suggestions when the
+        Soundcharts related-tracks source is enabled."""
+        mock_requests.return_value = [
+            MagicMock(song_title="Seed", artist="Seed Artist", status="accepted"),
+        ]
+        mock_enrich.return_value = [
+            TrackProfile(title="Seed", artist="Seed Artist", bpm=120.0, key="8A", genre="House"),
+        ]
+        mock_related.return_value = (
+            [TrackProfile(title="Related Hit", artist="Related Artist", source="soundcharts")],
+            1,
+        )
+
+        db = MagicMock()
+        db.query.return_value.filter.return_value.all.return_value = []
+        user = _make_user(tidal=False, beatport=False)
+        event = _make_event()
+
+        with patch("app.core.config.get_settings") as mock_settings:
+            mock_settings.return_value.soundcharts_related_tracks_enabled = True
+            mock_settings.return_value.soundcharts_app_id = "id"
+            mock_settings.return_value.soundcharts_api_key = "key"
+            result = generate_recommendations(db, user, event)
+
+        assert len(result.suggestions) > 0
+        assert "soundcharts" in result.services_used
+        assert result.suggestions[0].profile.source == "soundcharts"
+
+    @patch("app.services.recommendation.soundcharts_candidates.related_candidates_from_seeds")
+    def test_soundcharts_related_disabled_behaves_as_today(self, mock_related):
+        """Dark by default: disabled flag → no related lookup, empty result for an
+        unconnected DJ exactly as before."""
+        db = MagicMock()
+        user = _make_user(tidal=False, beatport=False)
+        event = _make_event()
+
+        with patch("app.core.config.get_settings") as mock_settings:
+            mock_settings.return_value.soundcharts_related_tracks_enabled = False
+            mock_settings.return_value.soundcharts_app_id = "id"
+            mock_settings.return_value.soundcharts_api_key = "key"
+            result = generate_recommendations(db, user, event)
+
+        assert result.suggestions == []
+        assert result.services_used == []
+        mock_related.assert_not_called()
+
     @patch("app.services.recommendation.service._search_candidates")
     @patch("app.services.recommendation.service.enrich_event_tracks")
     @patch("app.services.recommendation.service._get_accepted_played_requests")
@@ -896,6 +954,45 @@ class TestSearchCandidates:
         assert len(candidates) == 1
         assert candidates[0].source == "tidal"
         assert "tidal" in services
+
+    @patch("app.services.recommendation.soundcharts_candidates.related_candidates_from_seeds")
+    def test_soundcharts_related_source_no_connected_service(self, mock_related):
+        """Related-tracks source contributes candidates + 'soundcharts' service
+        even when no Tidal/Beatport is connected."""
+        user = _make_user(tidal=False, beatport=False)
+        db = MagicMock()
+        mock_related.return_value = (
+            [TrackProfile(title="Related", artist="Artist", source="soundcharts")],
+            1,
+        )
+        requests = [MagicMock(song_title="Seed", artist="Seed Artist", isrc="USAAA0000001")]
+
+        with patch("app.core.config.get_settings") as mock_settings:
+            mock_settings.return_value.soundcharts_related_tracks_enabled = True
+            mock_settings.return_value.soundcharts_app_id = "id"
+            mock_settings.return_value.soundcharts_api_key = "key"
+            candidates, services, total = _search_candidates(db, user, ["House"], requests=requests)
+
+        assert any(c.source == "soundcharts" for c in candidates)
+        assert "soundcharts" in services
+        mock_related.assert_called_once()
+
+    @patch("app.services.recommendation.soundcharts_candidates.related_candidates_from_seeds")
+    def test_soundcharts_related_source_disabled(self, mock_related):
+        """Disabled flag → related source is never invoked."""
+        user = _make_user(tidal=False, beatport=False)
+        db = MagicMock()
+        requests = [MagicMock(song_title="Seed", artist="Seed Artist", isrc="USAAA0000001")]
+
+        with patch("app.core.config.get_settings") as mock_settings:
+            mock_settings.return_value.soundcharts_related_tracks_enabled = False
+            mock_settings.return_value.soundcharts_app_id = "id"
+            mock_settings.return_value.soundcharts_api_key = "key"
+            candidates, services, total = _search_candidates(db, user, ["House"], requests=requests)
+
+        assert candidates == []
+        assert services == []
+        mock_related.assert_not_called()
 
     def test_beatport_text_failures_trigger_early_exit(self):
         """2+ Beatport text search failures → stops trying remaining queries."""

@@ -943,13 +943,18 @@ def get_recommendations(
     db: Session = Depends(get_db),
 ) -> RecommendationResponse:
     """Generate song recommendations based on the event's musical profile."""
-    from app.services.recommendation.service import generate_recommendations
+    from app.services.recommendation.service import (
+        _soundcharts_related_available,
+        generate_recommendations,
+    )
 
     user = event.created_by
 
-    # Check if any music services are connected
+    # A candidate source must be available: a connected Tidal/Beatport account,
+    # or the provider-agnostic Soundcharts related-tracks source (#556), which
+    # needs no connected service (dark by default — only when explicitly enabled).
     has_services = bool(user.tidal_access_token) or bool(user.beatport_access_token)
-    if not has_services:
+    if not has_services and not _soundcharts_related_available():
         raise HTTPException(
             status_code=503,
             detail="No music services connected. Link Tidal or Beatport to get recommendations.",

@@ -274,6 +274,20 @@ class TestGetSongFeaturesByIsrc:
 
     @patch("app.services.soundcharts.httpx.get")
     @patch("app.services.soundcharts.get_settings")
+    def test_invalid_json_payload_returns_none(self, mock_settings, mock_get):
+        """A non-JSON payload (HTML error page, truncated body) degrades to a
+        miss instead of raising and breaking the best-effort enrichment flow."""
+        mock_settings.return_value = self._settings()
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json.side_effect = ValueError("Expecting value: line 1 column 1 (char 0)")
+        mock_get.return_value = resp
+
+        assert get_song_features_by_isrc("USUM71900764") is None
+        assert mock_get.call_count == 1
+
+    @patch("app.services.soundcharts.httpx.get")
+    @patch("app.services.soundcharts.get_settings")
     def test_isrc_normalized_before_request(self, mock_settings, mock_get):
         mock_settings.return_value = self._settings()
         mock_get.return_value = _mock_get_response({"object": _FULL_SONG_OBJECT})

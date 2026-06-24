@@ -297,7 +297,15 @@ def _fetch_song_object(url: str, settings) -> dict | None:
         logger.warning("Soundcharts song request failed: %s", e)
         return None
 
-    obj = response.json().get("object")
+    try:
+        payload = response.json()
+    except ValueError as e:
+        # A non-JSON payload (HTML error page, truncated body) must degrade to a
+        # miss, not break the best-effort enrichment flow.
+        logger.warning("Soundcharts song API returned invalid JSON: %s", e)
+        return None
+
+    obj = payload.get("object") if isinstance(payload, dict) else None
     if isinstance(obj, list):
         obj = obj[0] if obj else None
     return obj if isinstance(obj, dict) else None

@@ -708,9 +708,11 @@ def submit_request(
         musical_key=request_data.musical_key,
     )
 
-    # Enrich missing metadata in background (Beatport, MusicBrainz)
-    has_full_metadata = song_request.genre and song_request.bpm and song_request.musical_key
-    if not is_duplicate and not has_full_metadata:
+    # Enrich missing metadata in the background (Beatport, MusicBrainz). Enqueue
+    # even for already-complete submissions: enrich_request_metadata seeds the
+    # master track store and returns fast when the trio is present, so a complete
+    # search-result submission still populates the store for reuse (#541).
+    if not is_duplicate:
         background_tasks.add_task(enrich_request_metadata, db, song_request.id)
 
     if not is_duplicate:

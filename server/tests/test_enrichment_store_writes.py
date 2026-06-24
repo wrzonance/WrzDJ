@@ -318,34 +318,30 @@ def test_energy_gate_on_writes_energy_with_provenance(db: Session, bp_user: User
     assert track.soundcharts_uuid == "uuid-1234"
 
 
-def test_presupplied_field_yields_complete_store_row_and_reuse(
-    db: Session, bp_user: User, monkeypatch
-):
+def test_presupplied_field_reaches_complete_store_row(db: Session, bp_user: User, monkeypatch):
     """REGRESSION (review #541): a request arriving WITH genre pre-set + a Beatport
     hit supplying bpm/key must write a fully complete store row (genre/bpm/key all
-    set), so a second same-song request short-circuits with ZERO provider calls.
+    set), with the pre-supplied genre persisted at `legacy` provenance.
 
     Before the fix, `_apply_enrichment_result` only recorded a field into the store
     payload when the Request was MISSING it, so a pre-supplied genre never reached
-    the store — the row stayed genre-less, failing the cache-aside gate forever and
-    re-hitting every provider on each repeat.
+    the store — the row stayed genre-less and could never satisfy the cache-aside
+    gate. (The legacy genre is then UPGRADED by real providers on the next
+    incomplete request — see `test_legacy_row_is_not_an_authoritative_cache_hit`.)
     """
-    event_a = _make_event(db, bp_user, "PRESPA", "PRSPAA")
-    event_b = _make_event(db, bp_user, "PRESPB", "PRSPBB")
+    event = _make_event(db, bp_user, "PRESPA", "PRSPAA")
 
     title, artist = "Strobe", "deadmau5"
-    # Request A arrives WITH genre pre-populated (from frontend search metadata).
-    request_a = _make_request(db, event_a, title, artist, "presupplied_a", genre="Techno")
+    # Request arrives WITH genre pre-populated (from frontend search metadata).
+    request = _make_request(db, event, title, artist, "presupplied_a", genre="Techno")
 
     genre_spy = _Spy(None)  # MusicBrainz not even consulted (genre present)
     beatport_spy = _Spy([_beatport_hit(title, artist)])  # supplies bpm + key
-    tidal_spy = _Spy([])
-
     monkeypatch.setattr("app.services.sync.enrichment_pipeline.lookup_artist_genre", genre_spy)
     monkeypatch.setattr("app.services.beatport.search_beatport_tracks", beatport_spy)
-    monkeypatch.setattr("app.services.tidal.search_tidal_tracks", tidal_spy)
+    monkeypatch.setattr("app.services.tidal.search_tidal_tracks", _Spy([]))
 
-    enrich_request_metadata(db, request_a.id)
+    enrich_request_metadata(db, request.id)
 
     # Store row is COMPLETE on the trio — the pre-supplied genre was persisted too.
     sig = dedupe_signature(artist, title)
@@ -358,23 +354,6 @@ def test_presupplied_field_yields_complete_store_row_and_reuse(
     # bpm/key carry their real provider source.
     assert track.provenance["genre"]["source"] == "legacy"
     assert track.provenance["bpm"]["source"] == "beatport"
-
-    # Second same-song request must short-circuit — ZERO new provider calls.
-    beatport_calls_before = beatport_spy.calls
-    genre_calls_before = genre_spy.calls
-    tidal_calls_before = tidal_spy.calls
-
-    request_b = _make_request(db, event_b, title, artist, "presupplied_b")
-    enrich_request_metadata(db, request_b.id)
-
-    assert beatport_spy.calls == beatport_calls_before
-    assert genre_spy.calls == genre_calls_before
-    assert tidal_spy.calls == tidal_calls_before
-
-    db.refresh(request_b)
-    assert request_b.genre == "Techno"
-    assert request_b.bpm == 128.0
-    assert request_b.musical_key == "4A"
 
 
 def test_energy_backfills_onto_complete_cached_row_on_repeat(
@@ -504,3 +483,165 @@ def test_store_upsert_failure_preserves_request_enrichment(db: Session, bp_user:
     # The Request's own enrichment survived the poisoned store write.
     assert request.bpm == 128.0
     assert request.musical_key == "4A"
+
+
+def test_complete_submission_seeds_store_without_providers(db: Session, bp_user: User, monkeypatch):
+    """REGRESSION (Codex #549 P2): a request arriving with the FULL trio must still
+    seed the store (so repeats reuse it) and must NOT call any provider.
+
+    Before the fix, the early `if genre and bpm and key: return` skipped the store
+    write entirely, so search-result submissions never populated the store.
+    """
+    event = _make_event(db, bp_user, "CMPSUB", "CMPSUW")
+    request = _make_request(
+        db,
+        event,
+        "Strobe",
+        "deadmau5",
+        "complete_seed",
+        genre="Techno",
+        bpm=130.0,
+        musical_key="8A",
+    )
+
+    beatport_spy = _Spy([_beatport_hit("Strobe", "deadmau5")])
+    genre_spy = _Spy("electronic")
+    tidal_spy = _Spy([])
+    monkeypatch.setattr("app.services.sync.enrichment_pipeline.lookup_artist_genre", genre_spy)
+    monkeypatch.setattr("app.services.beatport.search_beatport_tracks", beatport_spy)
+    monkeypatch.setattr("app.services.tidal.search_tidal_tracks", tidal_spy)
+
+    enrich_request_metadata(db, request.id)
+
+    # No provider was consulted for an already-complete request.
+    assert beatport_spy.calls == 0
+    assert genre_spy.calls == 0
+    assert tidal_spy.calls == 0
+
+    # The store was seeded with the Request's trio at `legacy` provenance.
+    sig = dedupe_signature("deadmau5", "Strobe")
+    track = get_track(db, signature=sig)
+    assert track is not None
+    assert track.genre == "Techno"
+    assert track.bpm == 130.0
+    assert track.musical_key == "8A"
+    assert track.provenance["genre"]["source"] == "legacy"
+    assert track.provenance["bpm"]["source"] == "legacy"
+
+
+def test_legacy_row_is_not_an_authoritative_cache_hit(db: Session, bp_user: User, monkeypatch):
+    """REGRESSION (Codex #549 P2): a complete-but-legacy store row must NOT short-circuit.
+
+    A request that seeded the trio as `legacy` (e.g. a search-result submission)
+    leaves a complete row whose values are low-trust. A later incomplete request for
+    the same song must fall through to real providers and UPGRADE the row, rather
+    than being served the sticky legacy values forever.
+    """
+    event_a = _make_event(db, bp_user, "LEGAUT", "LEGAUW")
+    event_b = _make_event(db, bp_user, "LEGAUB", "LEGAUX")
+    title, artist = "Strobe", "deadmau5"
+
+    # Request A arrives complete → seeds a `legacy` trio (genre "Techno").
+    request_a = _make_request(
+        db,
+        event_a,
+        title,
+        artist,
+        "legacy_seed_a",
+        genre="Techno",
+        bpm=130.0,
+        musical_key="8A",
+    )
+    monkeypatch.setattr("app.services.sync.enrichment_pipeline.lookup_artist_genre", _Spy(None))
+    monkeypatch.setattr("app.services.beatport.search_beatport_tracks", _Spy([]))
+    monkeypatch.setattr("app.services.tidal.search_tidal_tracks", _Spy([]))
+    enrich_request_metadata(db, request_a.id)
+
+    sig = dedupe_signature(artist, title)
+    track = get_track(db, signature=sig)
+    assert track is not None and track.provenance["genre"]["source"] == "legacy"
+
+    # Request B is incomplete → must NOT short-circuit on the legacy row; real
+    # providers run and upgrade the trio to a trusted source.
+    request_b = _make_request(db, event_b, title, artist, "legacy_seed_b")
+    beatport_spy = _Spy([_beatport_hit(title, artist)])  # genre "Progressive House"
+    genre_spy = _Spy(None)
+    monkeypatch.setattr("app.services.sync.enrichment_pipeline.lookup_artist_genre", genre_spy)
+    monkeypatch.setattr("app.services.beatport.search_beatport_tracks", beatport_spy)
+    monkeypatch.setattr("app.services.tidal.search_tidal_tracks", _Spy([]))
+
+    enrich_request_metadata(db, request_b.id)
+
+    # Providers WERE consulted (no short-circuit on the legacy row)…
+    assert beatport_spy.calls == 1
+    # …and the store row was upgraded to the real provider source.
+    db.refresh(track)
+    assert track.genre == "Progressive House"
+    assert track.provenance["genre"]["source"] == "beatport"
+
+
+def test_spotify_isrc_captured_without_tidal_token_for_soundcharts(
+    db: Session, bp_user: User, monkeypatch
+):
+    """REGRESSION (Codex #549 P2): the Spotify ISRC must be captured INDEPENDENTLY of
+    a Tidal token so Soundcharts (gate on) can use it.
+
+    Before the fix, `resolved_isrc` was assigned only inside the
+    `if user.tidal_access_token` branch, so a DJ without a Tidal token never fed an
+    ISRC to the Soundcharts block and energy was silently skipped.
+    """
+    from app.services.soundcharts import SoundchartsAudioFeatures
+
+    bp_user.tidal_access_token = None  # DJ has Beatport but NO Tidal
+    db.commit()
+
+    event = _make_event(db, bp_user, "NOTIDL", "NOTIDW")
+    request = _make_request(db, event, "Strobe", "deadmau5", "no_tidal_isrc")
+    request.source_url = "https://open.spotify.com/track/abc123"
+    db.commit()
+
+    monkeypatch.setattr("app.services.sync.enrichment_pipeline.lookup_artist_genre", _Spy(None))
+    monkeypatch.setattr(
+        "app.services.beatport.search_beatport_tracks",
+        _Spy([_beatport_hit("Strobe", "deadmau5")]),
+    )
+    monkeypatch.setattr("app.services.tidal.search_tidal_tracks", _Spy([]))
+    monkeypatch.setattr(
+        "app.services.sync.enrichment_pipeline._get_isrc_from_spotify",
+        lambda url: "USABC1234567",
+    )
+    monkeypatch.setattr(
+        "app.services.sync.enrichment_pipeline.get_settings",
+        lambda: _settings_stub(enabled=True),
+    )
+    feats = SoundchartsAudioFeatures(
+        isrc="USABC1234567",
+        soundcharts_uuid="uuid-nt",
+        energy=6,
+        danceability=0.5,
+        valence=0.5,
+        acousticness=0.1,
+        instrumentalness=0.0,
+        speechiness=0.05,
+        liveness=0.2,
+        loudness_db=-7.0,
+        tempo_bpm=128.0,
+        key=5,
+        mode=0,
+        time_signature=4,
+        explicit=False,
+        duration_sec=300,
+        genres=("progressive house",),
+    )
+    feature_spy = _Spy(feats)
+    monkeypatch.setattr("app.services.soundcharts.get_song_features_by_isrc", feature_spy)
+
+    enrich_request_metadata(db, request.id)
+
+    # ISRC was captured despite the missing Tidal token → Soundcharts ran.
+    assert feature_spy.calls == 1
+    sig = dedupe_signature("deadmau5", "Strobe")
+    track = get_track(db, signature=sig)
+    assert track is not None
+    assert track.energy == 6
+    assert track.isrc == "USABC1234567"

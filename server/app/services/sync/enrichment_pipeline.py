@@ -327,6 +327,41 @@ def _safe_upsert_track(
         logger.warning("Track store upsert failed for request %d", request_id)
 
 
+def _trio_trusted(track) -> bool:
+    """True when genre/bpm/musical_key are all present AND none is ``legacy``-sourced.
+
+    The cache-aside short-circuit may only fire on a TRUSTED row. A row whose trio
+    was backfilled/seeded as ``legacy`` (lowest precedence) is NOT authoritative:
+    short-circuiting on it would copy stale migrated values onto every future
+    request and prevent real providers from ever upgrading them despite the
+    precedence ladder (#541). Falling through instead lets Beatport/Tidal/MusicBrainz
+    run and re-upsert at higher precedence, after which the row becomes trusted."""
+    if not (track.genre and track.bpm and track.musical_key):
+        return False
+    prov = track.provenance or {}
+    return all(prov.get(f, {}).get("source") != "legacy" for f in ("genre", "bpm", "musical_key"))
+
+
+def _seed_complete_request(db: Session, request: Request, sig: str) -> None:
+    """Seed the store from a Request that already carries the full trio.
+
+    Search-result submissions arrive complete and skip the provider cascade
+    entirely, so without this they would never populate the store and repeats
+    could not reuse it (#541). The Request records no per-field source, so the
+    trio is attributed ``legacy`` (lowest precedence); the precedence guard keeps
+    it from downgrading a stronger existing row, and a later incomplete request
+    upgrades it via real providers (see ``_trio_trusted``)."""
+    values = {"genre": request.genre, "bpm": request.bpm, "musical_key": request.musical_key}
+    sources = {field: "legacy" for field in values}
+    _safe_upsert_track(
+        db,
+        identity=TrackIdentity(title=request.song_title, artist=request.artist, signature=sig),
+        values=values,
+        sources=sources,
+        request_id=request.id,
+    )
+
+
 def enrich_request_metadata(db: Session, request_id: int) -> None:
     """Background task: fill missing genre/BPM/key on a request.
 
@@ -346,18 +381,26 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
     if not request:
         return
 
-    if request.genre and request.bpm and request.musical_key:
-        return  # Already complete
-
-    # Cache-aside short-circuit: if the master store already has this recording
-    # fully resolved, copy the missing fields down and skip ALL providers — the
-    # dedupe win that makes the same song requested at two events cost one set of
-    # API calls, not two (#541). dedupe_signature is the same key pool import uses.
+    # dedupe_signature is the same key the pool import uses, so a request and a
+    # later pool-import of the same recording collapse to one tracks row.
     from app.services.setbuilder.pool import dedupe_signature
 
     sig = dedupe_signature(request.artist, request.song_title)
+
+    if request.genre and request.bpm and request.musical_key:
+        # Already complete on the Request — but still SEED the store so repeats can
+        # reuse it. Search-result submissions arrive complete and skip the cascade,
+        # so they would otherwise never populate the store (#541).
+        _seed_complete_request(db, request, sig)
+        return
+
+    # Cache-aside short-circuit: if the master store already has this recording
+    # fully resolved BY REAL PROVIDERS, copy the missing fields down and skip ALL
+    # providers — the dedupe win that makes the same song requested at two events
+    # cost one set of API calls, not two (#541). A trio that is only ``legacy``
+    # sourced is NOT authoritative — fall through so real providers can upgrade it.
     cached = get_track(db, signature=sig)
-    if cached is not None and cached.genre and cached.bpm and cached.musical_key:
+    if cached is not None and _trio_trusted(cached):
         if not request.genre:
             request.genre = cached.genre
         if not request.bpm:
@@ -454,31 +497,47 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
             except Exception:
                 logger.warning("Tidal direct fetch failed for request %d", request_id)
 
-    # 0b. ISRC matching: Spotify URL → fetch ISRC → exact Tidal lookup
-    if source_svc == "spotify" and (not request.bpm or not request.musical_key):
-        if user and user.tidal_access_token:
-            try:
-                isrc = _get_isrc_from_spotify(request.source_url)
-                if isrc:
-                    resolved_isrc = isrc
-                    from app.services.tidal import search_tidal_by_isrc
+    # 0b. Spotify URL → ISRC. Capture the ISRC INDEPENDENTLY of Tidal auth: it
+    # feeds both the optional Tidal exact-match below AND the Soundcharts
+    # audio-features lookup, so nesting it under tidal_access_token would starve
+    # Soundcharts for DJs without a Tidal token (#541). Fetch it whenever bpm/key
+    # are still missing OR the Soundcharts gate is on (its only other consumer).
+    if (
+        source_svc == "spotify"
+        and not resolved_isrc
+        and (
+            not request.bpm
+            or not request.musical_key
+            or get_settings().soundcharts_audio_features_enabled
+        )
+    ):
+        resolved_isrc = _get_isrc_from_spotify(request.source_url)
 
-                    isrc_match = search_tidal_by_isrc(db, user, isrc)
-                    if isrc_match:
-                        logger.info(
-                            "ISRC match for %d: '%s' by '%s' bpm=%s key=%s (ISRC=%s)",
-                            request_id,
-                            isrc_match.title,
-                            isrc_match.artist,
-                            isrc_match.bpm,
-                            isrc_match.key,
-                            isrc,
-                        )
-                        _apply_enrichment_result(
-                            request, isrc_match, source="tidal", resolved=resolved
-                        )
-            except Exception:
-                logger.warning("ISRC enrichment failed for request %d", request_id)
+    # Exact Tidal match by ISRC needs a token and only helps when bpm/key are blank.
+    if (
+        source_svc == "spotify"
+        and resolved_isrc
+        and (not request.bpm or not request.musical_key)
+        and user
+        and user.tidal_access_token
+    ):
+        try:
+            from app.services.tidal import search_tidal_by_isrc
+
+            isrc_match = search_tidal_by_isrc(db, user, resolved_isrc)
+            if isrc_match:
+                logger.info(
+                    "ISRC match for %d: '%s' by '%s' bpm=%s key=%s (ISRC=%s)",
+                    request_id,
+                    isrc_match.title,
+                    isrc_match.artist,
+                    isrc_match.bpm,
+                    isrc_match.key,
+                    resolved_isrc,
+                )
+                _apply_enrichment_result(request, isrc_match, source="tidal", resolved=resolved)
+        except Exception:
+            logger.warning("ISRC enrichment failed for request %d", request_id)
 
     # 1. MusicBrainz for genre (artist-level, free, rate-limited)
     if not request.genre and request.artist:

@@ -1,5 +1,6 @@
 """Read/write service for the master tracks table (#540)."""
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -9,6 +10,8 @@ from sqlalchemy.orm import Session
 from app.models.track import Track
 from app.services.track_normalizer import normalize_isrc
 from app.services.tracks.provenance import KNOWN_SOURCES, FieldProvenance, should_overwrite
+
+logger = logging.getLogger(__name__)
 
 # Columns NOT writable via the `values` dict: identity fields come from
 # TrackIdentity (signature/title/artist/isrc/soundcharts_uuid) and these are
@@ -105,6 +108,27 @@ def upsert_track(
     track = get_track(db, isrc=norm_isrc, signature=identity.signature)
     if track is None:
         track = _insert_identity_reconciling(db, identity=identity, norm_isrc=norm_isrc)
+
+    # ISRC CONFLICT — checked AFTER resolution so it covers BOTH the initial
+    # get_track signature fallback AND the reconcile-race re-read inside
+    # _insert_identity_reconciling (which can also land on a signature-matched row
+    # for a DIFFERENT recording). The two ISRCs identify distinct recordings (same
+    # normalized artist/title, different release/remaster); the signature is UNIQUE
+    # so this recording cannot get its own row here. Refuse to overwrite the
+    # existing row's data — the recording is simply not stored (its metadata still
+    # lives on the caller's Request); this prevents corruption. Full
+    # multi-recording-per-signature support is a #542 schema concern (signature is
+    # the identity bottleneck, not ISRC). A freshly INSERTED row has isrc==norm_isrc,
+    # so this never trips on the insert path.
+    if norm_isrc and track.isrc and track.isrc != norm_isrc:
+        logger.warning(
+            "upsert_track: ISRC conflict on signature %s (existing isrc=%s, incoming=%s); "
+            "skipping write to avoid overwriting a different recording.",
+            identity.signature,
+            track.isrc,
+            norm_isrc,
+        )
+        return track
 
     # Backfill ISRC onto signature-matched row if it was previously missing
     if norm_isrc and not track.isrc:

@@ -110,7 +110,7 @@ from app.services.request_sort import (
     get_sorted_requests,
     status_counts,
 )
-from app.services.sync.orchestrator import enrich_request_metadata, sync_requests_batch
+from app.services.sync.orchestrator import _enrich_with_fresh_session, sync_requests_batch
 from app.services.sync.registry import get_connected_adapters
 from app.services.tidal import (
     remove_collection_tracks_batch,
@@ -706,12 +706,17 @@ def submit_request(
         genre=request_data.genre,
         bpm=request_data.bpm,
         musical_key=request_data.musical_key,
+        isrc=request_data.isrc,
     )
 
-    # Enrich missing metadata in background (Beatport, MusicBrainz)
-    has_full_metadata = song_request.genre and song_request.bpm and song_request.musical_key
-    if not is_duplicate and not has_full_metadata:
-        background_tasks.add_task(enrich_request_metadata, db, song_request.id)
+    # Enrich missing metadata in the background (Beatport, MusicBrainz). Enqueue
+    # even for already-complete submissions: enrich_request_metadata seeds the
+    # master track store and returns fast when the trio is present, so a complete
+    # search-result submission still populates the store for reuse (#541). Use a
+    # FRESH session (not the request-scoped `db`) so the task — which may make
+    # Spotify/Soundcharts network calls — doesn't pin a pool connection (#505).
+    if not is_duplicate:
+        background_tasks.add_task(_enrich_with_fresh_session, song_request.id)
 
     if not is_duplicate:
         publish_event(
@@ -1284,22 +1289,6 @@ def bulk_review(
 
 
 ENRICH_ALL_BATCH_LIMIT = 25
-
-
-def _enrich_with_fresh_session(request_id: int) -> None:
-    """Run enrichment in its own DB session.
-
-    The request-scoped `db` from `get_db` stays open until all background tasks finish — for a
-    large batch this exhausts the SQLAlchemy connection pool. A fresh `SessionLocal()` per task
-    releases its connection as soon as the task ends.
-    """
-    from app.db.session import SessionLocal
-
-    session = SessionLocal()
-    try:
-        enrich_request_metadata(session, request_id)
-    finally:
-        session.close()
 
 
 def _sync_requests_with_fresh_session(request_ids: list[int]) -> None:

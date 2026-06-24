@@ -281,3 +281,21 @@ def normalize_isrc(isrc: str | None) -> str | None:
         return None
     cleaned = isrc.strip().upper().replace("-", "").replace(" ", "")
     return cleaned or None
+
+
+# Normalized ISRC shape (ISO 3901): 2-letter country + 3-char alphanumeric
+# registrant + 7 digits (2-digit year + 5-digit designation) = 12 chars.
+_ISRC_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$")
+
+
+def valid_isrc(isrc: str | None) -> str | None:
+    """Normalize an ISRC and return it ONLY if it matches the ISO 3901 shape, else None.
+
+    Validates untrusted submitted ISRCs before they are stored or used as a
+    cache/provider lookup key (#552): a malformed value is dropped (treated as no
+    ISRC) rather than mistaken for an authoritative recording identity or sent to a
+    provider's by-ISRC endpoint."""
+    normalized = normalize_isrc(isrc)
+    if normalized and _ISRC_RE.match(normalized):
+        return normalized
+    return None

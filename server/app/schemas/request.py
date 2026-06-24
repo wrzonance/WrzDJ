@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.core.validation import contains_profanity, normalize_single_line, normalize_text
 from app.models.request import RequestSource, RequestStatus
 from app.schemas.common import BaseSchema, IsoDatetime
+from app.services.track_normalizer import valid_isrc
 
 ALLOWED_URL_SCHEMES = {"http", "https", "spotify"}
 
@@ -23,12 +24,22 @@ class RequestCreate(BaseModel):
     genre: str | None = Field(default=None, max_length=100)
     bpm: float | None = Field(default=None, ge=1, le=999)
     musical_key: str | None = Field(default=None, max_length=20)
+    # ISRC from the chosen search result (#552); normalized on store. max_length 15
+    # accommodates the hyphenated form (e.g. "US-UM7-19-00764").
+    isrc: str | None = Field(default=None, max_length=15)
 
     @field_validator("artist", "title")
     @classmethod
     def normalize_single_line_fields(cls, v: str) -> str:
         normalized = normalize_single_line(v)
         return normalized if normalized else v
+
+    @field_validator("isrc")
+    @classmethod
+    def validate_isrc(cls, v: str | None) -> str | None:
+        # Normalize + drop a malformed ISRC (it would defeat the ISRC-first cache
+        # and drive bad provider by-ISRC calls if treated as identity). #552
+        return valid_isrc(v)
 
     @field_validator("note")
     @classmethod

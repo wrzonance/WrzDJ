@@ -174,6 +174,21 @@ describe('ApiClient', () => {
       expect(body.title).toBe('Title');
       expect(body.note).toBe('Please play!');
     });
+
+    it('forwards the search-result ISRC into the request body (#552)', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 2, artist: 'deadmau5', song_title: 'Strobe', status: 'new' }),
+      });
+
+      await api.submitRequest('ABC123', 'deadmau5', 'Strobe', undefined, undefined, undefined, undefined, {
+        source: 'beatport',
+        isrc: 'USXYZ1234567',
+      });
+
+      const [, options] = mockFetch.mock.calls[0];
+      expect(JSON.parse(options.body).isrc).toBe('USXYZ1234567');
+    });
   });
 
   // A kiosk is a trusted DJ-paired device with no JWT and no human-verification

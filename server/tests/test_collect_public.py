@@ -904,7 +904,9 @@ def test_collect_submit_triggers_enrichment(client, db, test_event: Event):
 
     _enable_collection(db, test_event)
 
-    with patch("app.api.collect.enrich_request_metadata") as mock_enrich:
+    # The shared _enrich_with_fresh_session helper (orchestrator) is what the collect
+    # background task runs; patch enrichment there so the task is a no-op + observable.
+    with patch("app.services.sync.orchestrator.enrich_request_metadata") as mock_enrich:
         r = client.post(
             f"/api/public/collect/{test_event.code}/requests",
             json={

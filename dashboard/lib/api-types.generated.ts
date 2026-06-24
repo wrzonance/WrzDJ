@@ -4497,6 +4497,8 @@ export interface components {
             artist: string;
             /** Artwork Url */
             artwork_url?: string | null;
+            /** Isrc */
+            isrc?: string | null;
             /** Nickname */
             nickname?: string | null;
             /** Note */
@@ -6142,6 +6144,8 @@ export interface components {
             bpm?: number | null;
             /** Genre */
             genre?: string | null;
+            /** Isrc */
+            isrc?: string | null;
             /** Musical Key */
             musical_key?: string | null;
             /** Nickname */

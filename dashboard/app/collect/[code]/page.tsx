@@ -130,6 +130,7 @@ export default function CollectPage() {
         source_url: song.url ?? undefined,
         artwork_url: song.album_art ?? undefined,
         nickname: submitNickname,
+        isrc: song.isrc ?? undefined,
       }, reverify);
 
       if (result.is_duplicate) {

@@ -56,6 +56,19 @@ describe("collect api client", () => {
     expect(r.id).toBe(7);
   });
 
+  it("submitCollectRequest forwards the search-result ISRC (#552)", async () => {
+    const mock = fetch as unknown as ReturnType<typeof vi.fn>;
+    mock.mockResolvedValue(OK_RESPONSE({ id: 8, is_duplicate: false }));
+    await apiClient.submitCollectRequest("ABC", {
+      song_title: "Strobe",
+      artist: "deadmau5",
+      source: "beatport",
+      isrc: "USXYZ1234567",
+    });
+    const [, opts] = mock.mock.calls[0];
+    expect(JSON.parse((opts as RequestInit).body as string).isrc).toBe("USXYZ1234567");
+  });
+
   it("submitCollectRequest throws ApiError on 409", async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
       ERR_RESPONSE(409, "You already picked this one!")

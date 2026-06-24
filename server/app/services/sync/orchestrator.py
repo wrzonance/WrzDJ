@@ -33,6 +33,28 @@ from app.services.track_normalizer import normalize_track
 logger = logging.getLogger(__name__)
 
 
+def _enrich_with_fresh_session(request_id: int) -> None:
+    """Run request enrichment in its OWN DB session — the single shared scheduler.
+
+    FastAPI tears down the ``yield``-based ``get_db`` only after background tasks
+    finish, so scheduling enrichment with the request-scoped ``db`` pins a pooled
+    connection through the enrichment's slow external API calls (#505). A fresh
+    ``SessionLocal()`` per task releases its connection as soon as the task ends.
+
+    EVERY router (events / collect / requests) schedules request-time enrichment
+    through THIS one helper, so the master-store write (#541) and the fresh-session
+    hygiene (#505) happen identically no matter the entry point — never copy a
+    per-router variant, or the two can silently drift apart.
+    """
+    from app.db.session import SessionLocal
+
+    session = SessionLocal()
+    try:
+        enrich_request_metadata(session, request_id)
+    finally:
+        session.close()
+
+
 @dataclass
 class MultiSyncResult:
     """Aggregate result from syncing to all connected services."""

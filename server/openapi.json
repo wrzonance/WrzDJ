@@ -2485,6 +2485,18 @@
             ],
             "title": "Artwork Url"
           },
+          "isrc": {
+            "anyOf": [
+              {
+                "maxLength": 15,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isrc"
+          },
           "nickname": {
             "anyOf": [
               {
@@ -7366,6 +7378,18 @@
               }
             ],
             "title": "Genre"
+          },
+          "isrc": {
+            "anyOf": [
+              {
+                "maxLength": 15,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isrc"
           },
           "musical_key": {
             "anyOf": [

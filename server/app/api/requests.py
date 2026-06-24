@@ -20,28 +20,11 @@ from app.services.request import (
     get_request_by_id,
     update_request_status,
 )
-from app.services.sync.orchestrator import enrich_request_metadata, sync_request_to_services
+from app.services.sync.orchestrator import _enrich_with_fresh_session, sync_request_to_services
 from app.services.sync.registry import get_connected_adapters
 from app.services.tidal import remove_track_from_collection_playlist
 
 router = APIRouter()
-
-
-def _enrich_with_fresh_session(request_id: int) -> None:
-    """Run enrichment in its own DB session.
-
-    FastAPI keeps the request-scoped `db` open until all background tasks finish;
-    passing it (or a live row) pins the pool connection through the slow external
-    metadata lookups. A fresh `SessionLocal()` releases its connection as soon as
-    the task ends (issue #505).
-    """
-    from app.db.session import SessionLocal
-
-    session = SessionLocal()
-    try:
-        enrich_request_metadata(session, request_id)
-    finally:
-        session.close()
 
 
 def _sync_request_to_services_with_fresh_session(request_id: int) -> None:

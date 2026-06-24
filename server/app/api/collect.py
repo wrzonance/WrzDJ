@@ -54,31 +54,15 @@ from app.services.dedup import compute_dedupe_key, find_duplicate
 from app.services.event import get_event_by_public_code_with_status
 from app.services.guest_names import generate_unique_nickname
 from app.services.sync.enrichment_pipeline import _find_best_match
-from app.services.sync.orchestrator import enrich_request_metadata
+from app.services.sync.orchestrator import _enrich_with_fresh_session
 from app.services.system_settings import get_system_settings
 from app.services.tidal import sync_collection_requests_batch
+from app.services.track_normalizer import normalize_isrc
 from app.services.vote import add_vote
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-def _enrich_with_fresh_session(request_id: int) -> None:
-    """Run enrichment in its own DB session.
-
-    FastAPI keeps the request-scoped `db` open until all background tasks finish;
-    passing it (or a live row) pins the pool connection through the slow external
-    metadata lookups. A fresh `SessionLocal()` releases its connection as soon as
-    the task ends (issue #505).
-    """
-    from app.db.session import SessionLocal
-
-    session = SessionLocal()
-    try:
-        enrich_request_metadata(session, request_id)
-    finally:
-        session.close()
 
 
 def _sync_collection_requests_with_fresh_session(event_id: int, request_ids: list[int]) -> None:
@@ -495,15 +479,20 @@ def submit(
         status=RequestStatus.NEW.value,
         dedupe_key=compute_dedupe_key(payload.artist, payload.song_title),
         guest_id=guest_id,
+        isrc=normalize_isrc(payload.isrc),
         submitted_during_collection=True,
     )
     db.add(row)
     db.commit()
     db.refresh(row)
-    # Pass IDs so each task opens and closes its own session instead of pinning
-    # the request-scoped connection through the slow external API calls (issue #505).
-    if not (row.genre and row.bpm and row.musical_key):
-        background_tasks.add_task(_enrich_with_fresh_session, row.id)
+    # Enqueue enrichment UNCONDITIONALLY (matches submit_request in events.py): even
+    # an already-complete submission must seed the master tracks store so repeats
+    # reuse it (#541). enrich_request_metadata returns fast on a complete trio via
+    # _seed_complete_request, so this costs nothing. A completeness guard here would
+    # reintroduce the pre-#541 silent-skip the moment the collect schema gains trio
+    # fields. Pass the ID so each task opens/closes its own session rather than
+    # pinning the request-scoped connection through slow external calls (issue #505).
+    background_tasks.add_task(_enrich_with_fresh_session, row.id)
     if event.tidal_sync_enabled and get_system_settings(db).tidal_enabled:
         background_tasks.add_task(_sync_collection_requests_with_fresh_session, event.id, [row.id])
     log_activity(

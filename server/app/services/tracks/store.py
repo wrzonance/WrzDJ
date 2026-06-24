@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models.track import Track
 from app.services.track_normalizer import normalize_isrc
-from app.services.tracks.provenance import FieldProvenance
+from app.services.tracks.provenance import FieldProvenance, should_overwrite
 
 
 def get_track(
@@ -66,10 +66,11 @@ def upsert_track(
 
     prov: dict = dict(track.provenance or {})
     for field, value in values.items():
-        setattr(track, field, value)
-        prov[field] = FieldProvenance(source=sources[field], fetched_at=fetched_at).model_dump(
-            mode="json"
-        )
+        if should_overwrite(prov.get(field), sources[field]):
+            setattr(track, field, value)
+            prov[field] = FieldProvenance(source=sources[field], fetched_at=fetched_at).model_dump(
+                mode="json"
+            )
     track.provenance = prov
     db.flush()
     return track

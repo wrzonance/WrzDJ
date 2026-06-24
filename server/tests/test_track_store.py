@@ -70,3 +70,42 @@ def test_upsert_updates_existing_by_signature_no_duplicate(db):
     rows = db.query(Track).filter(Track.signature == "sig-1").all()
     assert len(rows) == 1
     assert rows[0].bpm == 120.0 and rows[0].genre == "trance"
+
+
+def test_upsert_does_not_downgrade_measured_energy(db):
+    upsert_track(
+        db,
+        identity=TrackIdentity(title="S", artist="D", signature="sig-e"),
+        values={"energy": 8},
+        sources={"energy": "soundcharts"},
+        fetched_at=T0,
+    )
+    upsert_track(
+        db,
+        identity=TrackIdentity(title="S", artist="D", signature="sig-e"),
+        values={"energy": 3},
+        sources={"energy": "llm"},
+        fetched_at=T0,
+    )
+    row = db.query(Track).filter(Track.signature == "sig-e").one()
+    assert row.energy == 8  # llm did not clobber soundcharts
+    assert row.provenance["energy"]["source"] == "soundcharts"
+
+
+def test_upsert_allows_higher_precedence_override(db):
+    upsert_track(
+        db,
+        identity=TrackIdentity(title="S", artist="D", signature="sig-o"),
+        values={"energy": 8},
+        sources={"energy": "soundcharts"},
+        fetched_at=T0,
+    )
+    upsert_track(
+        db,
+        identity=TrackIdentity(title="S", artist="D", signature="sig-o"),
+        values={"energy": 6},
+        sources={"energy": "lexicon"},
+        fetched_at=T0,
+    )
+    row = db.query(Track).filter(Track.signature == "sig-o").one()
+    assert row.energy == 6 and row.provenance["energy"]["source"] == "lexicon"

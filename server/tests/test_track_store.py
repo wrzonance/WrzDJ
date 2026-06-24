@@ -1,7 +1,9 @@
 """Tests for track store — read/write service for master tracks table."""
 
+from datetime import datetime
+
 from app.models.track import Track
-from app.services.tracks.store import get_track
+from app.services.tracks.store import TrackIdentity, get_track, upsert_track
 
 
 def _make_track(db, **kw):
@@ -29,3 +31,42 @@ def test_get_track_normalizes_isrc(db):
 
 def test_get_track_miss_returns_none(db):
     assert get_track(db, isrc="MISS00000000", signature="nope") is None
+
+
+T0 = datetime(2026, 6, 23, 12, 0, 0)
+
+
+def test_upsert_inserts_new_track(db):
+    t = upsert_track(
+        db,
+        identity=TrackIdentity(
+            title="Sandstorm", artist="Darude", signature="sig-sand", isrc="FIXXX1234567"
+        ),
+        values={"energy": 9, "bpm": 136.0},
+        sources={"energy": "soundcharts", "bpm": "beatport"},
+        fetched_at=T0,
+    )
+    assert t.id is not None
+    assert t.energy == 9 and t.bpm == 136.0
+    assert t.provenance["energy"]["source"] == "soundcharts"
+    assert t.provenance["bpm"]["source"] == "beatport"
+
+
+def test_upsert_updates_existing_by_signature_no_duplicate(db):
+    upsert_track(
+        db,
+        identity=TrackIdentity(title="S", artist="D", signature="sig-1"),
+        values={"bpm": 120.0},
+        sources={"bpm": "tidal"},
+        fetched_at=T0,
+    )
+    upsert_track(
+        db,
+        identity=TrackIdentity(title="S", artist="D", signature="sig-1"),
+        values={"genre": "trance"},
+        sources={"genre": "musicbrainz"},
+        fetched_at=T0,
+    )
+    rows = db.query(Track).filter(Track.signature == "sig-1").all()
+    assert len(rows) == 1
+    assert rows[0].bpm == 120.0 and rows[0].genre == "trance"

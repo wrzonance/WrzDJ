@@ -523,3 +523,49 @@ def test_upsert_isrc_conflict_does_not_overwrite_different_recording(db):
     assert rows[0].isrc == "USAAA1111111"  # the original recording's ISRC is kept
     assert rows[0].bpm == 120.0  # NOT overwritten by the conflicting recording's 200
     assert result.isrc == "USAAA1111111"  # returned the existing row, unchanged
+
+
+def test_upsert_isrc_conflict_via_reconcile_race_does_not_overwrite(db, monkeypatch):
+    """The ISRC-conflict guard must also catch the reconcile-RACE path: when the
+    insert loses the signature unique-constraint and re-reads a DIFFERENT-ISRC row,
+    the guard (now checked after resolution, not just on the initial get_track)
+    still prevents overwriting it (#552, review)."""
+    upsert_track(
+        db,
+        identity=TrackIdentity(
+            title="T", artist="A", signature="sig-race-conflict", isrc="USAAA1111111"
+        ),
+        values={"bpm": 120.0},
+        sources={"bpm": "beatport"},
+        fetched_at=T0,
+    )
+    db.commit()
+
+    # Force the TOCTOU window: first get_track → None (so the insert path runs and
+    # collides on the unique signature), later calls delegate to the real lookup.
+    real = store.get_track
+    state = {"n": 0}
+
+    def fake(db, **kw):
+        state["n"] += 1
+        return None if state["n"] == 1 else real(db, **kw)
+
+    monkeypatch.setattr(store, "get_track", fake)
+
+    # Incoming: same signature, DIFFERENT ISRC — resolved via the reconcile re-read.
+    result = upsert_track(
+        db,
+        identity=TrackIdentity(
+            title="T", artist="A", signature="sig-race-conflict", isrc="USBBB2222222"
+        ),
+        values={"bpm": 200.0},
+        sources={"bpm": "beatport"},
+        fetched_at=T0,
+    )
+
+    assert state["n"] >= 2, "reconcile re-read path must have been taken"
+    rows = db.query(Track).filter(Track.signature == "sig-race-conflict").all()
+    assert len(rows) == 1
+    assert rows[0].isrc == "USAAA1111111"  # original recording preserved
+    assert rows[0].bpm == 120.0  # NOT overwritten via the reconcile path
+    assert result.isrc == "USAAA1111111"

@@ -108,15 +108,19 @@ def upsert_track(
     track = get_track(db, isrc=norm_isrc, signature=identity.signature)
     if track is None:
         track = _insert_identity_reconciling(db, identity=identity, norm_isrc=norm_isrc)
-    elif norm_isrc and track.isrc and track.isrc != norm_isrc:
-        # ISRC CONFLICT: get_track fell back to the signature and matched a row for a
-        # DIFFERENT recording (same normalized artist/title, different release/
-        # remaster — the two ISRCs identify distinct recordings). The signature is
-        # UNIQUE, so this recording cannot get its own row here; refuse to overwrite
-        # the existing row's data with a different recording's values. The recording
-        # is simply not stored (its metadata still lives on the caller's Request);
-        # this prevents corruption. Full multi-recording-per-signature support is a
-        # #542 schema concern (signature is the identity bottleneck, not ISRC).
+
+    # ISRC CONFLICT — checked AFTER resolution so it covers BOTH the initial
+    # get_track signature fallback AND the reconcile-race re-read inside
+    # _insert_identity_reconciling (which can also land on a signature-matched row
+    # for a DIFFERENT recording). The two ISRCs identify distinct recordings (same
+    # normalized artist/title, different release/remaster); the signature is UNIQUE
+    # so this recording cannot get its own row here. Refuse to overwrite the
+    # existing row's data — the recording is simply not stored (its metadata still
+    # lives on the caller's Request); this prevents corruption. Full
+    # multi-recording-per-signature support is a #542 schema concern (signature is
+    # the identity bottleneck, not ISRC). A freshly INSERTED row has isrc==norm_isrc,
+    # so this never trips on the insert path.
+    if norm_isrc and track.isrc and track.isrc != norm_isrc:
         logger.warning(
             "upsert_track: ISRC conflict on signature %s (existing isrc=%s, incoming=%s); "
             "skipping write to avoid overwriting a different recording.",

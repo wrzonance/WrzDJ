@@ -794,3 +794,51 @@ def test_unprovenanced_complete_row_is_not_authoritative(db: Session, bp_user: U
     assert beatport_spy.calls == 1  # missing provenance → not trusted → providers ran
     track = get_track(db, signature=sig)
     assert track.provenance["genre"]["source"] == "beatport"  # upgraded from unprovenanced
+
+
+def test_cache_hit_applies_bpm_context_correction(db: Session, bp_user: User, monkeypatch):
+    """REGRESSION (Codex #550 P2): the cache-hit fast path must context-correct the
+    served BPM for THIS event (half/double-time), not commit the canonical store
+    value raw — matching the miss path. The store value itself stays canonical."""
+    from app.models.track import Track
+
+    title, artist = "Strobe", "deadmau5"
+    sig = dedupe_signature(artist, title)
+    prov = {
+        f: {"source": "beatport", "fetched_at": "2026-06-24T00:00:00"}
+        for f in ("genre", "bpm", "musical_key")
+    }
+    db.add(
+        Track(
+            signature=sig,
+            title=title,
+            artist=artist,
+            genre="Progressive House",
+            bpm=66.0,
+            musical_key="4A",
+            provenance=prov,
+        )
+    )
+    db.commit()
+
+    event = _make_event(db, bp_user, "BPMCTX", "BPMCTW")
+    # >=3 ACCEPTED tracks at ~130 BPM establish the event's tempo context
+    # (normalize_bpm_to_context requires at least 3 context values).
+    _make_request(db, event, "Ctx1", "A1", "ctx1", bpm=130.0)
+    _make_request(db, event, "Ctx2", "A2", "ctx2", bpm=130.0)
+    _make_request(db, event, "Ctx3", "A3", "ctx3", bpm=130.0)
+    request = _make_request(db, event, title, artist, "bpmctx_req")  # incomplete → cache hit
+
+    beatport_spy = _Spy([_beatport_hit(title, artist)])
+    monkeypatch.setattr("app.services.beatport.search_beatport_tracks", beatport_spy)
+    monkeypatch.setattr("app.services.sync.enrichment_pipeline.lookup_artist_genre", _Spy(None))
+    monkeypatch.setattr("app.services.tidal.search_tidal_tracks", _Spy([]))
+
+    enrich_request_metadata(db, request.id)
+
+    assert beatport_spy.calls == 0  # served from the trusted store row, no providers
+    db.refresh(request)
+    # 66 BPM doubled to match the ~130 event context (half/double-time correction).
+    assert request.bpm == 132.0
+    # The canonical store value is unchanged — correction is per-event, request-only.
+    assert get_track(db, signature=sig).bpm == 66.0

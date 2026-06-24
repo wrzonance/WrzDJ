@@ -208,5 +208,7 @@ def test_backfill_isolates_a_failing_row(db, test_event, monkeypatch):
     assert result["upserted"] == 1  # the good row survived the bad row's failure
     good_sig = dedupe_signature("Nice", "Good Row")
     assert db.query(Track).filter(Track.signature == good_sig).one().bpm == 120.0
-    # The poisoning insert was rolled back with its savepoint — no NULL row leaked.
+    # The poisoning insert was rolled back with its savepoint: neither the bad
+    # row's own signature nor the NULL-signature poison row leaked into the table.
     assert db.query(Track).filter(Track.signature == bad_sig).count() == 0
+    assert db.query(Track).filter(Track.signature.is_(None)).count() == 0

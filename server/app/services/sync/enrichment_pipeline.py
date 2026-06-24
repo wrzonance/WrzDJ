@@ -374,6 +374,48 @@ def _seed_complete_request(db: Session, request: Request, sig: str) -> None:
     )
 
 
+def _apply_bpm_context_correction(db: Session, request: Request) -> float | None:
+    """Half/double-time correct ``request.bpm`` to the event's accepted-track tempo
+    context. Mutates ``request.bpm`` and returns the corrected value if it changed,
+    else None.
+
+    This is PER-EVENT (the same recording can need different octave correction at
+    different events), so it runs on BOTH the provider/miss path and the cache-hit
+    fast path — a trusted cached BPM must still be context-corrected for the event
+    it's being served into, not committed raw (#541)."""
+    if not request.bpm:
+        return None
+    context_bpms = [
+        float(r.bpm)
+        for r in db.query(Request)
+        .filter(
+            Request.event_id == request.event_id,
+            Request.id != request.id,
+            Request.bpm.isnot(None),
+            Request.status.in_(
+                [
+                    RequestStatus.ACCEPTED.value,
+                    RequestStatus.PLAYING.value,
+                    RequestStatus.PLAYED.value,
+                ]
+            ),
+        )
+        .all()
+    ]
+    corrected = normalize_bpm_to_context(request.bpm, context_bpms)
+    if corrected != request.bpm:
+        logger.info(
+            "BPM corrected for request %d: %.1f → %.1f (median context: %.1f)",
+            request.id,
+            request.bpm,
+            corrected,
+            statistics.median(context_bpms),
+        )
+        request.bpm = corrected
+        return corrected
+    return None
+
+
 def enrich_request_metadata(db: Session, request_id: int) -> None:
     """Background task: fill missing genre/BPM/key on a request.
 
@@ -433,6 +475,9 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
         # skipped, preserving the zero-extra-core-API-calls dedupe win.
         if get_settings().soundcharts_audio_features_enabled and cached.energy is None:
             _backfill_energy_for_cached(db, request, cached, sig)
+        # Context-correct the served BPM for THIS event (the cached value is canonical;
+        # half/double-time correction is per-event and must not be skipped on a hit).
+        _apply_bpm_context_correction(db, request)
         db.commit()
         logger.info(
             "Request %d served from track store (sig=%s): genre=%s bpm=%s key=%s",
@@ -647,39 +692,13 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
     if request.musical_key:
         request.musical_key = normalize_key(request.musical_key)
 
-    # 4. BPM context correction: detect half-time/double-time from other event tracks
-    if request.bpm:
-        context_bpms = [
-            float(r.bpm)
-            for r in db.query(Request)
-            .filter(
-                Request.event_id == request.event_id,
-                Request.id != request.id,
-                Request.bpm.isnot(None),
-                Request.status.in_(
-                    [
-                        RequestStatus.ACCEPTED.value,
-                        RequestStatus.PLAYING.value,
-                        RequestStatus.PLAYED.value,
-                    ]
-                ),
-            )
-            .all()
-        ]
-        corrected = normalize_bpm_to_context(request.bpm, context_bpms)
-        if corrected != request.bpm:
-            logger.info(
-                "BPM corrected for request %d: %.1f → %.1f (median context: %.1f)",
-                request_id,
-                request.bpm,
-                corrected,
-                statistics.median(context_bpms),
-            )
-            request.bpm = corrected
-            # Keep the store in sync with the context-corrected value, preserving
-            # the original provider source (the correction is a refinement of it).
-            if "bpm" in resolved:
-                resolved["bpm"] = (corrected, resolved["bpm"][1])
+    # 4. BPM context correction: detect half-time/double-time from other event
+    # tracks (shared with the cache-hit path via _apply_bpm_context_correction).
+    corrected = _apply_bpm_context_correction(db, request)
+    if corrected is not None and "bpm" in resolved:
+        # Keep the store in sync with the context-corrected value, preserving the
+        # original provider source (the correction is a refinement of it).
+        resolved["bpm"] = (corrected, resolved["bpm"][1])
 
     # 5. Soundcharts audio features (energy/danceability/…) — gated, dark by
     # default. Only when the flag is on, an ISRC is in hand, and the store row

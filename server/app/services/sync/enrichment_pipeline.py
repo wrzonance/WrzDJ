@@ -16,6 +16,8 @@ import statistics
 
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
+from app.core.time import utcnow
 from app.models.request import Request, RequestStatus
 from app.services.musicbrainz import lookup_artist_genre
 from app.services.request import normalize_key
@@ -28,6 +30,7 @@ from app.services.track_normalizer import (
     primary_artist,
     score_track_match,
 )
+from app.services.tracks.store import TrackIdentity, get_track, upsert_track
 
 logger = logging.getLogger(__name__)
 
@@ -199,14 +202,31 @@ def _get_isrc_from_spotify(source_url: str | None) -> str | None:
         return None
 
 
-def _apply_enrichment_result(request: Request, best, *, with_genre: bool = False) -> None:
-    """Apply BPM/key (and optionally genre) from a matched result to a request."""
+def _apply_enrichment_result(
+    request: Request,
+    best,
+    *,
+    source: str,
+    resolved: dict[str, tuple[object, str]],
+    with_genre: bool = False,
+) -> None:
+    """Apply BPM/key (and optionally genre) from a matched result to a request.
+
+    Each field written onto the request is also recorded in ``resolved`` as
+    ``field -> (value, source)`` so the master tracks store can be dual-written
+    with accurate per-field provenance (#541). ``musical_key`` is normalized to
+    its Camelot code so the store matches what the request displays.
+    """
     if with_genre and not request.genre and getattr(best, "genre", None):
         request.genre = best.genre
+        resolved["genre"] = (best.genre, source)
     if not request.bpm and best.bpm:
         request.bpm = float(best.bpm)
+        resolved["bpm"] = (float(best.bpm), source)
     if not request.musical_key and getattr(best, "key", None):
-        request.musical_key = normalize_key(best.key)
+        normalized = normalize_key(best.key)
+        request.musical_key = normalized
+        resolved["musical_key"] = (normalized, source)
 
 
 def enrich_request_metadata(db: Session, request_id: int) -> None:
@@ -230,6 +250,38 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
 
     if request.genre and request.bpm and request.musical_key:
         return  # Already complete
+
+    # Cache-aside short-circuit: if the master store already has this recording
+    # fully resolved, copy the missing fields down and skip ALL providers — the
+    # dedupe win that makes the same song requested at two events cost one set of
+    # API calls, not two (#541). dedupe_signature is the same key pool import uses.
+    from app.services.setbuilder.pool import dedupe_signature
+
+    sig = dedupe_signature(request.artist, request.song_title)
+    cached = get_track(db, signature=sig)
+    if cached is not None and cached.genre and cached.bpm and cached.musical_key:
+        if not request.genre:
+            request.genre = cached.genre
+        if not request.bpm:
+            request.bpm = cached.bpm
+        if not request.musical_key:
+            request.musical_key = cached.musical_key
+        db.commit()
+        logger.info(
+            "Request %d served from track store (sig=%s): genre=%s bpm=%s key=%s",
+            request_id,
+            sig,
+            request.genre,
+            request.bpm,
+            request.musical_key,
+        )
+        return
+
+    # Per-field provenance accumulator: field -> (value, source). Populated
+    # alongside the Request writes so the store dual-write below carries accurate
+    # sources without post-hoc guessing.
+    resolved: dict[str, tuple[object, str]] = {}
+    resolved_isrc: str | None = None
 
     user = request.event.created_by
     search_query = f"{primary_artist(request.artist)} {request.song_title}"
@@ -269,7 +321,11 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
                         direct.bpm,
                         direct.key,
                     )
-                    _apply_enrichment_result(request, direct, with_genre=True)
+                    _apply_enrichment_result(
+                        request, direct, source="beatport", resolved=resolved, with_genre=True
+                    )
+                    if getattr(direct, "isrc", None):
+                        resolved_isrc = direct.isrc
             except Exception:
                 logger.warning("Beatport direct fetch failed for request %d", request_id)
 
@@ -287,7 +343,9 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
                         direct.bpm,
                         direct.key,
                     )
-                    _apply_enrichment_result(request, direct)
+                    _apply_enrichment_result(request, direct, source="tidal", resolved=resolved)
+                    if getattr(direct, "isrc", None):
+                        resolved_isrc = direct.isrc
             except Exception:
                 logger.warning("Tidal direct fetch failed for request %d", request_id)
 
@@ -297,6 +355,7 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
             try:
                 isrc = _get_isrc_from_spotify(request.source_url)
                 if isrc:
+                    resolved_isrc = isrc
                     from app.services.tidal import search_tidal_by_isrc
 
                     isrc_match = search_tidal_by_isrc(db, user, isrc)
@@ -310,7 +369,9 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
                             isrc_match.key,
                             isrc,
                         )
-                        _apply_enrichment_result(request, isrc_match)
+                        _apply_enrichment_result(
+                            request, isrc_match, source="tidal", resolved=resolved
+                        )
             except Exception:
                 logger.warning("ISRC enrichment failed for request %d", request_id)
 
@@ -320,6 +381,7 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
             genre = lookup_artist_genre(request.artist)
             if genre:
                 request.genre = genre
+                resolved["genre"] = (genre, "musicbrainz")
         except Exception:
             logger.warning("MusicBrainz enrichment failed for request %d", request_id)
 
@@ -352,7 +414,11 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
                             best.key,
                             best.mix_name,
                         )
-                        _apply_enrichment_result(request, best, with_genre=True)
+                        _apply_enrichment_result(
+                            request, best, source="beatport", resolved=resolved, with_genre=True
+                        )
+                        if getattr(best, "isrc", None):
+                            resolved_isrc = best.isrc
                     else:
                         logger.info("Beatport: no match for request %d", request_id)
             except Exception:
@@ -386,7 +452,9 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
                             best.bpm,
                             getattr(best, "key", None),
                         )
-                        _apply_enrichment_result(request, best)
+                        _apply_enrichment_result(request, best, source="tidal", resolved=resolved)
+                        if getattr(best, "isrc", None):
+                            resolved_isrc = best.isrc
                     else:
                         logger.info("Tidal: no match for request %d", request_id)
             except Exception:
@@ -425,6 +493,67 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
                 statistics.median(context_bpms),
             )
             request.bpm = corrected
+            # Keep the store in sync with the context-corrected value, preserving
+            # the original provider source (the correction is a refinement of it).
+            if "bpm" in resolved:
+                resolved["bpm"] = (corrected, resolved["bpm"][1])
+
+    # 5. Soundcharts audio features (energy/danceability/…) — gated, dark by
+    # default. Only when the flag is on, an ISRC is in hand, and the store row
+    # lacks energy. bpm/key/genre stay with the existing cascade to avoid
+    # equal-precedence churn; Soundcharts contributes audio features only.
+    resolved_uuid: str | None = None
+    if (
+        get_settings().soundcharts_audio_features_enabled
+        and resolved_isrc
+        and (cached is None or cached.energy is None)
+    ):
+        try:
+            from app.services.soundcharts import get_song_features_by_isrc
+
+            feats = get_song_features_by_isrc(resolved_isrc)
+            if feats:
+                resolved_uuid = feats.soundcharts_uuid or None
+                audio_fields = {
+                    "energy": feats.energy,
+                    "danceability": feats.danceability,
+                    "valence": feats.valence,
+                    "acousticness": feats.acousticness,
+                    "instrumentalness": feats.instrumentalness,
+                    "speechiness": feats.speechiness,
+                    "liveness": feats.liveness,
+                    "loudness_db": feats.loudness_db,
+                    "time_signature": feats.time_signature,
+                    "explicit": feats.explicit,
+                    "duration_sec": feats.duration_sec,
+                }
+                for field, value in audio_fields.items():
+                    if value is not None:
+                        resolved[field] = (value, "soundcharts")
+        except Exception:
+            logger.warning("Soundcharts audio-features lookup failed for request %d", request_id)
+
+    # Dual-write the master tracks store. Wrapped so a store failure never
+    # regresses the request's own commit — the store is strictly additive (#541).
+    if resolved:
+        values = {field: value for field, (value, _src) in resolved.items()}
+        sources = {field: src for field, (_value, src) in resolved.items()}
+        try:
+            upsert_track(
+                db,
+                identity=TrackIdentity(
+                    title=request.song_title,
+                    artist=request.artist,
+                    signature=sig,
+                    isrc=resolved_isrc,
+                    soundcharts_uuid=resolved_uuid,
+                ),
+                values=values,
+                sources=sources,
+                fetched_at=utcnow(),
+            )
+        except Exception:
+            logger.warning("Track store upsert failed for request %d", request_id)
 
     db.commit()
     logger.info(

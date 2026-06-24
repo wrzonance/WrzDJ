@@ -169,6 +169,71 @@ class TestHydrateFromStore:
         assert row.isrc == "AUXXX1700001"
         assert row.bpm == 122.0
 
+    def test_partial_trusted_row_hydrates_per_field_even_without_user(self, db, monkeypatch):
+        """#554 FIX 3: a store row with authoritative bpm/key/duration but NO genre
+        must hydrate those three onto a later candidate (per-field, not all-or-
+        nothing) — even with user=None (no providers to fill the gap) — leaving only
+        genre missing. Previously the whole row was ignored unless all four were
+        present, so a provider-less user got nothing."""
+
+        def _boom(*a, **k):  # pragma: no cover
+            raise AssertionError("enrich_track must not run without a connected user")
+
+        monkeypatch.setattr(pool, "enrich_track", _boom)
+
+        sig = dedupe_signature("Pendulum", "Watercolour")
+        upsert_track(
+            db,
+            identity=TrackIdentity(title="Watercolour", artist="Pendulum", signature=sig),
+            values={"bpm": 174.0, "musical_key": "11A", "duration_sec": 240},
+            sources={f: "beatport" for f in ("bpm", "musical_key", "duration_sec")},
+            fetched_at=datetime.now(UTC),
+        )
+        db.commit()
+
+        candidate = pool.PoolCandidate(title="Watercolour", artist="Pendulum")
+        out = hydrate_candidates_from_store(db, [candidate], user=None)
+
+        assert out[0].bpm == 174.0
+        assert out[0].key == "11A"
+        assert out[0].duration_sec == 240
+        assert out[0].genre is None  # the only remaining gap
+
+    def test_partial_row_does_not_rewrite_read_values_to_store(self, db, dj_user, monkeypatch):
+        """#554 FIX 3 caveat: fields hydrated FROM the row must not be written BACK
+        to the store. A candidate that brought a NEW field (genre) on top of a
+        partial trusted row populates only that new field; the row's existing
+        beatport-sourced bpm keeps its provenance (no legacy downgrade churn)."""
+
+        def _boom(*a, **k):  # pragma: no cover
+            raise AssertionError("a candidate completed by row+own fields must not enrich")
+
+        monkeypatch.setattr(pool, "enrich_track", _boom)
+
+        sig = dedupe_signature("Sub Focus", "Turn Back Time")
+        upsert_track(
+            db,
+            identity=TrackIdentity(title="Turn Back Time", artist="Sub Focus", signature=sig),
+            values={"bpm": 170.0, "musical_key": "2A", "duration_sec": 300},
+            sources={f: "beatport" for f in ("bpm", "musical_key", "duration_sec")},
+            fetched_at=datetime.now(UTC),
+        )
+        db.commit()
+
+        # Candidate brings genre the store lacks (and re-states the bpm the row has).
+        candidate = pool.PoolCandidate(
+            title="Turn Back Time", artist="Sub Focus", genre="Drum & Bass", track_id="manual:1"
+        )
+        out = hydrate_candidates_from_store(db, [candidate], user=dj_user)
+
+        assert out[0].bpm == 170.0  # hydrated from the row
+        assert out[0].genre == "Drum & Bass"  # candidate's own
+        row = get_track(db, signature=sig)
+        # bpm provenance stays beatport (NOT downgraded by a read-back legacy write);
+        # genre is newly populated from the candidate.
+        assert row.provenance["bpm"]["source"] == "beatport"
+        assert row.genre == "Drum & Bass"
+
     def test_gap_without_user_leaves_candidate_unenriched(self, db, monkeypatch):
         def _boom(*a, **k):  # pragma: no cover
             raise AssertionError("enrich_track must not run without a connected user")

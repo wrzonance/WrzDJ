@@ -221,7 +221,12 @@ def import_candidates(
 
 # Pool→builder contract fields mapped to (PoolCandidate attr, store attr). `key`
 # resolves to the store's Camelot `musical_key`; the rest are 1:1. These are the
-# fields hydrated DOWN from a store row onto a candidate.
+# fields hydrated DOWN from a store row onto a candidate (per-field, #554 FIX 3).
+# Energy may be hydrated from an authoritative row but is DELIBERATELY excluded
+# from the provider-enrich gate (`_has_provider_gap`): it comes only from
+# Soundcharts/Lexicon (dark, #543/#544), so gating enrich on it would re-hit
+# Beatport/Tidal on every import. Energy completeness is reported separately by
+# `pool_coverage` for the build gate.
 _CONTRACT_FIELDS: tuple[tuple[str, str], ...] = (
     ("bpm", "bpm"),
     ("key", "musical_key"),
@@ -229,14 +234,6 @@ _CONTRACT_FIELDS: tuple[tuple[str, str], ...] = (
     ("duration_sec", "duration_sec"),
     ("energy", "energy"),
 )
-
-# The cache short-circuit (skip the provider cascade) gates on the fields the
-# wired providers (`enrich_track` = Beatport→Tidal) can actually fill. Energy is
-# DELIBERATELY excluded: it comes only from Soundcharts/Lexicon (currently dark,
-# #543/#544), so gating on it would re-hit Beatport/Tidal on every import and
-# defeat the dedupe win. Energy completeness is still reported by `pool_coverage`
-# for the build gate — the two concerns are separate.
-_CACHE_GATE_FIELDS: tuple[str, ...] = ("bpm", "musical_key", "genre", "duration_sec")
 
 
 def hydrate_candidates_from_store(
@@ -301,7 +298,15 @@ def hydrate_candidates_from_store(
 def _hydrate_one(
     db: Session, candidate: PoolCandidate, user: User | None, *, commit: bool
 ) -> PoolCandidate:
-    """Resolve one candidate against the store and return a gap-filled copy."""
+    """Resolve one candidate against the store and return a gap-filled copy.
+
+    Per-field, not all-or-nothing (#554 FIX 3): each missing candidate field is
+    filled from the row when the row's value is present AND authoritative — so a
+    PARTIALLY-cached row still contributes (a provider-less DJ benefits from
+    whatever the store already holds). Only AFTER that do remaining gaps decide
+    populate-vs-enrich-vs-leave, and the store is populated with the candidate's
+    OWN brought fields only — never the values just read from the row (which would
+    be churn / a provenance downgrade)."""
     title = (candidate.title or "").strip()
     artist = (candidate.artist or "").strip()
     if not title or not artist:
@@ -310,72 +315,94 @@ def _hydrate_one(
     sig = dedupe_signature(artist, title)
 
     row = get_track(db, isrc=isrc, signature=sig)
-    if row is not None and _row_trusted_complete(row):
-        return _hydrate_from_row(candidate, row)
+    hydrated_fields: set[str] = set()
+    if row is not None:
+        candidate, hydrated_fields = _hydrate_authoritative_fields(candidate, row)
 
-    # Candidate carries usable fields the store lacks → populate the store from it.
-    if _candidate_has_provider_fields(candidate):
+    # Populate the store from the candidate's OWN provider-grade fields that the
+    # store still lacks — excluding anything we just hydrated FROM the row.
+    if _candidate_has_writable_fields(candidate, exclude=hydrated_fields):
         _write_candidate_to_store(
-            db, candidate, title=title, artist=artist, sig=sig, isrc=isrc, commit=commit
+            db,
+            candidate,
+            title=title,
+            artist=artist,
+            sig=sig,
+            isrc=isrc,
+            commit=commit,
+            exclude=hydrated_fields,
         )
-        return candidate
 
-    # Genuine gaps: only a connected DJ can run the provider cascade.
-    if user is None:
-        return candidate
-    return _enrich_and_writeback(
-        db, candidate, user, title=title, artist=artist, sig=sig, isrc=isrc, commit=commit
-    )
+    # Genuine remaining gaps in the provider-fillable fields: only a connected DJ
+    # can run the cascade. Energy stays out of this gate by design.
+    if _has_provider_gap(candidate) and user is not None:
+        return _enrich_and_writeback(
+            db, candidate, user, title=title, artist=artist, sig=sig, isrc=isrc, commit=commit
+        )
+    return candidate
 
 
-def _row_trusted_complete(row) -> bool:
-    """True when the store row carries every provider-fillable contract field
-    (bpm/key/genre/duration) AND each comes from a real measured/authoritative
-    provider (the 50+ precedence tier).
+def _hydrate_authoritative_fields(candidate: PoolCandidate, row) -> tuple[PoolCandidate, set[str]]:
+    """Fill each MISSING candidate field from the row when the row's value is
+    present AND from an authoritative source (50+ precedence). Per-field — a row
+    that is only partially trusted still contributes its trusted fields.
 
-    Energy is excluded by design (see ``_CACHE_GATE_FIELDS``). A low-trust/legacy
-    row is NOT served as a cache hit (mirrors the request-side ``_trio_trusted``):
-    falling through lets a connected DJ's real providers upgrade it rather than
-    copying unupgraded values onto every future pool."""
+    Returns the (possibly new) candidate plus the set of candidate-attr names that
+    were hydrated FROM the row, so the caller never writes those back to the store.
+    Existing candidate values always win (an import that carries data keeps it).
+    ``key`` takes the row's Camelot ``musical_key``/``camelot`` so
+    ``import_candidates`` derives the pool ``camelot`` from it. Energy may be
+    copied here when authoritative, even though it is excluded from the provider
+    short-circuit gate."""
     prov = row.provenance or {}
-    for store_attr in _CACHE_GATE_FIELDS:
-        value = (
-            (row.camelot or row.musical_key)
-            if store_attr == "musical_key"
-            else getattr(row, store_attr)
-        )
-        if value is None:
-            return False
-        if not is_cache_authoritative(prov.get(store_attr, {}).get("source", "")):
-            return False
-    return True
-
-
-def _hydrate_from_row(candidate: PoolCandidate, row) -> PoolCandidate:
-    """Return a copy of the candidate with each MISSING field filled from the row.
-
-    Existing candidate values win (an import that already carries data keeps it);
-    only gaps are filled. ``key`` takes the row's Camelot ``musical_key`` (or
-    ``camelot``) so ``import_candidates`` derives the pool ``camelot`` from it."""
     updates: dict[str, object] = {}
+    hydrated: set[str] = set()
     for cand_attr, store_attr in _CONTRACT_FIELDS:
         if getattr(candidate, cand_attr) is not None:
             continue
         row_value = (
-            row.camelot or row.musical_key
+            (row.camelot or row.musical_key)
             if store_attr == "musical_key"
             else getattr(row, store_attr)
         )
-        if row_value is not None:
-            updates[cand_attr] = row_value
-    return dataclasses.replace(candidate, **updates) if updates else candidate
+        if row_value is None:
+            continue
+        if not is_cache_authoritative(prov.get(store_attr, {}).get("source", "")):
+            continue
+        updates[cand_attr] = row_value
+        hydrated.add(cand_attr)
+    if not updates:
+        return candidate, hydrated
+    return dataclasses.replace(candidate, **updates), hydrated
 
 
-def _candidate_has_provider_fields(candidate: PoolCandidate) -> bool:
-    """True if the candidate carries at least one core provider field worth
-    persisting (bpm/key/genre) — i.e. it arrived from a metadata-rich playlist
-    import (Beatport/Tidal) rather than an empty Spotify/manual row."""
-    return any((candidate.bpm is not None, candidate.key, candidate.genre))
+def _has_provider_gap(candidate: PoolCandidate) -> bool:
+    """True if any provider-fillable field (bpm/key/genre/duration) is still
+    missing — the trigger for running the enrich cascade. Energy is excluded (it
+    comes only from Soundcharts/Lexicon, dark per #543/#544)."""
+    return (
+        candidate.bpm is None
+        or not candidate.key
+        or not candidate.genre
+        or candidate.duration_sec is None
+    )
+
+
+def _candidate_has_writable_fields(candidate: PoolCandidate, *, exclude: set[str]) -> bool:
+    """True if the candidate carries at least one core provider field (bpm/key/
+    genre) worth persisting to the store that was NOT just hydrated from the row.
+
+    ``exclude`` is the set of candidate-attr names filled FROM the row this pass —
+    those must not be written back (no churn, no provenance downgrade, #554 FIX 3).
+    A candidate brings store-worthy data only when one of bpm/key/genre is its OWN
+    (e.g. a Beatport/Tidal playlist row, or a new field on top of a partial row)."""
+    return any(
+        (
+            candidate.bpm is not None and "bpm" not in exclude,
+            bool(candidate.key) and "key" not in exclude,
+            bool(candidate.genre) and "genre" not in exclude,
+        )
+    )
 
 
 def _candidate_source(candidate: PoolCandidate) -> str:
@@ -400,25 +427,29 @@ def _write_candidate_to_store(
     sig: str,
     isrc: str | None,
     commit: bool,
+    exclude: set[str],
 ) -> None:
-    """Upsert the candidate's carried fields into the store (commit-first when
+    """Upsert the candidate's OWN carried fields into the store (commit-first when
     ``commit``).
 
-    Commits any pending work FIRST so a store-write failure can't poison an
-    outer transaction (mirrors the request-side ``_safe_upsert_track``); the
-    store is strictly additive."""
+    ``exclude`` holds candidate-attr names that were hydrated FROM the row this
+    pass — they are skipped so a value just read from the store is never written
+    back (#554 FIX 3). Commits any pending work FIRST so a store-write failure
+    can't poison an outer transaction (mirrors the request-side
+    ``_safe_upsert_track``); the store is strictly additive."""
     source = _candidate_source(candidate)
     values: dict[str, object] = {}
-    if candidate.bpm is not None:
+    if candidate.bpm is not None and "bpm" not in exclude:
         values["bpm"] = float(candidate.bpm)
-    key_camelot = camelot_code(candidate.key)
-    if key_camelot:
-        values["musical_key"] = key_camelot
-    if candidate.genre:
+    if "key" not in exclude:
+        key_camelot = camelot_code(candidate.key)
+        if key_camelot:
+            values["musical_key"] = key_camelot
+    if candidate.genre and "genre" not in exclude:
         values["genre"] = candidate.genre
-    if candidate.duration_sec is not None:
+    if candidate.duration_sec is not None and "duration_sec" not in exclude:
         values["duration_sec"] = candidate.duration_sec
-    if candidate.energy is not None:
+    if candidate.energy is not None and "energy" not in exclude:
         values["energy"] = candidate.energy
     if not values:
         return
@@ -479,8 +510,23 @@ def _enrich_and_writeback(
         sources=sources,
         commit=commit,
     )
-    row = get_track(db, signature=sig)
-    return _hydrate_from_row(candidate, row) if row is not None else candidate
+    # Fill the candidate from its OWN freshly-enriched values (gap-fill, not
+    # authority-gated): this is the data we just resolved for this candidate, so it
+    # flows back regardless of the store row's trust tier.
+    return _fill_missing(candidate, values)
+
+
+def _fill_missing(candidate: PoolCandidate, values: dict[str, object]) -> PoolCandidate:
+    """Return a copy of the candidate with each missing contract field filled from
+    a store ``values`` payload (keyed by store-attr). ``musical_key`` maps to the
+    candidate's ``key``. Existing candidate values are preserved."""
+    store_to_cand = {store_attr: cand_attr for cand_attr, store_attr in _CONTRACT_FIELDS}
+    updates = {
+        store_to_cand[store_attr]: value
+        for store_attr, value in values.items()
+        if store_attr in store_to_cand and getattr(candidate, store_to_cand[store_attr]) is None
+    }
+    return dataclasses.replace(candidate, **updates) if updates else candidate
 
 
 def _safe_upsert(

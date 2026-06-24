@@ -58,7 +58,17 @@ def _make_event(db: Session, owner: User, code: str, join_code: str) -> Event:
     return event
 
 
-def _make_request(db: Session, event: Event, title: str, artist: str, dedupe: str) -> Request:
+def _make_request(
+    db: Session,
+    event: Event,
+    title: str,
+    artist: str,
+    dedupe: str,
+    *,
+    genre: str | None = None,
+    bpm: float | None = None,
+    musical_key: str | None = None,
+) -> Request:
     request = Request(
         event_id=event.id,
         song_title=title,
@@ -66,6 +76,9 @@ def _make_request(db: Session, event: Event, title: str, artist: str, dedupe: st
         source="spotify",
         status=RequestStatus.ACCEPTED.value,
         dedupe_key=dedupe,
+        genre=genre,
+        bpm=bpm,
+        musical_key=musical_key,
     )
     db.add(request)
     db.commit()
@@ -303,3 +316,191 @@ def test_energy_gate_on_writes_energy_with_provenance(db: Session, bp_user: User
     # ISRC + uuid captured into identity.
     assert track.isrc == "USABC1234567"
     assert track.soundcharts_uuid == "uuid-1234"
+
+
+def test_presupplied_field_yields_complete_store_row_and_reuse(
+    db: Session, bp_user: User, monkeypatch
+):
+    """REGRESSION (review #541): a request arriving WITH genre pre-set + a Beatport
+    hit supplying bpm/key must write a fully complete store row (genre/bpm/key all
+    set), so a second same-song request short-circuits with ZERO provider calls.
+
+    Before the fix, `_apply_enrichment_result` only recorded a field into the store
+    payload when the Request was MISSING it, so a pre-supplied genre never reached
+    the store — the row stayed genre-less, failing the cache-aside gate forever and
+    re-hitting every provider on each repeat.
+    """
+    event_a = _make_event(db, bp_user, "PRESPA", "PRSPAA")
+    event_b = _make_event(db, bp_user, "PRESPB", "PRSPBB")
+
+    title, artist = "Strobe", "deadmau5"
+    # Request A arrives WITH genre pre-populated (from frontend search metadata).
+    request_a = _make_request(db, event_a, title, artist, "presupplied_a", genre="Techno")
+
+    genre_spy = _Spy(None)  # MusicBrainz not even consulted (genre present)
+    beatport_spy = _Spy([_beatport_hit(title, artist)])  # supplies bpm + key
+    tidal_spy = _Spy([])
+
+    monkeypatch.setattr("app.services.sync.enrichment_pipeline.lookup_artist_genre", genre_spy)
+    monkeypatch.setattr("app.services.beatport.search_beatport_tracks", beatport_spy)
+    monkeypatch.setattr("app.services.tidal.search_tidal_tracks", tidal_spy)
+
+    enrich_request_metadata(db, request_a.id)
+
+    # Store row is COMPLETE on the trio — the pre-supplied genre was persisted too.
+    sig = dedupe_signature(artist, title)
+    track = get_track(db, signature=sig)
+    assert track is not None
+    assert track.genre == "Techno"
+    assert track.bpm == 128.0
+    assert track.musical_key == "4A"
+    # Pre-supplied genre carries the lowest 'legacy' provenance (no original source);
+    # bpm/key carry their real provider source.
+    assert track.provenance["genre"]["source"] == "legacy"
+    assert track.provenance["bpm"]["source"] == "beatport"
+
+    # Second same-song request must short-circuit — ZERO new provider calls.
+    beatport_calls_before = beatport_spy.calls
+    genre_calls_before = genre_spy.calls
+    tidal_calls_before = tidal_spy.calls
+
+    request_b = _make_request(db, event_b, title, artist, "presupplied_b")
+    enrich_request_metadata(db, request_b.id)
+
+    assert beatport_spy.calls == beatport_calls_before
+    assert genre_spy.calls == genre_calls_before
+    assert tidal_spy.calls == tidal_calls_before
+
+    db.refresh(request_b)
+    assert request_b.genre == "Techno"
+    assert request_b.bpm == 128.0
+    assert request_b.musical_key == "4A"
+
+
+def test_energy_backfills_onto_complete_cached_row_on_repeat(
+    db: Session, bp_user: User, monkeypatch
+):
+    """REGRESSION (review #541): a trio-complete cached row that lacks energy must
+    backfill energy from Soundcharts on a repeat request when the gate is on —
+    WITHOUT re-running the core Beatport/Tidal/MusicBrainz cascade.
+
+    Before the fix the cache-aside short-circuit returned unconditionally on a
+    complete-trio row, so its `cached.energy is None` Soundcharts arm was dead and
+    energy could never backfill (contradicting spec §2/§4/§5.4/§7).
+    """
+    from app.services.soundcharts import SoundchartsAudioFeatures
+
+    event_a = _make_event(db, bp_user, "ENGBKA", "ENGBKW")
+    event_b = _make_event(db, bp_user, "ENGBKB", "ENGBKX")
+    title, artist = "Strobe", "deadmau5"
+
+    # First request enriches the trio with the gate OFF → row complete, energy None.
+    request_a = _make_request(db, event_a, title, artist, "energy_backfill_a")
+    request_a.source_url = "https://open.spotify.com/track/abc123"
+    db.commit()
+
+    monkeypatch.setattr("app.services.sync.enrichment_pipeline.lookup_artist_genre", _Spy(None))
+    monkeypatch.setattr(
+        "app.services.beatport.search_beatport_tracks",
+        _Spy([_beatport_hit(title, artist)]),
+    )
+    monkeypatch.setattr("app.services.tidal.search_tidal_tracks", _Spy([]))
+    monkeypatch.setattr(
+        "app.services.sync.enrichment_pipeline._get_isrc_from_spotify",
+        lambda url: "USABC1234567",
+    )
+    monkeypatch.setattr(
+        "app.services.sync.enrichment_pipeline.get_settings",
+        lambda: _settings_stub(enabled=False),
+    )
+
+    enrich_request_metadata(db, request_a.id)
+
+    sig = dedupe_signature(artist, title)
+    track = get_track(db, signature=sig)
+    assert track is not None
+    assert track.genre and track.bpm and track.musical_key  # complete trio
+    assert track.energy is None  # dark gate → no energy yet
+
+    # Second same-song request with the gate ON → backfill ONLY energy, no cascade.
+    beatport_spy = _Spy([_beatport_hit(title, artist)])
+    tidal_spy = _Spy([])
+    genre_spy = _Spy(None)
+    monkeypatch.setattr("app.services.beatport.search_beatport_tracks", beatport_spy)
+    monkeypatch.setattr("app.services.tidal.search_tidal_tracks", tidal_spy)
+    monkeypatch.setattr("app.services.sync.enrichment_pipeline.lookup_artist_genre", genre_spy)
+    monkeypatch.setattr(
+        "app.services.sync.enrichment_pipeline.get_settings",
+        lambda: _settings_stub(enabled=True),
+    )
+
+    feats = SoundchartsAudioFeatures(
+        isrc="USABC1234567",
+        soundcharts_uuid="uuid-9999",
+        energy=7,
+        danceability=0.6,
+        valence=0.5,
+        acousticness=0.1,
+        instrumentalness=0.0,
+        speechiness=0.05,
+        liveness=0.2,
+        loudness_db=-6.0,
+        tempo_bpm=128.0,
+        key=5,
+        mode=0,
+        time_signature=4,
+        explicit=False,
+        duration_sec=300,
+        genres=("progressive house",),
+    )
+    feature_spy = _Spy(feats)
+    monkeypatch.setattr("app.services.soundcharts.get_song_features_by_isrc", feature_spy)
+
+    request_b = _make_request(db, event_b, title, artist, "energy_backfill_b")
+    request_b.source_url = "https://open.spotify.com/track/abc123"
+    db.commit()
+    enrich_request_metadata(db, request_b.id)
+
+    # Soundcharts WAS called; core cascade was NOT (dedupe win preserved).
+    assert feature_spy.calls == 1
+    assert beatport_spy.calls == 0
+    assert tidal_spy.calls == 0
+    assert genre_spy.calls == 0
+
+    db.refresh(track)
+    assert track.energy == 7
+    assert track.provenance["energy"]["source"] == "soundcharts"
+    assert track.soundcharts_uuid == "uuid-9999"
+
+
+def test_store_upsert_failure_preserves_request_enrichment(db: Session, bp_user: User, monkeypatch):
+    """REGRESSION (review #541): a DB-level upsert_track failure must NOT discard the
+    Request's freshly enriched bpm/genre/key.
+
+    Before the fix, a flush-time error left the session in PendingRollback and the
+    trailing unconditional db.commit() raised PendingRollbackError, losing the
+    Request enrichment. The fix commits the Request enrichment first, then runs the
+    store write under its own commit/rollback recovery.
+    """
+    event = _make_event(db, bp_user, "STFAIL", "STFALW")
+    request = _make_request(db, event, "Strobe", "deadmau5", "store_fail")
+
+    monkeypatch.setattr("app.services.sync.enrichment_pipeline.lookup_artist_genre", _Spy(None))
+    monkeypatch.setattr(
+        "app.services.beatport.search_beatport_tracks",
+        _Spy([_beatport_hit("Strobe", "deadmau5")]),
+    )
+    monkeypatch.setattr("app.services.tidal.search_tidal_tracks", _Spy([]))
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("simulated store flush failure")
+
+    monkeypatch.setattr("app.services.sync.enrichment_pipeline.upsert_track", _boom)
+
+    # Must not raise despite the store write blowing up.
+    enrich_request_metadata(db, request.id)
+
+    db.refresh(request)
+    # The Request's own enrichment survived the poisoned store write.
+    assert request.bpm == 128.0
+    assert request.musical_key == "4A"

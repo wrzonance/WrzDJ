@@ -13,13 +13,10 @@ from app.models.user import User
 from app.services.beatport import search_beatport_tracks
 from app.services.recommendation.scorer import TrackProfile
 from app.services.tidal import _get_artist_name, get_tidal_session
+from app.services.track_match import find_best_match
 from app.services.track_normalizer import (
-    artist_match_score,
-    fuzzy_match_score,
-    is_original_mix_name,
     is_remix_title,
     primary_artist,
-    score_track_match,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,37 +47,20 @@ def enrich_from_tidal(
         if not tracks:
             return None
 
-        # Find best match (prefer originals over remixes for non-remix queries)
-        want_remix = is_remix_title(title)
-        best_track = None
-        best_score = 0.0
-        for i, track in enumerate(tracks):
-            track_artist = _get_artist_name(track)
-            track_title = track.name or ""
-            title_score = fuzzy_match_score(title, track_title)
-            artist_score = artist_match_score(artist, track_artist)
-            combined = score_track_match(title_score, artist_score)
-            version_adj = 0.0
-            if not want_remix and is_remix_title(track_title):
-                version_adj = -0.1
-                combined -= 0.1
-            logger.info(
-                "  Tidal enrich [%d] title=%s artist=%s bpm=%s | "
-                "title_sc=%.3f artist_sc=%.3f ver_adj=%+.2f => combined=%.4f",
-                i,
-                track_title,
-                track_artist,
-                getattr(track, "bpm", "?"),
-                title_score,
-                artist_score,
-                version_adj,
-                combined,
-            )
-            if combined > best_score:
-                best_score = combined
-                best_track = track
-
-        if not best_track or best_score < 0.4:
+        # Find best match (prefer originals over remixes for non-remix queries).
+        # Shared selector (#551): adds the artist-score floor + BPM-consensus
+        # tiebreaker the old inline loop lacked. Tidal exposes .name (not .title)
+        # and a custom artist accessor, so pass those through.
+        best_track = find_best_match(
+            tracks,
+            title,
+            artist,
+            prefer_original=not is_remix_title(title),
+            get_title=lambda t: t.name or "",
+            get_artist=_get_artist_name,
+            get_mix_name=lambda t: None,  # tidalapi has no mix_name — detect remixes from the title
+        )
+        if not best_track:
             return None
 
         # Extract BPM and key directly from the tidalapi Track object
@@ -129,40 +109,12 @@ def enrich_from_beatport(
     if not results:
         return None
 
-    # Find best match (prefer originals over remixes for non-remix queries)
-    want_remix = is_remix_title(title)
-    best_result = None
-    best_score = 0.0
-    for i, result in enumerate(results):
-        title_score = fuzzy_match_score(title, result.title)
-        artist_score = artist_match_score(artist, result.artist)
-        combined = score_track_match(title_score, artist_score)
-        version_adj = 0.0
-        if not want_remix and result.mix_name:
-            if is_original_mix_name(result.mix_name):
-                version_adj = 0.1
-                combined += 0.1
-        elif not want_remix and is_remix_title(result.title):
-            version_adj = -0.1
-            combined -= 0.1
-        logger.info(
-            "  Beatport enrich [%d] title=%s artist=%s bpm=%s mix=%s | "
-            "title_sc=%.3f artist_sc=%.3f ver_adj=%+.2f => combined=%.4f",
-            i,
-            result.title,
-            result.artist,
-            result.bpm,
-            result.mix_name or "-",
-            title_score,
-            artist_score,
-            version_adj,
-            combined,
-        )
-        if combined > best_score:
-            best_score = combined
-            best_result = result
-
-    if not best_result or best_score < 0.4:
+    # Find best match (prefer originals over remixes for non-remix queries).
+    # Shared selector (#551) — same scoring as the Tidal path and the request
+    # enrichment pipeline. Beatport results expose the default .title/.artist/
+    # .mix_name/.bpm shape, so no accessors are needed.
+    best_result = find_best_match(results, title, artist, prefer_original=not is_remix_title(title))
+    if not best_result:
         return None
 
     return TrackProfile(

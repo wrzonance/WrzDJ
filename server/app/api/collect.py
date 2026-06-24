@@ -53,10 +53,10 @@ from app.services.collect import NicknameConflictError, upsert_profile
 from app.services.dedup import compute_dedupe_key, find_duplicate
 from app.services.event import get_event_by_public_code_with_status
 from app.services.guest_names import generate_unique_nickname
-from app.services.sync.enrichment_pipeline import _find_best_match
 from app.services.sync.orchestrator import _enrich_with_fresh_session
 from app.services.system_settings import get_system_settings
 from app.services.tidal import sync_collection_requests_batch
+from app.services.track_match import find_best_match
 from app.services.track_normalizer import normalize_isrc
 from app.services.vote import add_vote
 
@@ -563,7 +563,7 @@ def enrich_preview(
             try:
                 matches = search_beatport_tracks(db, user, f"{item.artist} {item.title}", limit=5)
                 if matches:
-                    best = _find_best_match(matches, item.title, item.artist)
+                    best = find_best_match(matches, item.title, item.artist)
                     if best:
                         bpm = int(best.bpm) if best.bpm is not None else None
                         key = best.key or None

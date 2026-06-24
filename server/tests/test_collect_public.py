@@ -999,7 +999,7 @@ def test_enrich_preview_returns_bpm_from_beatport(client, db, test_event: Event)
 
     with (
         patch("app.api.collect.search_beatport_tracks", return_value=[mock_match]),
-        patch("app.api.collect._find_best_match", return_value=mock_match),
+        patch("app.api.collect.find_best_match", return_value=mock_match),
     ):
         r = client.post(
             f"/api/public/collect/{test_event.code}/enrich-preview",

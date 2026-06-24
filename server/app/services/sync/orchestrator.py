@@ -23,7 +23,6 @@ from app.services.intent_parser import parse_intent
 from app.services.sync.base import SyncResult, SyncStatus, TrackMatch, sanitize_sync_error
 from app.services.sync.enrichment_pipeline import (  # noqa: F401
     _extract_source_track_id,
-    _find_best_match,
     _get_isrc_from_spotify,
     enrich_request_metadata,
 )

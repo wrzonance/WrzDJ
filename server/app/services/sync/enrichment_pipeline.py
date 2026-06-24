@@ -34,15 +34,12 @@ from app.core.time import utcnow
 from app.models.request import Request, RequestStatus
 from app.services.musicbrainz import lookup_artist_genre
 from app.services.request import normalize_key
+from app.services.track_match import find_best_match
 from app.services.track_normalizer import (
-    artist_match_score,
-    fuzzy_match_score,
-    is_original_mix_name,
     is_remix_title,
     normalize_bpm_to_context,
     normalize_isrc,
     primary_artist,
-    score_track_match,
 )
 from app.services.tracks.provenance import is_cache_authoritative
 from app.services.tracks.store import TrackIdentity, get_track, upsert_track
@@ -53,124 +50,6 @@ logger = logging.getLogger(__name__)
 _SPOTIFY_URL_RE = re.compile(r"open\.spotify\.com/track/(\w+)")
 _BEATPORT_URL_RE = re.compile(r"beatport\.com/track/[^/]+/(\d+)")
 _TIDAL_URL_RE = re.compile(r"tidal\.com/(?:browse/)?track/(\d+)")
-
-
-def _find_best_match(
-    results,
-    title: str,
-    artist: str,
-    min_score: float = 0.4,
-    min_artist_score: float = 0.35,
-    prefer_original: bool = True,
-):
-    """Find the best fuzzy match from search results.
-
-    Scores each result by title (60%) + artist (40%) similarity.
-    Returns the best match above min_score, or None if no good match.
-
-    A separate min_artist_score floor prevents a perfect title match
-    from carrying a completely wrong artist (e.g., "Feel the Beat" by
-    LB aka LABAT matching a request for Darude).
-
-    When prefer_original is True, applies a small bonus (+0.1) for
-    results that look like the original version (Beatport mix_name
-    matches "Original Mix", "Extended Mix", etc.) and a penalty (-0.1)
-    for results with detected remix patterns in the title (Tidal).
-    This breaks ties between "Surrender (Original Mix)" at 132 BPM and
-    "Surrender (Hardstyle Remix)" at 165 BPM without overriding a
-    genuinely better title/artist match.
-
-    When multiple results have identical scores, a BPM consensus
-    tiebreaker (+0.01) favors the version whose BPM matches the most
-    common BPM among all results.
-    """
-    logger.info(
-        "_find_best_match: title='%s' artist='%s' prefer_original=%s (%d results)",
-        title,
-        artist,
-        prefer_original,
-        len(results),
-    )
-
-    # Compute modal BPM for consensus tiebreaker
-    bpm_counts: dict[int, int] = {}
-    for result in results:
-        bpm = getattr(result, "bpm", None)
-        if bpm:
-            rounded = round(float(bpm))
-            bpm_counts[rounded] = bpm_counts.get(rounded, 0) + 1
-    modal_bpm = max(bpm_counts, key=bpm_counts.get) if bpm_counts else None
-
-    best = None
-    best_score = 0.0
-    for i, result in enumerate(results):
-        title_score = fuzzy_match_score(title, result.title)
-        artist_score = artist_match_score(artist, result.artist)
-        if artist_score < min_artist_score:
-            logger.info(
-                "  [%d] SKIP artist_score=%.3f < %.2f | title=%s artist=%s",
-                i,
-                artist_score,
-                min_artist_score,
-                result.title,
-                result.artist,
-            )
-            continue
-        combined = score_track_match(title_score, artist_score)
-        version_adj = 0.0
-
-        if prefer_original:
-            mix_name = getattr(result, "mix_name", None)
-            if mix_name:
-                # Beatport: structured mix_name available
-                if is_original_mix_name(mix_name):
-                    version_adj = 0.1
-                    combined += 0.1
-                # Named remix/bootleg/rework in mix_name → no bonus
-            else:
-                # Tidal/other: check title for remix patterns
-                if is_remix_title(result.title):
-                    version_adj = -0.1
-                    combined -= 0.1
-
-        # BPM consensus tiebreaker: prefer modal BPM among results
-        bpm_adj = 0.0
-        result_bpm = getattr(result, "bpm", None)
-        if modal_bpm and result_bpm and round(float(result_bpm)) == modal_bpm:
-            bpm_adj = 0.01
-            combined += 0.01
-
-        logger.info(
-            "  [%d] title=%s artist=%s bpm=%s mix=%s | "
-            "title_sc=%.3f artist_sc=%.3f ver_adj=%+.02f bpm_adj=%+.003f => combined=%.4f",
-            i,
-            result.title,
-            result.artist,
-            getattr(result, "bpm", "?"),
-            getattr(result, "mix_name", None) or "-",
-            title_score,
-            artist_score,
-            version_adj,
-            bpm_adj,
-            combined,
-        )
-
-        if combined > best_score:
-            best_score = combined
-            best = result
-
-    if best and best_score >= min_score:
-        logger.info(
-            "  BEST: title=%s artist=%s bpm=%s (score=%.4f)",
-            best.title,
-            best.artist,
-            getattr(best, "bpm", "?"),
-            best_score,
-        )
-        return best
-
-    logger.info("  NO MATCH (best_score=%.4f < min=%.2f)", best_score, min_score)
-    return None
 
 
 def _extract_source_track_id(source_url: str | None) -> tuple[str | None, str | None]:
@@ -662,7 +541,7 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
                     request_id,
                 )
                 if results:
-                    best = _find_best_match(
+                    best = find_best_match(
                         results,
                         request.song_title,
                         request.artist,
@@ -701,7 +580,7 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
                     request_id,
                 )
                 if results:
-                    best = _find_best_match(
+                    best = find_best_match(
                         results,
                         request.song_title,
                         request.artist,

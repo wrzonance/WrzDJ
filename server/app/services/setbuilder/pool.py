@@ -52,11 +52,6 @@ class PoolCandidate:
     isrc: str | None = None
     duration_sec: int | None = None
     artwork_url: str | None = None
-    # The provider the candidate's metadata came from, when known ("beatport"/
-    # "tidal"). Carries provider provenance for manual search picks, whose
-    # track_id is None (the unified SearchResult schema only has spotify_id), so
-    # _candidate_source can't recover it from a track_id prefix (#554 review).
-    source_service: str | None = None
 
 
 def dedupe_signature(artist: str, title: str) -> str:
@@ -413,15 +408,22 @@ def _candidate_has_writable_fields(candidate: PoolCandidate, *, exclude: set[str
 def _candidate_source(candidate: PoolCandidate) -> str:
     """Resolve the store source name a candidate's metadata should be written under.
 
-    Prefer the explicit ``source_service`` (set for manual Beatport/Tidal picks,
-    which carry no namespaced track_id — #554 review), then fall back to the
-    ``track_id`` prefix the playlist builders still carry (``beatport:<id>`` /
-    ``tidal:<id>``). Only Beatport/Tidal are authoritative providers here; Spotify
-    (not a bpm/key source), request/manual-typed, and unprefixed metadata attribute
-    ``legacy`` (lowest precedence) and never masquerade as an authoritative
-    provider — so a later real-provider enrichment cleanly overrides them."""
-    if candidate.source_service in ("beatport", "tidal"):
-        return candidate.source_service
+    Authority comes ONLY from a server-trusted namespaced ``track_id`` prefix that
+    the connected-account playlist builders mint (``beatport:<id>`` / ``tidal:<id>``
+    — the DJ's own OAuth'd fetch, so the provenance is real). Everything else —
+    Spotify (not a bpm/key authority), event requests, and manual SEARCH PICKS —
+    attributes ``legacy`` (lowest precedence) and never masquerades as a provider.
+
+    Manual picks are deliberately ``legacy`` even when the client asserts a
+    provider: that assertion (``PoolImportManualIn.source_service``) is
+    CLIENT-SUPPLIED and unverifiable server-side (the unified search result has no
+    server-side provider id — the gap that makes verification impossible). Trusting
+    it would let any authenticated DJ POST fabricated bpm/key/genre tagged
+    "beatport" and POISON the shared, multi-tenant tracks store that other DJs
+    hydrate from. A ``legacy`` row self-heals: the next connected-DJ import runs
+    ``enrich_track`` SERVER-SIDE and upgrades it to real beatport/tidal precedence,
+    so the precedence guard cleanly overrides it. The one-time re-enrichment cost is
+    consciously accepted; security over the dedupe optimization (#554 P1)."""
     track_id = candidate.track_id or ""
     prefix = track_id.split(":", 1)[0] if ":" in track_id else ""
     if prefix in ("beatport", "tidal"):
@@ -851,17 +853,17 @@ def candidate_from_manual(
     source_service: str = "manual",
     source_track_id: str | None = None,
 ) -> PoolCandidate:
-    """Build a candidate from a manual search pick (validated at the API layer)."""
+    """Build a candidate from a manual search pick (validated at the API layer).
+
+    A real ``source_track_id`` (only present for providers that expose a usable id)
+    mints a server-trusted ``beatport:<id>``/``tidal:<id>`` track_id. A manual pick
+    that carries no such id stays ``track_id=None`` → stored as ``legacy``: the
+    client-asserted ``source_service`` alone is NOT trusted as provenance (it is
+    unverifiable and would let a client poison the shared store — see
+    ``_candidate_source``, #554 P1)."""
     track_id = None
     if source_track_id and source_service != "manual":
         track_id = f"{source_service}:{source_track_id}"
-    # Carry the provider explicitly for authoritative picks (Beatport/Tidal): the
-    # unified search result has no beatport_id/tidal_id, so source_track_id is None
-    # for them and the track_id above stays None — without this their measured
-    # bpm/key/genre would be stored as `legacy` and never reused (#554 review).
-    # Spotify (not a bpm/key authority) and hand-typed "manual" intentionally stay
-    # None → `legacy`.
-    store_source = source_service if source_service in ("beatport", "tidal") else None
     return PoolCandidate(
         track_id=track_id,
         title=title,
@@ -873,5 +875,4 @@ def candidate_from_manual(
         isrc=isrc,
         duration_sec=duration_sec,
         artwork_url=artwork_url,
-        source_service=store_source,
     )

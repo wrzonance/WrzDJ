@@ -276,10 +276,13 @@ class TestHydrateFromStore:
 
 
 class TestManualPickProvenance:
-    """#554 review (4th P2): a manual Beatport/Tidal search pick carries no
-    track_id (the unified SearchResult schema has only spotify_id), so its
-    provider-measured bpm/key/genre must still be stored at the provider's
-    authoritative precedence — via the explicit source_service — not as legacy."""
+    """#554 review (P1 security): a manual search pick's asserted provider
+    ("source_service") is CLIENT-SUPPLIED and unverifiable server-side, so its
+    bpm/key/genre must be stored as ``legacy`` (low precedence), NEVER as
+    authoritative provider data. Trusting it would let any authenticated DJ poison
+    the shared, multi-tenant tracks store with fabricated provider-grade values
+    other DJs then hydrate. A ``legacy`` row self-heals: the next connected-DJ
+    import runs ``enrich_track`` server-side and upgrades it to real precedence."""
 
     def _no_enrich(self, monkeypatch):
         def _boom(*a, **k):  # pragma: no cover
@@ -287,12 +290,10 @@ class TestManualPickProvenance:
 
         monkeypatch.setattr(pool, "enrich_track", _boom)
 
-    def test_manual_beatport_pick_stores_authoritative_and_is_reused(
-        self, db, dj_user, monkeypatch
-    ):
+    def test_manual_beatport_pick_stays_legacy(self, db, dj_user, monkeypatch):
         self._no_enrich(monkeypatch)
-
-        # Manual Beatport pick: real source_service, NO track_id (FE has no id).
+        # Client claims source_service="beatport", but the server cannot verify it
+        # → stored as legacy, never authoritative (anti-poisoning).
         pick = pool.candidate_from_manual(
             title="Strobe",
             artist="deadmau5",
@@ -303,24 +304,15 @@ class TestManualPickProvenance:
             source_service="beatport",
             source_track_id=None,
         )
-        assert pick.track_id is None  # the bug's precondition
+        assert pick.track_id is None
         hydrate_candidates_from_store(db, [pick], user=dj_user)
 
-        sig = dedupe_signature("deadmau5", "Strobe")
-        row = get_track(db, signature=sig)
+        row = get_track(db, signature=dedupe_signature("deadmau5", "Strobe"))
         assert row is not None
-        # Stored at beatport precedence (authoritative ≥50), NOT legacy.
-        assert row.provenance["bpm"]["source"] == "beatport"
-        assert row.provenance["genre"]["source"] == "beatport"
+        assert row.provenance["bpm"]["source"] == "legacy"
+        assert row.provenance["genre"]["source"] == "legacy"
 
-        # A later import of the same recording hydrates from the row — cache hit,
-        # zero provider calls (the dedupe win that was previously lost).
-        c2 = pool.PoolCandidate(title="Strobe", artist="deadmau5")
-        out = hydrate_candidates_from_store(db, [c2], user=dj_user)
-        assert out[0].bpm == 128.0
-        assert out[0].genre == "Progressive House"
-
-    def test_manual_tidal_pick_stores_authoritative(self, db, dj_user, monkeypatch):
+    def test_manual_tidal_pick_stays_legacy(self, db, dj_user, monkeypatch):
         self._no_enrich(monkeypatch)
         pick = pool.candidate_from_manual(
             title="Innerbloom",
@@ -335,11 +327,10 @@ class TestManualPickProvenance:
         hydrate_candidates_from_store(db, [pick], user=dj_user)
         row = get_track(db, signature=dedupe_signature("Rufus Du Sol", "Innerbloom"))
         assert row is not None
-        assert row.provenance["bpm"]["source"] == "tidal"
+        assert row.provenance["bpm"]["source"] == "legacy"
 
     def test_manual_spotify_pick_stays_legacy(self, db, dj_user, monkeypatch):
         self._no_enrich(monkeypatch)
-        # Spotify isn't an authoritative bpm/key source — must stay legacy.
         pick = pool.candidate_from_manual(
             title="Get Lucky",
             artist="Daft Punk",
@@ -357,8 +348,6 @@ class TestManualPickProvenance:
 
     def test_typed_manual_pick_stays_legacy(self, db, dj_user, monkeypatch):
         self._no_enrich(monkeypatch)
-        # Hand-typed metadata (source_service defaults to "manual") must not claim
-        # provider precedence — it stays legacy.
         pick = pool.candidate_from_manual(
             title="Untitled Demo",
             artist="Local Artist",
@@ -370,3 +359,43 @@ class TestManualPickProvenance:
         row = get_track(db, signature=dedupe_signature("Local Artist", "Untitled Demo"))
         assert row is not None
         assert row.provenance["bpm"]["source"] == "legacy"
+
+    def test_legacy_manual_row_self_heals_via_server_side_enrich(self, db, dj_user, monkeypatch):
+        """The accepted trade-off: a manual pick lands as legacy, but a later import
+        whose candidate carries NO metadata runs the SERVER-SIDE provider cascade,
+        whose authoritative result upgrades the row (precedence guard lets a real
+        provider overwrite legacy)."""
+        # First: a manual pick seeds the row at legacy.
+        pick = pool.candidate_from_manual(
+            title="Opus",
+            artist="Eric Prydz",
+            bpm=99.0,  # deliberately wrong/typed value
+            key="1A",
+            genre="House",
+            source_service="beatport",
+        )
+        hydrate_candidates_from_store(db, [pick], user=None)
+        sig = dedupe_signature("Eric Prydz", "Opus")
+        row = get_track(db, signature=sig)
+        assert row.provenance["bpm"]["source"] == "legacy"
+
+        # Later: a metadata-less candidate triggers the server-side cascade, whose
+        # authoritative beatport result upgrades the row.
+        def _fake_enrich(db_, user_, title, artist):
+            return TrackProfile(
+                title=title,
+                artist=artist,
+                bpm=126.0,
+                key="4A",
+                genre="Progressive House",
+                duration_seconds=540,
+                source="beatport",
+            )
+
+        monkeypatch.setattr(pool, "enrich_track", _fake_enrich)
+        hydrate_candidates_from_store(
+            db, [pool.PoolCandidate(title="Opus", artist="Eric Prydz")], user=dj_user
+        )
+        db.refresh(row)
+        assert row.bpm == 126.0
+        assert row.provenance["bpm"]["source"] == "beatport"

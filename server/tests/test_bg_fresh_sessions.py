@@ -16,6 +16,7 @@ import pytest
 import app.api.collect as collect_module
 import app.api.events as events_module
 import app.api.requests as requests_module
+import app.services.sync.orchestrator as orchestrator_module
 from app.models.request import Request as SongRequest
 from app.models.request import RequestStatus
 
@@ -55,7 +56,7 @@ def _patch_session_local(monkeypatch, module, spy: _SpySession) -> None:
 def test_enrich_helper_closes_session_on_success(monkeypatch):
     spy = _SpySession()
     _patch_session_local(monkeypatch, events_module, spy)
-    monkeypatch.setattr(events_module, "enrich_request_metadata", lambda db, rid: None)
+    monkeypatch.setattr(orchestrator_module, "enrich_request_metadata", lambda db, rid: None)
 
     events_module._enrich_with_fresh_session(123)
 
@@ -69,7 +70,7 @@ def test_enrich_helper_closes_session_on_exception(monkeypatch):
     def boom(db, rid):
         raise RuntimeError("enrich failed")
 
-    monkeypatch.setattr(events_module, "enrich_request_metadata", boom)
+    monkeypatch.setattr(orchestrator_module, "enrich_request_metadata", boom)
 
     # Assert the error actually propagates — the helper must NOT swallow it — so
     # the regression also guards against a future try/except hiding failures.
@@ -168,7 +169,7 @@ def test_remove_collection_tracks_helper_passes_ids_and_closes(monkeypatch):
 def test_requests_enrich_helper_closes_session(monkeypatch):
     spy = _SpySession()
     _patch_session_local(monkeypatch, requests_module, spy)
-    monkeypatch.setattr(requests_module, "enrich_request_metadata", lambda db, rid: None)
+    monkeypatch.setattr(orchestrator_module, "enrich_request_metadata", lambda db, rid: None)
 
     requests_module._enrich_with_fresh_session(5)
 
@@ -246,7 +247,7 @@ def test_remove_collection_track_helper_requeries_and_closes(monkeypatch):
 def test_collect_enrich_helper_closes_session(monkeypatch):
     spy = _SpySession()
     _patch_session_local(monkeypatch, collect_module, spy)
-    monkeypatch.setattr(collect_module, "enrich_request_metadata", lambda db, rid: None)
+    monkeypatch.setattr(orchestrator_module, "enrich_request_metadata", lambda db, rid: None)
 
     collect_module._enrich_with_fresh_session(9)
 
@@ -422,3 +423,62 @@ def test_submit_request_schedules_fresh_session_not_db(
     assert len(enrich_tasks) == 1, "submit must schedule exactly one fresh-session enrich task"
     args = enrich_tasks[0][1]
     assert len(args) == 1 and isinstance(args[0], int)  # a single int request ID
+
+
+def test_refresh_metadata_schedules_fresh_session(
+    client, db, auth_headers, test_event, monkeypatch
+):
+    """POST /requests/{id}/refresh-metadata re-enriches via the one shared
+    fresh-session helper (the same object all routers import) — by int ID."""
+    row = SongRequest(
+        event_id=test_event.id,
+        song_title="Refresh Me",
+        artist="DJ R",
+        source="spotify",
+        status=RequestStatus.NEW.value,
+        dedupe_key="refresh-me",
+        genre="house",
+        bpm=120.0,
+        musical_key="8A",
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    scheduled = _record_scheduled_tasks(monkeypatch)
+    resp = client.post(f"/api/requests/{row.id}/refresh-metadata", headers=auth_headers)
+    assert resp.status_code == 200, resp.text
+
+    enrich_tasks = [s for s in scheduled if s[0] is requests_module._enrich_with_fresh_session]
+    assert len(enrich_tasks) == 1
+    _assert_no_orm_or_session(enrich_tasks[0][1], enrich_tasks[0][2])
+    assert enrich_tasks[0][1] == (row.id,)
+
+
+def test_enrich_all_schedules_fresh_session_per_incomplete(
+    client, db, auth_headers, test_event, monkeypatch
+):
+    """POST /events/{code}/enrich-all schedules one fresh-session enrich per
+    incomplete request — all via the shared helper, by int ID."""
+    for i in range(3):
+        db.add(
+            SongRequest(
+                event_id=test_event.id,
+                song_title=f"Inc {i}",
+                artist=f"A{i}",
+                source="spotify",
+                status=RequestStatus.NEW.value,
+                dedupe_key=f"inc-{i}",
+            )
+        )
+    db.commit()
+
+    scheduled = _record_scheduled_tasks(monkeypatch)
+    resp = client.post(f"/api/events/{test_event.code}/enrich-all", headers=auth_headers)
+    assert resp.status_code == 200, resp.text
+
+    enrich_tasks = [s for s in scheduled if s[0] is events_module._enrich_with_fresh_session]
+    assert len(enrich_tasks) == 3, "one fresh-session enrich task per incomplete request"
+    for _func, args, kwargs in enrich_tasks:
+        _assert_no_orm_or_session(args, kwargs)
+        assert len(args) == 1 and isinstance(args[0], int)

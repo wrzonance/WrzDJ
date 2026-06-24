@@ -842,3 +842,41 @@ def test_cache_hit_applies_bpm_context_correction(db: Session, bp_user: User, mo
     assert request.bpm == 132.0
     # The canonical store value is unchanged — correction is per-event, request-only.
     assert get_track(db, signature=sig).bpm == 66.0
+
+
+def test_miss_path_stores_canonical_bpm_not_event_corrected(
+    db: Session, bp_user: User, monkeypatch
+):
+    """REGRESSION (Codex #550 P2): on the miss path the global store keeps the
+    CANONICAL provider BPM, never the event-context-corrected value. The Request
+    gets the corrected value (for this event); the tracks row keeps the provider
+    value so OTHER events re-derive their own per-event correction from it."""
+    from app.schemas.beatport import BeatportSearchResult
+
+    event = _make_event(db, bp_user, "CANBPM", "CANBPW")
+    # >=3 ACCEPTED tracks at ~130 BPM → a provider 66 BPM double-corrects to 132.
+    _make_request(db, event, "C1", "A1", "cbpm1", bpm=130.0)
+    _make_request(db, event, "C2", "A2", "cbpm2", bpm=130.0)
+    _make_request(db, event, "C3", "A3", "cbpm3", bpm=130.0)
+    request = _make_request(db, event, "Strobe", "deadmau5", "canbpm_req")  # incomplete
+
+    hit = BeatportSearchResult(
+        track_id="9",
+        title="Strobe",
+        artist="deadmau5",
+        genre="Progressive House",
+        bpm=66,
+        key="F Minor",
+    )
+    monkeypatch.setattr("app.services.beatport.search_beatport_tracks", _Spy([hit]))
+    monkeypatch.setattr("app.services.sync.enrichment_pipeline.lookup_artist_genre", _Spy(None))
+    monkeypatch.setattr("app.services.tidal.search_tidal_tracks", _Spy([]))
+
+    enrich_request_metadata(db, request.id)
+
+    db.refresh(request)
+    assert request.bpm == 132.0  # event-corrected on the Request
+    track = get_track(db, signature=dedupe_signature("deadmau5", "Strobe"))
+    assert track is not None
+    assert track.bpm == 66.0  # CANONICAL provider value in the store, NOT 132
+    assert track.provenance["bpm"]["source"] == "beatport"

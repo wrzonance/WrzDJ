@@ -110,7 +110,7 @@ from app.services.request_sort import (
     get_sorted_requests,
     status_counts,
 )
-from app.services.sync.orchestrator import enrich_request_metadata, sync_requests_batch
+from app.services.sync.orchestrator import _enrich_with_fresh_session, sync_requests_batch
 from app.services.sync.registry import get_connected_adapters
 from app.services.tidal import (
     remove_collection_tracks_batch,
@@ -1288,22 +1288,6 @@ def bulk_review(
 
 
 ENRICH_ALL_BATCH_LIMIT = 25
-
-
-def _enrich_with_fresh_session(request_id: int) -> None:
-    """Run enrichment in its own DB session.
-
-    The request-scoped `db` from `get_db` stays open until all background tasks finish — for a
-    large batch this exhausts the SQLAlchemy connection pool. A fresh `SessionLocal()` per task
-    releases its connection as soon as the task ends.
-    """
-    from app.db.session import SessionLocal
-
-    session = SessionLocal()
-    try:
-        enrich_request_metadata(session, request_id)
-    finally:
-        session.close()
 
 
 def _sync_requests_with_fresh_session(request_ids: list[int]) -> None:

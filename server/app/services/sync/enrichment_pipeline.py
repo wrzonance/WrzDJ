@@ -1,11 +1,24 @@
-"""Enrichment pipeline — fills missing genre/BPM/key on requests.
+"""Enrichment pipeline — resolves song metadata and writes the master track store.
 
-Sources (in priority order):
+`enrich_request_metadata` is the single abstracted enrichment entry point for every
+request-queue surface (guest submit / collect / kiosk / DJ add / bulk / refresh).
+It both fills missing genre/BPM/key on the Request (for the existing UI) AND, since
+#541, CACHE-ASIDE dual-writes a master `tracks` row (the single source of truth for
+song data) so each unique recording is enriched once and reused across events.
+
+Provider cascade (only for fields still missing):
 0. Direct fetch via source_url (Beatport/Tidal URL → exact track)
-0b. ISRC matching (Spotify URL → ISRC → exact Tidal match)
+0b. Spotify URL → ISRC (feeds the optional Tidal exact-match + the Soundcharts lookup)
 1. MusicBrainz artist lookup (genre — artist-level, 1 req/sec rate limit)
 2. Beatport search (BPM + key, backfill genre if MusicBrainz missed)
 3. Tidal search (BPM + key backup when Beatport unavailable)
+4. BPM context-correction (per-event; request-only, never written to the store)
+5. Soundcharts audio-features (energy/danceability/… — gated, dark by default)
+
+Store write (#541): the master `tracks` row is keyed by ISRC → dedupe_signature,
+written with per-field provenance under a precedence ladder; a trusted complete row
+short-circuits the whole cascade (the dedupe win). See app/services/tracks/. The
+WrzDJSet pool's own master-store write is deferred to #542.
 """
 
 from __future__ import annotations
@@ -417,18 +430,16 @@ def _apply_bpm_context_correction(db: Session, request: Request) -> float | None
 
 
 def enrich_request_metadata(db: Session, request_id: int) -> None:
-    """Background task: fill missing genre/BPM/key on a request.
+    """Background task: resolve a request's metadata and dual-write the master store.
 
-    Sources (in priority order):
-    0. Direct fetch via source_url (Beatport/Tidal URL → exact track)
-    0b. ISRC matching (Spotify URL → ISRC → exact Tidal match)
-    1. MusicBrainz artist lookup (genre — artist-level, 1 req/sec rate limit)
-    2. Beatport search (BPM + key, backfill genre if MusicBrainz missed)
-    3. Tidal search (BPM + key backup when Beatport unavailable)
-
-    Only queries sources for missing fields. Skips if all fields present.
-    Results are fuzzy-matched against the request to avoid enriching
-    with metadata from a wrong track.
+    Fills missing genre/BPM/key on the Request (existing UI) AND writes a master
+    `tracks` row cache-aside (#541): a trusted complete store row is reused with zero
+    provider calls; otherwise the provider cascade runs (module docstring) and the
+    resolved fields are upserted with per-field provenance. An already-complete
+    Request still SEEDS the store (so search-result submissions populate it too).
+    Results are fuzzy-matched against the request to avoid enriching from a wrong
+    track. Best-effort: a store-write failure never regresses the Request's own
+    commit. The module-level docstring documents the full cascade + store semantics.
     """
     # Re-fetch request in this background task's context
     request = db.query(Request).filter(Request.id == request_id).first()
@@ -694,11 +705,11 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
 
     # 4. BPM context correction: detect half-time/double-time from other event
     # tracks (shared with the cache-hit path via _apply_bpm_context_correction).
-    corrected = _apply_bpm_context_correction(db, request)
-    if corrected is not None and "bpm" in resolved:
-        # Keep the store in sync with the context-corrected value, preserving the
-        # original provider source (the correction is a refinement of it).
-        resolved["bpm"] = (corrected, resolved["bpm"][1])
+    # This mutates ONLY request.bpm — the event-specific corrected value must NOT
+    # be written to the global store. The store keeps the canonical provider BPM
+    # (resolved["bpm"]) so future cache hits at other events re-derive their own
+    # per-event correction from it, instead of inheriting this event's tempo (#541).
+    _apply_bpm_context_correction(db, request)
 
     # 5. Soundcharts audio features (energy/danceability/…) — gated, dark by
     # default. Only when the flag is on, an ISRC is in hand, and the store row

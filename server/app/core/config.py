@@ -124,6 +124,10 @@ class Settings(BaseSettings):
     # Soundcharts API (song discovery for recommendations)
     soundcharts_app_id: str = ""
     soundcharts_api_key: str = ""
+    # Audio-features enrichment (#544) — DARK BY DEFAULT. Keeps the discovery
+    # key usable in prod while energy/danceability/valence lookup stays off
+    # until a paid tier + caching/redistribution licensing are validated.
+    soundcharts_audio_features_enabled: bool = False
 
     # ListenBrainz API (artist discovery for recommendations)
     listenbrainz_user_token: str = ""

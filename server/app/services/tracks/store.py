@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.track import Track
@@ -103,14 +104,7 @@ def upsert_track(
     # ISRC match is authoritative; signature is only a fallback.
     track = get_track(db, isrc=norm_isrc, signature=identity.signature)
     if track is None:
-        track = Track(
-            signature=identity.signature,
-            title=identity.title,
-            artist=identity.artist,
-            isrc=norm_isrc,
-            soundcharts_uuid=identity.soundcharts_uuid,
-        )
-        db.add(track)
+        track = _insert_identity_reconciling(db, identity=identity, norm_isrc=norm_isrc)
 
     # Backfill ISRC onto signature-matched row if it was previously missing
     if norm_isrc and not track.isrc:
@@ -128,10 +122,48 @@ def upsert_track(
                 mode="json"
             )
     track.provenance = prov
-    # NOTE (#540): a concurrent upsert of the same new ISRC/signature can lose the
-    # unique-constraint race at this flush and raise IntegrityError. upsert_track has
-    # no concurrent caller in this foundation PR; the IntegrityError re-read-and-merge
-    # reconciliation (spec §5) lands in PR2 (#541) alongside its first concurrent
-    # enrichment callers, where it can be integration-tested.
     db.flush()
     return track
+
+
+def _insert_identity_reconciling(
+    db: Session, *, identity: TrackIdentity, norm_isrc: str | None
+) -> Track:
+    """Insert a new row with only its identity columns, tolerating a lost race.
+
+    Two callers can both miss in get_track and both try to create the same new
+    ISRC/signature. The first INSERT wins; the second hits uq_tracks_isrc /
+    uq_tracks_signature. We materialize ONLY the bare identity INSERT inside a
+    SAVEPOINT so an IntegrityError rolls back just that INSERT (not the caller's
+    outer work). On conflict we re-read the row the winner committed and return
+    it for the precedence-guarded value merge — net result one row, no lost
+    writes (spec §5).
+
+    Empirical note (#540): in this codebase Session.begin_nested() flushes
+    pending objects while taking its snapshot, so db.add() MUST happen INSIDE the
+    savepoint — otherwise the INSERT fires during begin_nested() and the
+    IntegrityError escapes the try. After sp.rollback() the conflicting pending
+    Track is already evicted from the session (no db.expunge() needed).
+    """
+    sp = db.begin_nested()
+    try:
+        track = Track(
+            signature=identity.signature,
+            title=identity.title,
+            artist=identity.artist,
+            isrc=norm_isrc,
+            soundcharts_uuid=identity.soundcharts_uuid,
+        )
+        db.add(track)
+        db.flush()
+        sp.commit()
+        return track
+    except IntegrityError:
+        sp.rollback()
+        # A concurrent caller inserted the same identity first — reconcile by
+        # re-reading the now-existing row and merging onto it.
+        existing = get_track(db, isrc=norm_isrc, signature=identity.signature)
+        if existing is None:
+            # Genuinely unreconcilable unique violation — do not swallow it.
+            raise
+        return existing

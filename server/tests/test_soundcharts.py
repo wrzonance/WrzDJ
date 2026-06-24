@@ -2,13 +2,55 @@
 
 from unittest.mock import MagicMock, patch
 
+import httpx
+
 from app.services.soundcharts import (
+    SoundchartsAudioFeatures,
     SoundchartsTrack,
     _build_request_body,
+    _normalize_energy_0_10,
     discover_songs,
+    get_song_features_by_isrc,
     key_to_soundcharts_filter,
     pitch_class_to_key_string,
 )
+
+
+def _mock_get_response(payload: dict) -> MagicMock:
+    """Build a mock httpx GET response whose .json() returns ``payload``."""
+    resp = MagicMock()
+    resp.json.return_value = payload
+    resp.raise_for_status = MagicMock()
+    return resp
+
+
+# A trimmed copy of the real GET /api/v2.25/song/{uuid} payload for "bad guy".
+_FULL_SONG_OBJECT = {
+    "uuid": "7d534228-5165-11e9-9375-549f35161576",
+    "name": "bad guy",
+    "isrc": {"value": "USUM71900764", "countryCode": "US"},
+    "duration": 194,
+    "explicit": False,
+    "genres": [
+        {"root": "alternative", "sub": ["alternative"]},
+        {"root": "electro", "sub": ["electronic", "dance"]},
+        {"root": "rock", "sub": ["rock"]},
+    ],
+    "audio": {
+        "acousticness": 0.33,
+        "danceability": 0.7,
+        "energy": 0.43,
+        "instrumentalness": 0.13,
+        "key": 7,
+        "liveness": 0.1,
+        "loudness": -10.97,
+        "mode": 1,
+        "speechiness": 0.38,
+        "tempo": 135.13,
+        "timeSignature": 4,
+        "valence": 0.56,
+    },
+}
 
 
 class TestKeyToSoundchartsFilter:
@@ -129,6 +171,171 @@ class TestBuildRequestBody:
         body = _build_request_body(genres=["Rock"])
         assert body["sort"]["platform"] == "spotify"
         assert body["sort"]["order"] == "desc"
+
+
+class TestNormalizeEnergy:
+    """Soundcharts returns energy on 0.0–1.0; WrzDJ stores energy as a 0–10 int."""
+
+    def test_midrange_value(self):
+        # "bad guy" energy 0.43 → 4 (standard rounding of 4.3)
+        assert _normalize_energy_0_10(0.43) == 4
+
+    def test_rounds_half_up(self):
+        assert _normalize_energy_0_10(0.55) == 6
+        assert _normalize_energy_0_10(0.45) == 5
+
+    def test_bounds(self):
+        assert _normalize_energy_0_10(0.0) == 0
+        assert _normalize_energy_0_10(1.0) == 10
+
+    def test_none_passthrough(self):
+        assert _normalize_energy_0_10(None) is None
+
+    def test_clamps_out_of_range(self):
+        # Defensive: a provider value outside [0,1] must still land in [0,10].
+        assert _normalize_energy_0_10(1.5) == 10
+        assert _normalize_energy_0_10(-0.2) == 0
+
+
+class TestGetSongFeaturesByIsrc:
+    """Audio-features lookup by ISRC — primary energy source for #544.
+
+    Dark by default: gated on a dedicated SOUNDCHARTS_AUDIO_FEATURES_ENABLED
+    flag *and* credentials, so production keeps its Soundcharts discovery key
+    while audio-features stays off until licensing is validated.
+    """
+
+    def _settings(self, *, enabled=True, app_id="test-id", api_key="test-key"):
+        return MagicMock(
+            soundcharts_audio_features_enabled=enabled,
+            soundcharts_app_id=app_id,
+            soundcharts_api_key=api_key,
+        )
+
+    @patch("app.services.soundcharts.httpx.get")
+    @patch("app.services.soundcharts.get_settings")
+    def test_disabled_returns_none_without_calling_api(self, mock_settings, mock_get):
+        mock_settings.return_value = self._settings(enabled=False)
+        assert get_song_features_by_isrc("USUM71900764") is None
+        mock_get.assert_not_called()
+
+    @patch("app.services.soundcharts.httpx.get")
+    @patch("app.services.soundcharts.get_settings")
+    def test_not_configured_returns_none(self, mock_settings, mock_get):
+        mock_settings.return_value = self._settings(app_id="", api_key="")
+        assert get_song_features_by_isrc("USUM71900764") is None
+        mock_get.assert_not_called()
+
+    @patch("app.services.soundcharts.httpx.get")
+    @patch("app.services.soundcharts.get_settings")
+    def test_two_call_resolve_returns_normalized_features(self, mock_settings, mock_get):
+        mock_settings.return_value = self._settings()
+        # by-isrc returns identity (no audio) → second call fetches full metadata.
+        mock_get.side_effect = [
+            _mock_get_response({"object": {"uuid": "7d534228-5165-11e9-9375-549f35161576"}}),
+            _mock_get_response({"object": _FULL_SONG_OBJECT}),
+        ]
+
+        result = get_song_features_by_isrc("USUM71900764")
+
+        assert result == SoundchartsAudioFeatures(
+            isrc="USUM71900764",
+            soundcharts_uuid="7d534228-5165-11e9-9375-549f35161576",
+            energy=4,  # 0.43 → 4 on the 0–10 scale
+            danceability=0.7,
+            valence=0.56,
+            acousticness=0.33,
+            instrumentalness=0.13,
+            speechiness=0.38,
+            liveness=0.1,
+            loudness_db=-10.97,
+            tempo_bpm=135.13,
+            key=7,
+            mode=1,
+            time_signature=4,
+            explicit=False,
+            duration_sec=194,
+            genres=("alternative", "electronic", "dance", "rock"),
+        )
+        assert mock_get.call_count == 2
+
+    @patch("app.services.soundcharts.httpx.get")
+    @patch("app.services.soundcharts.get_settings")
+    def test_single_call_when_by_isrc_includes_audio(self, mock_settings, mock_get):
+        """Quota-saver: if by-isrc already carries the audio block, skip call 2."""
+        mock_settings.return_value = self._settings()
+        mock_get.return_value = _mock_get_response({"object": _FULL_SONG_OBJECT})
+
+        result = get_song_features_by_isrc("USUM71900764")
+
+        assert result is not None
+        assert result.energy == 4
+        assert mock_get.call_count == 1
+
+    @patch("app.services.soundcharts.httpx.get")
+    @patch("app.services.soundcharts.get_settings")
+    def test_invalid_json_payload_returns_none(self, mock_settings, mock_get):
+        """A non-JSON payload (HTML error page, truncated body) degrades to a
+        miss instead of raising and breaking the best-effort enrichment flow."""
+        mock_settings.return_value = self._settings()
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json.side_effect = ValueError("Expecting value: line 1 column 1 (char 0)")
+        mock_get.return_value = resp
+
+        assert get_song_features_by_isrc("USUM71900764") is None
+        assert mock_get.call_count == 1
+
+    @patch("app.services.soundcharts.httpx.get")
+    @patch("app.services.soundcharts.get_settings")
+    def test_isrc_normalized_before_request(self, mock_settings, mock_get):
+        mock_settings.return_value = self._settings()
+        mock_get.return_value = _mock_get_response({"object": _FULL_SONG_OBJECT})
+
+        get_song_features_by_isrc("usum7-1900764")
+
+        first_url = mock_get.call_args_list[0][0][0]
+        assert first_url.endswith("/song/by-isrc/USUM71900764")
+
+    @patch("app.services.soundcharts.httpx.get")
+    @patch("app.services.soundcharts.get_settings")
+    def test_isrc_not_found_returns_none(self, mock_settings, mock_get):
+        mock_settings.return_value = self._settings()
+        mock_get.return_value = _mock_get_response({"object": None, "errors": ["not found"]})
+        assert get_song_features_by_isrc("USUM71900764") is None
+
+    @patch("app.services.soundcharts.httpx.get")
+    @patch("app.services.soundcharts.get_settings")
+    def test_api_error_returns_none(self, mock_settings, mock_get):
+        mock_settings.return_value = self._settings()
+        mock_get.side_effect = httpx.ConnectError("Connection refused")
+        assert get_song_features_by_isrc("USUM71900764") is None
+
+    @patch("app.services.soundcharts.httpx.get")
+    @patch("app.services.soundcharts.get_settings")
+    def test_missing_audio_returns_record_with_none_energy(self, mock_settings, mock_get):
+        """A song with no audio analysis still yields metadata; energy is None."""
+        mock_settings.return_value = self._settings()
+        no_audio = {
+            "uuid": "u-1",
+            "isrc": {"value": "USUM71900764"},
+            "duration": 200,
+            "explicit": True,
+            "genres": [{"root": "pop", "sub": ["pop"]}],
+        }
+        mock_get.side_effect = [
+            _mock_get_response({"object": {"uuid": "u-1"}}),
+            _mock_get_response({"object": no_audio}),
+        ]
+
+        result = get_song_features_by_isrc("USUM71900764")
+
+        assert result is not None
+        assert result.energy is None
+        assert result.danceability is None
+        assert result.explicit is True
+        assert result.duration_sec == 200
+        assert result.genres == ("pop",)
 
 
 class TestDiscoverSongs:

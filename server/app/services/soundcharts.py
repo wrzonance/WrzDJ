@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://customer.api.soundcharts.com"
 REQUEST_TIMEOUT = 15
 
+# Song endpoints (audio features, ISRC lookup) live under the v2.25 API.
+SONG_API_BASE = f"{BASE_URL}/api/v2.25/song"
+
 
 # Camelot position → (pitch_class 0-11, mode 0=minor/1=major)
 # Derived from _KEY_DEFINITIONS in camelot.py
@@ -66,6 +69,36 @@ class SoundchartsTrack:
     soundcharts_uuid: str
 
 
+@dataclass(frozen=True)
+class SoundchartsAudioFeatures:
+    """Audio features for one track, resolved by ISRC (#544).
+
+    ``energy`` is normalized to WrzDJ's 0–10 integer scale; the remaining
+    perceptual features keep Soundcharts' native 0.0–1.0 floats. ``key`` is a
+    pitch class (-1 unknown, 0–11), ``mode`` is 0 minor / 1 major. ``genres``
+    is a flattened, de-duplicated tuple of the sub-genre strings. Any field is
+    ``None`` when the provider did not supply it (e.g. no audio analysis).
+    """
+
+    isrc: str
+    soundcharts_uuid: str
+    energy: int | None
+    danceability: float | None
+    valence: float | None
+    acousticness: float | None
+    instrumentalness: float | None
+    speechiness: float | None
+    liveness: float | None
+    loudness_db: float | None
+    tempo_bpm: float | None
+    key: int | None
+    mode: int | None
+    time_signature: int | None
+    explicit: bool | None
+    duration_sec: int | None
+    genres: tuple[str, ...]
+
+
 def key_to_soundcharts_filter(key_str: str) -> tuple[int, int] | None:
     """Convert a key string to Soundcharts (pitch_class, mode) filter values.
 
@@ -82,6 +115,19 @@ def pitch_class_to_key_string(pitch_class: int, mode: int) -> str:
     note = _NOTE_NAMES[pitch_class % 12]
     quality = "Major" if mode == 1 else "Minor"
     return f"{note} {quality}"
+
+
+def _normalize_energy_0_10(value: float | None) -> int | None:
+    """Convert a Soundcharts 0.0–1.0 energy value to WrzDJ's 0–10 integer scale.
+
+    Returns None when no value is available. Uses standard rounding (not
+    Python's banker's ``round``) and clamps defensively to [0, 10] so a
+    provider value outside the documented range can never escape the scale.
+    """
+    if value is None:
+        return None
+    scaled = int(value * 10 + 0.5)
+    return max(0, min(10, scaled))
 
 
 def _build_request_body(
@@ -210,3 +256,104 @@ def discover_songs(
         keys,
     )
     return tracks
+
+
+def _normalize_isrc(isrc: str | None) -> str | None:
+    """Uppercase, trim, and strip hyphens so the ISRC matches Soundcharts' key."""
+    if not isrc:
+        return None
+    cleaned = isrc.strip().upper().replace("-", "")
+    return cleaned or None
+
+
+def _flatten_genres(genres: list | None) -> tuple[str, ...]:
+    """Flatten Soundcharts' [{root, sub:[...]}] genre list to ordered unique subs."""
+    out: list[str] = []
+    for entry in genres or []:
+        for sub in entry.get("sub", []) or []:
+            if sub and sub not in out:
+                out.append(sub)
+    return tuple(out)
+
+
+def _fetch_song_object(url: str, settings) -> dict | None:
+    """GET a Soundcharts song endpoint and return its ``object`` dict (or None)."""
+    try:
+        response = httpx.get(
+            url,
+            headers={
+                "x-app-id": settings.soundcharts_app_id,
+                "x-api-key": settings.soundcharts_api_key,
+            },
+            timeout=REQUEST_TIMEOUT,
+        )
+        response.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        logger.warning(
+            "Soundcharts song API error %s: %s", e.response.status_code, e.response.text[:200]
+        )
+        return None
+    except httpx.HTTPError as e:
+        logger.warning("Soundcharts song request failed: %s", e)
+        return None
+
+    obj = response.json().get("object")
+    if isinstance(obj, list):
+        obj = obj[0] if obj else None
+    return obj if isinstance(obj, dict) else None
+
+
+def _parse_song_features(obj: dict, isrc: str) -> SoundchartsAudioFeatures:
+    """Build an audio-features record from a Soundcharts song object."""
+    audio = obj.get("audio") or {}
+    return SoundchartsAudioFeatures(
+        isrc=isrc,
+        soundcharts_uuid=obj.get("uuid", ""),
+        energy=_normalize_energy_0_10(audio.get("energy")),
+        danceability=audio.get("danceability"),
+        valence=audio.get("valence"),
+        acousticness=audio.get("acousticness"),
+        instrumentalness=audio.get("instrumentalness"),
+        speechiness=audio.get("speechiness"),
+        liveness=audio.get("liveness"),
+        loudness_db=audio.get("loudness"),
+        tempo_bpm=audio.get("tempo"),
+        key=audio.get("key"),
+        mode=audio.get("mode"),
+        time_signature=audio.get("timeSignature"),
+        explicit=obj.get("explicit"),
+        duration_sec=obj.get("duration"),
+        genres=_flatten_genres(obj.get("genres")),
+    )
+
+
+def get_song_features_by_isrc(isrc: str) -> SoundchartsAudioFeatures | None:
+    """Resolve a track's audio features (energy/danceability/valence/…) by ISRC.
+
+    Dark by default: returns None unless ``soundcharts_audio_features_enabled``
+    is set AND credentials are configured. Resolves ISRC → song UUID → metadata
+    (two calls), but skips the second call when the ISRC lookup already carries
+    the audio block. Returns None on miss or API failure.
+    """
+    settings = get_settings()
+    if not settings.soundcharts_audio_features_enabled:
+        logger.debug("Soundcharts audio-features disabled, skipping lookup")
+        return None
+    if not settings.soundcharts_app_id or not settings.soundcharts_api_key:
+        logger.debug("Soundcharts not configured, skipping audio-features lookup")
+        return None
+
+    normalized = _normalize_isrc(isrc)
+    if not normalized:
+        return None
+
+    obj = _fetch_song_object(f"{SONG_API_BASE}/by-isrc/{normalized}", settings)
+    if not obj or not obj.get("uuid"):
+        return None
+
+    if "audio" not in obj:
+        obj = _fetch_song_object(f"{SONG_API_BASE}/{obj['uuid']}", settings)
+        if not obj:
+            return None
+
+    return _parse_song_features(obj, normalized)

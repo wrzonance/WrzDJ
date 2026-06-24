@@ -524,6 +524,39 @@ class TestGetRelatedSongsByIsrc:
             SoundchartsTrack(title="Good", artist="Real Artist", soundcharts_uuid="ok")
         ]
 
+    @patch("app.services.soundcharts.httpx.get")
+    @patch("app.services.soundcharts.get_settings")
+    def test_related_http_status_error_returns_empty(self, mock_settings, mock_get):
+        """A 403 (endpoint not in plan) or other HTTP status degrades to []."""
+        mock_settings.return_value = self._settings()
+        error_resp = MagicMock()
+        error_resp.status_code = 403
+        error_resp.text = "Forbidden"
+        status_error = httpx.HTTPStatusError("403", request=MagicMock(), response=error_resp)
+        related_resp = MagicMock()
+        related_resp.raise_for_status.side_effect = status_error
+        mock_get.side_effect = [
+            _mock_get_response({"object": {"uuid": "seed-uuid"}}),
+            related_resp,
+        ]
+
+        assert get_related_songs_by_isrc("USUM71900764") == []
+
+    @patch("app.services.soundcharts.httpx.get")
+    @patch("app.services.soundcharts.get_settings")
+    def test_related_invalid_json_returns_empty(self, mock_settings, mock_get):
+        """A non-JSON related payload degrades to [] instead of raising."""
+        mock_settings.return_value = self._settings()
+        bad_resp = MagicMock()
+        bad_resp.raise_for_status = MagicMock()
+        bad_resp.json.side_effect = ValueError("Expecting value")
+        mock_get.side_effect = [
+            _mock_get_response({"object": {"uuid": "seed-uuid"}}),
+            bad_resp,
+        ]
+
+        assert get_related_songs_by_isrc("USUM71900764") == []
+
 
 class TestDiscoverSongs:
     @patch("app.services.soundcharts.get_settings")

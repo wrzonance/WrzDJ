@@ -316,7 +316,16 @@ def _hydrate_one(
 
     row = get_track(db, isrc=isrc, signature=sig)
     hydrated_fields: set[str] = set()
-    if row is not None:
+    # get_track is ISRC-first then SIGNATURE-fallback, so a candidate with a valid
+    # ISRC not in the store can match a DIFFERENT recording's row (same normalized
+    # artist/title, different ISRC). Hydrating would copy the wrong recording's
+    # fields onto this candidate. Only hydrate when ISRC-compatible — mirrors the
+    # request-side guard in sync/enrichment_pipeline. An ISRC-less row (or an
+    # ISRC-less candidate) is a compatible signature hit and still hydrates; on a
+    # genuine conflict we skip hydration and let enrichment fill the candidate
+    # (upsert_track separately refuses the conflicting write, #552/#554 FIX 6).
+    isrc_compatible = isrc is None or row is None or row.isrc in (None, isrc)
+    if row is not None and isrc_compatible:
         candidate, hydrated_fields = _hydrate_authoritative_fields(candidate, row)
 
     # Populate the store from the candidate's OWN provider-grade fields that the

@@ -234,6 +234,71 @@ class TestHydrateFromStore:
         assert row.provenance["bpm"]["source"] == "beatport"
         assert row.genre == "Drum & Bass"
 
+    def test_isrc_conflict_skips_signature_fallback_hydration(self, db, monkeypatch):
+        """#554 FIX 6: get_track is ISRC-first then signature-fallback, so a candidate
+        with a valid ISRC NOT in the store can match a DIFFERENT recording's row (same
+        normalized artist/title, different ISRC). Hydrating from it would copy the
+        WRONG recording's bpm/key onto this candidate. On ISRC conflict, hydration must
+        be SKIPPED (no contamination); enrichment fills the candidate instead."""
+
+        def _boom(*a, **k):  # pragma: no cover
+            raise AssertionError("must not enrich without a connected user")
+
+        monkeypatch.setattr(pool, "enrich_track", _boom)
+
+        # A pre-existing row for a DIFFERENT recording with the same signature.
+        sig = dedupe_signature("ACDC", "Thunderstruck")
+        upsert_track(
+            db,
+            identity=TrackIdentity(
+                title="Thunderstruck",
+                artist="ACDC",
+                signature=sig,
+                isrc="GBXYZ7654321",  # the OTHER recording's ISRC
+            ),
+            values={"bpm": 134.0, "musical_key": "9A", "genre": "Rock", "duration_sec": 292},
+            sources={f: "beatport" for f in ("bpm", "musical_key", "genre", "duration_sec")},
+            fetched_at=datetime.now(UTC),
+        )
+        db.commit()
+
+        # This candidate carries a DIFFERENT valid ISRC (a distinct recording),
+        # not in the store; its signature collides with the row above.
+        candidate = pool.PoolCandidate(title="Thunderstruck", artist="ACDC", isrc="USABC1234567")
+        out = hydrate_candidates_from_store(db, [candidate], user=None)
+
+        # No contamination: the other recording's fields were NOT copied over.
+        assert out[0].bpm is None
+        assert out[0].key is None
+        assert out[0].genre is None
+
+    def test_isrcless_row_still_hydrates_on_signature_hit(self, db, monkeypatch):
+        """FIX 6 must not break the normal case: a signature-matched row with NO ISRC
+        is a compatible cache hit and still hydrates a candidate that carries an ISRC
+        (the ISRC lookup missed, so this can't be a different recording's row)."""
+
+        def _boom(*a, **k):  # pragma: no cover
+            raise AssertionError("must not enrich on a compatible signature hit")
+
+        monkeypatch.setattr(pool, "enrich_track", _boom)
+
+        sig = dedupe_signature("Moderat", "A New Error")
+        upsert_track(
+            db,
+            identity=TrackIdentity(title="A New Error", artist="Moderat", signature=sig),
+            values={"bpm": 100.0, "musical_key": "6A", "genre": "Electronica", "duration_sec": 400},
+            sources={f: "beatport" for f in ("bpm", "musical_key", "genre", "duration_sec")},
+            fetched_at=datetime.now(UTC),
+        )
+        db.commit()
+
+        candidate = pool.PoolCandidate(title="A New Error", artist="Moderat", isrc="DEABC1900001")
+        out = hydrate_candidates_from_store(db, [candidate], user=None)
+
+        assert out[0].bpm == 100.0
+        assert out[0].key == "6A"
+        assert out[0].genre == "Electronica"
+
     def test_gap_without_user_leaves_candidate_unenriched(self, db, monkeypatch):
         def _boom(*a, **k):  # pragma: no cover
             raise AssertionError("enrich_track must not run without a connected user")

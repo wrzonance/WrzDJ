@@ -299,6 +299,27 @@ class TestHydrateFromStore:
         assert out[0].key == "6A"
         assert out[0].genre == "Electronica"
 
+    def test_duration_only_candidate_is_cached(self, db, monkeypatch):
+        """#554 FIX 8: duration is a required pool→builder contract field that
+        _write_candidate_to_store persists, but the write-gate only counted
+        bpm/key/genre — so a candidate whose ONLY contributed field is duration_sec
+        (e.g. a Spotify/public-URL import) skipped the store write entirely and the
+        duration never cached. The store row must carry it for later hydration."""
+
+        def _no_provider(*a, **k):  # user=None below, but guard anyway
+            raise AssertionError("no enrich without a user")
+
+        monkeypatch.setattr(pool, "enrich_track", _no_provider)
+
+        candidate = pool.PoolCandidate(
+            title="Ambient Piece", artist="Stars of the Lid", duration_sec=480
+        )
+        hydrate_candidates_from_store(db, [candidate], user=None)
+
+        row = get_track(db, signature=dedupe_signature("Stars of the Lid", "Ambient Piece"))
+        assert row is not None
+        assert row.duration_sec == 480
+
     def test_gap_without_user_leaves_candidate_unenriched(self, db, monkeypatch):
         def _boom(*a, **k):  # pragma: no cover
             raise AssertionError("enrich_track must not run without a connected user")

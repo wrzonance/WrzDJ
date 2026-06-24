@@ -398,18 +398,23 @@ def _has_provider_gap(candidate: PoolCandidate) -> bool:
 
 
 def _candidate_has_writable_fields(candidate: PoolCandidate, *, exclude: set[str]) -> bool:
-    """True if the candidate carries at least one core provider field (bpm/key/
-    genre) worth persisting to the store that was NOT just hydrated from the row.
+    """True if the candidate carries at least one contract field (bpm/key/genre/
+    duration) worth persisting to the store that was NOT just hydrated from the row.
 
     ``exclude`` is the set of candidate-attr names filled FROM the row this pass —
     those must not be written back (no churn, no provenance downgrade, #554 FIX 3).
-    A candidate brings store-worthy data only when one of bpm/key/genre is its OWN
-    (e.g. a Beatport/Tidal playlist row, or a new field on top of a partial row)."""
+    Must list every field ``_write_candidate_to_store`` actually persists: duration
+    is a required pool→builder contract field it writes, so omitting it here skipped
+    the store write for a duration-only candidate (e.g. a Spotify/public-URL import
+    that carries duration but no bpm/key/genre) and the duration never cached
+    (#554 FIX 8). Energy is intentionally NOT a trigger on its own (it never gates a
+    build/enrich), but it still rides along when another field triggers the write."""
     return any(
         (
             candidate.bpm is not None and "bpm" not in exclude,
             bool(candidate.key) and "key" not in exclude,
             bool(candidate.genre) and "genre" not in exclude,
+            candidate.duration_sec is not None and "duration_sec" not in exclude,
         )
     )
 

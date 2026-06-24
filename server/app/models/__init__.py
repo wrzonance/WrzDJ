@@ -20,6 +20,7 @@ from app.models.set_agent import SetAgentMessage, SetAgentSession
 from app.models.set_pairing import SetPairing
 from app.models.set_pool import SetPoolSource, SetPoolTrack
 from app.models.system_settings import SystemSettings
+from app.models.track import Track
 from app.models.track_vibe import TrackVibe, TrackVibeOverride
 from app.models.user import User
 
@@ -53,6 +54,7 @@ __all__ = [
     "SetPoolTrack",
     "SetSlot",
     "SystemSettings",
+    "Track",
     "TrackVibe",
     "TrackVibeOverride",
     "User",

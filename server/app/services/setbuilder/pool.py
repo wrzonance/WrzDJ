@@ -267,6 +267,15 @@ def hydrate_candidates_from_store(
     Per-candidate failures are isolated and logged (the import must not abort
     over a best-effort store write); the candidate falls through unhydrated.
     """
+    # REST path: the caller has just flushed (not committed) its SetPoolSource row
+    # via get_or_create_source. A later per-candidate ``db.rollback()`` (commit=True
+    # recovery below) would discard that uncommitted source, leaving
+    # import_candidates to insert pool tracks against a dead source.id. Commit ONCE
+    # up front so the source is durable; per-candidate rollbacks can then only ever
+    # throw away in-flight store-write state, never the source (#554 FIX 1). The
+    # agent path (commit=False) owns its single transaction and must NOT commit here.
+    if commit:
+        db.commit()
     resolved: list[PoolCandidate] = []
     for candidate in candidates:
         try:

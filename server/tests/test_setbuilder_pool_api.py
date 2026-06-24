@@ -201,6 +201,53 @@ class TestPlaylistImports:
         assert body["source"]["kind"] == "tidal"
         assert body["source"]["label"] == "Friday Warmup"
 
+    def test_hydration_failure_on_first_candidate_keeps_source_and_imports_rest(
+        self, client, auth_headers, set_id, db, monkeypatch
+    ):
+        """#554 FIX 1: a candidate whose hydration raises must not roll back the
+        freshly-created (uncommitted) source row, or import_candidates would then
+        insert pool tracks against a stale source.id (orphan/FK break). The source
+        must survive and the remaining candidates must still import against it."""
+        from app.models.set_pool import SetPoolSource, SetPoolTrack
+        from app.services.setbuilder import pool as pool_mod
+        from app.services.setbuilder.pool import PoolCandidate
+
+        monkeypatch.setattr(
+            "app.services.setbuilder.pool.candidates_from_tidal",
+            lambda db, user, pid: [
+                PoolCandidate(track_id="tidal:1", title="Boom Song", artist="Boom Artist"),
+                PoolCandidate(
+                    track_id="tidal:2", title="Good Song", artist="Good Artist", bpm=128.0, key="8A"
+                ),
+            ],
+        )
+
+        # Make ONLY the first candidate's hydration blow up mid-flow.
+        real_hydrate_one = pool_mod._hydrate_one
+
+        def _explode_first(db_, candidate, user, *, commit):
+            if candidate.title == "Boom Song":
+                raise RuntimeError("simulated hydration failure")
+            return real_hydrate_one(db_, candidate, user, commit=commit)
+
+        monkeypatch.setattr(pool_mod, "_hydrate_one", _explode_first)
+
+        resp = client.post(
+            f"/api/setbuilder/sets/{set_id}/pool/import/tidal",
+            json={"playlist_id": "abc-123", "label": "Resilient"},
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 200, resp.json()
+        source_id = resp.json()["source"]["id"]
+        # The source row survived the per-candidate rollback ...
+        survived = db.query(SetPoolSource).filter(SetPoolSource.id == source_id).one_or_none()
+        assert survived is not None
+        # ... and every imported pool track references that LIVE source (no orphan).
+        tracks = db.query(SetPoolTrack).filter(SetPoolTrack.set_id == set_id).all()
+        assert tracks  # at least the non-failing candidate imported
+        assert all(t.source_id == source_id for t in tracks)
+
     def test_import_tidal_fetch_failure_502(self, client, auth_headers, set_id, monkeypatch):
         from app.services.tidal import TidalFetchError
 

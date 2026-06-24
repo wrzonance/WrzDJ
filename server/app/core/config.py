@@ -107,6 +107,13 @@ class Settings(BaseSettings):
     human_cookie_secret: str = ""
     human_cookie_ttl_seconds: int = 3600  # 60 min sliding window
 
+    # DEV-ONLY: bypass the guest human-verification + email-verification gates so
+    # headless tests (API/Playwright) can exercise guest flows without minting a
+    # wrzdj_human cookie or verifying an email. INERT in production by construction
+    # (see `auth_bypass_enabled`), and `validate_settings` refuses to boot if it is
+    # ever set with ENV=production. Never enable in any deployed environment.
+    dev_auth_bypass: bool = False
+
     # OAuth token encryption (Fernet key, 44 chars base64)
     # Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key()...)"
     token_encryption_key: str = ""
@@ -194,6 +201,16 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.env == "production"
 
+    @property
+    def auth_bypass_enabled(self) -> bool:
+        """True only when the dev bypass is requested AND we are not in production.
+
+        Gating on ``not is_production`` makes the flag INERT in production even if it
+        leaks into the environment; `validate_settings` additionally refuses to boot
+        if it is set with ENV=production, so it can never silently weaken a deployment.
+        """
+        return self.dev_auth_bypass and not self.is_production
+
 
 _FERNET_KEY_HINT = (
     'Generate with: python -c "from cryptography.fernet import Fernet; '
@@ -279,11 +296,22 @@ def validate_settings(settings: Settings) -> None:
                 'Generate with: python -c "import secrets, base64; '
                 'print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"'
             )
+        if settings.dev_auth_bypass:
+            errors.append(
+                "DEV_AUTH_BYPASS must NOT be set in production — it disables the guest "
+                "human-verification and email-verification gates. Unset it before deploying."
+            )
 
     if not settings.is_production:
         if settings.jwt_secret == "change-me-in-production":  # nosec B105
             logging.warning(
                 "JWT_SECRET is using the default value. Set a unique secret for security."
+            )
+        if settings.dev_auth_bypass:
+            logging.warning(
+                "DEV_AUTH_BYPASS is ACTIVE: guest human-verification and email-verification "
+                "gates are DISABLED for headless testing. This must never be used in a "
+                "deployed environment."
             )
 
     if not settings.bridge_api_key:

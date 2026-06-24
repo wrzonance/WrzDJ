@@ -70,9 +70,14 @@ def upsert_track(
     fetched_at: datetime,
 ) -> Track:
     """Insert or update the master row, writing each field's value + provenance
-    entry. Inputs are validated before any mutation — ValueError is raised (with
-    no DB write) if sources keys don't cover all values keys, or if any source
-    name is unknown."""
+    entry. Unresolved (None) values are dropped — a provider lacking a field must
+    not overwrite an existing value, and gets no provenance entry (spec §9).
+    Inputs are validated before any mutation — ValueError is raised (with no DB
+    write) if a values key is not a writable column, sources keys don't cover all
+    values keys, or any source name is unknown."""
+    # Drop unresolved fields up front so None never overwrites stored data.
+    values = {k: v for k, v in values.items() if v is not None}
+
     # --- Validate inputs BEFORE any DB mutation ---
     writable = {attr.key for attr in Track.__mapper__.column_attrs} - _NON_VALUE_FIELDS
     unknown_fields = set(values) - writable
@@ -123,5 +128,10 @@ def upsert_track(
                 mode="json"
             )
     track.provenance = prov
+    # NOTE (#540): a concurrent upsert of the same new ISRC/signature can lose the
+    # unique-constraint race at this flush and raise IntegrityError. upsert_track has
+    # no concurrent caller in this foundation PR; the IntegrityError re-read-and-merge
+    # reconciliation (spec §5) lands in PR2 (#541) alongside its first concurrent
+    # enrichment callers, where it can be integration-tested.
     db.flush()
     return track

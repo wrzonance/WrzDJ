@@ -201,6 +201,30 @@ def test_upsert_rejects_identity_field_in_values(db):
     assert db.query(Track).filter(Track.signature == "sig-ident").count() == 0
 
 
+def test_upsert_skips_none_values(db):
+    """A provider lacking a field passes None; it must not overwrite stored data."""
+    upsert_track(
+        db,
+        identity=TrackIdentity(title="S", artist="D", signature="sig-none"),
+        values={"energy": 8},
+        sources={"energy": "soundcharts"},
+        fetched_at=T0,
+    )
+    # Later enrichment has no energy/bpm → passes None at equal/higher precedence
+    upsert_track(
+        db,
+        identity=TrackIdentity(title="S", artist="D", signature="sig-none"),
+        values={"energy": None, "bpm": None},
+        sources={"energy": "lexicon", "bpm": "beatport"},
+        fetched_at=T0,
+    )
+    row = db.query(Track).filter(Track.signature == "sig-none").one()
+    assert row.energy == 8  # None did not clobber the measured value
+    assert row.bpm is None
+    assert row.provenance["energy"]["source"] == "soundcharts"  # unchanged
+    assert "bpm" not in row.provenance  # no provenance for an unresolved field
+
+
 # ---------------------------------------------------------------------------
 # Fix 4: ISRC-authoritative on conflict (ISRC match wins over signature)
 # ---------------------------------------------------------------------------

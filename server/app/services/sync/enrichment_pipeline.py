@@ -709,6 +709,10 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
     # be written to the global store. The store keeps the canonical provider BPM
     # (resolved["bpm"]) so future cache hits at other events re-derive their own
     # per-event correction from it, instead of inheriting this event's tempo (#541).
+    # Stash the canonical pre-correction value for the legacy store seed below: a
+    # pre-supplied BPM is not in `resolved`, so the seed would otherwise persist the
+    # event-corrected request.bpm globally.
+    canonical_bpm = request.bpm
     _apply_bpm_context_correction(db, request)
 
     # 5. Soundcharts audio features (energy/danceability/…) — gated, dark by
@@ -744,7 +748,7 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
     # `should_overwrite` precedence guard keeps a stronger existing source).
     for field, value in (
         ("genre", request.genre),
-        ("bpm", request.bpm),
+        ("bpm", canonical_bpm),  # pre-correction value — never the event-corrected one
         ("musical_key", request.musical_key),
     ):
         if field not in resolved and value is not None:

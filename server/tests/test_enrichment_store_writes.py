@@ -880,3 +880,33 @@ def test_miss_path_stores_canonical_bpm_not_event_corrected(
     assert track is not None
     assert track.bpm == 66.0  # CANONICAL provider value in the store, NOT 132
     assert track.provenance["bpm"]["source"] == "beatport"
+
+
+def test_presupplied_bpm_seeded_canonical_not_event_corrected(
+    db: Session, bp_user: User, monkeypatch
+):
+    """REGRESSION (Codex #550 P2): a PRE-SUPPLIED bpm seeded as `legacy` must be the
+    CANONICAL value, not the event-corrected one — the store-canonical rule has to
+    hold on the legacy-seed path too, not only the provider-resolved path."""
+    event = _make_event(db, bp_user, "PSBPM", "PSBPMW")
+    _make_request(db, event, "C1", "A1", "psb1", bpm=130.0)
+    _make_request(db, event, "C2", "A2", "psb2", bpm=130.0)
+    _make_request(db, event, "C3", "A3", "psb3", bpm=130.0)
+    # Arrives WITH bpm=66 pre-supplied, missing genre/key → bpm is seeded `legacy`.
+    request = _make_request(db, event, "Strobe", "deadmau5", "psbpm_req", bpm=66.0)
+
+    # Beatport supplies genre/key; its bpm is ignored (request already has one).
+    monkeypatch.setattr(
+        "app.services.beatport.search_beatport_tracks", _Spy([_beatport_hit("Strobe", "deadmau5")])
+    )
+    monkeypatch.setattr("app.services.sync.enrichment_pipeline.lookup_artist_genre", _Spy(None))
+    monkeypatch.setattr("app.services.tidal.search_tidal_tracks", _Spy([]))
+
+    enrich_request_metadata(db, request.id)
+
+    db.refresh(request)
+    assert request.bpm == 132.0  # event-corrected on the Request (66 doubled)
+    track = get_track(db, signature=dedupe_signature("deadmau5", "Strobe"))
+    assert track is not None
+    assert track.bpm == 66.0  # canonical pre-supplied value seeded, NOT 132
+    assert track.provenance["bpm"]["source"] == "legacy"

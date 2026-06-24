@@ -273,3 +273,100 @@ class TestHydrateFromStore:
         out2 = hydrate_candidates_from_store(db, [c2], user=dj_user)
         assert calls["n"] == 1  # no new provider call
         assert out2[0].bpm == 120.0
+
+
+class TestManualPickProvenance:
+    """#554 review (4th P2): a manual Beatport/Tidal search pick carries no
+    track_id (the unified SearchResult schema has only spotify_id), so its
+    provider-measured bpm/key/genre must still be stored at the provider's
+    authoritative precedence — via the explicit source_service — not as legacy."""
+
+    def _no_enrich(self, monkeypatch):
+        def _boom(*a, **k):  # pragma: no cover
+            raise AssertionError("enrich_track must not run on a cache hit / complete candidate")
+
+        monkeypatch.setattr(pool, "enrich_track", _boom)
+
+    def test_manual_beatport_pick_stores_authoritative_and_is_reused(
+        self, db, dj_user, monkeypatch
+    ):
+        self._no_enrich(monkeypatch)
+
+        # Manual Beatport pick: real source_service, NO track_id (FE has no id).
+        pick = pool.candidate_from_manual(
+            title="Strobe",
+            artist="deadmau5",
+            bpm=128.0,
+            key="4A",
+            genre="Progressive House",
+            duration_sec=600,
+            source_service="beatport",
+            source_track_id=None,
+        )
+        assert pick.track_id is None  # the bug's precondition
+        hydrate_candidates_from_store(db, [pick], user=dj_user)
+
+        sig = dedupe_signature("deadmau5", "Strobe")
+        row = get_track(db, signature=sig)
+        assert row is not None
+        # Stored at beatport precedence (authoritative ≥50), NOT legacy.
+        assert row.provenance["bpm"]["source"] == "beatport"
+        assert row.provenance["genre"]["source"] == "beatport"
+
+        # A later import of the same recording hydrates from the row — cache hit,
+        # zero provider calls (the dedupe win that was previously lost).
+        c2 = pool.PoolCandidate(title="Strobe", artist="deadmau5")
+        out = hydrate_candidates_from_store(db, [c2], user=dj_user)
+        assert out[0].bpm == 128.0
+        assert out[0].genre == "Progressive House"
+
+    def test_manual_tidal_pick_stores_authoritative(self, db, dj_user, monkeypatch):
+        self._no_enrich(monkeypatch)
+        pick = pool.candidate_from_manual(
+            title="Innerbloom",
+            artist="Rufus Du Sol",
+            bpm=120.0,
+            key="9A",
+            genre="Melodic House",
+            duration_sec=560,
+            source_service="tidal",
+            source_track_id=None,
+        )
+        hydrate_candidates_from_store(db, [pick], user=dj_user)
+        row = get_track(db, signature=dedupe_signature("Rufus Du Sol", "Innerbloom"))
+        assert row is not None
+        assert row.provenance["bpm"]["source"] == "tidal"
+
+    def test_manual_spotify_pick_stays_legacy(self, db, dj_user, monkeypatch):
+        self._no_enrich(monkeypatch)
+        # Spotify isn't an authoritative bpm/key source — must stay legacy.
+        pick = pool.candidate_from_manual(
+            title="Get Lucky",
+            artist="Daft Punk",
+            bpm=116.0,
+            key="11B",
+            genre="Disco",
+            duration_sec=369,
+            source_service="spotify",
+            source_track_id="abc123",
+        )
+        hydrate_candidates_from_store(db, [pick], user=dj_user)
+        row = get_track(db, signature=dedupe_signature("Daft Punk", "Get Lucky"))
+        assert row is not None
+        assert row.provenance["bpm"]["source"] == "legacy"
+
+    def test_typed_manual_pick_stays_legacy(self, db, dj_user, monkeypatch):
+        self._no_enrich(monkeypatch)
+        # Hand-typed metadata (source_service defaults to "manual") must not claim
+        # provider precedence — it stays legacy.
+        pick = pool.candidate_from_manual(
+            title="Untitled Demo",
+            artist="Local Artist",
+            bpm=125.0,
+            key="8A",
+            genre="House",
+        )
+        hydrate_candidates_from_store(db, [pick], user=dj_user)
+        row = get_track(db, signature=dedupe_signature("Local Artist", "Untitled Demo"))
+        assert row is not None
+        assert row.provenance["bpm"]["source"] == "legacy"

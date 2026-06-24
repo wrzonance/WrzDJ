@@ -324,7 +324,7 @@ def _hydrate_one(
     if user is None:
         return candidate
     return _enrich_and_writeback(
-        db, candidate, user, title=title, artist=artist, sig=sig, commit=commit
+        db, candidate, user, title=title, artist=artist, sig=sig, isrc=isrc, commit=commit
     )
 
 
@@ -443,13 +443,17 @@ def _enrich_and_writeback(
     title: str,
     artist: str,
     sig: str,
+    isrc: str | None,
     commit: bool,
 ) -> PoolCandidate:
     """Run the provider cascade once, write the result back, and hydrate.
 
     `enrich_track` (Beatport→Tidal) is the same gap-fill the recommendation
     surface uses; its result is upserted to the store at provider precedence so
-    the next import of this recording is served from cache."""
+    the next import of this recording is served from cache. The candidate's
+    validated ISRC keys the store row so a later by-ISRC lookup hits it — e.g. a
+    Spotify/public-URL candidate that carries an ISRC but no bpm/key/genre (#554
+    FIX 2; consistent with #552 storing the submitted ISRC)."""
     profile = enrich_track(db, user, title, artist)
     values: dict[str, object] = {}
     if profile.bpm is not None:
@@ -470,7 +474,7 @@ def _enrich_and_writeback(
         title=title,
         artist=artist,
         sig=sig,
-        isrc=None,
+        isrc=isrc,
         values=values,
         sources=sources,
         commit=commit,

@@ -140,6 +140,35 @@ class TestHydrateFromStore:
         assert row is not None
         assert row.bpm == 128.0
 
+    def test_enrich_writeback_persists_the_candidate_isrc(self, db, dj_user, monkeypatch):
+        """#554 FIX 2: a Spotify-style candidate (valid ISRC, no bpm/key/genre) takes
+        the enrich path; the resulting store row must carry the candidate's ISRC so a
+        later by-ISRC lookup hits the cache instead of re-running providers."""
+
+        def _fake_enrich(db_, user_, title, artist):
+            return TrackProfile(
+                title=title,
+                artist=artist,
+                bpm=122.0,
+                key="3A",
+                genre="Deep House",
+                duration_seconds=380,
+                source="beatport",
+            )
+
+        monkeypatch.setattr(pool, "enrich_track", _fake_enrich)
+
+        candidate = pool.PoolCandidate(
+            title="Innerbloom", artist="Rufus", track_id="spotify:abc", isrc="AUXXX1700001"
+        )
+        hydrate_candidates_from_store(db, [candidate], user=dj_user)
+
+        # The store row is keyed by the candidate's ISRC (not signature-only).
+        row = get_track(db, isrc="AUXXX1700001")
+        assert row is not None
+        assert row.isrc == "AUXXX1700001"
+        assert row.bpm == 122.0
+
     def test_gap_without_user_leaves_candidate_unenriched(self, db, monkeypatch):
         def _boom(*a, **k):  # pragma: no cover
             raise AssertionError("enrich_track must not run without a connected user")

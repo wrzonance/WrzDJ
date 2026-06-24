@@ -89,14 +89,54 @@ limiter = Limiter(key_func=get_client_ip, enabled=get_settings().is_rate_limit_e
 
 
 def get_guest_id(request: Request, db: Session) -> int | None:
-    """Read wrzdj_guest cookie and return the Guest.id, or None."""
+    """Read the wrzdj_guest cookie and return the Guest.id, or None.
+
+    Under DEV_AUTH_BYPASS (dev only) a cookieless request resolves to a stable dev
+    guest, so headless tests need no guest cookie on ANY guest endpoint (this is the
+    single identity chokepoint the gates and the inline-resolving routes share).
+    Inert in production — see Settings.auth_bypass_enabled.
+    """
     from app.models.guest import Guest
 
     token = request.cookies.get("wrzdj_guest")
-    if not token:
-        return None
+    if token:
+        guest = db.query(Guest).filter(Guest.token == token).first()
+        if guest:
+            return guest.id
+
+    from app.core.config import get_settings
+
+    if get_settings().auth_bypass_enabled:
+        return _dev_bypass_guest_id(db)
+    return None
+
+
+def _dev_bypass_guest_id(db: Session) -> int:
+    """Get-or-create the stable DEV_AUTH_BYPASS guest. DEV-ONLY (callers guard)."""
+    from sqlalchemy.exc import IntegrityError
+
+    from app.core.time import utcnow
+    from app.models.guest import Guest
+
+    token = "dev-auth-bypass-guest"  # nosec B105 - stable dev test guest token, not a secret
     guest = db.query(Guest).filter(Guest.token == token).first()
-    return guest.id if guest else None
+    if guest:
+        return guest.id
+    guest = Guest(
+        token=token,
+        verified_email="dev-bypass@local.test",
+        email_verified_at=utcnow(),
+        created_at=utcnow(),
+        last_seen_at=utcnow(),
+    )
+    db.add(guest)
+    try:
+        db.commit()
+    except IntegrityError:  # concurrent create — re-read the winner
+        db.rollback()
+        return db.query(Guest).filter(Guest.token == token).first().id
+    db.refresh(guest)
+    return guest.id
 
 
 def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> Response:

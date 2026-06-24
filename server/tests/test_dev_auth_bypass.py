@@ -75,3 +75,17 @@ class TestGateBypassIntegration:
         with patch.object(config, "get_settings", lambda: bypass):
             r = client.get(f"/api/public/collect/{test_event.code}/profile")
         assert r.status_code == 200, r.text
+
+    def test_bypass_covers_inline_guest_resolution(self, client, test_event, test_request):
+        """The vote endpoint resolves the guest INLINE via get_guest_id (its own 401),
+        not via the gate deps — so the bypass must cover that chokepoint too."""
+        client.cookies.clear()
+        # Without a guest cookie the inline resolver returns None → 401.
+        r = client.post(f"/api/requests/{test_request.id}/vote")
+        assert r.status_code == 401
+        bypass = Settings(env="development", dev_auth_bypass=True)
+        with patch.object(config, "get_settings", lambda: bypass):
+            r2 = client.post(f"/api/requests/{test_request.id}/vote")
+        # Identity resolved by the bypass → NOT 401 (200 vote, or a post-identity
+        # votability status — never the "guest identity required" 401).
+        assert r2.status_code != 401, r2.text

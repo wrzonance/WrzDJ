@@ -1,5 +1,6 @@
 """Read/write service for the master tracks table (#540)."""
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -9,6 +10,8 @@ from sqlalchemy.orm import Session
 from app.models.track import Track
 from app.services.track_normalizer import normalize_isrc
 from app.services.tracks.provenance import KNOWN_SOURCES, FieldProvenance, should_overwrite
+
+logger = logging.getLogger(__name__)
 
 # Columns NOT writable via the `values` dict: identity fields come from
 # TrackIdentity (signature/title/artist/isrc/soundcharts_uuid) and these are
@@ -105,6 +108,23 @@ def upsert_track(
     track = get_track(db, isrc=norm_isrc, signature=identity.signature)
     if track is None:
         track = _insert_identity_reconciling(db, identity=identity, norm_isrc=norm_isrc)
+    elif norm_isrc and track.isrc and track.isrc != norm_isrc:
+        # ISRC CONFLICT: get_track fell back to the signature and matched a row for a
+        # DIFFERENT recording (same normalized artist/title, different release/
+        # remaster — the two ISRCs identify distinct recordings). The signature is
+        # UNIQUE, so this recording cannot get its own row here; refuse to overwrite
+        # the existing row's data with a different recording's values. The recording
+        # is simply not stored (its metadata still lives on the caller's Request);
+        # this prevents corruption. Full multi-recording-per-signature support is a
+        # #542 schema concern (signature is the identity bottleneck, not ISRC).
+        logger.warning(
+            "upsert_track: ISRC conflict on signature %s (existing isrc=%s, incoming=%s); "
+            "skipping write to avoid overwriting a different recording.",
+            identity.signature,
+            track.isrc,
+            norm_isrc,
+        )
+        return track
 
     # Backfill ISRC onto signature-matched row if it was previously missing
     if norm_isrc and not track.isrc:

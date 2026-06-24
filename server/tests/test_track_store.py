@@ -490,3 +490,36 @@ def test_upsert_reraises_when_conflict_unreconcilable(db, monkeypatch):
             sources={"energy": "llm"},
             fetched_at=T0,
         )
+
+
+def test_upsert_isrc_conflict_does_not_overwrite_different_recording(db):
+    """ISRC CONFLICT (#552): when the signature matches a row whose ISRC is a
+    DIFFERENT non-null recording, upsert must NOT overwrite it with the incoming
+    recording's values. Signature is unique so the new recording can't get its own
+    row — the existing row is preserved (no corruption) rather than clobbered."""
+    upsert_track(
+        db,
+        identity=TrackIdentity(
+            title="T", artist="A", signature="sig-conflict", isrc="USAAA1111111"
+        ),
+        values={"bpm": 120.0},
+        sources={"bpm": "beatport"},
+        fetched_at=T0,
+    )
+
+    # Same signature, DIFFERENT ISRC (a different release) — must not clobber.
+    result = upsert_track(
+        db,
+        identity=TrackIdentity(
+            title="T", artist="A", signature="sig-conflict", isrc="USBBB2222222"
+        ),
+        values={"bpm": 200.0},
+        sources={"bpm": "beatport"},
+        fetched_at=T0,
+    )
+
+    rows = db.query(Track).filter(Track.signature == "sig-conflict").all()
+    assert len(rows) == 1  # signature is unique — no second row
+    assert rows[0].isrc == "USAAA1111111"  # the original recording's ISRC is kept
+    assert rows[0].bpm == 120.0  # NOT overwritten by the conflicting recording's 200
+    assert result.isrc == "USAAA1111111"  # returned the existing row, unchanged

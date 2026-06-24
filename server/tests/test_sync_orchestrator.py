@@ -14,7 +14,6 @@ from app.services.sync.base import SyncResult, SyncStatus, TrackMatch
 from app.services.sync.orchestrator import (
     MultiSyncResult,
     _extract_source_track_id,
-    _find_best_match,
     _get_isrc_from_spotify,
     _is_already_synced,
     _persist_sync_result,
@@ -1037,98 +1036,6 @@ class TestEnrichRequestMetadata:
         # With status filter: median = 130, 65*2 = 130 → corrected
         # Without status filter: median would include 200, skewing context
         assert target.bpm == 130.0
-
-
-class TestFindBestMatchVersionPreference:
-    """Tests for _find_best_match() version-aware scoring."""
-
-    def test_beatport_original_beats_remix_on_tie(self):
-        """When title/artist scores are equal, Original Mix wins over remix."""
-        from app.schemas.beatport import BeatportSearchResult
-
-        results = [
-            BeatportSearchResult(
-                track_id="1",
-                title="Surrender",
-                artist="Darude",
-                mix_name="Hardstyle Remix",
-                bpm=165,
-            ),
-            BeatportSearchResult(
-                track_id="2",
-                title="Surrender",
-                artist="Darude",
-                mix_name="Original Mix",
-                bpm=132,
-            ),
-        ]
-        best = _find_best_match(results, "Surrender", "Darude", prefer_original=True)
-        assert best.track_id == "2"
-        assert best.bpm == 132
-
-    def test_beatport_remix_preferred_when_requested(self):
-        """When request title contains remix, prefer_original=False lets remix win."""
-        from app.schemas.beatport import BeatportSearchResult
-
-        results = [
-            BeatportSearchResult(
-                track_id="1",
-                title="Surrender",
-                artist="Darude",
-                mix_name="Hardstyle Remix",
-                bpm=165,
-            ),
-            BeatportSearchResult(
-                track_id="2",
-                title="Surrender",
-                artist="Darude",
-                mix_name="Original Mix",
-                bpm=132,
-            ),
-        ]
-        # With prefer_original=False, no bonus/penalty — first result wins on tie
-        best = _find_best_match(results, "Surrender", "Darude", prefer_original=False)
-        # Both have identical scores, first one encountered wins
-        assert best is not None
-
-    def test_tidal_remix_penalized(self):
-        """Tidal results with remix in title get penalized for non-remix queries."""
-        from types import SimpleNamespace
-
-        results = [
-            SimpleNamespace(title="Surrender (Hardstyle Remix)", artist="Darude", bpm=165),
-            SimpleNamespace(title="Surrender", artist="Darude", bpm=132),
-        ]
-        best = _find_best_match(results, "Surrender", "Darude", prefer_original=True)
-        # Plain title should win over remix title
-        assert best.title == "Surrender"
-        assert best.bpm == 132
-
-    def test_prefer_original_disabled(self):
-        """With prefer_original=False, no version scoring applied."""
-        from types import SimpleNamespace
-
-        results = [
-            SimpleNamespace(title="Surrender (Hardstyle Remix)", artist="Darude", bpm=165),
-            SimpleNamespace(title="Surrender", artist="Darude", bpm=132),
-        ]
-        # Without prefer_original, both have similar scores — first wins
-        best = _find_best_match(results, "Surrender", "Darude", prefer_original=False)
-        assert best is not None
-
-    def test_bpm_consensus_tiebreaker(self):
-        """When title/artist scores are identical, modal BPM wins."""
-        from types import SimpleNamespace
-
-        # Tidal returns multiple "Surrender" — 3 at 132, 1 at 165
-        results = [
-            SimpleNamespace(title="Surrender", artist="Darude", bpm=165.0),
-            SimpleNamespace(title="Surrender", artist="Darude", bpm=132.0),
-            SimpleNamespace(title="Surrender", artist="Darude", bpm=132.0),
-            SimpleNamespace(title="Surrender", artist="Darude", bpm=132.0),
-        ]
-        best = _find_best_match(results, "Surrender", "Darude", prefer_original=True)
-        assert best.bpm == 132.0  # Modal BPM among results
 
 
 class TestExtractSourceTrackId:

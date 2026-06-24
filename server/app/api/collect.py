@@ -53,11 +53,11 @@ from app.services.collect import NicknameConflictError, upsert_profile
 from app.services.dedup import compute_dedupe_key, find_duplicate
 from app.services.event import get_event_by_public_code_with_status
 from app.services.guest_names import generate_unique_nickname
-from app.services.sync.enrichment_pipeline import _find_best_match
 from app.services.sync.orchestrator import _enrich_with_fresh_session
 from app.services.system_settings import get_system_settings
 from app.services.tidal import sync_collection_requests_batch
-from app.services.track_normalizer import normalize_isrc
+from app.services.track_match import find_best_match
+from app.services.track_normalizer import is_remix_title, normalize_isrc
 from app.services.vote import add_vote
 
 logger = logging.getLogger(__name__)
@@ -563,7 +563,14 @@ def enrich_preview(
             try:
                 matches = search_beatport_tracks(db, user, f"{item.artist} {item.title}", limit=5)
                 if matches:
-                    best = _find_best_match(matches, item.title, item.artist)
+                    # Preserve remix intent like the enrichment/recommendation paths:
+                    # only prefer the original version when the query isn't a named remix.
+                    best = find_best_match(
+                        matches,
+                        item.title,
+                        item.artist,
+                        prefer_original=not is_remix_title(item.title),
+                    )
                     if best:
                         bpm = int(best.bpm) if best.bpm is not None else None
                         key = best.key or None

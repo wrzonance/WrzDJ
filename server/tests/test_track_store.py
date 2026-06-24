@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models.track import Track
 from app.services.tracks import store
+from app.services.tracks.provenance import precedence
 from app.services.tracks.store import TrackIdentity, get_track, upsert_track
 
 
@@ -138,6 +139,60 @@ def test_upsert_backfills_isrc_onto_signature_row(db):
     assert len(rows) == 1
     assert rows[0].isrc == "FIXXX1234567"
     assert rows[0].bpm == 136.0 and rows[0].energy == 9
+
+
+# ---------------------------------------------------------------------------
+# #541: "legacy" provenance source — lowest-trust, attributes pre-store data
+# backfilled from existing Request columns. Any real later enrichment overrides
+# it; legacy never downgrades a higher-precedence value.
+# ---------------------------------------------------------------------------
+
+
+def test_legacy_precedence_is_below_community():
+    assert precedence("legacy") == 30
+    assert precedence("legacy") < precedence("community")
+
+
+def test_non_legacy_source_overwrites_legacy_value(db):
+    """A real provider (musicbrainz, 50) must overwrite a legacy-sourced value."""
+    upsert_track(
+        db,
+        identity=TrackIdentity(title="S", artist="D", signature="sig-leg-up"),
+        values={"genre": "pop"},
+        sources={"genre": "legacy"},
+        fetched_at=T0,
+    )
+    upsert_track(
+        db,
+        identity=TrackIdentity(title="S", artist="D", signature="sig-leg-up"),
+        values={"genre": "house"},
+        sources={"genre": "musicbrainz"},
+        fetched_at=T0,
+    )
+    row = db.query(Track).filter(Track.signature == "sig-leg-up").one()
+    assert row.genre == "house"
+    assert row.provenance["genre"]["source"] == "musicbrainz"
+
+
+def test_legacy_does_not_downgrade_higher_precedence(db):
+    """legacy (30) must NOT clobber an existing higher-precedence value."""
+    upsert_track(
+        db,
+        identity=TrackIdentity(title="S", artist="D", signature="sig-leg-keep"),
+        values={"genre": "house"},
+        sources={"genre": "musicbrainz"},
+        fetched_at=T0,
+    )
+    upsert_track(
+        db,
+        identity=TrackIdentity(title="S", artist="D", signature="sig-leg-keep"),
+        values={"genre": "pop"},
+        sources={"genre": "legacy"},
+        fetched_at=T0,
+    )
+    row = db.query(Track).filter(Track.signature == "sig-leg-keep").one()
+    assert row.genre == "house"  # legacy did not downgrade musicbrainz
+    assert row.provenance["genre"]["source"] == "musicbrainz"
 
 
 # ---------------------------------------------------------------------------

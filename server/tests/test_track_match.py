@@ -92,9 +92,10 @@ class TestVersionPreference:
                 track_id="2", title="Surrender", artist="Darude", mix_name="Original Mix", bpm=132
             ),
         ]
-        # No version bonus/penalty → first encountered wins on an otherwise-exact tie.
+        # With the original-mix bonus disabled the remix (first result) is no longer
+        # demoted, so it wins the otherwise-exact tie instead of the Original Mix.
         best = find_best_match(results, "Surrender", "Darude", prefer_original=False)
-        assert best is not None
+        assert best.track_id == "1"
 
     def test_tidal_remix_title_penalized(self):
         results = [

@@ -1014,6 +1014,40 @@ def test_enrich_preview_returns_bpm_from_beatport(client, db, test_event: Event)
     assert results[0]["genre"] == "Progressive House"
 
 
+def test_enrich_preview_preserves_remix_intent(client, db, test_event: Event):
+    """The preview must derive prefer_original from the title (#551/#553): a named-remix
+    query must NOT be matched with prefer_original=True (which would favour the original
+    version's BPM/key), matching the enrichment + recommendation paths."""
+    from unittest.mock import MagicMock, patch
+
+    _enable_collection(db, test_event)
+    dj = test_event.created_by
+    dj.beatport_access_token = "fake_token"  # nosec B106
+    db.commit()
+
+    match = MagicMock(
+        title="Surrender (Hardstyle Remix)", artist="Darude", bpm=165, key=None, genre=None
+    )
+    with (
+        patch("app.api.collect.search_beatport_tracks", return_value=[match]),
+        patch("app.api.collect.find_best_match", return_value=match) as spy,
+    ):
+        # Remix query → prefer_original must be False.
+        client.post(
+            f"/api/public/collect/{test_event.code}/enrich-preview",
+            json={"items": [{"title": "Surrender (Hardstyle Remix)", "artist": "Darude"}]},
+        )
+        assert spy.call_args.kwargs["prefer_original"] is False
+
+        # Plain query → prefer_original stays True.
+        spy.reset_mock()
+        client.post(
+            f"/api/public/collect/{test_event.code}/enrich-preview",
+            json={"items": [{"title": "Surrender", "artist": "Darude"}]},
+        )
+        assert spy.call_args.kwargs["prefer_original"] is True
+
+
 def test_enrich_preview_caps_at_10_items(client, db, test_event: Event):
     """Requests with >10 items are silently capped — only first 10 processed."""
     _enable_collection(db, test_event)

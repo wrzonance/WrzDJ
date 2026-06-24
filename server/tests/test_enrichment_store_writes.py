@@ -645,3 +645,152 @@ def test_spotify_isrc_captured_without_tidal_token_for_soundcharts(
     assert track is not None
     assert track.energy == 6
     assert track.isrc == "USABC1234567"
+
+
+def test_complete_request_backfills_energy_when_gate_on(db: Session, bp_user: User, monkeypatch):
+    """REGRESSION (Codex #550 P2): the complete-request seed path must not bypass the
+    Soundcharts energy backfill — when the gate is on and the seeded row lacks
+    energy, audio features must still be fetched (without the core cascade)."""
+    from app.services.soundcharts import SoundchartsAudioFeatures
+
+    event = _make_event(db, bp_user, "CMPENG", "CMPENW")
+    request = _make_request(
+        db,
+        event,
+        "Strobe",
+        "deadmau5",
+        "complete_energy",
+        genre="Techno",
+        bpm=130.0,
+        musical_key="8A",
+    )
+    request.source_url = "https://open.spotify.com/track/abc123"
+    db.commit()
+
+    beatport_spy = _Spy([])
+    monkeypatch.setattr("app.services.beatport.search_beatport_tracks", beatport_spy)
+    monkeypatch.setattr("app.services.sync.enrichment_pipeline.lookup_artist_genre", _Spy(None))
+    monkeypatch.setattr("app.services.tidal.search_tidal_tracks", _Spy([]))
+    monkeypatch.setattr(
+        "app.services.sync.enrichment_pipeline._get_isrc_from_spotify", lambda url: "USABC1234567"
+    )
+    monkeypatch.setattr(
+        "app.services.sync.enrichment_pipeline.get_settings", lambda: _settings_stub(enabled=True)
+    )
+    feats = SoundchartsAudioFeatures(
+        isrc="USABC1234567",
+        soundcharts_uuid="u-ce",
+        energy=9,
+        danceability=0.5,
+        valence=0.5,
+        acousticness=0.1,
+        instrumentalness=0.0,
+        speechiness=0.05,
+        liveness=0.2,
+        loudness_db=-5.0,
+        tempo_bpm=130.0,
+        key=5,
+        mode=0,
+        time_signature=4,
+        explicit=False,
+        duration_sec=300,
+        genres=(),
+    )
+    feature_spy = _Spy(feats)
+    monkeypatch.setattr("app.services.soundcharts.get_song_features_by_isrc", feature_spy)
+
+    enrich_request_metadata(db, request.id)
+
+    assert feature_spy.calls == 1  # energy backfilled on the complete path
+    assert beatport_spy.calls == 0  # core cascade still skipped
+    track = get_track(db, signature=dedupe_signature("deadmau5", "Strobe"))
+    assert track is not None
+    assert track.energy == 9
+    assert track.provenance["energy"]["source"] == "soundcharts"
+
+
+def test_no_spotify_isrc_fetch_when_no_consumer(db: Session, bp_user: User, monkeypatch):
+    """REGRESSION (Codex #550 P2): for a Spotify request with NO Tidal token and the
+    Soundcharts gate OFF, nothing consumes an ISRC — so the external Spotify lookup
+    must be skipped entirely."""
+    bp_user.tidal_access_token = None
+    db.commit()
+
+    event = _make_event(db, bp_user, "NOCONS", "NOCONW")
+    request = _make_request(db, event, "Strobe", "deadmau5", "no_consumer")
+    request.source_url = "https://open.spotify.com/track/abc123"
+    db.commit()
+
+    monkeypatch.setattr("app.services.sync.enrichment_pipeline.lookup_artist_genre", _Spy(None))
+    monkeypatch.setattr(
+        "app.services.beatport.search_beatport_tracks", _Spy([_beatport_hit("Strobe", "deadmau5")])
+    )
+    monkeypatch.setattr("app.services.tidal.search_tidal_tracks", _Spy([]))
+    isrc_spy = _Spy("USABC1234567")
+    monkeypatch.setattr("app.services.sync.enrichment_pipeline._get_isrc_from_spotify", isrc_spy)
+    monkeypatch.setattr(
+        "app.services.sync.enrichment_pipeline.get_settings", lambda: _settings_stub(enabled=False)
+    )
+
+    enrich_request_metadata(db, request.id)
+
+    assert isrc_spy.calls == 0  # no Tidal token + gate off → ISRC has no consumer
+
+
+def test_complete_request_seed_normalizes_key(db: Session, bp_user: User, monkeypatch):
+    """REGRESSION (CodeRabbit #550): a complete request's key is normalized to Camelot
+    before seeding, so the store matches what the cascade would have written."""
+    event = _make_event(db, bp_user, "SEEDNK", "SEEDNW")
+    request = _make_request(
+        db,
+        event,
+        "Strobe",
+        "deadmau5",
+        "seed_norm_key",
+        genre="Techno",
+        bpm=130.0,
+        musical_key="F Minor",
+    )
+    monkeypatch.setattr("app.services.beatport.search_beatport_tracks", _Spy([]))
+    monkeypatch.setattr("app.services.sync.enrichment_pipeline.lookup_artist_genre", _Spy(None))
+    monkeypatch.setattr("app.services.tidal.search_tidal_tracks", _Spy([]))
+
+    enrich_request_metadata(db, request.id)
+
+    track = get_track(db, signature=dedupe_signature("deadmau5", "Strobe"))
+    assert track is not None
+    assert track.musical_key == "4A"  # "F Minor" normalized to Camelot on seed
+
+
+def test_unprovenanced_complete_row_is_not_authoritative(db: Session, bp_user: User, monkeypatch):
+    """REGRESSION (CodeRabbit #550): a complete row with MISSING provenance must not be
+    treated as an authoritative cache hit — real providers must still run to upgrade it."""
+    from app.models.track import Track
+
+    title, artist = "Strobe", "deadmau5"
+    sig = dedupe_signature(artist, title)
+    db.add(
+        Track(
+            signature=sig,
+            title=title,
+            artist=artist,
+            genre="Old",
+            bpm=100.0,
+            musical_key="1A",
+            provenance={},
+        )
+    )
+    db.commit()
+
+    event = _make_event(db, bp_user, "UNPROV", "UNPRVW")
+    request = _make_request(db, event, title, artist, "unprov_req")
+    beatport_spy = _Spy([_beatport_hit(title, artist)])
+    monkeypatch.setattr("app.services.beatport.search_beatport_tracks", beatport_spy)
+    monkeypatch.setattr("app.services.sync.enrichment_pipeline.lookup_artist_genre", _Spy(None))
+    monkeypatch.setattr("app.services.tidal.search_tidal_tracks", _Spy([]))
+
+    enrich_request_metadata(db, request.id)
+
+    assert beatport_spy.calls == 1  # missing provenance → not trusted → providers ran
+    track = get_track(db, signature=sig)
+    assert track.provenance["genre"]["source"] == "beatport"  # upgraded from unprovenanced

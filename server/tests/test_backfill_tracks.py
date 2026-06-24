@@ -7,6 +7,7 @@ with none), runs the backfill, and asserts:
   * re-running is a pure no-op (no new rows, values unchanged) — idempotent.
 """
 
+import app.scripts.backfill_tracks as bf
 from app.models.request import Request, RequestStatus
 from app.models.track import Track
 from app.scripts.backfill_tracks import backfill_tracks
@@ -164,3 +165,48 @@ def test_backfill_is_idempotent(db, test_event):
     assert again.provenance == first_prov
     # The legacy source is still the recorded provenance (no spurious overwrite).
     assert result["upserted"] == 1  # scanned+upsert still counted, but no-op data-wise
+
+
+def test_backfill_isolates_a_failing_row(db, test_event, monkeypatch):
+    """REGRESSION (review #541): a row whose write raises and POISONS the Session
+    must be isolated by its per-row savepoint — the run continues and other rows
+    still upsert, instead of one bad row aborting the whole backfill + final commit.
+    """
+    from sqlalchemy import text
+
+    # "Bad Row" sorts first by id (inserted first) → processed first.
+    _make_request(
+        db, test_event, song_title="Bad Row", artist="Boom", dedupe_key="dk-bad", bpm=100.0
+    )
+    _make_request(
+        db, test_event, song_title="Good Row", artist="Nice", dedupe_key="dk-good", bpm=120.0
+    )
+    db.commit()
+
+    real_upsert = bf.upsert_track
+    bad_sig = dedupe_signature("Boom", "Bad Row")
+
+    def flaky_upsert(db, *, identity, values, sources, fetched_at):
+        if identity.signature == bad_sig:
+            # A real flush-time IntegrityError (NULL signature) leaves the Session
+            # in a rollback-needed state — exactly what the savepoint must recover.
+            db.execute(
+                text(
+                    "INSERT INTO tracks (signature, title, artist, provenance) "
+                    "VALUES (NULL, 'x', 'y', '{}')"
+                )
+            )
+        return real_upsert(
+            db, identity=identity, values=values, sources=sources, fetched_at=fetched_at
+        )
+
+    monkeypatch.setattr(bf, "upsert_track", flaky_upsert)
+
+    result = backfill_tracks(db)
+
+    assert result["errors"] == 1
+    assert result["upserted"] == 1  # the good row survived the bad row's failure
+    good_sig = dedupe_signature("Nice", "Good Row")
+    assert db.query(Track).filter(Track.signature == good_sig).one().bpm == 120.0
+    # The poisoning insert was rolled back with its savepoint — no NULL row leaked.
+    assert db.query(Track).filter(Track.signature == bad_sig).count() == 0

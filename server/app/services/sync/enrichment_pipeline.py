@@ -30,6 +30,7 @@ from app.services.track_normalizer import (
     primary_artist,
     score_track_match,
 )
+from app.services.tracks.provenance import is_cache_authoritative
 from app.services.tracks.store import TrackIdentity, get_track, upsert_track
 
 logger = logging.getLogger(__name__)
@@ -328,18 +329,24 @@ def _safe_upsert_track(
 
 
 def _trio_trusted(track) -> bool:
-    """True when genre/bpm/musical_key are all present AND none is ``legacy``-sourced.
+    """True when genre/bpm/musical_key are all present AND each comes from a real
+    measured/authoritative provider (the 50+ precedence tier).
 
     The cache-aside short-circuit may only fire on a TRUSTED row. A row whose trio
-    was backfilled/seeded as ``legacy`` (lowest precedence) is NOT authoritative:
-    short-circuiting on it would copy stale migrated values onto every future
-    request and prevent real providers from ever upgrading them despite the
-    precedence ladder (#541). Falling through instead lets Beatport/Tidal/MusicBrainz
-    run and re-upsert at higher precedence, after which the row becomes trusted."""
+    was backfilled/seeded as ``legacy`` — or that carries low-trust (community/llm)
+    or missing/unknown provenance — is NOT authoritative: short-circuiting on it
+    would copy unupgraded values onto every future request and prevent real
+    providers from ever improving them (#541). Falling through instead lets
+    Beatport/Tidal/MusicBrainz run and re-upsert at higher precedence, after which
+    the row becomes trusted. (``is_cache_authoritative`` treats unknown/missing
+    sources as precedence 0, so unprovenanced rows never short-circuit.)"""
     if not (track.genre and track.bpm and track.musical_key):
         return False
     prov = track.provenance or {}
-    return all(prov.get(f, {}).get("source") != "legacy" for f in ("genre", "bpm", "musical_key"))
+    return all(
+        is_cache_authoritative(prov.get(f, {}).get("source", ""))
+        for f in ("genre", "bpm", "musical_key")
+    )
 
 
 def _seed_complete_request(db: Session, request: Request, sig: str) -> None:
@@ -350,8 +357,13 @@ def _seed_complete_request(db: Session, request: Request, sig: str) -> None:
     could not reuse it (#541). The Request records no per-field source, so the
     trio is attributed ``legacy`` (lowest precedence); the precedence guard keeps
     it from downgrading a stronger existing row, and a later incomplete request
-    upgrades it via real providers (see ``_trio_trusted``)."""
-    values = {"genre": request.genre, "bpm": request.bpm, "musical_key": request.musical_key}
+    upgrades it via real providers (see ``_trio_trusted``). The key is normalized
+    to Camelot so the seeded row matches what the cascade would have written."""
+    values = {
+        "genre": request.genre,
+        "bpm": request.bpm,
+        "musical_key": normalize_key(request.musical_key),
+    }
     sources = {field: "legacy" for field in values}
     _safe_upsert_track(
         db,
@@ -392,6 +404,13 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
         # reuse it. Search-result submissions arrive complete and skip the cascade,
         # so they would otherwise never populate the store (#541).
         _seed_complete_request(db, request, sig)
+        # The complete path must not bypass energy backfill: when the gate is on
+        # and the seeded row lacks energy, fetch Soundcharts audio features onto it
+        # (the core cascade still never runs here).
+        if get_settings().soundcharts_audio_features_enabled:
+            cached = get_track(db, signature=sig)
+            if cached is not None and cached.energy is None:
+                _backfill_energy_for_cached(db, request, cached, sig)
         return
 
     # Cache-aside short-circuit: if the master store already has this recording
@@ -497,19 +516,19 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
             except Exception:
                 logger.warning("Tidal direct fetch failed for request %d", request_id)
 
-    # 0b. Spotify URL → ISRC. Capture the ISRC INDEPENDENTLY of Tidal auth: it
-    # feeds both the optional Tidal exact-match below AND the Soundcharts
-    # audio-features lookup, so nesting it under tidal_access_token would starve
-    # Soundcharts for DJs without a Tidal token (#541). Fetch it whenever bpm/key
-    # are still missing OR the Soundcharts gate is on (its only other consumer).
+    # 0b. Spotify URL → ISRC. Capture the ISRC INDEPENDENTLY of Tidal auth (so the
+    # Soundcharts lookup isn't starved for DJs without a Tidal token), but ONLY when
+    # a consumer actually exists — otherwise the external Spotify call is wasted
+    # (#541). The two consumers: the Tidal exact-match (needs a token + missing
+    # bpm/key) and the Soundcharts audio-features lookup (needs the gate on).
+    needs_isrc_for_tidal = bool(
+        (not request.bpm or not request.musical_key) and user and user.tidal_access_token
+    )
+    needs_isrc_for_soundcharts = get_settings().soundcharts_audio_features_enabled
     if (
         source_svc == "spotify"
         and not resolved_isrc
-        and (
-            not request.bpm
-            or not request.musical_key
-            or get_settings().soundcharts_audio_features_enabled
-        )
+        and (needs_isrc_for_tidal or needs_isrc_for_soundcharts)
     ):
         resolved_isrc = _get_isrc_from_spotify(request.source_url)
 

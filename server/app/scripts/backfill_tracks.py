@@ -37,9 +37,11 @@ _FIELD_MAP: dict[str, str] = {
 def backfill_tracks(db: Session) -> dict:
     """Copy genre/bpm/musical_key from Request rows into the master tracks store.
 
-    Scans every Request with at least one of those fields populated, upserting a
-    ``legacy``-sourced track per row. Each row is isolated in try/except so one
-    bad row never aborts the run. Commits once at the end.
+    Streams every Request with at least one of those fields populated (so memory
+    stays bounded as the table grows), upserting a ``legacy``-sourced track per
+    row. Each row's write is wrapped in its own SAVEPOINT: a failed flush rolls
+    back only that row (the shared Session stays usable and prior rows survive),
+    so one bad row never aborts the run. Commits once at the end.
 
     Returns a summary: {"scanned": rows_with_metadata, "upserted": rows_upserted,
     "errors": rows_that_raised}.
@@ -52,7 +54,7 @@ def backfill_tracks(db: Session) -> dict:
             | (Request.musical_key.isnot(None))
         )
         .order_by(Request.id)
-        .all()
+        .yield_per(500)
     )
 
     scanned = 0
@@ -73,17 +75,26 @@ def backfill_tracks(db: Session) -> dict:
                 continue
             sources = {field: "legacy" for field in values}
             signature = dedupe_signature(request.artist, request.song_title)
-            upsert_track(
-                db,
-                identity=TrackIdentity(
-                    title=request.song_title,
-                    artist=request.artist,
-                    signature=signature,
-                ),
-                values=values,
-                sources=sources,
-                fetched_at=request.updated_at or utcnow(),
-            )
+            # Per-row savepoint: a flush/constraint error here would otherwise leave
+            # the shared Session in a rollback-needed state and abort every later row
+            # plus the final commit. Roll back just this row's savepoint and go on.
+            savepoint = db.begin_nested()
+            try:
+                upsert_track(
+                    db,
+                    identity=TrackIdentity(
+                        title=request.song_title,
+                        artist=request.artist,
+                        signature=signature,
+                    ),
+                    values=values,
+                    sources=sources,
+                    fetched_at=request.updated_at or utcnow(),
+                )
+                savepoint.commit()
+            except Exception:
+                savepoint.rollback()
+                raise
             upserted += 1
         except Exception:
             errors += 1

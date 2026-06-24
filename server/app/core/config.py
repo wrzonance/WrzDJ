@@ -135,6 +135,10 @@ class Settings(BaseSettings):
     # key usable in prod while energy/danceability/valence lookup stays off
     # until a paid tier + caching/redistribution licensing are validated.
     soundcharts_audio_features_enabled: bool = False
+    # Related-tracks candidate discovery (#556) — DARK BY DEFAULT. The paid-tier
+    # GET /api/v2/song/{uuid}/related endpoint is the only spend on this path;
+    # gated off until a paid plan is provisioned so it can never bill by default.
+    soundcharts_related_tracks_enabled: bool = False
 
     # ListenBrainz API (artist discovery for recommendations)
     listenbrainz_user_token: str = ""

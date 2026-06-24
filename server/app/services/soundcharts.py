@@ -24,6 +24,12 @@ REQUEST_TIMEOUT = 15
 # Song endpoints (audio features, ISRC lookup) live under the v2.25 API.
 SONG_API_BASE = f"{BASE_URL}/api/v2.25/song"
 
+# Related-tracks discovery (#556) lives under the v2 song API.
+SONG_V2_API_BASE = f"{BASE_URL}/api/v2/song"
+
+# Default number of related tracks to request per seed.
+RELATED_TRACKS_LIMIT = 20
+
 
 # Camelot position → (pitch_class 0-11, mode 0=minor/1=major)
 # Derived from _KEY_DEFINITIONS in camelot.py
@@ -365,3 +371,92 @@ def get_song_features_by_isrc(isrc: str) -> SoundchartsAudioFeatures | None:
             return None
 
     return _parse_song_features(obj, normalized)
+
+
+def _credit_name(value) -> str:
+    """Extract the artist display name from a Soundcharts ``creditName`` field.
+
+    The field is sometimes a bare string and sometimes ``{"name": ...}`` — mirror
+    the tolerance already used by ``discover_songs``.
+    """
+    if isinstance(value, dict):
+        return value.get("name") or ""
+    return value or ""
+
+
+def _related_item_to_track(item: dict) -> SoundchartsTrack | None:
+    """Convert one related-tracks item to a SoundchartsTrack, or None if incomplete.
+
+    Tolerates both the flat shape (song fields directly on the item) and the
+    nested ``{"song": {...}}`` shape some collection endpoints use. Items missing
+    a name, artist, or uuid are dropped rather than crashed on.
+    """
+    if not isinstance(item, dict):
+        return None
+    song = item.get("song") if isinstance(item.get("song"), dict) else item
+    name = song.get("name")
+    artist = _credit_name(song.get("creditName"))
+    uuid = song.get("uuid")
+    if name and artist and uuid:
+        return SoundchartsTrack(title=name, artist=artist, soundcharts_uuid=uuid)
+    return None
+
+
+def get_related_songs_by_isrc(
+    isrc: str, *, limit: int = RELATED_TRACKS_LIMIT
+) -> list[SoundchartsTrack]:
+    """Fetch tracks related to a seed ISRC via the paid-tier related endpoint (#556).
+
+    Dark by default: returns ``[]`` unless ``soundcharts_related_tracks_enabled``
+    is set AND credentials are configured, so the paid
+    ``GET /api/v2/song/{uuid}/related`` endpoint never spends by default. Resolves
+    ISRC → song UUID (one call) → related tracks (one call). Returns ``[]`` on a
+    miss, an unconfigured/disabled adapter, or any API failure — the caller treats
+    the source as contributing nothing.
+    """
+    settings = get_settings()
+    if not settings.soundcharts_related_tracks_enabled:
+        logger.debug("Soundcharts related-tracks disabled, skipping lookup")
+        return []
+    if not settings.soundcharts_app_id or not settings.soundcharts_api_key:
+        logger.debug("Soundcharts not configured, skipping related-tracks lookup")
+        return []
+
+    normalized = _normalize_isrc(isrc)
+    if not normalized:
+        return []
+
+    seed = _fetch_song_object(f"{SONG_API_BASE}/by-isrc/{normalized}", settings)
+    if not seed or not seed.get("uuid"):
+        return []
+
+    try:
+        response = httpx.get(
+            f"{SONG_V2_API_BASE}/{seed['uuid']}/related",
+            params={"offset": 0, "limit": limit},
+            headers={
+                "x-app-id": settings.soundcharts_app_id,
+                "x-api-key": settings.soundcharts_api_key,
+            },
+            timeout=REQUEST_TIMEOUT,
+        )
+        response.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        logger.warning(
+            "Soundcharts related API error %s: %s", e.response.status_code, e.response.text[:200]
+        )
+        return []
+    except httpx.HTTPError as e:
+        logger.warning("Soundcharts related request failed: %s", e)
+        return []
+
+    try:
+        payload = response.json()
+    except ValueError as e:
+        logger.warning("Soundcharts related API returned invalid JSON: %s", e)
+        return []
+
+    items = payload.get("items", []) if isinstance(payload, dict) else []
+    tracks = [t for t in (_related_item_to_track(item) for item in items) if t is not None]
+    logger.info("Soundcharts related: %d tracks for seed ISRC", len(tracks))
+    return tracks

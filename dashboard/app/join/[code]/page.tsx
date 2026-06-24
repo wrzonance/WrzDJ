@@ -386,7 +386,7 @@ export default function JoinEventPage() {
         selectedSong.url || undefined,
         selectedSong.album_art || undefined,
         searchQuery || undefined,
-        { genre: selectedSong.genre ?? undefined, bpm: selectedSong.bpm ?? undefined, musical_key: selectedSong.key ?? undefined },
+        { genre: selectedSong.genre ?? undefined, bpm: selectedSong.bpm ?? undefined, musical_key: selectedSong.key ?? undefined, isrc: selectedSong.isrc ?? undefined },
         selectedSong.source,
         nickname || undefined,
         reverify,

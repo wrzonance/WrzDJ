@@ -51,6 +51,7 @@ export function DjSongSearchModal({ code, onSongAdded, onClose }: DjSongSearchMo
           genre: result.genre || undefined,
           bpm: result.bpm || undefined,
           musical_key: result.key || undefined,
+          isrc: result.isrc || undefined,
         },
         result.source,
       );

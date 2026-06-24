@@ -7,6 +7,7 @@ from app.models.event import Event
 from app.models.request import Request, RequestStatus
 from app.services.dedup import compute_dedupe_key, find_duplicate
 from app.services.recommendation.camelot import parse_key
+from app.services.track_normalizer import normalize_isrc
 from app.services.vote import add_vote
 
 # Valid state transitions for request status
@@ -50,6 +51,7 @@ def create_request(
     genre: str | None = None,
     bpm: float | None = None,
     musical_key: str | None = None,
+    isrc: str | None = None,
 ) -> tuple[Request, bool]:
     """
     Create a new song request.
@@ -79,6 +81,7 @@ def create_request(
         genre=genre,
         bpm=bpm,
         musical_key=normalize_key(musical_key),
+        isrc=normalize_isrc(isrc),
         # Flag based on event phase so /join and /collect entry points produce
         # equivalent rows during collection — otherwise /join submissions are
         # invisible in the collect leaderboard despite being valid.

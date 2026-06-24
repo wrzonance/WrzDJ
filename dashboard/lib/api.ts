@@ -1101,7 +1101,7 @@ class ApiClient {
     sourceUrl?: string,
     artworkUrl?: string,
     rawSearchQuery?: string,
-    metadata?: { source?: string; genre?: string; bpm?: number; musical_key?: string },
+    metadata?: { source?: string; genre?: string; bpm?: number; musical_key?: string; isrc?: string },
     source?: string,
     nickname?: string,
     reverify?: () => Promise<void>,
@@ -1126,6 +1126,7 @@ class ApiClient {
           genre: metadata?.genre,
           bpm: metadata?.bpm,
           musical_key: metadata?.musical_key,
+          isrc: metadata?.isrc,
         }),
       });
     if (reverify) {
@@ -2096,6 +2097,7 @@ class ApiClient {
       artwork_url?: string;
       note?: string;
       nickname?: string;
+      isrc?: string;
     },
     reverify?: () => Promise<void>,
   ): Promise<{ id: number; is_duplicate: boolean }> {

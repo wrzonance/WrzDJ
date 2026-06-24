@@ -57,6 +57,7 @@ from app.services.sync.enrichment_pipeline import _find_best_match
 from app.services.sync.orchestrator import _enrich_with_fresh_session
 from app.services.system_settings import get_system_settings
 from app.services.tidal import sync_collection_requests_batch
+from app.services.track_normalizer import normalize_isrc
 from app.services.vote import add_vote
 
 logger = logging.getLogger(__name__)
@@ -478,6 +479,7 @@ def submit(
         status=RequestStatus.NEW.value,
         dedupe_key=compute_dedupe_key(payload.artist, payload.song_title),
         guest_id=guest_id,
+        isrc=normalize_isrc(payload.isrc),
         submitted_during_collection=True,
     )
     db.add(row)

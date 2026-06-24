@@ -706,6 +706,7 @@ def submit_request(
         genre=request_data.genre,
         bpm=request_data.bpm,
         musical_key=request_data.musical_key,
+        isrc=request_data.isrc,
     )
 
     # Enrich missing metadata in the background (Beatport, MusicBrainz). Enqueue

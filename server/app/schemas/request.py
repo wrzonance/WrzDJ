@@ -23,6 +23,9 @@ class RequestCreate(BaseModel):
     genre: str | None = Field(default=None, max_length=100)
     bpm: float | None = Field(default=None, ge=1, le=999)
     musical_key: str | None = Field(default=None, max_length=20)
+    # ISRC from the chosen search result (#552); normalized on store. max_length 15
+    # accommodates the hyphenated form (e.g. "US-UM7-19-00764").
+    isrc: str | None = Field(default=None, max_length=15)
 
     @field_validator("artist", "title")
     @classmethod

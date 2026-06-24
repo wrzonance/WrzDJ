@@ -371,7 +371,12 @@ def _seed_complete_request(db: Session, request: Request, sig: str) -> None:
     trio is attributed ``legacy`` (lowest precedence); the precedence guard keeps
     it from downgrading a stronger existing row, and a later incomplete request
     upgrades it via real providers (see ``_trio_trusted``). The key is normalized
-    to Camelot so the seeded row matches what the cascade would have written."""
+    to Camelot so the seeded row matches what the cascade would have written.
+
+    Seeds with the Request's ISRC when present (#552): a complete submission that
+    carries the search-result ISRC collapses onto the existing ISRC-keyed row even
+    when its normalized signature differs (e.g. a collab/credit variant), instead
+    of inserting a second signature-only row."""
     values = {
         "genre": request.genre,
         "bpm": request.bpm,
@@ -380,7 +385,12 @@ def _seed_complete_request(db: Session, request: Request, sig: str) -> None:
     sources = {field: "legacy" for field in values}
     _safe_upsert_track(
         db,
-        identity=TrackIdentity(title=request.song_title, artist=request.artist, signature=sig),
+        identity=TrackIdentity(
+            title=request.song_title,
+            artist=request.artist,
+            signature=sig,
+            isrc=request.isrc,
+        ),
         values=values,
         sources=sources,
         request_id=request.id,
@@ -461,7 +471,7 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
         # and the seeded row lacks energy, fetch Soundcharts audio features onto it
         # (the core cascade still never runs here).
         if get_settings().soundcharts_audio_features_enabled:
-            cached = get_track(db, signature=sig)
+            cached = get_track(db, isrc=request.isrc, signature=sig)
             if cached is not None and cached.energy is None:
                 _backfill_energy_for_cached(db, request, cached, sig)
         return
@@ -471,7 +481,7 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
     # providers — the dedupe win that makes the same song requested at two events
     # cost one set of API calls, not two (#541). A trio that is only ``legacy``
     # sourced is NOT authoritative — fall through so real providers can upgrade it.
-    cached = get_track(db, signature=sig)
+    cached = get_track(db, isrc=request.isrc, signature=sig)
     if cached is not None and _trio_trusted(cached):
         if not request.genre:
             request.genre = cached.genre
@@ -504,7 +514,10 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
     # alongside the Request writes so the store dual-write below carries accurate
     # sources without post-hoc guessing.
     resolved: dict[str, tuple[object, str]] = {}
-    resolved_isrc: str | None = None
+    # Seed from the Request's own ISRC (carried from the chosen search result, #552)
+    # so the store identity is ISRC-first even before any provider resolves one;
+    # provider hits below may still set it if the request arrived without one.
+    resolved_isrc: str | None = request.isrc
 
     user = request.event.created_by
     search_query = f"{primary_artist(request.artist)} {request.song_title}"

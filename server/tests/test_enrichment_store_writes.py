@@ -68,6 +68,7 @@ def _make_request(
     genre: str | None = None,
     bpm: float | None = None,
     musical_key: str | None = None,
+    isrc: str | None = None,
 ) -> Request:
     request = Request(
         event_id=event.id,
@@ -79,6 +80,7 @@ def _make_request(
         genre=genre,
         bpm=bpm,
         musical_key=musical_key,
+        isrc=isrc,
     )
     db.add(request)
     db.commit()
@@ -910,3 +912,94 @@ def test_presupplied_bpm_seeded_canonical_not_event_corrected(
     assert track is not None
     assert track.bpm == 66.0  # canonical pre-supplied value seeded, NOT 132
     assert track.provenance["bpm"]["source"] == "legacy"
+
+
+def test_isrc_first_cache_hit_across_variant_signature(db: Session, bp_user: User, monkeypatch):
+    """ISRC-FIRST cache (#552): an incomplete request whose ISRC matches a trusted
+    store row reuses it even when the normalized signature DIFFERS (credit variant)
+    — zero provider calls, no re-derivation."""
+    from app.models.track import Track
+
+    db.add(
+        Track(
+            signature="unrelated-credit-variant-sig",
+            isrc="USXYZ1234567",
+            title="Strobe",
+            artist="deadmau5 & Friend",
+            genre="Progressive House",
+            bpm=128.0,
+            musical_key="4A",
+            provenance={
+                f: {"source": "beatport", "fetched_at": "2026-06-24T00:00:00"}
+                for f in ("genre", "bpm", "musical_key")
+            },
+        )
+    )
+    db.commit()
+
+    event = _make_event(db, bp_user, "ISRCFC", "ISRCFW")
+    # Normalizes to a DIFFERENT signature, but carries the same ISRC.
+    request = _make_request(db, event, "Strobe", "deadmau5", "isrc_fc", isrc="USXYZ1234567")
+    assert dedupe_signature("deadmau5", "Strobe") != "unrelated-credit-variant-sig"
+
+    beatport_spy = _Spy([_beatport_hit("Strobe", "deadmau5")])
+    monkeypatch.setattr("app.services.beatport.search_beatport_tracks", beatport_spy)
+    monkeypatch.setattr("app.services.sync.enrichment_pipeline.lookup_artist_genre", _Spy(None))
+    monkeypatch.setattr("app.services.tidal.search_tidal_tracks", _Spy([]))
+
+    enrich_request_metadata(db, request.id)
+
+    assert beatport_spy.calls == 0  # ISRC-keyed cache hit → no provider re-derivation
+    db.refresh(request)
+    assert request.genre == "Progressive House"
+    assert request.bpm == 128.0
+    assert request.musical_key == "4A"
+
+
+def test_complete_submission_with_isrc_collapses_no_duplicate(
+    db: Session, bp_user: User, monkeypatch
+):
+    """ISRC-first seed (#552): a COMPLETE submission carrying an ISRC collapses onto
+    the existing ISRC row even under a different signature — no duplicate row (the
+    edge Codex flagged)."""
+    from app.models.track import Track
+
+    db.add(
+        Track(
+            signature="existing-sig-for-isrc",
+            isrc="USABC7654321",
+            title="Strobe",
+            artist="deadmau5",
+            genre="Trance",
+            bpm=130.0,
+            musical_key="8A",
+            provenance={
+                f: {"source": "beatport", "fetched_at": "2026-06-24T00:00:00"}
+                for f in ("genre", "bpm", "musical_key")
+            },
+        )
+    )
+    db.commit()
+
+    event = _make_event(db, bp_user, "ISRCDUP", "ISRCDW")
+    # Complete submission, credit-variant signature, SAME ISRC.
+    request = _make_request(
+        db,
+        event,
+        "Strobe",
+        "deadmau5 & Guest",
+        "isrc_dup",
+        genre="Techno",
+        bpm=132.0,
+        musical_key="9A",
+        isrc="USABC7654321",
+    )
+    monkeypatch.setattr("app.services.beatport.search_beatport_tracks", _Spy([]))
+    monkeypatch.setattr("app.services.sync.enrichment_pipeline.lookup_artist_genre", _Spy(None))
+    monkeypatch.setattr("app.services.tidal.search_tidal_tracks", _Spy([]))
+
+    enrich_request_metadata(db, request.id)
+
+    rows = db.query(Track).filter(Track.isrc == "USABC7654321").all()
+    assert len(rows) == 1, "complete submission with ISRC must collapse onto the existing row"
+    assert rows[0].signature == "existing-sig-for-isrc"  # no second signature-only row

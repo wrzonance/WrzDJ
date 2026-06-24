@@ -138,6 +138,8 @@ class CollectSubmitRequest(BaseModel):
     artwork_url: str | None = Field(default=None, max_length=500)
     note: Note | None = None
     nickname: Nickname | None = None
+    # ISRC from the chosen search result (#552); normalized on store.
+    isrc: str | None = Field(default=None, max_length=15)
 
 
 class LiveJoinCodeResponse(BaseModel):

@@ -136,7 +136,7 @@ export function RequestModal({ code, onClose, onRequestsClosed }: RequestModalPr
         selectedSong.url || undefined,
         selectedSong.album_art || undefined,
         undefined,
-        undefined,
+        { isrc: selectedSong.isrc || undefined },
         undefined,
         nickname || undefined,
       );

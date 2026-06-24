@@ -65,6 +65,9 @@ class Request(Base):
     genre: Mapped[str | None] = mapped_column(String(100), nullable=True)
     bpm: Mapped[float | None] = mapped_column(Float, nullable=True)
     musical_key: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # ISRC carried from the chosen search result (#552). Enrichment uses it as the
+    # ISRC-first master-store cache key + identity, rather than re-deriving it.
+    isrc: Mapped[str | None] = mapped_column(String(15), nullable=True)
 
     # Voting
     vote_count: Mapped[int] = mapped_column(Integer, default=0)

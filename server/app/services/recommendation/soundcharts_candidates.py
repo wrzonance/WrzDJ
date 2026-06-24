@@ -1,7 +1,14 @@
-"""Bridge between Soundcharts discovery and Tidal playback.
+"""Soundcharts-backed candidate generators for the recommendation engine.
 
-Discovers songs via Soundcharts (genre/BPM/key filters), then resolves
-each result to a playable Tidal track ID via individual Tidal searches.
+Two independent paths:
+
+1. ``search_candidates_via_soundcharts`` — discovers songs via Soundcharts
+   genre/BPM/key filters, then resolves each result to a playable Tidal track ID
+   (requires a connected Tidal account).
+2. ``related_candidates_from_seeds`` (#556) — seeds the paid-tier related-tracks
+   endpoint from the event's existing tracks (ISRC resolved from the master
+   ``tracks`` store), producing provider-agnostic candidates with NO connected
+   service required. Dark by default via the adapter gate.
 """
 
 import logging
@@ -10,7 +17,13 @@ from sqlalchemy.orm import Session
 
 from app.models.user import User
 from app.services.recommendation.scorer import EventProfile, TrackProfile
-from app.services.soundcharts import discover_songs
+from app.services.soundcharts import (
+    RELATED_TRACKS_LIMIT,
+    SoundchartsTrack,
+    discover_songs,
+    get_related_songs_by_isrc,
+)
+from app.services.tracks.store import get_track
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +32,9 @@ MAX_TIDAL_LOOKUPS = 25
 
 # BPM range around the event average
 BPM_RANGE_OFFSET = 15
+
+# Max seed tracks to expand via the paid related endpoint (each costs API calls).
+MAX_RELATED_SEEDS = 10
 
 
 def search_candidates_via_soundcharts(
@@ -93,3 +109,68 @@ def search_candidates_via_soundcharts(
         total_searched,
     )
     return candidates, total_searched
+
+
+def _seed_isrc(db: Session, request) -> str | None:
+    """Resolve a seed request's ISRC: the request's own ISRC first, else the
+    master tracks store keyed by the normalized artist+title signature."""
+    if getattr(request, "isrc", None):
+        return request.isrc
+    # Fall back to the master store (#540/#552), the ISRC source of truth.
+    from app.services.setbuilder.pool import dedupe_signature
+
+    signature = dedupe_signature(request.artist, request.song_title)
+    stored = get_track(db, signature=signature)
+    return stored.isrc if stored and stored.isrc else None
+
+
+def related_candidates_from_seeds(
+    db: Session,
+    requests: list,
+    *,
+    max_seeds: int = MAX_RELATED_SEEDS,
+    per_seed_limit: int = RELATED_TRACKS_LIMIT,
+) -> tuple[list[TrackProfile], int]:
+    """Discover candidates via Soundcharts related-tracks, seeded by event ISRCs (#556).
+
+    For each of the first ``max_seeds`` requests, resolve an ISRC (request first,
+    then the master tracks store) and fetch related tracks via the dark-by-default
+    adapter. Candidates are de-duplicated across seeds (by Soundcharts UUID and by
+    normalized artist|title) and returned as ``TrackProfile(source="soundcharts")``
+    for the shared scorer/dedup pipeline.
+
+    Returns ``(candidates, seeds_used)`` where ``seeds_used`` counts seeds that
+    resolved an ISRC and triggered a lookup. Requires NO connected music service;
+    contributes nothing when the adapter is disabled/unconfigured (it returns []).
+    """
+    candidates: list[TrackProfile] = []
+    seeds_used = 0
+    seen_uuids: set[str] = set()
+    seen_names: set[str] = set()
+
+    for request in requests[:max_seeds]:
+        isrc = _seed_isrc(db, request)
+        if not isrc:
+            continue
+        seeds_used += 1
+        related: list[SoundchartsTrack] = get_related_songs_by_isrc(isrc, limit=per_seed_limit)
+        for track in related:
+            name_key = f"{track.artist.lower().strip()}|{track.title.lower().strip()}"
+            if track.soundcharts_uuid in seen_uuids or name_key in seen_names:
+                continue
+            seen_uuids.add(track.soundcharts_uuid)
+            seen_names.add(name_key)
+            candidates.append(
+                TrackProfile(
+                    title=track.title,
+                    artist=track.artist,
+                    source="soundcharts",
+                )
+            )
+
+    logger.info(
+        "Soundcharts related-tracks: %d candidates from %d seed(s)",
+        len(candidates),
+        seeds_used,
+    )
+    return candidates, seeds_used

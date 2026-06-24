@@ -229,6 +229,104 @@ def _apply_enrichment_result(
         resolved["musical_key"] = (normalized, source)
 
 
+def _soundcharts_audio_values(feats) -> dict[str, tuple[object, str]]:
+    """Map a SoundchartsAudioFeatures result to resolved ``field -> (value, source)``
+    entries, dropping None values (a missing feature must not overwrite the store)."""
+    audio_fields = {
+        "energy": feats.energy,
+        "danceability": feats.danceability,
+        "valence": feats.valence,
+        "acousticness": feats.acousticness,
+        "instrumentalness": feats.instrumentalness,
+        "speechiness": feats.speechiness,
+        "liveness": feats.liveness,
+        "loudness_db": feats.loudness_db,
+        "time_signature": feats.time_signature,
+        "explicit": feats.explicit,
+        "duration_sec": feats.duration_sec,
+    }
+    return {
+        field: (value, "soundcharts") for field, value in audio_fields.items() if value is not None
+    }
+
+
+def _backfill_energy_for_cached(db: Session, request: Request, cached, sig: str) -> None:
+    """Backfill Soundcharts audio features onto an already-trio-complete store row.
+
+    Reached only from the cache-aside short-circuit when the gate is on and the
+    cached row lacks energy (spec §2/§4/§5.4/§7). Resolves the ISRC from the row
+    itself (preferred) or the request's Spotify source_url, fetches features, and
+    upserts the audio fields onto the existing row WITHOUT running the core
+    provider cascade. Best-effort: any failure is isolated and never regresses the
+    request commit (the store is strictly additive)."""
+    resolved_isrc = cached.isrc or _get_isrc_from_spotify(request.source_url)
+    if not resolved_isrc:
+        return
+    try:
+        from app.services.soundcharts import get_song_features_by_isrc
+
+        feats = get_song_features_by_isrc(resolved_isrc)
+    except Exception:
+        logger.warning("Soundcharts energy backfill lookup failed for request %d", request.id)
+        return
+    if not feats:
+        return
+    resolved = _soundcharts_audio_values(feats)
+    if not resolved:
+        return
+    values = {field: value for field, (value, _src) in resolved.items()}
+    sources = {field: src for field, (_value, src) in resolved.items()}
+    _safe_upsert_track(
+        db,
+        identity=TrackIdentity(
+            title=request.song_title,
+            artist=request.artist,
+            signature=sig,
+            isrc=resolved_isrc,
+            soundcharts_uuid=feats.soundcharts_uuid or None,
+        ),
+        values=values,
+        sources=sources,
+        request_id=request.id,
+    )
+
+
+def _safe_upsert_track(
+    db: Session,
+    *,
+    identity: TrackIdentity,
+    values: dict[str, object],
+    sources: dict[str, str],
+    request_id: int,
+) -> None:
+    """Durably commit the Request's own enrichment, then upsert the store on top.
+
+    A DB-level failure inside ``upsert_track`` (e.g. a flush-time error from a
+    constraint or a transient Postgres OperationalError) poisons the session, so a
+    naive trailing ``db.commit()`` would raise ``PendingRollbackError`` and discard
+    the Request's freshly enriched bpm/genre/key — the opposite of the "store is
+    strictly additive, never regress the request commit" guarantee (#541).
+
+    To make that guarantee real we commit the pending Request enrichment FIRST so
+    it is durable, then run the store upsert and commit it separately. If the store
+    write fails we ``db.rollback()`` to recover the poisoned session — the Request
+    is already committed, so nothing it owns is lost; only the best-effort store
+    write is dropped (it recomputes on the next request)."""
+    db.commit()  # persist the Request's own enrichment before the additive store write
+    try:
+        upsert_track(
+            db,
+            identity=identity,
+            values=values,
+            sources=sources,
+            fetched_at=utcnow(),
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.warning("Track store upsert failed for request %d", request_id)
+
+
 def enrich_request_metadata(db: Session, request_id: int) -> None:
     """Background task: fill missing genre/BPM/key on a request.
 
@@ -266,6 +364,13 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
             request.bpm = cached.bpm
         if not request.musical_key:
             request.musical_key = cached.musical_key
+        # The trio (genre/bpm/key) is complete, so the full provider cascade is
+        # skipped. But energy may still be missing on this row — when the gate is
+        # on, backfill ONLY the Soundcharts audio features onto the existing row
+        # (spec §2/§4/§5.4/§7: "energy backfills later"). The core cascade stays
+        # skipped, preserving the zero-extra-core-API-calls dedupe win.
+        if get_settings().soundcharts_audio_features_enabled and cached.energy is None:
+            _backfill_energy_for_cached(db, request, cached, sig)
         db.commit()
         logger.info(
             "Request %d served from track store (sig=%s): genre=%s bpm=%s key=%s",
@@ -514,48 +619,50 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
             feats = get_song_features_by_isrc(resolved_isrc)
             if feats:
                 resolved_uuid = feats.soundcharts_uuid or None
-                audio_fields = {
-                    "energy": feats.energy,
-                    "danceability": feats.danceability,
-                    "valence": feats.valence,
-                    "acousticness": feats.acousticness,
-                    "instrumentalness": feats.instrumentalness,
-                    "speechiness": feats.speechiness,
-                    "liveness": feats.liveness,
-                    "loudness_db": feats.loudness_db,
-                    "time_signature": feats.time_signature,
-                    "explicit": feats.explicit,
-                    "duration_sec": feats.duration_sec,
-                }
-                for field, value in audio_fields.items():
-                    if value is not None:
-                        resolved[field] = (value, "soundcharts")
+                resolved.update(_soundcharts_audio_values(feats))
         except Exception:
             logger.warning("Soundcharts audio-features lookup failed for request %d", request_id)
 
-    # Dual-write the master tracks store. Wrapped so a store failure never
-    # regresses the request's own commit — the store is strictly additive (#541).
+    # Seed the request's own pre-supplied/cascade-confirmed core fields into the
+    # store payload even when no provider NEWLY resolved them this run (#541). A
+    # request can arrive with partial metadata (RequestCreate accepts
+    # genre/bpm/musical_key; the frontend submits search-result fields), and
+    # `_apply_enrichment_result` only records a field into `resolved` when the
+    # Request was MISSING it — so a request that already carried, say, genre would
+    # write a genre-less store row, which can never satisfy the cache-aside gate
+    # (genre AND bpm AND musical_key) and re-hits every provider forever. Seed each
+    # core field the Request holds but `resolved` lacks, attributed to the lowest
+    # `legacy` provenance so any real later enrichment cleanly overrides it (the
+    # `should_overwrite` precedence guard keeps a stronger existing source).
+    for field, value in (
+        ("genre", request.genre),
+        ("bpm", request.bpm),
+        ("musical_key", request.musical_key),
+    ):
+        if field not in resolved and value is not None:
+            resolved[field] = (value, "legacy")
+
+    # Dual-write the master tracks store. `_safe_upsert_track` commits the
+    # Request's own enrichment first, so a store-write failure never regresses it
+    # — the store is strictly additive (#541).
     if resolved:
         values = {field: value for field, (value, _src) in resolved.items()}
         sources = {field: src for field, (_value, src) in resolved.items()}
-        try:
-            upsert_track(
-                db,
-                identity=TrackIdentity(
-                    title=request.song_title,
-                    artist=request.artist,
-                    signature=sig,
-                    isrc=resolved_isrc,
-                    soundcharts_uuid=resolved_uuid,
-                ),
-                values=values,
-                sources=sources,
-                fetched_at=utcnow(),
-            )
-        except Exception:
-            logger.warning("Track store upsert failed for request %d", request_id)
-
-    db.commit()
+        _safe_upsert_track(
+            db,
+            identity=TrackIdentity(
+                title=request.song_title,
+                artist=request.artist,
+                signature=sig,
+                isrc=resolved_isrc,
+                soundcharts_uuid=resolved_uuid,
+            ),
+            values=values,
+            sources=sources,
+            request_id=request_id,
+        )
+    else:
+        db.commit()
     logger.info(
         "Enriched request %d: genre=%s, bpm=%s, key=%s",
         request_id,

@@ -10,7 +10,7 @@ from app.core.validation import (
     validate_event_code,
     validate_length,
 )
-from app.schemas.collect import CollectProfileRequest
+from app.schemas.collect import CollectProfileRequest, CollectSubmitRequest
 from app.schemas.request import RequestCreate
 
 
@@ -260,3 +260,31 @@ class TestNicknameProfanityValidation:
     def test_collect_profile_allows_clean_nickname(self):
         req = CollectProfileRequest(nickname="DancingQueen")
         assert req.nickname == "DancingQueen"
+
+
+class TestIsrcValidation:
+    """Submitted ISRC is normalized + shape-validated; a malformed value is dropped
+    to None so it can't be mistaken for an authoritative identity / provider key (#552)."""
+
+    def test_hyphenated_isrc_normalized(self):
+        assert RequestCreate(artist="A", title="T", isrc="us-um7-19-00764").isrc == "USUM71900764"
+
+    def test_already_normalized_isrc_kept(self):
+        assert RequestCreate(artist="A", title="T", isrc="GBUM71029604").isrc == "GBUM71029604"
+
+    def test_malformed_isrc_dropped(self):
+        assert RequestCreate(artist="A", title="T", isrc="not-an-isrc").isrc is None
+        assert RequestCreate(artist="A", title="T", isrc="12345").isrc is None
+
+    def test_absent_isrc_is_none(self):
+        assert RequestCreate(artist="A", title="T").isrc is None
+
+    def test_collect_submit_valid_isrc_normalized(self):
+        req = CollectSubmitRequest(
+            song_title="T", artist="A", source="spotify", isrc="US-UM7-19-00764"
+        )
+        assert req.isrc == "USUM71900764"
+
+    def test_collect_submit_malformed_isrc_dropped(self):
+        req = CollectSubmitRequest(song_title="T", artist="A", source="spotify", isrc="garbage!!")
+        assert req.isrc is None

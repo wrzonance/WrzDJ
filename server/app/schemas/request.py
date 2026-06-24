@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.core.validation import contains_profanity, normalize_single_line, normalize_text
 from app.models.request import RequestSource, RequestStatus
 from app.schemas.common import BaseSchema, IsoDatetime
+from app.services.track_normalizer import valid_isrc
 
 ALLOWED_URL_SCHEMES = {"http", "https", "spotify"}
 
@@ -32,6 +33,13 @@ class RequestCreate(BaseModel):
     def normalize_single_line_fields(cls, v: str) -> str:
         normalized = normalize_single_line(v)
         return normalized if normalized else v
+
+    @field_validator("isrc")
+    @classmethod
+    def validate_isrc(cls, v: str | None) -> str | None:
+        # Normalize + drop a malformed ISRC (it would defeat the ISRC-first cache
+        # and drive bad provider by-ISRC calls if treated as identity). #552
+        return valid_isrc(v)
 
     @field_validator("note")
     @classmethod

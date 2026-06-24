@@ -7,6 +7,7 @@ from pydantic import AfterValidator, BaseModel, Field, StringConstraints
 
 from app.core.validation import contains_profanity
 from app.schemas.request import RequestSort, SortDirection
+from app.services.track_normalizer import valid_isrc
 
 
 def _check_nickname_profanity(v: str) -> str:
@@ -138,8 +139,9 @@ class CollectSubmitRequest(BaseModel):
     artwork_url: str | None = Field(default=None, max_length=500)
     note: Note | None = None
     nickname: Nickname | None = None
-    # ISRC from the chosen search result (#552); normalized on store.
-    isrc: str | None = Field(default=None, max_length=15)
+    # ISRC from the chosen search result (#552); normalized + shape-validated (a
+    # malformed value is dropped rather than used as identity / a provider key).
+    isrc: Annotated[str | None, AfterValidator(valid_isrc)] = Field(default=None, max_length=15)
 
 
 class LiveJoinCodeResponse(BaseModel):

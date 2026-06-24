@@ -711,9 +711,11 @@ def submit_request(
     # Enrich missing metadata in the background (Beatport, MusicBrainz). Enqueue
     # even for already-complete submissions: enrich_request_metadata seeds the
     # master track store and returns fast when the trio is present, so a complete
-    # search-result submission still populates the store for reuse (#541).
+    # search-result submission still populates the store for reuse (#541). Use a
+    # FRESH session (not the request-scoped `db`) so the task — which may make
+    # Spotify/Soundcharts network calls — doesn't pin a pool connection (#505).
     if not is_duplicate:
-        background_tasks.add_task(enrich_request_metadata, db, song_request.id)
+        background_tasks.add_task(_enrich_with_fresh_session, song_request.id)
 
     if not is_duplicate:
         publish_event(

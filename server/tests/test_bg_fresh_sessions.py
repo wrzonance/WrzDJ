@@ -397,3 +397,28 @@ def test_patch_accept_schedules_request_id_not_orm(
     func, args, kwargs = sync_tasks[0]
     _assert_no_orm_or_session(args, kwargs)
     assert args == (row.id,)
+
+
+def test_submit_request_schedules_fresh_session_not_db(
+    client, db, auth_headers, test_event, monkeypatch
+):
+    """POST /requests enriches via _enrich_with_fresh_session(id) — never the
+    request-scoped `db`/ORM row. #541 broadened this enqueue to complete
+    submissions too; with Soundcharts enabled the task makes network calls, so it
+    must not pin a pool connection (#505)."""
+    scheduled = _record_scheduled_tasks(monkeypatch)
+
+    resp = client.post(
+        f"/api/events/{test_event.code}/requests",
+        json={"title": "Sandstorm", "artist": "Darude"},
+        headers=auth_headers,
+    )
+    assert resp.status_code in (200, 201), resp.text
+
+    for func, args, kwargs in scheduled:
+        _assert_no_orm_or_session(args, kwargs)
+
+    enrich_tasks = [s for s in scheduled if s[0] is events_module._enrich_with_fresh_session]
+    assert len(enrich_tasks) == 1, "submit must schedule exactly one fresh-session enrich task"
+    args = enrich_tasks[0][1]
+    assert len(args) == 1 and isinstance(args[0], int)  # a single int request ID

@@ -8,7 +8,7 @@ from app.models.user import User
 from app.services.setbuilder.pass1_deterministic import build_set
 
 
-def _mk_set(db: Session, user: User, *, duration: int = 14 * 60) -> Set:
+def _mk_set(db: Session, user: User, *, duration: int | None = 14 * 60) -> Set:
     set_obj = Set(owner_id=user.id, name="Friday", target_duration_sec=duration)
     db.add(set_obj)
     db.commit()
@@ -58,11 +58,128 @@ def test_build_set_fills_target_duration_deterministically(db: Session, test_use
 
     second = build_set(db, set_obj)
 
-    assert first.slot_count == 4
+    # 14 min target, 210s tracks, overlap-aware (#538): the engine accumulates
+    # real durations and stops once the overlap-discounted effective playtime
+    # reaches the target — 5 slots (effective 816s at 4 < 840s <= 1018s at 5),
+    # not the old overlap-blind round(840/210)=4.
+    assert first.slot_count == 5
     assert [s.track_id for s in second.slots] == first_ids
     assert [s.transition_score for s in second.slots] == first_scores
     assert all(s.target_energy is not None for s in second.slots)
     assert first.iterations <= 50
+
+
+def test_build_set_no_target_is_bounded_by_fallback_cap(db: Session, test_user: User):
+    """No target must NOT dump the whole pool (#538 "12-hour set" bug). A 400-track
+    pool with no target builds a set bounded by the 3-hour fallback cap, never 400."""
+    set_obj = _mk_set(db, test_user, duration=None)
+    src = _mk_source(db, set_obj)
+    for idx in range(400):
+        _mk_track(db, set_obj, src, idx, duration_sec=210)
+
+    result = build_set(db, set_obj)
+
+    # 3h fallback / ~210s overlap-aware ≈ 53 slots — bounded, never the 400 pool.
+    assert result.slot_count < 400
+    assert result.slot_count <= 60
+
+
+def test_build_set_reaches_target_when_avg_skewed_by_long_outlier(db: Session, test_user: User):
+    """Underfill regression (#538): the selection loop must keep going until the
+    accumulated EFFECTIVE playtime reaches the target (or the pool is exhausted),
+    not stop at an average-duration-derived ceiling.
+
+    Here one long outlier skews the average duration high, so a budget computed
+    from the average yields a small slot ceiling — yet the scorer picks the many
+    short, compatible tracks, which need MANY more slots to reach the target. The
+    old hard ``_max_slot_count`` bound stopped the loop early and undershot the
+    target while the pool still had candidates; the loop must instead run to the
+    target. Regression for the score-greedy underfill fixed in this PR.
+    """
+    from app.services.setbuilder import targeting
+
+    target_sec = 30 * 60  # 1800s
+    set_obj = _mk_set(db, test_user, duration=target_sec)
+    src = _mk_source(db, set_obj)
+    # One long outlier that skews the mean track duration high (so any
+    # average-derived slot ceiling would be tiny) but is energy-incompatible, so
+    # the scorer prefers the short tracks; idx 0 keeps the lowest pool_id but its
+    # huge length means even if picked it can't justify stopping the loop early.
+    _mk_track(db, set_obj, src, 0, duration_sec=36000, energy=1)
+    for idx in range(1, 80):
+        _mk_track(db, set_obj, src, idx, duration_sec=60, energy=5)
+
+    result = build_set(db, set_obj)
+
+    overlap = set_obj.avg_transition_overlap_sec
+    durations = {"tidal:0": 36000, **{f"tidal:{i}": 60 for i in range(1, 80)}}
+    picked = [durations.get(s.track_id or "", 0) for s in result.slots]
+    effective = targeting.effective_duration_sec(sum(picked), len(picked), overlap)
+    # The build must reach the target (the pool has ample candidates), not stop
+    # at the average-skewed ceiling far below it.
+    assert effective >= target_sec
+    # And it must not run away — the overflow tolerance still holds because the
+    # short tracks are granular.
+    budget = targeting.pass1_slot_budget_from_durations(
+        target_duration_sec=target_sec,
+        track_durations_sec=picked,
+        avg_transition_overlap_sec=overlap,
+    )
+    assert result.slot_count == budget.slot_count
+
+
+def _build_durations(result, by_track_id: dict[str, int]) -> list[int]:
+    return [by_track_id.get(s.track_id or "", 0) for s in result.slots]
+
+
+def test_build_set_matches_overlap_aware_budget(db: Session, test_user: User):
+    """Acceptance criterion (#538): the engine's slot count equals
+    ``targeting.pass1_slot_budget_from_durations`` evaluated over the SAME real
+    durations it accumulated — the engine is the load-bearing consumer of the
+    targeting contract, not a parallel re-derivation. Variable lengths prove it
+    isn't a uniform-bucket coincidence."""
+    from app.services.setbuilder import targeting
+
+    set_obj = _mk_set(db, test_user, duration=14 * 60)
+    src = _mk_source(db, set_obj)
+    durations: dict[str, int] = {}
+    for idx in range(20):
+        dur = 200 + idx
+        track = _mk_track(db, set_obj, src, idx, duration_sec=dur)
+        durations[track.track_id] = dur
+
+    result = build_set(db, set_obj)
+    budget = targeting.pass1_slot_budget_from_durations(
+        target_duration_sec=14 * 60,
+        track_durations_sec=_build_durations(result, durations),
+        avg_transition_overlap_sec=set_obj.avg_transition_overlap_sec,
+    )
+
+    assert result.slot_count == budget.slot_count
+
+
+def test_build_set_lands_within_overflow_tolerance(db: Session, test_user: User):
+    """With granular track lengths the accumulated effective playtime lands within
+    the overflow tolerance of the target — the overlap-aware budget is satisfied,
+    not merely approached (#538)."""
+    from app.services.setbuilder import targeting
+
+    # 90s tracks, 30 min target: granular enough that stopping at the first slot
+    # to cross the target stays within the 10% overflow band.
+    set_obj = _mk_set(db, test_user, duration=30 * 60)
+    src = _mk_source(db, set_obj)
+    for idx in range(40):
+        _mk_track(db, set_obj, src, idx, duration_sec=90)
+
+    result = build_set(db, set_obj)
+    budget = targeting.pass1_slot_budget_from_durations(
+        target_duration_sec=30 * 60,
+        track_durations_sec=[90] * result.slot_count,
+        avg_transition_overlap_sec=set_obj.avg_transition_overlap_sec,
+    )
+
+    assert result.slot_count == budget.slot_count
+    assert budget.within_overflow_tolerance is True
 
 
 def test_build_set_preserves_locked_slots_and_tracks(db: Session, test_user: User):
@@ -76,10 +193,12 @@ def test_build_set_preserves_locked_slots_and_tracks(db: Session, test_user: Use
 
     result = build_set(db, set_obj)
 
+    # Overlap-aware 14-min budget is 5 slots (#538); the locked slot at position 1
+    # survives unchanged within the longer, length-gated set.
     assert result.slots[1].locked is True
     assert result.slots[1].track_id == "tidal:locked"
-    assert [s.position for s in result.slots] == [0, 1, 2, 3]
-    assert len({s.track_id for s in result.slots if s.track_id}) == 4
+    assert [s.position for s in result.slots] == [0, 1, 2, 3, 4]
+    assert len({s.track_id for s in result.slots if s.track_id}) == 5
 
 
 def test_saved_pairing_boost_keeps_adjacent_pair(db: Session, test_user: User):
@@ -98,7 +217,11 @@ def test_saved_pairing_boost_keeps_adjacent_pair(db: Session, test_user: User):
 
     result = build_set(db, set_obj)
 
-    assert [slot.track_id for slot in result.slots] == ["tidal:a", "tidal:b"]
+    # The saved a->b pairing boost keeps them adjacent and in order. The
+    # overlap-aware 7-min budget now admits a third slot (#538), so assert the
+    # pairing invariant (a then b at the head) rather than an exact 2-slot length.
+    ids = [slot.track_id for slot in result.slots]
+    assert ids[:2] == ["tidal:a", "tidal:b"]
 
 
 def test_build_set_commit_false_defers_persistence_to_caller(db: Session, test_user: User):

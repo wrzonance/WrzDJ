@@ -17,12 +17,20 @@ from app.models.set_pool import SetPoolTrack
 from app.models.user import User
 from app.services.recommendation.camelot import compatibility_score, parse_key
 from app.services.recommendation.scorer import _score_bpm, _score_genre
+from app.services.setbuilder import targeting
 from app.services.setbuilder.curve import BUILTIN_TEMPLATES, interpolate_energy, uniform_midpoints
 from app.services.setbuilder.vibe_resolver import ResolvedVibe, build_pool_vibe_states
 
 AVG_TRACK_LENGTH_SEC = 210
 MAX_SWAP_ITERATIONS = 50
 PAIRING_BOOST_POINTS = 20.0
+
+# Hard fallback cap for the generated set when no explicit ``target_duration_sec``
+# is set (#538). Without this, ``_slot_count`` returned ``len(tracks)`` and a big
+# pool became a multi-hour ("12-hour") set. 3 hours is the largest sane default
+# short of an all-night marathon; the length gate must not depend on the DJ having
+# remembered to set a target.
+DEFAULT_FALLBACK_SET_DURATION_SEC = 3 * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -60,35 +68,58 @@ def build_set(db: Session, set_obj: Set, *, commit: bool = True) -> BuildResult:
     pool_tracks = _pool_tracks(db, set_obj.id)
     locked = _locked_slots(db, set_obj.id)
     pairings = _saved_pairings(db, set_obj.id)
-    slot_count = _slot_count(set_obj, pool_tracks, locked)
-    targets = _target_energies(db, set_obj, slot_count)
+    max_slots = _max_slot_count(pool_tracks, locked)
+    # Energy targets are shaped over the upper-bound count so the curve stays
+    # stable while we select; we recompute against the final count after the
+    # duration-driven loop decides how many slots actually fit the target.
+    targets = _target_energies(db, set_obj, max_slots)
     vibes = _pool_vibes(db, set_obj)
     metas = [_track_meta(t, vibes.get(t.id)) for t in pool_tracks]
     by_track_id = {m.slot_track_id: m for m in metas}
+    # Real per-track durations (avg fallback for missing/<=0), keyed the same way
+    # the chooser identifies tracks, so the loop can accumulate actual playtime.
+    duration_by_track_id = {_track_meta(t).slot_track_id: _track_duration(t) for t in pool_tracks}
 
-    locked_by_pos = {slot.position: slot for slot in locked if slot.position < slot_count}
+    target_sec = _effective_target_sec(set_obj)
+    overlap_sec = max(0, int(set_obj.avg_transition_overlap_sec))
+    last_locked_pos = max((slot.position for slot in locked), default=-1)
+
+    locked_by_pos = {slot.position: slot for slot in locked if slot.position < max_slots}
     used = {slot.track_id for slot in locked_by_pos.values() if slot.track_id}
     chosen: list[TrackMeta | None] = []
-    for pos in range(slot_count):
+    total_sec = 0
+    for pos in range(max_slots):
         locked_slot = locked_by_pos.get(pos)
         if locked_slot is not None:
-            chosen.append(by_track_id.get(locked_slot.track_id or ""))
-            continue
-        prev = _previous_track(chosen)
-        candidate = _best_candidate(
-            metas=metas,
-            used=used,
-            previous=prev,
-            selected=chosen,
-            position=pos,
-            slot_count=slot_count,
-            target_energy=targets[pos],
-            key_strictness=set_obj.key_strictness,
-            pairings=pairings,
-        )
-        chosen.append(candidate)
-        if candidate is not None:
-            used.add(candidate.slot_track_id)
+            meta = by_track_id.get(locked_slot.track_id or "")
+            chosen.append(meta)
+            if meta is not None:
+                total_sec += duration_by_track_id.get(meta.slot_track_id, AVG_TRACK_LENGTH_SEC)
+        else:
+            candidate = _best_candidate(
+                metas=metas,
+                used=used,
+                previous=_previous_track(chosen),
+                selected=chosen,
+                position=pos,
+                slot_count=max_slots,
+                target_energy=targets[pos],
+                key_strictness=set_obj.key_strictness,
+                pairings=pairings,
+            )
+            chosen.append(candidate)
+            if candidate is not None:
+                used.add(candidate.slot_track_id)
+                total_sec += duration_by_track_id.get(candidate.slot_track_id, AVG_TRACK_LENGTH_SEC)
+        # Stop once the accumulated, overlap-discounted effective playtime reaches
+        # the target — but never before the last locked slot, which must survive.
+        effective = targeting.effective_duration_sec(total_sec, len(chosen), overlap_sec)
+        if pos >= last_locked_pos and effective >= target_sec:
+            break
+
+    chosen = _trim_trailing_unfilled(chosen, last_locked_pos)
+    slot_count = len(chosen)
+    targets = _target_energies(db, set_obj, slot_count)
 
     chosen, iterations = _refine_swaps(
         chosen=chosen,
@@ -253,23 +284,56 @@ def _pool_vibes(db: Session, set_obj: Set) -> dict[int, ResolvedVibe]:
     return {state.pool_track_id: state.resolved for state in states}
 
 
-def _slot_count(set_obj: Set, tracks: list[SetPoolTrack], locked: list[SetSlot]) -> int:
-    if set_obj.target_duration_sec:
-        avg = _average_duration(tracks)
-        desired = max(1, round(set_obj.target_duration_sec / avg))
-    else:
-        desired = len(tracks)
-    desired = min(desired, max(len(tracks), len(locked)))
+def _effective_target_sec(set_obj: Set) -> int:
+    """The duration the generated set is built toward.
+
+    The set's explicit ``target_duration_sec`` when set, otherwise the hard
+    fallback cap (#538) so an unset target never dumps the whole pool. A
+    non-positive explicit target also falls back to the cap.
+    """
+    target = set_obj.target_duration_sec
+    if target and target > 0:
+        return int(target)
+    return DEFAULT_FALLBACK_SET_DURATION_SEC
+
+
+def _track_duration(track: SetPoolTrack) -> int:
+    """A pool track's real duration in seconds, with the avg fallback for
+    missing/non-positive values — matching what the build budgets against."""
+    if track.duration_sec and track.duration_sec > 0:
+        return int(track.duration_sec)
+    return AVG_TRACK_LENGTH_SEC
+
+
+def _max_slot_count(tracks: list[SetPoolTrack], locked: list[SetSlot]) -> int:
+    """Hard upper bound on the selection loop — the pool size, floored to cover
+    every locked position (#538).
+
+    This is *only* the loop's ceiling, not the target. Where the loop actually
+    stops is decided inside ``build_set`` by accumulating real track durations
+    against ``_effective_target_sec`` (which carries the 3-hour fallback cap), so
+    the set is length-gated by effective playtime, never by an average-duration
+    estimate. Deriving this bound from the *average* duration was unsound: a pool
+    whose selected prefix runs shorter than average (e.g. one long outlier skewing
+    the mean up) would exhaust the range and undershoot the target while
+    candidates remained. The duration loop + cap make the pool size a safe bound —
+    a no-target build still stops at the 3h cap long before exhausting a big pool.
+    """
+    desired = max(len(tracks), len(locked))
     if locked:
         desired = max(desired, max(slot.position for slot in locked) + 1)
     return max(0, desired)
 
 
-def _average_duration(tracks: list[SetPoolTrack]) -> int:
-    durations = [t.duration_sec for t in tracks if t.duration_sec and t.duration_sec > 0]
-    if not durations:
-        return AVG_TRACK_LENGTH_SEC
-    return max(1, round(sum(durations) / len(durations)))
+def _trim_trailing_unfilled(
+    chosen: list[TrackMeta | None], last_locked_pos: int
+) -> list[TrackMeta | None]:
+    """Drop trailing positions the pool couldn't fill (``None``), but never trim
+    past the last locked position, which must keep its slot even if empty."""
+    end = len(chosen)
+    while end - 1 > last_locked_pos and chosen[end - 1] is None:
+        end -= 1
+    return chosen[:end]
 
 
 def _target_energies(db: Session, set_obj: Set, slot_count: int) -> list[float]:

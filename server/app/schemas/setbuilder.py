@@ -165,10 +165,14 @@ class PairingsState(BaseModel):
 
 
 class PoolState(BaseModel):
-    """Full pool snapshot: sources + tracks."""
+    """Full pool snapshot: sources + tracks + total candidate runtime."""
 
     sources: list[PoolSourceOut]
     tracks: list[PoolTrackOut]
+    # Total pool runtime in seconds (Σ duration_sec with the builder's avg
+    # fallback), surfaced before generation so the build dialog can show pool
+    # size vs. target and the resulting slot count (#538).
+    runtime_sec: int = 0
 
 
 class PoolImportResult(BaseModel):

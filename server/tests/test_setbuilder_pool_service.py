@@ -26,6 +26,53 @@ def _candidate(title: str, artist: str, **kwargs) -> pool.PoolCandidate:
     return pool.PoolCandidate(title=title, artist=artist, **kwargs)
 
 
+class TestPoolRuntime:
+    """Total pool runtime surfaced before generation (#538)."""
+
+    def _add_track(self, db, set_obj, source, idx, **kw):
+        from app.models.set_pool import SetPoolTrack
+
+        defaults = dict(
+            set_id=set_obj.id,
+            source_id=source.id,
+            track_id=f"tidal:{idx}",
+            title=f"T{idx}",
+            artist=f"A{idx}",
+            duration_sec=240,
+            dedupe_sig=f"sig-{idx}",
+        )
+        defaults.update(kw)
+        row = SetPoolTrack(**defaults)
+        db.add(row)
+        db.commit()
+        return row
+
+    def test_runtime_sums_durations(self, db: Session, test_set: Set):
+        src = pool.get_or_create_source(
+            db, test_set, kind="manual", external_ref=None, label="Manual"
+        )
+        for idx in range(3):
+            self._add_track(db, test_set, src, idx, duration_sec=240)
+
+        assert pool.pool_runtime_sec(db, test_set.id) == 720
+
+    def test_runtime_uses_avg_fallback_for_missing_duration(self, db: Session, test_set: Set):
+        from app.services.setbuilder.pass1_deterministic import AVG_TRACK_LENGTH_SEC
+
+        src = pool.get_or_create_source(
+            db, test_set, kind="manual", external_ref=None, label="Manual"
+        )
+        self._add_track(db, test_set, src, 0, duration_sec=240)
+        self._add_track(db, test_set, src, 1, duration_sec=None)
+        self._add_track(db, test_set, src, 2, duration_sec=0)
+
+        # 240 + two fallbacks (None and the non-positive 0 both use the avg).
+        assert pool.pool_runtime_sec(db, test_set.id) == 240 + 2 * AVG_TRACK_LENGTH_SEC
+
+    def test_runtime_empty_pool_is_zero(self, db: Session, test_set: Set):
+        assert pool.pool_runtime_sec(db, test_set.id) == 0
+
+
 class TestDedupeSignature:
     def test_strips_generic_mix_suffix(self):
         assert pool.dedupe_signature("Artist", "Song (Original Mix)") == pool.dedupe_signature(

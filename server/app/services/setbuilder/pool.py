@@ -92,6 +92,23 @@ def get_pool(db: Session, set_id: int) -> tuple[list[SetPoolSource], list[SetPoo
     return sources, tracks
 
 
+def pool_runtime_sec(db: Session, set_id: int) -> int:
+    """Total candidate runtime of a set's pool, in seconds (#538).
+
+    Σ of each pool track's ``duration_sec`` with the pass-1 average fallback for
+    missing/non-positive durations, so the figure matches what the deterministic
+    builder budgets against. Surfaced before generation so the build dialog can
+    state "Pool: N tracks (~M min)" against the target. An empty pool is 0.
+    """
+    # Local import: importing only the average constant here (not the whole
+    # builder) keeps the missing-duration fallback in one place without a
+    # module-level import cycle.
+    from app.services.setbuilder.pass1_deterministic import AVG_TRACK_LENGTH_SEC
+
+    durations = db.query(SetPoolTrack.duration_sec).filter(SetPoolTrack.set_id == set_id).all()
+    return sum(dur if dur and dur > 0 else AVG_TRACK_LENGTH_SEC for (dur,) in durations)
+
+
 def get_owned_source(db: Session, set_obj: Set, source_id: int) -> SetPoolSource | None:
     """Fetch a source scoped to the set. None if missing or from another set."""
     return (

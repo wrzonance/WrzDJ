@@ -121,7 +121,9 @@ def test_genre_continuity_breaks_tie_toward_matching_genre(db: Session, test_use
     LOWER-pool_id (unrelated-genre) track would win. This makes it a true
     regression test that would have failed before the fix.
     """
-    set_obj = _mk_set(db, test_user, duration=210 * 2)  # two slots
+    # 410s target → exactly two overlap-aware slots over 210s tracks (#538): one
+    # locked anchor + the contested slot 1, isolating the genre tie-break.
+    set_obj = _mk_set(db, test_user, duration=410)
     src = _mk_source(db, set_obj)
 
     # Slot 0 is locked to a House track so the running genre context is "House".

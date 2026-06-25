@@ -87,6 +87,33 @@ class TestPoolOwnership:
         assert client.get(f"/api/setbuilder/sets/{set_id}/pool").status_code == 401
 
 
+class TestPoolRuntimeExposed:
+    """Total pool runtime is surfaced on the pool state response before
+    generation (#538), so the build dialog can state pool size vs. target."""
+
+    def test_empty_pool_runtime_zero(self, client, set_id, auth_headers):
+        resp = client.get(f"/api/setbuilder/sets/{set_id}/pool", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["runtime_sec"] == 0
+
+    def test_runtime_reflects_imported_durations(
+        self, client, db, auth_headers, set_id, test_event
+    ):
+        _seed_requests(db, test_event)
+        client.post(
+            f"/api/setbuilder/sets/{set_id}/pool/import/event",
+            json={"event_id": test_event.id},
+            headers=auth_headers,
+        )
+        resp = client.get(f"/api/setbuilder/sets/{set_id}/pool", headers=auth_headers)
+        body = resp.json()
+        from app.services.setbuilder.pass1_deterministic import AVG_TRACK_LENGTH_SEC
+
+        expected = sum(t["duration_sec"] or AVG_TRACK_LENGTH_SEC for t in body["tracks"])
+        assert body["runtime_sec"] == expected
+        assert body["tracks"]  # imported event tracks present
+
+
 class TestEventImport:
     def test_import_event_end_to_end(self, client, db, auth_headers, set_id, test_event):
         _seed_requests(db, test_event)

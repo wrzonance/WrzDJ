@@ -416,15 +416,36 @@ def _hydrate_authoritative_fields(candidate: PoolCandidate, row) -> tuple[PoolCa
     return dataclasses.replace(candidate, **updates), hydrated
 
 
+def _contract_gap(*, bpm: object, key: object, genre: object, duration_sec: object) -> bool:
+    """The single provider-contract gap rule (bpm/key/genre/duration all present).
+    Energy is excluded (it comes only from Soundcharts/Lexicon, dark per #543/#544).
+    The 064 migration backfill mirrors this in SQL."""
+    return bpm is None or not key or not genre or duration_sec is None
+
+
 def _has_provider_gap(candidate: PoolCandidate) -> bool:
-    """True if any provider-fillable field (bpm/key/genre/duration) is still
-    missing — the trigger for running the enrich cascade. Energy is excluded (it
-    comes only from Soundcharts/Lexicon, dark per #543/#544)."""
+    """True if any provider-fillable field is still missing — the trigger for
+    running the enrich cascade."""
+    return _contract_gap(
+        bpm=candidate.bpm,
+        key=candidate.key,
+        genre=candidate.genre,
+        duration_sec=candidate.duration_sec,
+    )
+
+
+def terminal_enrichment_status(
+    *, bpm: object, key: object, genre: object, duration_sec: object
+) -> str:
+    """Assign a terminal status from a track's contract fields, for paths that
+    set status without a background worker to run (snapshot restore; the 064
+    backfill mirrors this in SQL). Enriched iff the full contract is present,
+    else failed — never "pending", which would report in_progress with nothing
+    to clear it."""
     return (
-        candidate.bpm is None
-        or not candidate.key
-        or not candidate.genre
-        or candidate.duration_sec is None
+        POOL_ENRICH_FAILED
+        if _contract_gap(bpm=bpm, key=key, genre=genre, duration_sec=duration_sec)
+        else POOL_ENRICHED
     )
 
 

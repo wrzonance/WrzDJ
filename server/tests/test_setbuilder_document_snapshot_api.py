@@ -20,8 +20,12 @@ def _logical_snapshot(snapshot: dict) -> dict:
         "curve_points": [_without_keys(point, "id") for point in snapshot["curve_points"]],
         "pool": {
             "sources": [_without_keys(source, "id") for source in snapshot["pool"]["sources"]],
+            # enrichment_status is intentionally re-derived on restore (no worker runs
+            # there), so it is not part of the round-trip invariant; its derivation is
+            # covered by test_document_snapshot_restore_derives_terminal_enrichment_status.
             "tracks": [
-                _without_keys(track, "id", "source_id") for track in snapshot["pool"]["tracks"]
+                _without_keys(track, "id", "source_id", "enrichment_status")
+                for track in snapshot["pool"]["tracks"]
             ],
         },
     }
@@ -157,6 +161,33 @@ def test_document_snapshot_round_trips_destructive_builder_state(client, db, aut
     assert restore.status_code == 200, restore.json()
     restored = restore.json()
     assert _logical_snapshot(restored) == _logical_snapshot(original)
+
+
+def test_document_snapshot_restore_derives_terminal_enrichment_status(client, db, auth_headers):
+    # Regression: a restored pool track must never come back "pending" — restore
+    # enqueues no background worker, so a legacy snapshot (whose tracks default to
+    # "pending") would otherwise report in_progress forever. Status is re-derived
+    # from the contract fields: full contract -> enriched, any gap -> failed.
+    set_id = _create_seeded_set(client, db, auth_headers)
+    payload = client.get(f"/api/setbuilder/sets/{set_id}/document", headers=auth_headers).json()
+
+    tracks = sorted(payload["pool"]["tracks"], key=lambda t: t["track_id"])
+    complete, gappy = tracks[0], tracks[1]
+    # Make the first track contract-complete; both arrive as "pending" (legacy).
+    complete["genre"] = "House"
+    complete["enrichment_status"] = "pending"
+    gappy["enrichment_status"] = "pending"
+
+    restore = client.put(
+        f"/api/setbuilder/sets/{set_id}/document", json=payload, headers=auth_headers
+    )
+    assert restore.status_code == 200, restore.json()
+
+    restored = {t["track_id"]: t for t in restore.json()["pool"]["tracks"]}
+    assert restored[complete["track_id"]]["enrichment_status"] == "enriched"
+    assert restored[gappy["track_id"]]["enrichment_status"] == "failed"
+    # And never left pending.
+    assert all(t["enrichment_status"] != "pending" for t in restored.values())
 
 
 def test_document_snapshot_restore_ignores_client_primary_keys(client, db, auth_headers):

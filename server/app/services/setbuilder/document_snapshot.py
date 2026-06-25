@@ -13,6 +13,7 @@ from app.schemas.setbuilder import (
     SetDocumentSlot,
     SetDocumentSnapshot,
 )
+from app.services.setbuilder import pool
 
 
 def _remap_synthetic_pool_track_id(track_id: str | None, id_map: dict[int, int]) -> str | None:
@@ -150,7 +151,17 @@ def restore_snapshot(
             duration_sec=track.duration_sec,
             artwork_url=track.artwork_url,
             dedupe_sig=track.dedupe_sig,
-            enrichment_status=track.enrichment_status,
+            # Restore enqueues no background worker, so derive a terminal status
+            # from the track's contract fields rather than trusting the snapshot's
+            # stored value. A pre-change snapshot has no enrichment_status (it
+            # defaults to "pending"), which would otherwise report in_progress
+            # forever with nothing to clear it (mirrors the 064 backfill).
+            enrichment_status=pool.terminal_enrichment_status(
+                bpm=track.bpm,
+                key=track.key,
+                genre=track.genre,
+                duration_sec=track.duration_sec,
+            ),
             created_at=track.created_at,
         )
         db.add(restored_track)

@@ -11,6 +11,7 @@ import {
 } from '../lib/api';
 import { useGuestIdentity } from '../lib/use-guest-identity';
 import { getTurnstileSiteKey, loadTurnstileScript } from '../lib/turnstile';
+import { isDevAuthBypassActive } from '../lib/devAuthBypass';
 import { ModalOverlay } from './ModalOverlay';
 import EmailVerification from './EmailVerification';
 
@@ -47,6 +48,18 @@ type GateState =
 
 export function NicknameGate({ code, onComplete, reverify }: Props) {
   const identity = useGuestIdentity();
+
+  // DEV-ONLY: skip all gate logic when the dev bypass is active.
+  // isDevAuthBypassActive() is inert in production builds by construction.
+  // The ref makes completion idempotent so React StrictMode's dev effect replay
+  // (and any onComplete identity change) cannot fire onComplete more than once.
+  const devBypassCompletedRef = useRef(false);
+  useEffect(() => {
+    if (!isDevAuthBypassActive() || devBypassCompletedRef.current) return;
+    devBypassCompletedRef.current = true;
+    onComplete({ nickname: 'dev', emailVerified: false, submissionCount: 0, submissionCap: 0 });
+  }, [onComplete]);
+
   const [gateState, setGateState] = useState<GateState>('loading');
   const [savedNickname, setSavedNickname] = useState('');
   const [nicknameInput, setNicknameInput] = useState('');
@@ -138,6 +151,7 @@ export function NicknameGate({ code, onComplete, reverify }: Props) {
   // would briefly see the nickname-input modal before settling.
   useEffect(() => {
     if (identity.isLoading) return;
+    if (isDevAuthBypassActive()) return; // bypass effect handles onComplete directly
     loadProfile();
   }, [loadProfile, identity.isLoading]);
 

@@ -2,6 +2,12 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NicknameGate } from '../NicknameGate';
 
+// Controllable dev-bypass flag for bypass tests below.
+let devBypassActive = false;
+vi.mock('../../lib/devAuthBypass', () => ({
+  isDevAuthBypassActive: () => devBypassActive,
+}));
+
 vi.mock('../../lib/api', () => {
   class ApiError extends Error {
     status: number;
@@ -81,6 +87,7 @@ describe('NicknameGate', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    devBypassActive = false; // reset to off before each test
     mockGetProfile.mockResolvedValue(emptyProfile);
     mockSetProfile.mockResolvedValue({ ...emptyProfile, nickname: 'TestUser' });
     mockRequestCode.mockResolvedValue({ sent: true });
@@ -555,5 +562,44 @@ describe('NicknameGate — existing behavior coverage', () => {
     expect(onComplete).toHaveBeenCalledWith(
       expect.objectContaining({ nickname: 'Alex', emailVerified: true }),
     );
+  });
+
+  describe('dev auth bypass', () => {
+    it('calls onComplete immediately with dev stub — no API calls', async () => {
+      devBypassActive = true;
+      const bypassComplete = vi.fn();
+      render(<NicknameGate code="TEST" onComplete={bypassComplete} />);
+
+      await waitFor(() => expect(bypassComplete).toHaveBeenCalledOnce());
+      expect(bypassComplete).toHaveBeenCalledWith({
+        nickname: 'dev',
+        emailVerified: false,
+        submissionCount: 0,
+        submissionCap: 0,
+      });
+
+      // Must not have called any profile API
+      expect(mockGetProfile).not.toHaveBeenCalled();
+    });
+
+    // Regression: the bypass useEffect must be idempotent. A re-run of the
+    // effect (StrictMode dev replay, or an onComplete identity change) must not
+    // fire a second onComplete — guarded by devBypassCompletedRef.
+    it('completes only once even when the effect re-runs', async () => {
+      devBypassActive = true;
+      const first = vi.fn();
+      const { rerender } = render(<NicknameGate code="TEST" onComplete={first} />);
+      await waitFor(() => expect(first).toHaveBeenCalledOnce());
+
+      // New onComplete reference forces the effect to re-run.
+      const second = vi.fn();
+      rerender(<NicknameGate code="TEST" onComplete={second} />);
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0));
+      });
+
+      expect(first).toHaveBeenCalledOnce();
+      expect(second).not.toHaveBeenCalled();
+    });
   });
 });

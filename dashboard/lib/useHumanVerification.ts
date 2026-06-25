@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { api } from './api';
 import { getTurnstileSiteKey, loadTurnstileScript } from './turnstile';
+import { isDevAuthBypassActive } from './devAuthBypass';
 
 export type HumanVerificationState =
   | 'idle'
@@ -190,6 +191,15 @@ export function useHumanVerification(): UseHumanVerification {
 
   useEffect(() => {
     mountedRef.current = true;
+
+    // DEV-ONLY: skip all Turnstile bootstrap when the dev bypass is active.
+    // isDevAuthBypassActive() is inert in production builds by construction.
+    if (isDevAuthBypassActive()) {
+      setState('verified');
+      flushVerified();
+      return;
+    }
+
     void (async () => {
       try {
         const status = await api.getVerifyStatus();

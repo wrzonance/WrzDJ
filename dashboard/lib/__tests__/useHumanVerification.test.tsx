@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 
+// Controllable dev-bypass flag — tests can set devBypassActive before rendering.
+let devBypassActive = false;
+vi.mock('../devAuthBypass', () => ({
+  isDevAuthBypassActive: () => devBypassActive,
+}));
+
 vi.mock('../api', () => ({
   api: {
     getPublicSettings: vi.fn().mockResolvedValue({
@@ -33,6 +39,7 @@ let lastRenderOpts: RenderOpts | null = null;
 describe('useHumanVerification', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    devBypassActive = false; // reset to off before each test
     lastRenderOpts = null;
     // Mock window.turnstile
     type FakeTurnstile = {
@@ -197,5 +204,17 @@ describe('useHumanVerification', () => {
     });
     expect(rejection).toBeInstanceOf(HumanVerificationFailedError);
     expect(result.current.state).toBe('failed');
+  });
+
+  it('immediately resolves to verified when dev bypass is active', async () => {
+    devBypassActive = true;
+    const { useHumanVerification } = await import('../useHumanVerification');
+    const { result } = renderHook(() => useHumanVerification());
+
+    await waitFor(() => expect(result.current.state).toBe('verified'));
+
+    // Turnstile widget must NOT have been rendered
+    const turnstile = (window as unknown as { turnstile: { render: ReturnType<typeof vi.fn> } }).turnstile;
+    expect(turnstile.render).not.toHaveBeenCalled();
   });
 });

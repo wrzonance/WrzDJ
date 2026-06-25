@@ -581,5 +581,25 @@ describe('NicknameGate — existing behavior coverage', () => {
       // Must not have called any profile API
       expect(mockGetProfile).not.toHaveBeenCalled();
     });
+
+    // Regression: the bypass useEffect must be idempotent. A re-run of the
+    // effect (StrictMode dev replay, or an onComplete identity change) must not
+    // fire a second onComplete — guarded by devBypassCompletedRef.
+    it('completes only once even when the effect re-runs', async () => {
+      devBypassActive = true;
+      const first = vi.fn();
+      const { rerender } = render(<NicknameGate code="TEST" onComplete={first} />);
+      await waitFor(() => expect(first).toHaveBeenCalledOnce());
+
+      // New onComplete reference forces the effect to re-run.
+      const second = vi.fn();
+      rerender(<NicknameGate code="TEST" onComplete={second} />);
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0));
+      });
+
+      expect(first).toHaveBeenCalledOnce();
+      expect(second).not.toHaveBeenCalled();
+    });
   });
 });

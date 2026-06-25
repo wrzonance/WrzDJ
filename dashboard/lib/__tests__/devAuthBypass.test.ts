@@ -38,4 +38,17 @@ describe('isDevAuthBypassActive', () => {
     const { isDevAuthBypassActive } = await import('../devAuthBypass');
     expect(isDevAuthBypassActive()).toBe(false);
   });
+
+  // Regression for the Boolean(string) truthiness foot-gun: env vars are strings,
+  // so a generic Boolean() check would treat "0"/"false"/"no" as enabled. The
+  // gate requires an explicit "1" so those values stay OFF in dev/staging.
+  it.each(['0', 'false', 'no', 'true', '2'])(
+    'returns false when flag is %j (only the literal "1" enables it)',
+    async (value) => {
+      vi.stubEnv('NEXT_PUBLIC_DEV_AUTH_BYPASS', value);
+      vi.stubEnv('NODE_ENV', 'development');
+      const { isDevAuthBypassActive } = await import('../devAuthBypass');
+      expect(isDevAuthBypassActive()).toBe(false);
+    },
+  );
 });

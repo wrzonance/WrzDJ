@@ -1647,6 +1647,7 @@
           "last_seen": {
             "anyOf": [
               {
+                "format": "date-time",
                 "type": "string"
               },
               {
@@ -3758,6 +3759,7 @@
           "archived_at": {
             "anyOf": [
               {
+                "format": "date-time",
                 "type": "string"
               },
               {
@@ -3836,6 +3838,7 @@
           "collection_opens_at": {
             "anyOf": [
               {
+                "format": "date-time",
                 "type": "string"
               },
               {
@@ -3856,10 +3859,12 @@
             "title": "Collection Phase Override"
           },
           "created_at": {
+            "format": "date-time",
             "title": "Created At",
             "type": "string"
           },
           "expires_at": {
+            "format": "date-time",
             "title": "Expires At",
             "type": "string"
           },
@@ -3894,6 +3899,7 @@
           "live_starts_at": {
             "anyOf": [
               {
+                "format": "date-time",
                 "type": "string"
               },
               {
@@ -5440,6 +5446,7 @@
             "title": "Spotify Uri"
           },
           "started_at": {
+            "format": "date-time",
             "title": "Started At",
             "type": "string"
           },
@@ -5919,6 +5926,7 @@
           "ended_at": {
             "anyOf": [
               {
+                "format": "date-time",
                 "type": "string"
               },
               {
@@ -5962,6 +5970,7 @@
             "title": "Spotify Uri"
           },
           "started_at": {
+            "format": "date-time",
             "title": "Started At",
             "type": "string"
           },
@@ -6266,6 +6275,40 @@
           "ready"
         ],
         "title": "PoolCoverageOut",
+        "type": "object"
+      },
+      "PoolEnrichmentSummary": {
+        "description": "Set-level background enrichment progress for pool imports.",
+        "properties": {
+          "enriched": {
+            "title": "Enriched",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "in_progress": {
+            "title": "In Progress",
+            "type": "boolean"
+          },
+          "pending": {
+            "title": "Pending",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enriched",
+          "failed",
+          "in_progress",
+          "pending",
+          "total"
+        ],
+        "title": "PoolEnrichmentSummary",
         "type": "object"
       },
       "PoolImportEventIn": {
@@ -6589,6 +6632,9 @@
       "PoolState": {
         "description": "Full pool snapshot: sources + tracks + total candidate runtime.",
         "properties": {
+          "enrichment": {
+            "$ref": "#/components/schemas/PoolEnrichmentSummary"
+          },
           "runtime_sec": {
             "default": 0,
             "title": "Runtime Sec",
@@ -6610,6 +6656,7 @@
           }
         },
         "required": [
+          "enrichment",
           "runtime_sec",
           "sources",
           "tracks"
@@ -6695,6 +6742,15 @@
             ],
             "title": "Energy"
           },
+          "enrichment_status": {
+            "enum": [
+              "pending",
+              "enriched",
+              "failed"
+            ],
+            "title": "Enrichment Status",
+            "type": "string"
+          },
           "genre": {
             "anyOf": [
               {
@@ -6761,6 +6817,7 @@
           "created_at",
           "duration_sec",
           "energy",
+          "enrichment_status",
           "genre",
           "id",
           "isrc",
@@ -7585,6 +7642,7 @@
           "accepted_at": {
             "anyOf": [
               {
+                "format": "date-time",
                 "type": "string"
               },
               {
@@ -7620,6 +7678,7 @@
             "title": "Bpm"
           },
           "created_at": {
+            "format": "date-time",
             "title": "Created At",
             "type": "string"
           },
@@ -7737,6 +7796,7 @@
             "title": "Sync Results Json"
           },
           "updated_at": {
+            "format": "date-time",
             "title": "Updated At",
             "type": "string"
           },
@@ -8500,6 +8560,16 @@
             ],
             "title": "Energy"
           },
+          "enrichment_status": {
+            "default": "pending",
+            "enum": [
+              "pending",
+              "enriched",
+              "failed"
+            ],
+            "title": "Enrichment Status",
+            "type": "string"
+          },
           "genre": {
             "anyOf": [
               {
@@ -8575,6 +8645,7 @@
           "dedupe_sig",
           "duration_sec",
           "energy",
+          "enrichment_status",
           "genre",
           "id",
           "isrc",

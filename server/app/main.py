@@ -151,6 +151,12 @@ def create_app(*, lifespan_context=lifespan) -> FastAPI:
         docs_url=None if settings.is_production else "/docs",
         redoc_url=None if settings.is_production else "/redoc",
         openapi_url=None if settings.is_production else "/openapi.json",
+        # Emit one schema per model instead of FastAPI's default -Input/-Output
+        # split. Models reused as both request body and response (e.g.
+        # SetDocumentSnapshot, whose pool tracks carry a defaulted
+        # enrichment_status for snapshot backward-compat) would otherwise split,
+        # and the generated TS client + api-types.ts assume a single schema name.
+        separate_input_output_schemas=False,
     )
 
     application.state.limiter = limiter

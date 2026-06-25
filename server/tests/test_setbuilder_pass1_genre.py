@@ -73,9 +73,12 @@ def test_genre_flows_into_track_meta(db: Session, test_user: User):
     assert meta.genre == "Tech House"
 
 
-def test_genre_continuity_rewards_same_family_over_unrelated(db: Session, test_user: User):
+def test_genre_continuity_rewards_same_family_over_unrelated():
     """Same-family genres score higher continuity than unrelated ones, and a
-    missing genre on either side degrades to the neutral 0.5 (no penalty)."""
+    missing genre on either side degrades to the neutral 0.5 (no penalty).
+
+    Pure in-memory unit test over ``TrackMeta`` — no DB / user fixtures needed.
+    """
     house = TrackMeta(0, "a", "A", "Art", 124.0, "8A", 5, genre="Deep House")
     tech_house = TrackMeta(1, "b", "B", "Art", 124.0, "8A", 5, genre="Tech House")
     country = TrackMeta(2, "c", "C", "Art", 124.0, "8A", 5, genre="Country")
@@ -88,6 +91,24 @@ def test_genre_continuity_rewards_same_family_over_unrelated(db: Session, test_u
     # Missing genre on either side is neutral, never a penalty.
     assert _genre_continuity(house, no_genre) == 0.5
     assert _genre_continuity(no_genre, house) == 0.5
+
+
+def test_genre_continuity_treats_whitespace_only_genre_as_missing():
+    """Regression for the genre-continuity term (#545): a whitespace-only genre
+    is effectively missing and must degrade to the neutral 0.5 — never falsely
+    perfect-match another blank (1.0) nor get penalized against a real genre
+    (0.0). The pool import stores ``genre`` verbatim, so ``"   "`` is reachable.
+    """
+    house = TrackMeta(0, "a", "A", "Art", 124.0, "8A", 5, genre="House")
+    blank = TrackMeta(1, "b", "B", "Art", 124.0, "8A", 5, genre="   ")
+    other_blank = TrackMeta(2, "c", "C", "Art", 124.0, "8A", 5, genre="\t ")
+
+    # Blank current vs real previous: not penalized to 0.0.
+    assert _genre_continuity(house, blank) == 0.5
+    # Real current vs blank previous: not penalized to 0.0.
+    assert _genre_continuity(blank, house) == 0.5
+    # Two blanks: not a false perfect match (1.0).
+    assert _genre_continuity(blank, other_blank) == 0.5
 
 
 def test_genre_continuity_breaks_tie_toward_matching_genre(db: Session, test_user: User):

@@ -391,12 +391,15 @@ def _genre_continuity(previous: TrackMeta | None, current: TrackMeta) -> float:
     single-element dominant-genre lane — DRY, no second genre taxonomy.
 
     Degrades neutrally to ``0.5`` (the no-information midpoint used by the other
-    ``_*_continuity`` helpers) at the set start or when either side has no genre,
+    ``_*_continuity`` helpers) at the set start or when either side has no genre
+    — including whitespace-only genres, which the pool import stores verbatim —
     so a missing-genre track is never penalized.
     """
-    if previous is None or not previous.genre or not current.genre:
+    previous_genre = previous.genre.strip() if previous and previous.genre else ""
+    current_genre = current.genre.strip() if current.genre else ""
+    if not previous_genre or not current_genre:
         return 0.5
-    return _score_genre(current.genre, [previous.genre])
+    return _score_genre(current_genre, [previous_genre])
 
 
 def _role_fit(role: str | None, position: int, slot_count: int, target: float) -> float:

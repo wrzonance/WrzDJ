@@ -69,7 +69,8 @@ frontend polls pool-state → bar fills → 100% when `pending == 0`.
 - Backend coverage ≥ enforced gate.
 
 ## Rollout
-Single PR into `main`. Backward compatible. The migration **backfills**: any existing pool row that already
-has contract data (bpm or key present) is set to `enriched`; the rest stay `pending`. This avoids old pools
-spuriously showing an "enriching" bar, and the few genuinely-empty legacy rows simply enrich on their next
-import/recompute touch.
+Single PR into `main`. Backward compatible. The migration **backfills**: any existing pool row whose full
+contract is present (bpm, key, genre, and duration_sec — mirroring `_has_provider_gap`) is set to
+`enriched`; partially-filled or empty rows stay `pending`. Matching the runtime gap rule keeps backfilled
+status consistent with what a fresh import would assign, and the `pending` legacy rows simply enrich on
+their next import/recompute touch.

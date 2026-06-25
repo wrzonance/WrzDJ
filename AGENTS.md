@@ -18,6 +18,8 @@ frontend (`dashboard/`) + Node bridge for DJ equipment (`bridge/`) + Electron br
   - Create the feature branch BEFORE making any change. Never edit code while on `main`.
   - Branch prefixes: `feat/`, `fix/`, `refactor/`, `docs/`, `chore/`. PR into `main`; never push
     directly to `main`. Run CI checks locally before pushing.
+  - GitHub PRs created by Claude or Codex must be drafts (`gh pr create --draft` or connector
+    `draft: true`); do not create ready-for-review PRs directly.
 - **Code style**:
   - Backend: ruff (line-length 100; rules E, F, I, UP). SQLAlchemy `== None` / `== True` allowed
     (E711/E712 ignored); forward refs allowed in models (F821 ignored).

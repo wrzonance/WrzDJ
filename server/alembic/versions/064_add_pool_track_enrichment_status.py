@@ -28,11 +28,13 @@ def upgrade() -> None:
             server_default="pending",
         ),
     )
-    # Mirror pool._has_provider_gap: a track is only "enriched" when every
-    # provider-fillable contract field (bpm/key/genre/duration_sec) is present.
-    # A weaker OR heuristic would mark partially-filled rows enriched, so the
-    # background worker (which only processes "pending") could never complete
-    # them — they'd be stuck looking enriched while a fresh import flags pending.
+    # Backfill terminal statuses only — there is no background worker at migration
+    # time, so a legacy row must never be left "pending" (it would report
+    # in_progress forever and make clients poll with nothing to clear it).
+    # Mirror pool._has_provider_gap: rows with the full contract (bpm/key/genre/
+    # duration_sec) are "enriched"; anything partial is "failed" — exactly what
+    # the runtime worker now records when a pass can't close the gap. Legacy rows
+    # re-enrich on their next import/recompute touch.
     op.execute(
         """
         UPDATE set_pool_tracks
@@ -42,7 +44,7 @@ def upgrade() -> None:
                  AND genre IS NOT NULL
                  AND duration_sec IS NOT NULL
             THEN 'enriched'
-            ELSE 'pending'
+            ELSE 'failed'
         END
         """
     )

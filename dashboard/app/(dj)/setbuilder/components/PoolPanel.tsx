@@ -149,7 +149,13 @@ export default function PoolPanel({
   }, [setId, snapshot, snapshotVersion]);
 
   useEffect(() => {
-    if (snapshot || !loaded || !pool.enrichment.in_progress) return;
+    // Poll while background enrichment is running, regardless of whether a
+    // document snapshot is mounted: enrichment progress is orthogonal to the
+    // snapshot's content, and polling only triggers when in_progress is true —
+    // which means the live pool already carries the same just-imported tracks,
+    // so refreshing from the server is consistent (fixes a stuck banner after
+    // an import that follows a commit/recompute).
+    if (!loaded || !pool.enrichment.in_progress) return;
     let cancelled = false;
     const handle = setInterval(() => {
       api
@@ -165,7 +171,7 @@ export default function PoolPanel({
       cancelled = true;
       clearInterval(handle);
     };
-  }, [loaded, pool.enrichment.in_progress, setId, snapshot]);
+  }, [loaded, pool.enrichment.in_progress, setId]);
 
   useEffect(() => {
     if (!toast) return;

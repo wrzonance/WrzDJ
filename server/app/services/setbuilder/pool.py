@@ -704,7 +704,14 @@ def _enrich_pool_track(db: Session, set_id: int, track_id: int) -> None:
                 commit=True,
             )
         _apply_candidate_to_pool_track(track, candidate)
-        track.enrichment_status = POOL_ENRICHED
+        # Only "enriched" if providers actually closed the contract gap. A no-op
+        # enrichment (no match / owner has no usable connected services) leaves
+        # the same gaps, so mark it "failed" (terminal) rather than "enriched" —
+        # otherwise the summary reports completion and a pending-only pass skips
+        # the row even though bpm/key/genre/duration are still missing.
+        track.enrichment_status = (
+            POOL_ENRICH_FAILED if _has_provider_gap(candidate) else POOL_ENRICHED
+        )
         db.commit()
     except Exception:
         logger.exception(

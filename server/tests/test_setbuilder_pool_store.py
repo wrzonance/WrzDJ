@@ -635,6 +635,56 @@ class TestBackgroundPoolEnrichment:
         assert row is not None
         assert row.bpm == 128.0
 
+    def test_enrich_pool_tracks_marks_failed_when_gap_remains(self, db, dj_user, monkeypatch):
+        """A no-op enrichment (provider found nothing) must terminate as 'failed',
+        not 'enriched' — otherwise the row looks complete while still gapped and a
+        pending-only pass would never revisit it."""
+        from app.models.set import Set
+        from app.models.set_pool import SetPoolTrack
+
+        set_obj = Set(owner_id=dj_user.id, name="No Match Set")
+        db.add(set_obj)
+        db.flush()
+        source = pool.get_or_create_source(
+            db,
+            set_obj,
+            kind="tidal",
+            external_ref="pl-nomatch",
+            label="NoMatch",
+        )
+        track = SetPoolTrack(
+            set_id=set_obj.id,
+            source_id=source.id,
+            track_id="tidal:nomatch",
+            title="Obscure Track",
+            artist="Obscure Artist",
+            dedupe_sig=dedupe_signature("Obscure Artist", "Obscure Track"),
+            enrichment_status="pending",
+        )
+        db.add(track)
+        db.commit()
+
+        def fake_enrich(db_, user_, title, artist):
+            # Provider cascade returns no usable contract data.
+            return TrackProfile(
+                title=title,
+                artist=artist,
+                bpm=None,
+                key=None,
+                genre=None,
+                duration_seconds=None,
+                source="none",
+            )
+
+        monkeypatch.setattr(pool, "enrich_track", fake_enrich)
+
+        pool.enrich_pool_tracks(set_obj.id, [track.id], max_workers=1)
+
+        db.expire_all()
+        refreshed = db.get(SetPoolTrack, track.id)
+        assert refreshed.enrichment_status == "failed"
+        assert refreshed.bpm is None
+
     def test_enrich_pool_tracks_uses_bounded_concurrency(self, monkeypatch):
         captured: dict[str, object] = {}
 

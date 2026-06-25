@@ -9,6 +9,7 @@ import { ApiError } from '@/lib/api';
 import type {
   PoolState,
   PoolVibesState,
+  SetDocumentSnapshot,
   TrackVibeState,
   VibeEnrichmentResult,
 } from '@/lib/api-types';
@@ -237,6 +238,38 @@ describe('PoolPanel', () => {
       await Promise.resolve();
     });
     expect(mockApi.getPool).toHaveBeenCalledTimes(2);
+  });
+
+  it('polls for enrichment progress even when a document snapshot is mounted', async () => {
+    // Regression: importing after a commit/recompute mounts a snapshot, which
+    // previously short-circuited the polling effect, leaving the enrichment
+    // banner stuck even though the background worker finished server-side.
+    vi.useFakeTimers();
+    const snapshot = {
+      curve_points: [],
+      settings: {},
+      slots: [],
+      pool: POOL, // one pending track → enrichment.in_progress
+    } as unknown as SetDocumentSnapshot;
+    mockApi.getPool.mockResolvedValue(ENRICHED_POOL);
+
+    render(<PoolPanel setId={1} snapshot={snapshot} />);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // Snapshot path renders from the snapshot without an initial fetch...
+    expect(screen.getByText('Enriching 1/2...')).toBeTruthy();
+    expect(mockApi.getPool).not.toHaveBeenCalled();
+
+    // ...but the poll still fires while in_progress, refreshing to enriched.
+    await act(async () => {
+      vi.advanceTimersByTime(2500);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockApi.getPool).toHaveBeenCalledWith(1);
+    expect(screen.queryByText(/Enriching/)).toBeNull();
   });
 
   it('writes a pool-track drag payload when dragging a track row', async () => {

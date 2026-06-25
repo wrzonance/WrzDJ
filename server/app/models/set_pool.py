@@ -77,6 +77,9 @@ class SetPoolTrack(Base):
     duration_sec: Mapped[int | None] = mapped_column(Integer, nullable=True)
     artwork_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     dedupe_sig: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    enrichment_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending", server_default="pending"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     set: Mapped["Set"] = relationship("Set", back_populates="pool_tracks")

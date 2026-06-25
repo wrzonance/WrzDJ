@@ -5924,10 +5924,27 @@ export interface components {
             meta: string | null;
         };
         /**
+         * PoolEnrichmentSummary
+         * @description Set-level background enrichment progress for pool imports.
+         */
+        PoolEnrichmentSummary: {
+            /** Enriched */
+            enriched: number;
+            /** Failed */
+            failed: number;
+            /** In Progress */
+            in_progress: boolean;
+            /** Pending */
+            pending: number;
+            /** Total */
+            total: number;
+        };
+        /**
          * PoolState
          * @description Full pool snapshot: sources + tracks + total candidate runtime.
          */
         PoolState: {
+            enrichment: components["schemas"]["PoolEnrichmentSummary"];
             /**
              * Runtime Sec
              * @default 0
@@ -5962,6 +5979,11 @@ export interface components {
             duration_sec: number | null;
             /** Energy */
             energy: number | null;
+            /**
+             * Enrichment Status
+             * @enum {string}
+             */
+            enrichment_status: "pending" | "enriched" | "failed";
             /** Genre */
             genre: string | null;
             /** Id */
@@ -6510,6 +6532,12 @@ export interface components {
             duration_sec: number | null;
             /** Energy */
             energy: number | null;
+            /**
+             * Enrichment Status
+             * @default pending
+             * @enum {string}
+             */
+            enrichment_status: "pending" | "enriched" | "failed";
             /** Genre */
             genre: string | null;
             /** Id */

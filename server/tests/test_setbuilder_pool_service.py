@@ -3,8 +3,10 @@
 import pytest
 from sqlalchemy.orm import Session
 
+from app.api import setbuilder as setbuilder_api
 from app.models.request import Request, RequestStatus
 from app.models.set import Set
+from app.models.set_pool import SetPoolTrack
 from app.models.user import User
 from app.services.setbuilder import pool
 from app.services.setbuilder.playlist_url import (
@@ -207,6 +209,74 @@ class TestImportCandidates:
             db, test_set, src, [_candidate("Song A", "Artist"), _candidate("Song A", "Artist")]
         )
         assert (added, deduped) == (1, 1)
+
+    def test_import_marks_complete_tracks_enriched_and_gaps_pending(self, db, test_set):
+        src = pool.get_or_create_source(
+            db, test_set, kind="tidal", external_ref="p", label="Playlist"
+        )
+        pool.import_candidates(
+            db,
+            test_set,
+            src,
+            [
+                _candidate(
+                    "Complete",
+                    "Artist",
+                    bpm=126.0,
+                    key="8A",
+                    genre="House",
+                    duration_sec=300,
+                ),
+                _candidate("Gap", "Artist"),
+            ],
+        )
+
+        _, tracks = pool.get_pool(db, test_set.id)
+        by_title = {track.title: track for track in tracks}
+        assert by_title["Complete"].enrichment_status == "enriched"
+        assert by_title["Gap"].enrichment_status == "pending"
+
+    def test_pool_state_includes_enrichment_summary(self, db, test_set):
+        src = pool.get_or_create_source(
+            db, test_set, kind="manual", external_ref=None, label="Manual"
+        )
+        db.add_all(
+            [
+                SetPoolTrack(
+                    set_id=test_set.id,
+                    source_id=src.id,
+                    title="Pending",
+                    artist="Artist",
+                    dedupe_sig="pending",
+                    enrichment_status="pending",
+                ),
+                SetPoolTrack(
+                    set_id=test_set.id,
+                    source_id=src.id,
+                    title="Enriched",
+                    artist="Artist",
+                    dedupe_sig="enriched",
+                    enrichment_status="enriched",
+                ),
+                SetPoolTrack(
+                    set_id=test_set.id,
+                    source_id=src.id,
+                    title="Failed",
+                    artist="Artist",
+                    dedupe_sig="failed",
+                    enrichment_status="failed",
+                ),
+            ]
+        )
+        db.commit()
+
+        state = setbuilder_api._pool_state(db, test_set.id)
+
+        assert state.enrichment.total == 3
+        assert state.enrichment.enriched == 1
+        assert state.enrichment.failed == 1
+        assert state.enrichment.pending == 1
+        assert state.enrichment.in_progress is True
 
 
 class TestRemoval:

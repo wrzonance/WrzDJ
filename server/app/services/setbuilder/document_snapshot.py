@@ -88,6 +88,7 @@ def build_snapshot(set_obj: Set) -> SetDocumentSnapshot:
                     duration_sec=track.duration_sec,
                     artwork_url=track.artwork_url,
                     dedupe_sig=track.dedupe_sig,
+                    enrichment_status=track.enrichment_status,
                     created_at=track.created_at,
                 )
                 for track in sorted(set_obj.pool_tracks, key=lambda t: t.id)
@@ -149,6 +150,7 @@ def restore_snapshot(
             duration_sec=track.duration_sec,
             artwork_url=track.artwork_url,
             dedupe_sig=track.dedupe_sig,
+            enrichment_status=track.enrichment_status,
             created_at=track.created_at,
         )
         db.add(restored_track)

@@ -142,6 +142,7 @@ const POOL_TRACKS: PoolTrack[] = [
     genre: null,
     isrc: null,
     artwork_url: null,
+    enrichment_status: 'enriched',
     created_at: '2026-01-01T00:00:00Z',
   },
   {
@@ -159,6 +160,7 @@ const POOL_TRACKS: PoolTrack[] = [
     genre: null,
     isrc: null,
     artwork_url: null,
+    enrichment_status: 'enriched',
     created_at: '2026-01-01T00:00:00Z',
   },
   {
@@ -176,6 +178,7 @@ const POOL_TRACKS: PoolTrack[] = [
     genre: null,
     isrc: null,
     artwork_url: null,
+    enrichment_status: 'enriched',
     created_at: '2026-01-01T00:00:00Z',
   },
 ];
@@ -230,6 +233,7 @@ const EXTRA_POOL_TRACK: PoolTrack = {
   genre: null,
   isrc: null,
   artwork_url: null,
+  enrichment_status: 'enriched',
   created_at: '2026-01-01T00:00:00Z',
 };
 
@@ -248,6 +252,7 @@ const SYNTHETIC_POOL_TRACK: PoolTrack = {
   genre: null,
   isrc: null,
   artwork_url: null,
+  enrichment_status: 'pending',
   created_at: '2026-01-01T00:00:00Z',
 };
 

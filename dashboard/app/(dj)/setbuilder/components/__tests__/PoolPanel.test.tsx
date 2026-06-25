@@ -3,7 +3,7 @@
  * source filter + remove-by-source, multi-select removal, dedupe toast.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { ApiError } from '@/lib/api';
 import type {
@@ -69,6 +69,7 @@ const TRACKS = [
     isrc: null,
     duration_sec: null,
     artwork_url: null,
+    enrichment_status: 'enriched' as const,
     created_at: '2026-06-09T00:00:00Z',
   },
   {
@@ -86,11 +87,36 @@ const TRACKS = [
     isrc: null,
     duration_sec: null,
     artwork_url: null,
+    enrichment_status: 'pending' as const,
     created_at: '2026-06-09T00:00:00Z',
   },
 ];
 
-const POOL: PoolState = { sources: SOURCES, tracks: TRACKS, runtime_sec: 0 };
+const POOL: PoolState = {
+  sources: SOURCES,
+  tracks: TRACKS,
+  enrichment: { total: 2, enriched: 1, failed: 0, pending: 1, in_progress: true },
+  runtime_sec: 0,
+};
+
+const ENRICHED_POOL: PoolState = {
+  sources: SOURCES,
+  tracks: TRACKS.map((track) => ({ ...track, enrichment_status: 'enriched' as const })),
+  enrichment: { total: 2, enriched: 2, failed: 0, pending: 0, in_progress: false },
+  runtime_sec: 0,
+};
+
+function poolState(sources: PoolState['sources'], tracks: PoolState['tracks']): PoolState {
+  const enriched = tracks.filter((track) => track.enrichment_status === 'enriched').length;
+  const failed = tracks.filter((track) => track.enrichment_status === 'failed').length;
+  const pending = tracks.filter((track) => track.enrichment_status === 'pending').length;
+  return {
+    sources,
+    tracks,
+    enrichment: { total: tracks.length, enriched, failed, pending, in_progress: pending > 0 },
+    runtime_sec: 0,
+  };
+}
 
 // --- Vibe fixtures (issue #391) ---
 
@@ -158,6 +184,10 @@ beforeEach(() => {
   mockApi.getPool.mockResolvedValue(POOL);
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe('PoolPanel', () => {
   it('renders tracks with source chips and badges', async () => {
     render(<PoolPanel setId={1} />);
@@ -168,6 +198,45 @@ describe('PoolPanel', () => {
     // camelot + bpm badges
     expect(screen.getByText('8A')).toBeTruthy();
     expect(screen.getByText('126')).toBeTruthy();
+  });
+
+  it('renders enrichment progress while pool tracks are pending', async () => {
+    render(<PoolPanel setId={1} />);
+
+    expect(await screen.findByText('Enriching 1/2...')).toBeTruthy();
+    const bar = screen.getByRole('progressbar', { name: 'Pool enrichment progress' });
+    expect(bar).toHaveAttribute('aria-valuenow', '50');
+    expect(screen.getByText('1 pending')).toBeTruthy();
+  });
+
+  it('polls pool state while enrichment is pending and stops at completion', async () => {
+    vi.useFakeTimers();
+    mockApi.getPool
+      .mockResolvedValueOnce(POOL)
+      .mockResolvedValueOnce(ENRICHED_POOL)
+      .mockResolvedValue(ENRICHED_POOL);
+
+    render(<PoolPanel setId={1} />);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByText('Enriching 1/2...')).toBeTruthy();
+    expect(mockApi.getPool).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(2500);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockApi.getPool).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(/Enriching/)).toBeNull();
+
+    await act(async () => {
+      vi.advanceTimersByTime(5000);
+      await Promise.resolve();
+    });
+    expect(mockApi.getPool).toHaveBeenCalledTimes(2);
   });
 
   it('writes a pool-track drag payload when dragging a track row', async () => {
@@ -202,7 +271,7 @@ describe('PoolPanel', () => {
   it('removes a source via the hover × and updates state from response', async () => {
     mockApi.removePoolSource.mockResolvedValue({
       removed: 1,
-      pool: { sources: [SOURCES[1]], tracks: [TRACKS[1]] },
+      pool: poolState([SOURCES[1]], [TRACKS[1]]),
     });
     render(<PoolPanel setId={1} />);
     await screen.findByText('Event Song');
@@ -216,7 +285,7 @@ describe('PoolPanel', () => {
   it('multi-select: select-all-visible then remove calls removePoolTracks', async () => {
     mockApi.removePoolTracks.mockResolvedValue({
       removed: 2,
-      pool: { sources: SOURCES, tracks: [] },
+      pool: poolState(SOURCES, []),
     });
     render(<PoolPanel setId={1} />);
     await screen.findByText('Event Song');
@@ -296,7 +365,7 @@ describe('PoolPanel', () => {
   it('context menu offers per-track and per-source removal', async () => {
     mockApi.removePoolTracks.mockResolvedValue({
       removed: 1,
-      pool: { sources: SOURCES, tracks: [TRACKS[1]] },
+      pool: poolState(SOURCES, [TRACKS[1]]),
     });
     render(<PoolPanel setId={1} />);
     const row = await screen.findByText('Event Song');

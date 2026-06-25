@@ -1,13 +1,16 @@
 """API-boundary tests for WrzDJSet pool endpoints (issue #388)."""
 
 import pytest
+from fastapi import BackgroundTasks
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models.event import Event
 from app.models.request import Request as SongRequest
 from app.models.request import RequestStatus
+from app.models.set import Set
 from app.models.user import User
+from app.services.setbuilder import pool as pool_module
 
 
 @pytest.fixture
@@ -228,6 +231,104 @@ class TestPlaylistImports:
         assert body["source"]["kind"] == "tidal"
         assert body["source"]["label"] == "Friday Warmup"
 
+    def test_import_tidal_gap_returns_pending_and_schedules_background_enrichment(
+        self, client, auth_headers, set_id, monkeypatch
+    ):
+        from app.services.setbuilder.pool import PoolCandidate
+
+        scheduled: list[tuple] = []
+
+        def fake_add_task(self, func, *args, **kwargs):
+            scheduled.append((func, args, kwargs))
+
+        def boom(*args, **kwargs):  # pragma: no cover - must not run inline
+            raise AssertionError("pool import must not call provider enrichment inline")
+
+        monkeypatch.setattr(BackgroundTasks, "add_task", fake_add_task)
+        monkeypatch.setattr(pool_module, "enrich_track", boom)
+        monkeypatch.setattr(
+            "app.services.setbuilder.pool.candidates_from_tidal",
+            lambda db, user, pid: [
+                PoolCandidate(track_id="tidal:slow-1", title="Slow Song", artist="Slow Artist")
+            ],
+        )
+
+        resp = client.post(
+            f"/api/setbuilder/sets/{set_id}/pool/import/tidal",
+            json={"playlist_id": "abc-123", "label": "Slow Playlist"},
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["pool"]["enrichment"] == {
+            "total": 1,
+            "enriched": 0,
+            "failed": 0,
+            "pending": 1,
+            "in_progress": True,
+        }
+        track = body["pool"]["tracks"][0]
+        assert track["enrichment_status"] == "pending"
+        assert track["bpm"] is None
+
+        assert len(scheduled) == 1
+        func, args, kwargs = scheduled[0]
+        assert func is pool_module.enrich_pool_tracks
+        assert args == (set_id, [track["id"]])
+        assert kwargs == {}
+
+    def test_pool_state_reports_enrichment_progress(self, client, db, auth_headers, set_id):
+        from app.models.set_pool import SetPoolTrack
+
+        source = pool_module.get_or_create_source(
+            db,
+            db.get(Set, set_id),
+            kind="manual",
+            external_ref=None,
+            label="Manual",
+        )
+        rows = [
+            SetPoolTrack(
+                set_id=set_id,
+                source_id=source.id,
+                title="Pending",
+                artist="Artist",
+                dedupe_sig="pending",
+                enrichment_status="pending",
+            ),
+            SetPoolTrack(
+                set_id=set_id,
+                source_id=source.id,
+                title="Enriched",
+                artist="Artist",
+                bpm=124.0,
+                dedupe_sig="enriched",
+                enrichment_status="enriched",
+            ),
+            SetPoolTrack(
+                set_id=set_id,
+                source_id=source.id,
+                title="Failed",
+                artist="Artist",
+                dedupe_sig="failed",
+                enrichment_status="failed",
+            ),
+        ]
+        db.add_all(rows)
+        db.commit()
+
+        resp = client.get(f"/api/setbuilder/sets/{set_id}/pool", headers=auth_headers)
+
+        assert resp.status_code == 200
+        assert resp.json()["enrichment"] == {
+            "total": 3,
+            "enriched": 1,
+            "failed": 1,
+            "pending": 1,
+            "in_progress": True,
+        }
+
     def test_hydration_failure_on_first_candidate_keeps_source_and_imports_rest(
         self, client, auth_headers, set_id, db, monkeypatch
     ):
@@ -252,10 +353,12 @@ class TestPlaylistImports:
         # Make ONLY the first candidate's hydration blow up mid-flow.
         real_hydrate_one = pool_mod._hydrate_one
 
-        def _explode_first(db_, candidate, user, *, commit):
+        def _explode_first(db_, candidate, user, *, commit, enrich_missing=True):
             if candidate.title == "Boom Song":
                 raise RuntimeError("simulated hydration failure")
-            return real_hydrate_one(db_, candidate, user, commit=commit)
+            return real_hydrate_one(
+                db_, candidate, user, commit=commit, enrich_missing=enrich_missing
+            )
 
         monkeypatch.setattr(pool_mod, "_hydrate_one", _explode_first)
 

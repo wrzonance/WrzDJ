@@ -140,6 +140,9 @@ class Settings(BaseSettings):
     # gated off until a paid plan is provisioned so it can never bill by default.
     soundcharts_related_tracks_enabled: bool = False
 
+    # Setbuilder pool import background enrichment (#563).
+    pool_enrich_concurrency: int = 6
+
     # ListenBrainz API (artist discovery for recommendations)
     listenbrainz_user_token: str = ""
 

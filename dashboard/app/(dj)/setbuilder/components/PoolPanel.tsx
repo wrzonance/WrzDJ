@@ -20,6 +20,7 @@ import styles from '../setbuilder.module.css';
 import type { ConfirmAction } from './ConfirmActionDialog';
 import ImportModal, { type ImportKind } from './ImportModal';
 import { BpmBadge, CamelotBadge, EnergyMini, SourceIcon, sourceColor } from './PoolBadges';
+import { poolRuntimeSec } from './poolRuntime';
 import VibeTiers from './VibeTiers';
 import { writePoolTrackDragPayload } from './dnd';
 import type { BuilderCommit } from './useSetDocumentHistory';
@@ -69,7 +70,7 @@ export default function PoolPanel({
   confirmRemovals = false,
   requestConfirmation,
 }: PoolPanelProps) {
-  const [pool, setPool] = useState<PoolState>({ sources: [], tracks: [] });
+  const [pool, setPool] = useState<PoolState>({ sources: [], tracks: [], runtime_sec: 0 });
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState('all');
   const [q, setQ] = useState('');
@@ -96,7 +97,9 @@ export default function PoolPanel({
     setVibesLoaded(false);
     setLoaded(false);
     if (snapshot) {
-      setPool(snapshot.pool);
+      // The document snapshot's pool carries no runtime field; derive it the same
+      // way the server does so the local PoolState stays whole (#538).
+      setPool({ ...snapshot.pool, runtime_sec: poolRuntimeSec(snapshot.pool.tracks) });
       setLoaded(true);
       return () => {
         cancelled = true;

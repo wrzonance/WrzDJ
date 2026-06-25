@@ -22,9 +22,11 @@ import { useSetDocumentHistory } from '../components/useSetDocumentHistory';
 import TargetEditor from '../components/TargetEditor';
 import {
   DEFAULT_AVG_TRANSITION_OVERLAP_SEC,
+  formatDuration,
   type TargetProjection,
   type TargetSettings,
 } from '../components/targetMath';
+import { poolRuntimeSec, projectedSlotCount } from '../components/poolRuntime';
 import SetActionsMenu from '../SetActionsMenu';
 import styles from '../setbuilder.module.css';
 
@@ -167,10 +169,33 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
       const snapshotSlots = history.snapshot?.slots ?? [];
       const lockedCount = snapshotSlots.filter((slot) => slot.locked).length;
       const unlockedCount = Math.max(0, snapshotSlots.length - lockedCount);
+      // Pool runtime vs. target → resulting slot count, computed BEFORE generation
+      // (#538) so the DJ sees that a big pool becomes a length-gated set, never a
+      // runaway "12-hour" dump. Uses the snapshot the page already holds.
+      const poolTracks = history.snapshot?.pool?.tracks ?? [];
+      const poolSize = poolTracks.length;
+      const poolRuntime = poolRuntimeSec(poolTracks);
+      const builtSlots = projectedSlotCount(poolTracks, targetSettings);
+      const remaining = Math.max(0, poolSize - builtSlots);
+      const targetLabel = formatDuration(targetSettings.targetDurationSec);
       const ok = await requestConfirmation({
         title: 'Recompute set order?',
         body: (
           <>
+            {poolSize > 0 && (
+              <p style={{ fontWeight: 600 }}>
+                Pool: {poolSize} {poolSize === 1 ? 'track' : 'tracks'} (~
+                {formatDuration(poolRuntime)}).{' '}
+                {targetSettings.targetDurationSec
+                  ? `Target ${targetLabel} → will build ~${builtSlots} ${
+                      builtSlots === 1 ? 'slot' : 'slots'
+                    }`
+                  : `No target → capped build of ~${builtSlots} ${
+                      builtSlots === 1 ? 'slot' : 'slots'
+                    }`}
+                ; the remaining {remaining} stay in the pool as candidates.
+              </p>
+            )}
             <p>
               This reruns deterministic pass 1 and may overwrite unlocked manual order using the
               current pool, curve targets, transition scoring, and saved pairings.

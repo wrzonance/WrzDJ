@@ -90,7 +90,7 @@ const TRACKS = [
   },
 ];
 
-const POOL: PoolState = { sources: SOURCES, tracks: TRACKS };
+const POOL: PoolState = { sources: SOURCES, tracks: TRACKS, runtime_sec: 0 };
 
 // --- Vibe fixtures (issue #391) ---
 

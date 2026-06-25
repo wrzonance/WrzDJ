@@ -219,7 +219,7 @@ export type SetDocumentSlot = Schemas['SetDocumentSlot'];
 export type SetDocumentCurvePoint = Schemas['SetDocumentCurvePoint'];
 export type SetDocumentPoolSource = Schemas['SetDocumentPoolSource'];
 export type SetDocumentPoolTrack = Schemas['SetDocumentPoolTrack'];
-export type SetDocumentSnapshot = Schemas['SetDocumentSnapshot-Output'];
+export type SetDocumentSnapshot = Schemas['SetDocumentSnapshot'];
 
 // WrzDJSet two-pass builder (#390)
 export type BuildSetResponse = Schemas['BuildSetResponse'];

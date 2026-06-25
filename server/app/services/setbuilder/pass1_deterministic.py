@@ -68,7 +68,7 @@ def build_set(db: Session, set_obj: Set, *, commit: bool = True) -> BuildResult:
     pool_tracks = _pool_tracks(db, set_obj.id)
     locked = _locked_slots(db, set_obj.id)
     pairings = _saved_pairings(db, set_obj.id)
-    max_slots = _max_slot_count(set_obj, pool_tracks, locked)
+    max_slots = _max_slot_count(pool_tracks, locked)
     # Energy targets are shaped over the upper-bound count so the curve stays
     # stable while we select; we recompute against the final count after the
     # duration-driven loop decides how many slots actually fit the target.
@@ -305,21 +305,21 @@ def _track_duration(track: SetPoolTrack) -> int:
     return AVG_TRACK_LENGTH_SEC
 
 
-def _max_slot_count(set_obj: Set, tracks: list[SetPoolTrack], locked: list[SetSlot]) -> int:
-    """Upper bound on the generated slot count, bounding the selection loop.
+def _max_slot_count(tracks: list[SetPoolTrack], locked: list[SetSlot]) -> int:
+    """Hard upper bound on the selection loop — the pool size, floored to cover
+    every locked position (#538).
 
-    Overlap-aware estimate from the average track duration (``targeting``), padded
-    by one slot so the duration-accumulating loop has room to actually reach the
-    target with real (variable-length) durations, then clamped to the pool size
-    and floored at any locked position so locked slots always survive (#538).
+    This is *only* the loop's ceiling, not the target. Where the loop actually
+    stops is decided inside ``build_set`` by accumulating real track durations
+    against ``_effective_target_sec`` (which carries the 3-hour fallback cap), so
+    the set is length-gated by effective playtime, never by an average-duration
+    estimate. Deriving this bound from the *average* duration was unsound: a pool
+    whose selected prefix runs shorter than average (e.g. one long outlier skewing
+    the mean up) would exhaust the range and undershoot the target while
+    candidates remained. The duration loop + cap make the pool size a safe bound —
+    a no-target build still stops at the 3h cap long before exhausting a big pool.
     """
-    budget = targeting.pass1_slot_budget(
-        target_duration_sec=_effective_target_sec(set_obj),
-        avg_track_duration_sec=_average_duration(tracks),
-        avg_transition_overlap_sec=set_obj.avg_transition_overlap_sec,
-    )
-    desired = max(1, budget.slot_count + 1)
-    desired = min(desired, max(len(tracks), len(locked)))
+    desired = max(len(tracks), len(locked))
     if locked:
         desired = max(desired, max(slot.position for slot in locked) + 1)
     return max(0, desired)
@@ -334,13 +334,6 @@ def _trim_trailing_unfilled(
     while end - 1 > last_locked_pos and chosen[end - 1] is None:
         end -= 1
     return chosen[:end]
-
-
-def _average_duration(tracks: list[SetPoolTrack]) -> int:
-    durations = [t.duration_sec for t in tracks if t.duration_sec and t.duration_sec > 0]
-    if not durations:
-        return AVG_TRACK_LENGTH_SEC
-    return max(1, round(sum(durations) / len(durations)))
 
 
 def _target_energies(db: Session, set_obj: Set, slot_count: int) -> list[float]:

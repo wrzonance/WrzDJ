@@ -84,6 +84,50 @@ def test_build_set_no_target_is_bounded_by_fallback_cap(db: Session, test_user: 
     assert result.slot_count <= 60
 
 
+def test_build_set_reaches_target_when_avg_skewed_by_long_outlier(db: Session, test_user: User):
+    """Underfill regression (#538): the selection loop must keep going until the
+    accumulated EFFECTIVE playtime reaches the target (or the pool is exhausted),
+    not stop at an average-duration-derived ceiling.
+
+    Here one long outlier skews the average duration high, so a budget computed
+    from the average yields a small slot ceiling — yet the scorer picks the many
+    short, compatible tracks, which need MANY more slots to reach the target. The
+    old hard ``_max_slot_count`` bound stopped the loop early and undershot the
+    target while the pool still had candidates; the loop must instead run to the
+    target. Regression for the score-greedy underfill fixed in this PR.
+    """
+    from app.services.setbuilder import targeting
+
+    target_sec = 30 * 60  # 1800s
+    set_obj = _mk_set(db, test_user, duration=target_sec)
+    src = _mk_source(db, set_obj)
+    # One long outlier that skews the mean track duration high (so any
+    # average-derived slot ceiling would be tiny) but is energy-incompatible, so
+    # the scorer prefers the short tracks; idx 0 keeps the lowest pool_id but its
+    # huge length means even if picked it can't justify stopping the loop early.
+    _mk_track(db, set_obj, src, 0, duration_sec=36000, energy=1)
+    for idx in range(1, 80):
+        _mk_track(db, set_obj, src, idx, duration_sec=60, energy=5)
+
+    result = build_set(db, set_obj)
+
+    overlap = set_obj.avg_transition_overlap_sec
+    durations = {"tidal:0": 36000, **{f"tidal:{i}": 60 for i in range(1, 80)}}
+    picked = [durations.get(s.track_id or "", 0) for s in result.slots]
+    effective = targeting.effective_duration_sec(sum(picked), len(picked), overlap)
+    # The build must reach the target (the pool has ample candidates), not stop
+    # at the average-skewed ceiling far below it.
+    assert effective >= target_sec
+    # And it must not run away — the overflow tolerance still holds because the
+    # short tracks are granular.
+    budget = targeting.pass1_slot_budget_from_durations(
+        target_duration_sec=target_sec,
+        track_durations_sec=picked,
+        avg_transition_overlap_sec=overlap,
+    )
+    assert result.slot_count == budget.slot_count
+
+
 def _build_durations(result, by_track_id: dict[str, int]) -> list[int]:
     return [by_track_id.get(s.track_id or "", 0) for s in result.slots]
 

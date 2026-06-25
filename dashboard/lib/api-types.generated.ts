@@ -5925,9 +5925,14 @@ export interface components {
         };
         /**
          * PoolState
-         * @description Full pool snapshot: sources + tracks.
+         * @description Full pool snapshot: sources + tracks + total candidate runtime.
          */
         PoolState: {
+            /**
+             * Runtime Sec
+             * @default 0
+             */
+            runtime_sec: number;
             /** Sources */
             sources: components["schemas"]["PoolSourceOut"][];
             /** Tracks */
@@ -6568,19 +6573,7 @@ export interface components {
          * SetDocumentSnapshot
          * @description Full builder document snapshot for undo/redo and autosave.
          */
-        "SetDocumentSnapshot-Input": {
-            /** Curve Points */
-            curve_points: components["schemas"]["SetDocumentCurvePoint"][];
-            pool: components["schemas"]["SetDocumentPool"];
-            settings: components["schemas"]["SetDocumentSettings"];
-            /** Slots */
-            slots: components["schemas"]["SetDocumentSlot"][];
-        };
-        /**
-         * SetDocumentSnapshot
-         * @description Full builder document snapshot for undo/redo and autosave.
-         */
-        "SetDocumentSnapshot-Output": {
+        SetDocumentSnapshot: {
             /** Curve Points */
             curve_points: components["schemas"]["SetDocumentCurvePoint"][];
             pool: components["schemas"]["SetDocumentPool"];
@@ -12253,7 +12246,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SetDocumentSnapshot-Output"];
+                    "application/json": components["schemas"]["SetDocumentSnapshot"];
                 };
             };
             /** @description Set not found or not accessible */
@@ -12285,7 +12278,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SetDocumentSnapshot-Input"];
+                "application/json": components["schemas"]["SetDocumentSnapshot"];
             };
         };
         responses: {
@@ -12295,7 +12288,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SetDocumentSnapshot-Output"];
+                    "application/json": components["schemas"]["SetDocumentSnapshot"];
                 };
             };
             /** @description Set not found or not accessible */

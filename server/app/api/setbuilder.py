@@ -1009,6 +1009,7 @@ def _pool_state(db: Session, set_id: int) -> PoolState:
     return PoolState(
         sources=[PoolSourceOut.model_validate(s) for s in sources],
         tracks=[PoolTrackOut.model_validate(t) for t in tracks],
+        runtime_sec=pool.pool_runtime_sec(db, set_id),
     )
 
 

@@ -6587,8 +6587,13 @@
         "type": "object"
       },
       "PoolState": {
-        "description": "Full pool snapshot: sources + tracks.",
+        "description": "Full pool snapshot: sources + tracks + total candidate runtime.",
         "properties": {
+          "runtime_sec": {
+            "default": 0,
+            "title": "Runtime Sec",
+            "type": "integer"
+          },
           "sources": {
             "items": {
               "$ref": "#/components/schemas/PoolSourceOut"
@@ -6605,6 +6610,7 @@
           }
         },
         "required": [
+          "runtime_sec",
           "sources",
           "tracks"
         ],
@@ -8742,42 +8748,7 @@
         "title": "SetDocumentSlot",
         "type": "object"
       },
-      "SetDocumentSnapshot-Input": {
-        "description": "Full builder document snapshot for undo/redo and autosave.",
-        "properties": {
-          "curve_points": {
-            "items": {
-              "$ref": "#/components/schemas/SetDocumentCurvePoint"
-            },
-            "maxItems": 1000,
-            "title": "Curve Points",
-            "type": "array"
-          },
-          "pool": {
-            "$ref": "#/components/schemas/SetDocumentPool"
-          },
-          "settings": {
-            "$ref": "#/components/schemas/SetDocumentSettings"
-          },
-          "slots": {
-            "items": {
-              "$ref": "#/components/schemas/SetDocumentSlot"
-            },
-            "maxItems": 500,
-            "title": "Slots",
-            "type": "array"
-          }
-        },
-        "required": [
-          "settings",
-          "slots",
-          "curve_points",
-          "pool"
-        ],
-        "title": "SetDocumentSnapshot",
-        "type": "object"
-      },
-      "SetDocumentSnapshot-Output": {
+      "SetDocumentSnapshot": {
         "description": "Full builder document snapshot for undo/redo and autosave.",
         "properties": {
           "curve_points": {
@@ -18561,7 +18532,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SetDocumentSnapshot-Output"
+                  "$ref": "#/components/schemas/SetDocumentSnapshot"
                 }
               }
             },
@@ -18609,7 +18580,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SetDocumentSnapshot-Input"
+                "$ref": "#/components/schemas/SetDocumentSnapshot"
               }
             }
           },
@@ -18620,7 +18591,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SetDocumentSnapshot-Output"
+                  "$ref": "#/components/schemas/SetDocumentSnapshot"
                 }
               }
             },

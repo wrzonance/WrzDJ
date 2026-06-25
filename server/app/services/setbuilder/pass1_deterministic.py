@@ -14,9 +14,11 @@ from sqlalchemy.orm import Session
 
 from app.models.set import Set, SetSlot
 from app.models.set_pool import SetPoolTrack
+from app.models.user import User
 from app.services.recommendation.camelot import compatibility_score, parse_key
 from app.services.recommendation.scorer import _score_bpm
 from app.services.setbuilder.curve import BUILTIN_TEMPLATES, interpolate_energy, uniform_midpoints
+from app.services.setbuilder.vibe_resolver import ResolvedVibe, build_pool_vibe_states
 
 AVG_TRACK_LENGTH_SEC = 210
 MAX_SWAP_ITERATIONS = 50
@@ -59,7 +61,8 @@ def build_set(db: Session, set_obj: Set, *, commit: bool = True) -> BuildResult:
     pairings = _saved_pairings(db, set_obj.id)
     slot_count = _slot_count(set_obj, pool_tracks, locked)
     targets = _target_energies(db, set_obj, slot_count)
-    metas = [_track_meta(t) for t in pool_tracks]
+    vibes = _pool_vibes(db, set_obj)
+    metas = [_track_meta(t, vibes.get(t.id)) for t in pool_tracks]
     by_track_id = {m.slot_track_id: m for m in metas}
 
     locked_by_pos = {slot.position: slot for slot in locked if slot.position < slot_count}
@@ -113,7 +116,8 @@ def recompute_transition_scores(
     """Recompute transition scores for all or affected slots, honoring current order."""
     if slots is None:
         slots = _ordered_slots(db, set_obj.id)
-    pool_metas = [_track_meta(t) for t in _pool_tracks(db, set_obj.id)]
+    vibes = _pool_vibes(db, set_obj)
+    pool_metas = [_track_meta(t, vibes.get(t.id)) for t in _pool_tracks(db, set_obj.id)]
     tracks_by_id = {meta.slot_track_id: meta for meta in pool_metas}
     scores: list[TransitionScore] = []
     for idx, slot in enumerate(slots):
@@ -193,7 +197,26 @@ def _saved_pairings(db: Session, set_id: int) -> set[tuple[str, str]]:
     return pairings
 
 
-def _track_meta(track: SetPoolTrack) -> TrackMeta:
+def _track_meta(track: SetPoolTrack, resolved: ResolvedVibe | None = None) -> TrackMeta:
+    """Build a scoring meta for a pool track.
+
+    Energy and mood are sourced from the read-time vibe cascade (own > community
+    > LLM, #391) when ``resolved`` is supplied — the pool row's own ``energy``/
+    ``mood`` are structurally ``None`` in production (no import fills them), so
+    without this overlay the builder's ``0.30 * _energy_match`` and mood terms
+    are dead constants (#543). The pool row remains the fallback so callers that
+    pass no resolved vibe (and any row that does carry its own value) still work.
+
+    ``transitional_role`` has no resolver source yet — the cascade only carries
+    energy/mood — so its scoring term stays a neutral constant (see ``_role_fit``
+    TODO). Re-point energy/mood at the global ``tracks`` row when that lands.
+    """
+    energy = track.energy
+    mood = None
+    if resolved is not None:
+        if resolved.energy is not None:
+            energy = resolved.energy
+        mood = resolved.mood
     return TrackMeta(
         pool_id=track.id,
         slot_track_id=track.track_id or f"pool:{track.id}",
@@ -201,8 +224,25 @@ def _track_meta(track: SetPoolTrack) -> TrackMeta:
         artist=track.artist,
         bpm=track.bpm,
         key=track.camelot or track.key,
-        energy=track.energy,
+        energy=energy,
+        mood=mood,
     )
+
+
+def _pool_vibes(db: Session, set_obj: Set) -> dict[int, ResolvedVibe]:
+    """Resolve each pool track's vibe (own > community > LLM) keyed by pool id.
+
+    The cascade needs the acting DJ; the build path only carries ``(db, set_obj)``,
+    so the owner is resolved the same way the agent import tools do
+    (``db.get(User, set_obj.owner_id)``). Missing owner degrades neutrally to an
+    empty map — the builder then falls back to pool-row values (all ``None`` in
+    prod), i.e. exactly the pre-#543 behavior, never a crash.
+    """
+    owner = db.get(User, set_obj.owner_id)
+    if owner is None:
+        return {}
+    states = build_pool_vibe_states(db, owner, set_obj)
+    return {state.pool_track_id: state.resolved for state in states}
 
 
 def _slot_count(set_obj: Set, tracks: list[SetPoolTrack], locked: list[SetSlot]) -> int:
@@ -330,6 +370,13 @@ def _mood_continuity(previous: TrackMeta | None, current: TrackMeta) -> float:
 
 
 def _role_fit(role: str | None, position: int, slot_count: int, target: float) -> float:
+    # TODO(#543): ``transitional_role`` has no resolver source — the vibe cascade
+    # (own > community > LLM) surfaces only energy/mood, never role. TrackMeta.
+    # transitional_role is therefore always None today, so this term is a neutral
+    # 0.5 constant. The scoring logic below is kept (not deleted) so the term goes
+    # live for free once a role source is wired (e.g. via the global tracks row or
+    # an extended cascade); deleting it would silently re-weight the other terms
+    # and collide with the genre work in #545.
     if not role:
         return 0.5
     normalized = role.strip().lower().replace("-", "_").replace(" ", "_")

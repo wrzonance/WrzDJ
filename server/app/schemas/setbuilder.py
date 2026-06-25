@@ -60,6 +60,8 @@ class SetDetail(SetSummary):
 # ---------------------------------------------------------------------------
 # Pool (issue #388)
 
+PoolEnrichmentStatus = Literal["pending", "enriched", "failed"]
+
 
 class PoolSourceOut(BaseModel):
     """An import source row for the sources accordion."""
@@ -93,7 +95,18 @@ class PoolTrackOut(BaseModel):
     isrc: str | None
     duration_sec: int | None
     artwork_url: str | None
+    enrichment_status: PoolEnrichmentStatus
     created_at: datetime
+
+
+class PoolEnrichmentSummary(BaseModel):
+    """Set-level background enrichment progress for pool imports."""
+
+    total: int
+    enriched: int
+    failed: int
+    pending: int
+    in_progress: bool
 
 
 def _validate_pairing_tags(tags: list[str]) -> list[str]:
@@ -169,6 +182,7 @@ class PoolState(BaseModel):
 
     sources: list[PoolSourceOut]
     tracks: list[PoolTrackOut]
+    enrichment: PoolEnrichmentSummary
     # Total pool runtime in seconds (Σ duration_sec with the builder's avg
     # fallback), surfaced before generation so the build dialog can show pool
     # size vs. target and the resulting slot count (#538).
@@ -677,6 +691,7 @@ class SetDocumentPoolTrack(BaseModel):
     duration_sec: int | None = Field(None, ge=0, le=36000)
     artwork_url: str | None = Field(None, max_length=500)
     dedupe_sig: str = Field(..., min_length=1, max_length=64)
+    enrichment_status: PoolEnrichmentStatus = "pending"
     created_at: datetime
 
 

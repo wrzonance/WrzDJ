@@ -140,6 +140,18 @@ class TestHydrateFromStore:
         assert row is not None
         assert row.bpm == 128.0
 
+    def test_gap_can_skip_inline_enrichment_for_background_imports(self, db, dj_user, monkeypatch):
+        def _boom(*args, **kwargs):  # pragma: no cover - must not run
+            raise AssertionError("background imports must not enrich inline")
+
+        monkeypatch.setattr(pool, "enrich_track", _boom)
+
+        candidate = pool.PoolCandidate(title="Slow Song", artist="Slow Artist")
+        out = hydrate_candidates_from_store(db, [candidate], user=dj_user, enrich_missing=False)
+
+        assert out == [candidate]
+        assert get_track(db, signature=dedupe_signature("Slow Artist", "Slow Song")) is None
+
     def test_enrich_writeback_persists_the_candidate_isrc(self, db, dj_user, monkeypatch):
         """#554 FIX 2: a Spotify-style candidate (valid ISRC, no bpm/key/genre) takes
         the enrich path; the resulting store row must carry the candidate's ISRC so a
@@ -526,3 +538,177 @@ class TestManualPickProvenance:
         db.refresh(row)
         assert row.bpm == 126.0
         assert row.provenance["bpm"]["source"] == "beatport"
+
+
+class TestBackgroundPoolEnrichment:
+    def _pending_track(self, db: Session, owner: User, *, title: str, artist: str):
+        from app.models.set import Set
+        from app.models.set_pool import SetPoolTrack
+
+        set_obj = Set(owner_id=owner.id, name=f"{title} Set")
+        db.add(set_obj)
+        db.flush()
+        source = pool.get_or_create_source(
+            db,
+            set_obj,
+            kind="tidal",
+            external_ref=f"pl-{title}",
+            label="Slow Playlist",
+        )
+        track = SetPoolTrack(
+            set_id=set_obj.id,
+            source_id=source.id,
+            track_id=f"tidal:{title}",
+            title=title,
+            artist=artist,
+            dedupe_sig=dedupe_signature(artist, title),
+            enrichment_status="pending",
+        )
+        db.add(track)
+        db.commit()
+        return set_obj, track
+
+    def test_enrich_pool_tracks_updates_rows_and_isolates_failures(self, db, dj_user, monkeypatch):
+        from app.models.set import Set
+        from app.models.set_pool import SetPoolTrack
+
+        set_obj = Set(owner_id=dj_user.id, name="Background Enrich Set")
+        db.add(set_obj)
+        db.flush()
+        source = pool.get_or_create_source(
+            db,
+            set_obj,
+            kind="tidal",
+            external_ref="pl-bg",
+            label="Background",
+        )
+        ok = SetPoolTrack(
+            set_id=set_obj.id,
+            source_id=source.id,
+            track_id="tidal:ok",
+            title="Good Track",
+            artist="Good Artist",
+            dedupe_sig=dedupe_signature("Good Artist", "Good Track"),
+            enrichment_status="pending",
+        )
+        bad = SetPoolTrack(
+            set_id=set_obj.id,
+            source_id=source.id,
+            track_id="tidal:bad",
+            title="Bad Track",
+            artist="Bad Artist",
+            dedupe_sig=dedupe_signature("Bad Artist", "Bad Track"),
+            enrichment_status="pending",
+        )
+        db.add_all([ok, bad])
+        db.commit()
+
+        def fake_enrich(db_, user_, title, artist):
+            if title == "Bad Track":
+                raise RuntimeError("provider failed")
+            return TrackProfile(
+                title=title,
+                artist=artist,
+                bpm=128.0,
+                key="5A",
+                genre="Trance",
+                duration_seconds=400,
+                source="beatport",
+            )
+
+        monkeypatch.setattr(pool, "enrich_track", fake_enrich)
+
+        pool.enrich_pool_tracks(set_obj.id, [ok.id, bad.id], max_workers=1)
+
+        db.expire_all()
+        refreshed_ok = db.get(SetPoolTrack, ok.id)
+        refreshed_bad = db.get(SetPoolTrack, bad.id)
+        assert refreshed_ok.enrichment_status == "enriched"
+        assert refreshed_ok.bpm == 128.0
+        assert refreshed_ok.camelot == "5A"
+        assert refreshed_ok.genre == "Trance"
+        assert refreshed_ok.duration_sec == 400
+        assert refreshed_bad.enrichment_status == "failed"
+        assert refreshed_bad.bpm is None
+
+        row = get_track(db, signature=dedupe_signature("Good Artist", "Good Track"))
+        assert row is not None
+        assert row.bpm == 128.0
+
+    def test_enrich_pool_tracks_marks_failed_when_gap_remains(self, db, dj_user, monkeypatch):
+        """A no-op enrichment (provider found nothing) must terminate as 'failed',
+        not 'enriched' — otherwise the row looks complete while still gapped and a
+        pending-only pass would never revisit it."""
+        from app.models.set import Set
+        from app.models.set_pool import SetPoolTrack
+
+        set_obj = Set(owner_id=dj_user.id, name="No Match Set")
+        db.add(set_obj)
+        db.flush()
+        source = pool.get_or_create_source(
+            db,
+            set_obj,
+            kind="tidal",
+            external_ref="pl-nomatch",
+            label="NoMatch",
+        )
+        track = SetPoolTrack(
+            set_id=set_obj.id,
+            source_id=source.id,
+            track_id="tidal:nomatch",
+            title="Obscure Track",
+            artist="Obscure Artist",
+            dedupe_sig=dedupe_signature("Obscure Artist", "Obscure Track"),
+            enrichment_status="pending",
+        )
+        db.add(track)
+        db.commit()
+
+        def fake_enrich(db_, user_, title, artist):
+            # Provider cascade returns no usable contract data.
+            return TrackProfile(
+                title=title,
+                artist=artist,
+                bpm=None,
+                key=None,
+                genre=None,
+                duration_seconds=None,
+                source="none",
+            )
+
+        monkeypatch.setattr(pool, "enrich_track", fake_enrich)
+
+        pool.enrich_pool_tracks(set_obj.id, [track.id], max_workers=1)
+
+        db.expire_all()
+        refreshed = db.get(SetPoolTrack, track.id)
+        assert refreshed.enrichment_status == "failed"
+        assert refreshed.bpm is None
+
+    def test_enrich_pool_tracks_uses_bounded_concurrency(self, monkeypatch):
+        captured: dict[str, object] = {}
+
+        class FakeExecutor:
+            def __init__(self, *, max_workers):
+                captured["max_workers"] = max_workers
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def map(self, func, items):
+                captured["items"] = list(items)
+                return []
+
+        monkeypatch.setattr(pool, "ThreadPoolExecutor", FakeExecutor)
+        monkeypatch.setattr(
+            pool,
+            "_enrich_pool_track_with_fresh_session",
+            lambda set_id, track_id: None,
+        )
+
+        pool.enrich_pool_tracks(99, [1, 2, 3], max_workers=4)
+
+        assert captured == {"max_workers": 4, "items": [1, 2, 3]}

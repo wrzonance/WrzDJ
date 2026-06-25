@@ -7,7 +7,16 @@ missing-or-unowned sets return 404 to avoid leaking existence.
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -55,6 +64,7 @@ from app.schemas.setbuilder import (
     PlaybackSlotOutcomeOut,
     PlayHistoryFeedbackOut,
     PoolCoverageOut,
+    PoolEnrichmentSummary,
     PoolImportEventIn,
     PoolImportManualIn,
     PoolImportPlaylistIn,
@@ -1010,6 +1020,20 @@ def _pool_state(db: Session, set_id: int) -> PoolState:
         sources=[PoolSourceOut.model_validate(s) for s in sources],
         tracks=[PoolTrackOut.model_validate(t) for t in tracks],
         runtime_sec=pool.pool_runtime_sec(db, set_id),
+        enrichment=_pool_enrichment_summary(tracks),
+    )
+
+
+def _pool_enrichment_summary(tracks: list[SetPoolTrack]) -> PoolEnrichmentSummary:
+    enriched = sum(1 for track in tracks if track.enrichment_status == pool.POOL_ENRICHED)
+    failed = sum(1 for track in tracks if track.enrichment_status == pool.POOL_ENRICH_FAILED)
+    pending = sum(1 for track in tracks if track.enrichment_status == pool.POOL_ENRICH_PENDING)
+    return PoolEnrichmentSummary(
+        total=len(tracks),
+        enriched=enriched,
+        failed=failed,
+        pending=pending,
+        in_progress=pending > 0,
     )
 
 
@@ -1020,6 +1044,14 @@ def _import_result(db: Session, set_id: int, source, added: int, deduped: int) -
         source=PoolSourceOut.model_validate(source),
         pool=_pool_state(db, set_id),
     )
+
+
+def _queue_pool_enrichment(
+    db: Session, background_tasks: BackgroundTasks, set_id: int, source_id: int
+) -> None:
+    pending_ids = pool.pending_enrichment_track_ids(db, set_id, source_id=source_id)
+    if pending_ids:
+        background_tasks.add_task(pool.enrich_pool_tracks, set_id, pending_ids)
 
 
 @router.get("/sets/{set_id}/pool", response_model=PoolState)
@@ -1073,6 +1105,7 @@ def import_pool_event(
     set_id: int,
     payload: PoolImportEventIn,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> PoolImportResult:
@@ -1090,8 +1123,11 @@ def import_pool_event(
         label=event.name,
         meta="WrzDJ event requests",
     )
-    candidates = pool.hydrate_candidates_from_store(db, candidates, user=current_user)
+    candidates = pool.hydrate_candidates_from_store(
+        db, candidates, user=current_user, enrich_missing=False
+    )
     added, deduped = pool.import_candidates(db, set_obj, source, candidates)
+    _queue_pool_enrichment(db, background_tasks, set_obj.id, source.id)
     return _import_result(db, set_obj.id, source, added, deduped)
 
 
@@ -1101,6 +1137,7 @@ def import_pool_tidal(
     set_id: int,
     payload: PoolImportPlaylistIn,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> PoolImportResult:
@@ -1120,8 +1157,11 @@ def import_pool_tidal(
         label=payload.label or "Tidal playlist",
         meta="Tidal playlist",
     )
-    candidates = pool.hydrate_candidates_from_store(db, candidates, user=current_user)
+    candidates = pool.hydrate_candidates_from_store(
+        db, candidates, user=current_user, enrich_missing=False
+    )
     added, deduped = pool.import_candidates(db, set_obj, source, candidates)
+    _queue_pool_enrichment(db, background_tasks, set_obj.id, source.id)
     return _import_result(db, set_obj.id, source, added, deduped)
 
 
@@ -1131,6 +1171,7 @@ def import_pool_beatport(
     set_id: int,
     payload: PoolImportPlaylistIn,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> PoolImportResult:
@@ -1146,8 +1187,11 @@ def import_pool_beatport(
         label=payload.label or "Beatport playlist",
         meta="Beatport playlist",
     )
-    candidates = pool.hydrate_candidates_from_store(db, candidates, user=current_user)
+    candidates = pool.hydrate_candidates_from_store(
+        db, candidates, user=current_user, enrich_missing=False
+    )
     added, deduped = pool.import_candidates(db, set_obj, source, candidates)
+    _queue_pool_enrichment(db, background_tasks, set_obj.id, source.id)
     return _import_result(db, set_obj.id, source, added, deduped)
 
 
@@ -1181,6 +1225,7 @@ def import_pool_url(
     set_id: int,
     payload: PoolImportUrlIn,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> PoolImportResult:
@@ -1206,8 +1251,11 @@ def import_pool_url(
         label=name,
         meta=f"Public {parsed.provider} playlist",
     )
-    candidates = pool.hydrate_candidates_from_store(db, candidates, user=current_user)
+    candidates = pool.hydrate_candidates_from_store(
+        db, candidates, user=current_user, enrich_missing=False
+    )
     added, deduped = pool.import_candidates(db, set_obj, source, candidates)
+    _queue_pool_enrichment(db, background_tasks, set_obj.id, source.id)
     return _import_result(db, set_obj.id, source, added, deduped)
 
 

@@ -1245,6 +1245,45 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 
+.poolEnrichment {
+  padding: 8px 10px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(50, 215, 160, 0.08);
+}
+
+.poolEnrichmentHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+  font-size: 12px;
+}
+
+.poolEnrichmentText {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.poolEnrichmentMeta {
+  color: var(--text-secondary);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.poolEnrichmentBar {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.poolEnrichmentFill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-primary);
+  transition: width 180ms ease;
+}
+
 .sourcesToggle {
   display: flex;
   align-items: center;

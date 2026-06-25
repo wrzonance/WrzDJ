@@ -14,6 +14,7 @@ import dataclasses
 import hashlib
 import logging
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
@@ -31,6 +32,10 @@ from app.services.tracks.provenance import is_cache_authoritative
 from app.services.tracks.store import TrackIdentity, get_track, upsert_track
 
 logger = logging.getLogger(__name__)
+
+POOL_ENRICH_PENDING = "pending"
+POOL_ENRICHED = "enriched"
+POOL_ENRICH_FAILED = "failed"
 
 
 class PoolImportError(Exception):
@@ -214,6 +219,7 @@ def import_candidates(
                 duration_sec=c.duration_sec,
                 artwork_url=c.artwork_url,
                 dedupe_sig=sig,
+                enrichment_status=POOL_ENRICH_PENDING if _has_provider_gap(c) else POOL_ENRICHED,
             )
         )
         seen_sigs.add(sig)
@@ -259,6 +265,7 @@ def hydrate_candidates_from_store(
     *,
     user: User | None = None,
     commit: bool = True,
+    enrich_missing: bool = True,
 ) -> list[PoolCandidate]:
     """Resolve each candidate to the master `tracks` store and fill its gaps.
 
@@ -293,7 +300,9 @@ def hydrate_candidates_from_store(
     resolved: list[PoolCandidate] = []
     for candidate in candidates:
         try:
-            resolved.append(_hydrate_one(db, candidate, user, commit=commit))
+            resolved.append(
+                _hydrate_one(db, candidate, user, commit=commit, enrich_missing=enrich_missing)
+            )
         except Exception:
             # commit=False (agent turn): the session may be poisoned and the turn
             # owns the transaction — re-raise so the turn rolls back atomically
@@ -313,7 +322,12 @@ def hydrate_candidates_from_store(
 
 
 def _hydrate_one(
-    db: Session, candidate: PoolCandidate, user: User | None, *, commit: bool
+    db: Session,
+    candidate: PoolCandidate,
+    user: User | None,
+    *,
+    commit: bool,
+    enrich_missing: bool = True,
 ) -> PoolCandidate:
     """Resolve one candidate against the store and return a gap-filled copy.
 
@@ -361,7 +375,7 @@ def _hydrate_one(
 
     # Genuine remaining gaps in the provider-fillable fields: only a connected DJ
     # can run the cascade. Energy stays out of this gate by design.
-    if _has_provider_gap(candidate) and user is not None:
+    if enrich_missing and _has_provider_gap(candidate) and user is not None:
         return _enrich_and_writeback(
             db, candidate, user, title=title, artist=artist, sig=sig, isrc=isrc, commit=commit
         )
@@ -402,15 +416,36 @@ def _hydrate_authoritative_fields(candidate: PoolCandidate, row) -> tuple[PoolCa
     return dataclasses.replace(candidate, **updates), hydrated
 
 
+def _contract_gap(*, bpm: object, key: object, genre: object, duration_sec: object) -> bool:
+    """The single provider-contract gap rule (bpm/key/genre/duration all present).
+    Energy is excluded (it comes only from Soundcharts/Lexicon, dark per #543/#544).
+    The 064 migration backfill mirrors this in SQL."""
+    return bpm is None or not key or not genre or duration_sec is None
+
+
 def _has_provider_gap(candidate: PoolCandidate) -> bool:
-    """True if any provider-fillable field (bpm/key/genre/duration) is still
-    missing — the trigger for running the enrich cascade. Energy is excluded (it
-    comes only from Soundcharts/Lexicon, dark per #543/#544)."""
+    """True if any provider-fillable field is still missing — the trigger for
+    running the enrich cascade."""
+    return _contract_gap(
+        bpm=candidate.bpm,
+        key=candidate.key,
+        genre=candidate.genre,
+        duration_sec=candidate.duration_sec,
+    )
+
+
+def terminal_enrichment_status(
+    *, bpm: object, key: object, genre: object, duration_sec: object
+) -> str:
+    """Assign a terminal status from a track's contract fields, for paths that
+    set status without a background worker to run (snapshot restore; the 064
+    backfill mirrors this in SQL). Enriched iff the full contract is present,
+    else failed — never "pending", which would report in_progress with nothing
+    to clear it."""
     return (
-        candidate.bpm is None
-        or not candidate.key
-        or not candidate.genre
-        or candidate.duration_sec is None
+        POOL_ENRICH_FAILED
+        if _contract_gap(bpm=bpm, key=key, genre=genre, duration_sec=duration_sec)
+        else POOL_ENRICHED
     )
 
 
@@ -612,6 +647,145 @@ def _safe_upsert(
     except Exception:
         db.rollback()
         logger.warning("Pool store upsert failed for '%s' by '%s'.", title, artist)
+
+
+# ---------------------------------------------------------------------------
+# Background enrichment
+
+
+def pending_enrichment_track_ids(
+    db: Session, set_id: int, *, source_id: int | None = None
+) -> list[int]:
+    """Pool track IDs still awaiting provider enrichment."""
+    query = db.query(SetPoolTrack.id).filter(
+        SetPoolTrack.set_id == set_id,
+        SetPoolTrack.enrichment_status == POOL_ENRICH_PENDING,
+    )
+    if source_id is not None:
+        query = query.filter(SetPoolTrack.source_id == source_id)
+    return [row_id for (row_id,) in query.order_by(SetPoolTrack.id).all()]
+
+
+def enrich_pool_tracks(
+    set_id: int, track_ids: list[int], *, max_workers: int | None = None
+) -> None:
+    """Background pool enrichment entrypoint.
+
+    The scheduled task receives only scalar IDs. Each worker opens its own
+    SessionLocal so external provider calls never pin the request-scoped session
+    and SQLAlchemy sessions are not shared across threads.
+    """
+    unique_ids = list(dict.fromkeys(track_ids))
+    if not unique_ids:
+        return
+    if max_workers is None:
+        from app.core.config import get_settings
+
+        max_workers = get_settings().pool_enrich_concurrency
+    max_workers = max(1, int(max_workers))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        list(
+            executor.map(
+                lambda track_id: _enrich_pool_track_with_fresh_session(set_id, track_id),
+                unique_ids,
+            )
+        )
+
+
+def _enrich_pool_track_with_fresh_session(set_id: int, track_id: int) -> None:
+    from app.db.session import SessionLocal
+
+    session = SessionLocal()
+    try:
+        _enrich_pool_track(session, set_id, track_id)
+    finally:
+        session.close()
+
+
+def _enrich_pool_track(db: Session, set_id: int, track_id: int) -> None:
+    track = db.get(SetPoolTrack, track_id)
+    if track is None or track.set_id != set_id:
+        return
+    set_obj = db.get(Set, set_id)
+    user = db.get(User, set_obj.owner_id) if set_obj is not None else None
+    if user is None:
+        return
+
+    candidate = _candidate_from_pool_track(track)
+    try:
+        if _has_provider_gap(candidate):
+            candidate = _enrich_and_writeback(
+                db,
+                candidate,
+                user,
+                title=track.title,
+                artist=track.artist,
+                sig=track.dedupe_sig,
+                isrc=valid_isrc(track.isrc),
+                commit=True,
+            )
+        _apply_candidate_to_pool_track(track, candidate)
+        # Only "enriched" if providers actually closed the contract gap. A no-op
+        # enrichment (no match / owner has no usable connected services) leaves
+        # the same gaps, so mark it "failed" (terminal) rather than "enriched" —
+        # otherwise the summary reports completion and a pending-only pass skips
+        # the row even though bpm/key/genre/duration are still missing.
+        track.enrichment_status = (
+            POOL_ENRICH_FAILED if _has_provider_gap(candidate) else POOL_ENRICHED
+        )
+        db.commit()
+    except Exception:
+        logger.exception(
+            "Pool background enrichment failed for set_id=%s track_id=%s", set_id, track_id
+        )
+        if not db.is_active or db.new or db.dirty or db.deleted:
+            db.rollback()
+        failed = db.get(SetPoolTrack, track_id)
+        if failed is not None and failed.set_id == set_id:
+            failed.enrichment_status = POOL_ENRICH_FAILED
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+                logger.exception(
+                    "Could not persist pool enrichment failure for set_id=%s track_id=%s",
+                    set_id,
+                    track_id,
+                )
+
+
+def _candidate_from_pool_track(track: SetPoolTrack) -> PoolCandidate:
+    return PoolCandidate(
+        title=track.title,
+        artist=track.artist,
+        track_id=track.track_id,
+        album=track.album,
+        genre=track.genre,
+        bpm=track.bpm,
+        key=track.key,
+        energy=track.energy,
+        isrc=track.isrc,
+        duration_sec=track.duration_sec,
+        artwork_url=track.artwork_url,
+    )
+
+
+def _apply_candidate_to_pool_track(track: SetPoolTrack, candidate: PoolCandidate) -> None:
+    if candidate.album is not None:
+        track.album = candidate.album
+    if candidate.genre is not None:
+        track.genre = candidate.genre
+    if candidate.bpm is not None:
+        track.bpm = float(candidate.bpm)
+    if candidate.key:
+        track.key = candidate.key
+        track.camelot = camelot_code(candidate.key)
+    if candidate.energy is not None:
+        track.energy = candidate.energy
+    if candidate.duration_sec is not None:
+        track.duration_sec = candidate.duration_sec
+    if candidate.artwork_url is not None:
+        track.artwork_url = candidate.artwork_url
 
 
 # ---------------------------------------------------------------------------

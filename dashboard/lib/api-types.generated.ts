@@ -4953,9 +4953,15 @@ export interface components {
             collection_opens_at: string | null;
             /** Collection Phase Override */
             collection_phase_override: string | null;
-            /** Created At */
+            /**
+             * Created At
+             * Format: date-time
+             */
             created_at: string;
-            /** Expires At */
+            /**
+             * Expires At
+             * Format: date-time
+             */
             expires_at: string;
             /**
              * Frictionless Join
@@ -5537,7 +5543,10 @@ export interface components {
             source: string;
             /** Spotify Uri */
             spotify_uri: string | null;
-            /** Started At */
+            /**
+             * Started At
+             * Format: date-time
+             */
             started_at: string;
             /** Title */
             title: string;
@@ -5703,7 +5712,10 @@ export interface components {
             source: string;
             /** Spotify Uri */
             spotify_uri: string | null;
-            /** Started At */
+            /**
+             * Started At
+             * Format: date-time
+             */
             started_at: string;
             /** Title */
             title: string;
@@ -5811,6 +5823,22 @@ export interface components {
             pool_size: number;
             /** Ready */
             ready: boolean;
+        };
+        /**
+         * PoolEnrichmentSummary
+         * @description Set-level background enrichment progress for pool imports.
+         */
+        PoolEnrichmentSummary: {
+            /** Enriched */
+            enriched: number;
+            /** Failed */
+            failed: number;
+            /** In Progress */
+            in_progress: boolean;
+            /** Pending */
+            pending: number;
+            /** Total */
+            total: number;
         };
         /**
          * PoolImportEventIn
@@ -5928,6 +5956,7 @@ export interface components {
          * @description Full pool snapshot: sources + tracks + total candidate runtime.
          */
         PoolState: {
+            enrichment: components["schemas"]["PoolEnrichmentSummary"];
             /**
              * Runtime Sec
              * @default 0
@@ -5962,6 +5991,11 @@ export interface components {
             duration_sec: number | null;
             /** Energy */
             energy: number | null;
+            /**
+             * Enrichment Status
+             * @enum {string}
+             */
+            enrichment_status: "pending" | "enriched" | "failed";
             /** Genre */
             genre: string | null;
             /** Id */
@@ -6235,7 +6269,10 @@ export interface components {
             artwork_url: string | null;
             /** Bpm */
             bpm: number | null;
-            /** Created At */
+            /**
+             * Created At
+             * Format: date-time
+             */
             created_at: string;
             /** Event Id */
             event_id: number;
@@ -6268,7 +6305,10 @@ export interface components {
             status: string;
             /** Sync Results Json */
             sync_results_json: string | null;
-            /** Updated At */
+            /**
+             * Updated At
+             * Format: date-time
+             */
             updated_at: string;
             /**
              * Vote Count
@@ -6510,6 +6550,12 @@ export interface components {
             duration_sec: number | null;
             /** Energy */
             energy: number | null;
+            /**
+             * Enrichment Status
+             * @default pending
+             * @enum {string}
+             */
+            enrichment_status: "pending" | "enriched" | "failed";
             /** Genre */
             genre: string | null;
             /** Id */

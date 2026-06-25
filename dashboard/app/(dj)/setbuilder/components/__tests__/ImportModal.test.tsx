@@ -34,7 +34,11 @@ const IMPORT_RESULT: PoolImportResult = {
     meta: null,
     created_at: '2026-06-09T00:00:00Z',
   },
-  pool: { sources: [], tracks: [] },
+  pool: {
+    sources: [],
+    tracks: [],
+    enrichment: { total: 0, enriched: 0, failed: 0, pending: 0, in_progress: false },
+  },
 } as unknown as PoolImportResult;
 
 function importResult(eventId: number, added: number, deduped: number): PoolImportResult {
@@ -61,6 +65,7 @@ function importResult(eventId: number, added: number, deduped: number): PoolImpo
         },
       ],
       tracks: [],
+      enrichment: { total: 0, enriched: 0, failed: 0, pending: 0, in_progress: false },
     },
   } as unknown as PoolImportResult;
 }

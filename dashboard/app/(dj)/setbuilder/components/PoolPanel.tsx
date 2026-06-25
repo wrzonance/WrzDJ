@@ -46,6 +46,33 @@ const IMPORT_MENU: { kind: ImportKind; title: string; sub: string }[] = [
   { kind: 'manual', title: 'Add single track', sub: 'Search a service' },
 ];
 
+const EMPTY_POOL: PoolState = {
+  sources: [],
+  tracks: [],
+  enrichment: { total: 0, enriched: 0, failed: 0, pending: 0, in_progress: false },
+  runtime_sec: 0,
+};
+
+function deriveEnrichment(tracks: PoolState['tracks']): PoolState['enrichment'] {
+  const enriched = tracks.filter((track) => track.enrichment_status === 'enriched').length;
+  const failed = tracks.filter((track) => track.enrichment_status === 'failed').length;
+  const pending = tracks.filter((track) => track.enrichment_status === 'pending').length;
+  return { total: tracks.length, enriched, failed, pending, in_progress: pending > 0 };
+}
+
+function normalizePoolState(pool: PoolState | SetDocumentSnapshot['pool']): PoolState {
+  if ('enrichment' in pool) return pool;
+  const tracks = pool.tracks as PoolState['tracks'];
+  // Snapshots carry neither enrichment nor runtime; derive both the same way the
+  // server does so the restored PoolState stays whole (#538 + background enrichment).
+  return {
+    sources: pool.sources,
+    tracks,
+    enrichment: deriveEnrichment(tracks),
+    runtime_sec: poolRuntimeSec(tracks),
+  };
+}
+
 interface ContextMenuState {
   x: number;
   y: number;
@@ -70,7 +97,7 @@ export default function PoolPanel({
   confirmRemovals = false,
   requestConfirmation,
 }: PoolPanelProps) {
-  const [pool, setPool] = useState<PoolState>({ sources: [], tracks: [], runtime_sec: 0 });
+  const [pool, setPool] = useState<PoolState>(EMPTY_POOL);
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState('all');
   const [q, setQ] = useState('');
@@ -97,9 +124,9 @@ export default function PoolPanel({
     setVibesLoaded(false);
     setLoaded(false);
     if (snapshot) {
-      // The document snapshot's pool carries no runtime field; derive it the same
-      // way the server does so the local PoolState stays whole (#538).
-      setPool({ ...snapshot.pool, runtime_sec: poolRuntimeSec(snapshot.pool.tracks) });
+      // normalizePoolState backfills both enrichment and runtime for a snapshot's
+      // partial pool, the same way the server derives them (#538 + enrichment).
+      setPool(normalizePoolState(snapshot.pool));
       setLoaded(true);
       return () => {
         cancelled = true;
@@ -120,6 +147,31 @@ export default function PoolPanel({
       cancelled = true;
     };
   }, [setId, snapshot, snapshotVersion]);
+
+  useEffect(() => {
+    // Poll while background enrichment is running, regardless of whether a
+    // document snapshot is mounted: enrichment progress is orthogonal to the
+    // snapshot's content, and polling only triggers when in_progress is true —
+    // which means the live pool already carries the same just-imported tracks,
+    // so refreshing from the server is consistent (fixes a stuck banner after
+    // an import that follows a commit/recompute).
+    if (!loaded || !pool.enrichment.in_progress) return;
+    let cancelled = false;
+    const handle = setInterval(() => {
+      api
+        .getPool(setId)
+        .then((next) => {
+          if (!cancelled) setPool(next);
+        })
+        .catch(() => {
+          if (!cancelled) setToast('Failed to refresh enrichment progress');
+        });
+    }, 2500);
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+  }, [loaded, pool.enrichment.in_progress, setId]);
 
   useEffect(() => {
     if (!toast) return;
@@ -324,6 +376,10 @@ export default function PoolPanel({
     });
   };
 
+  const enrichmentDone = pool.enrichment.enriched + pool.enrichment.failed;
+  const enrichmentPercent =
+    pool.enrichment.total > 0 ? Math.round((enrichmentDone / pool.enrichment.total) * 100) : 0;
+
   return (
     <div className={styles.poolPanel}>
       {/* Header: count + Add menu */}
@@ -383,6 +439,33 @@ export default function PoolPanel({
           )}
         </span>
       </div>
+
+      {pool.enrichment.in_progress && (
+        <div className={styles.poolEnrichment}>
+          <div className={styles.poolEnrichmentHeader}>
+            <span className={styles.poolEnrichmentText}>
+              Enriching {enrichmentDone}/{pool.enrichment.total}...
+            </span>
+            <span className={styles.poolEnrichmentMeta}>
+              {pool.enrichment.pending} pending
+              {pool.enrichment.failed > 0 ? ` · ${pool.enrichment.failed} failed` : ''}
+            </span>
+          </div>
+          <div
+            className={styles.poolEnrichmentBar}
+            role="progressbar"
+            aria-label="Pool enrichment progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={enrichmentPercent}
+          >
+            <div
+              className={styles.poolEnrichmentFill}
+              style={{ width: `${enrichmentPercent}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Sources accordion */}
       <div className={styles.poolSources}>

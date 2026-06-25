@@ -6,6 +6,7 @@ from app.schemas.tidal import TidalSearchResult
 from app.services.recommendation.scorer import EventProfile
 from app.services.recommendation.soundcharts_candidates import (
     BPM_RANGE_OFFSET,
+    related_candidates_from_seeds,
     search_candidates_via_soundcharts,
 )
 from app.services.soundcharts import SoundchartsTrack
@@ -205,3 +206,139 @@ class TestSearchCandidatesViaSoundcharts:
 
         call_kwargs = mock_discover.call_args
         assert call_kwargs.kwargs["keys"] is None
+
+
+def _make_request(artist="Artist", title="Song", isrc=None):
+    req = MagicMock()
+    req.artist = artist
+    req.song_title = title
+    req.isrc = isrc
+    return req
+
+
+class TestRelatedCandidatesFromSeeds:
+    """ISRC-seeded related-tracks candidate generator for #556.
+
+    Resolves each seed request's ISRC (request.isrc first, then the master
+    tracks store by signature), calls the dark-by-default related-tracks
+    adapter, and converts the results to soundcharts-source TrackProfiles.
+    """
+
+    @patch("app.services.recommendation.soundcharts_candidates.get_related_songs_by_isrc")
+    def test_seed_isrc_yields_candidates(self, mock_related):
+        mock_related.return_value = [
+            SoundchartsTrack(title="Rel One", artist="Artist A", soundcharts_uuid="u1"),
+            SoundchartsTrack(title="Rel Two", artist="Artist B", soundcharts_uuid="u2"),
+        ]
+        db = MagicMock()
+        requests = [_make_request("Seed Artist", "Seed Song", isrc="USABC1234567")]
+
+        candidates, seeds_used = related_candidates_from_seeds(db, requests)
+
+        assert seeds_used == 1
+        assert len(candidates) == 2
+        assert candidates[0].title == "Rel One"
+        assert candidates[0].artist == "Artist A"
+        assert candidates[0].source == "soundcharts"
+        mock_related.assert_called_once_with("USABC1234567", limit=20)
+
+    @patch("app.services.recommendation.soundcharts_candidates.get_track")
+    @patch("app.services.recommendation.soundcharts_candidates.get_related_songs_by_isrc")
+    def test_falls_back_to_master_store_isrc(self, mock_related, mock_get_track):
+        """A request with no ISRC resolves its ISRC from the master tracks store."""
+        mock_related.return_value = [
+            SoundchartsTrack(title="Rel", artist="A", soundcharts_uuid="u1"),
+        ]
+        stored = MagicMock()
+        stored.isrc = "USSTORE00001"
+        mock_get_track.return_value = stored
+        db = MagicMock()
+        requests = [_make_request("Seed Artist", "Seed Song", isrc=None)]
+
+        candidates, seeds_used = related_candidates_from_seeds(db, requests)
+
+        assert seeds_used == 1
+        assert len(candidates) == 1
+        mock_related.assert_called_once_with("USSTORE00001", limit=20)
+
+    @patch("app.services.recommendation.soundcharts_candidates.get_track")
+    @patch("app.services.recommendation.soundcharts_candidates.get_related_songs_by_isrc")
+    def test_seed_without_resolvable_isrc_skipped(self, mock_related, mock_get_track):
+        mock_get_track.return_value = None  # not in the master store either
+        db = MagicMock()
+        requests = [_make_request("Unknown", "Track", isrc=None)]
+
+        candidates, seeds_used = related_candidates_from_seeds(db, requests)
+
+        assert candidates == []
+        assert seeds_used == 0
+        mock_related.assert_not_called()
+
+    @patch("app.services.recommendation.soundcharts_candidates.get_related_songs_by_isrc")
+    def test_cross_seed_dedup_by_uuid_and_name(self, mock_related):
+        """The same related track returned for two seeds appears once."""
+        mock_related.side_effect = [
+            [SoundchartsTrack(title="Shared", artist="A", soundcharts_uuid="dup")],
+            [
+                SoundchartsTrack(title="Shared", artist="A", soundcharts_uuid="dup"),
+                SoundchartsTrack(title="Fresh", artist="B", soundcharts_uuid="new"),
+            ],
+        ]
+        db = MagicMock()
+        requests = [
+            _make_request("S1", "T1", isrc="USAAA0000001"),
+            _make_request("S2", "T2", isrc="USBBB0000002"),
+        ]
+
+        candidates, seeds_used = related_candidates_from_seeds(db, requests)
+
+        assert seeds_used == 2
+        titles = sorted(c.title for c in candidates)
+        assert titles == ["Fresh", "Shared"]
+
+    @patch("app.services.recommendation.soundcharts_candidates.get_related_songs_by_isrc")
+    def test_empty_requests_returns_empty(self, mock_related):
+        db = MagicMock()
+        candidates, seeds_used = related_candidates_from_seeds(db, [])
+        assert candidates == []
+        assert seeds_used == 0
+        mock_related.assert_not_called()
+
+    @patch("app.services.recommendation.soundcharts_candidates.get_related_songs_by_isrc")
+    def test_max_seeds_caps_api_calls(self, mock_related):
+        mock_related.return_value = []
+        db = MagicMock()
+        requests = [_make_request(f"A{i}", f"T{i}", isrc=f"USAAA000000{i}") for i in range(5)]
+
+        _, seeds_used = related_candidates_from_seeds(db, requests, max_seeds=2)
+
+        assert seeds_used == 2
+        assert mock_related.call_count == 2
+
+    @patch("app.services.recommendation.soundcharts_candidates.get_related_songs_by_isrc")
+    def test_per_seed_limit_forwarded(self, mock_related):
+        mock_related.return_value = []
+        db = MagicMock()
+        requests = [_make_request("A", "T", isrc="USAAA0000001")]
+
+        related_candidates_from_seeds(db, requests, per_seed_limit=7)
+
+        mock_related.assert_called_once_with("USAAA0000001", limit=7)
+
+    @patch("app.services.recommendation.soundcharts_candidates.get_related_songs_by_isrc")
+    def test_early_exit_once_enough_candidates(self, mock_related):
+        """Stops seeding once max_candidates is reached so a slow upstream can't
+        serialize every seed's blocking calls into the request latency."""
+        mock_related.return_value = [
+            SoundchartsTrack(title="A", artist="X", soundcharts_uuid="ua"),
+            SoundchartsTrack(title="B", artist="Y", soundcharts_uuid="ub"),
+        ]
+        db = MagicMock()
+        requests = [_make_request(f"A{i}", f"T{i}", isrc=f"USAAA000000{i}") for i in range(5)]
+
+        candidates, seeds_used = related_candidates_from_seeds(db, requests, max_candidates=2)
+
+        # First seed yields 2 candidates == cap; the loop must not fetch more seeds.
+        assert len(candidates) == 2
+        assert seeds_used == 1
+        assert mock_related.call_count == 1

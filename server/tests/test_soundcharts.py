@@ -557,6 +557,52 @@ class TestGetRelatedSongsByIsrc:
 
         assert get_related_songs_by_isrc("USUM71900764") == []
 
+    @patch("app.services.soundcharts.httpx.get")
+    @patch("app.services.soundcharts.get_settings")
+    def test_malformed_isrc_returns_empty_without_calling_api(self, mock_settings, mock_get):
+        """A crafted ISRC (path-injection chars / wrong shape) is rejected before
+        any HTTP call, so it can never be interpolated into the request URL (#556)."""
+        mock_settings.return_value = self._settings()
+        for bad in ("US/UM71900764", "../../secret", "USUM7190076", "not-an-isrc"):
+            assert get_related_songs_by_isrc(bad) == []
+        mock_get.assert_not_called()
+
+    @patch("app.services.soundcharts.httpx.get")
+    @patch("app.services.soundcharts.get_settings")
+    def test_non_list_items_degrades_to_empty(self, mock_settings, mock_get):
+        """A malformed related payload ({"items": null}) degrades to [], not a crash."""
+        mock_settings.return_value = self._settings()
+        mock_get.side_effect = [
+            _mock_get_response({"object": {"uuid": "seed-uuid"}}),
+            _mock_get_response({"items": None}),
+        ]
+        assert get_related_songs_by_isrc("USUM71900764") == []
+
+    @patch("app.services.soundcharts.httpx.get")
+    @patch("app.services.soundcharts.get_settings")
+    def test_status_error_does_not_log_response_body(self, mock_settings, mock_get, caplog):
+        """The auth-failure log records only the status code, never the upstream
+        response body, so a leaked credential in the body can't reach the logs."""
+        import logging
+
+        mock_settings.return_value = self._settings()
+        error_resp = MagicMock()
+        error_resp.status_code = 403
+        error_resp.text = "SECRET-LEAK-CANARY-x-api-key=test-key"
+        status_error = httpx.HTTPStatusError("403", request=MagicMock(), response=error_resp)
+        related_resp = MagicMock()
+        related_resp.raise_for_status.side_effect = status_error
+        mock_get.side_effect = [
+            _mock_get_response({"object": {"uuid": "seed-uuid"}}),
+            related_resp,
+        ]
+
+        with caplog.at_level(logging.WARNING, logger="app.services.soundcharts"):
+            assert get_related_songs_by_isrc("USUM71900764") == []
+
+        assert "SECRET-LEAK-CANARY" not in caplog.text
+        assert "403" in caplog.text
+
 
 class TestDiscoverSongs:
     @patch("app.services.soundcharts.get_settings")

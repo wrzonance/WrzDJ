@@ -324,3 +324,21 @@ class TestRelatedCandidatesFromSeeds:
         related_candidates_from_seeds(db, requests, per_seed_limit=7)
 
         mock_related.assert_called_once_with("USAAA0000001", limit=7)
+
+    @patch("app.services.recommendation.soundcharts_candidates.get_related_songs_by_isrc")
+    def test_early_exit_once_enough_candidates(self, mock_related):
+        """Stops seeding once max_candidates is reached so a slow upstream can't
+        serialize every seed's blocking calls into the request latency."""
+        mock_related.return_value = [
+            SoundchartsTrack(title="A", artist="X", soundcharts_uuid="ua"),
+            SoundchartsTrack(title="B", artist="Y", soundcharts_uuid="ub"),
+        ]
+        db = MagicMock()
+        requests = [_make_request(f"A{i}", f"T{i}", isrc=f"USAAA000000{i}") for i in range(5)]
+
+        candidates, seeds_used = related_candidates_from_seeds(db, requests, max_candidates=2)
+
+        # First seed yields 2 candidates == cap; the loop must not fetch more seeds.
+        assert len(candidates) == 2
+        assert seeds_used == 1
+        assert mock_related.call_count == 1

@@ -754,14 +754,7 @@ def _search_candidates(
             settings = get_settings()
             if settings.soundcharts_app_id and settings.soundcharts_api_key:
                 sc_candidates, sc_searched = search_candidates_via_soundcharts(db, user, profile)
-                tidal_candidates = [
-                    c
-                    for c in sc_candidates
-                    if not is_unwanted_version(c.title)
-                    and not _is_blocked_genre(c.genre)
-                    and not _is_junk_candidate(c.title, c.artist)
-                    and not _is_stock_music_artist(c.artist)
-                ]
+                tidal_candidates = _filter_candidates(sc_candidates)
                 tidal_searched = sc_searched
 
         # Strategy 3: Text search fallback (LLM queries or last resort)
@@ -790,6 +783,19 @@ def _search_candidates(
     return candidates, sorted(services_used), total_searched
 
 
+def _filter_candidates(cands: list[TrackProfile]) -> list[TrackProfile]:
+    """Drop unwanted/junk/blocked/stock candidates — the shared junk-filter applied
+    to every discovery source so the rules live in one place and can't drift."""
+    return [
+        c
+        for c in cands
+        if not is_unwanted_version(c.title)
+        and not _is_blocked_genre(c.genre)
+        and not _is_junk_candidate(c.title, c.artist)
+        and not _is_stock_music_artist(c.artist)
+    ]
+
+
 def _search_soundcharts_related(
     db: Session,
     requests: list | None,
@@ -814,15 +820,7 @@ def _search_soundcharts_related(
     from app.services.recommendation.soundcharts_candidates import related_candidates_from_seeds
 
     related, seeds_used = related_candidates_from_seeds(db, requests)
-    filtered = [
-        c
-        for c in related
-        if not is_unwanted_version(c.title)
-        and not _is_blocked_genre(c.genre)
-        and not _is_junk_candidate(c.title, c.artist)
-        and not _is_stock_music_artist(c.artist)
-    ]
-    return filtered, seeds_used
+    return _filter_candidates(related), seeds_used
 
 
 def _soundcharts_related_available() -> bool:

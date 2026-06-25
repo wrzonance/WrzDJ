@@ -36,6 +36,10 @@ BPM_RANGE_OFFSET = 15
 # Max seed tracks to expand via the paid related endpoint (each costs API calls).
 MAX_RELATED_SEEDS = 10
 
+# Stop seeding once this many unique candidates are gathered, so a slow/degraded
+# Soundcharts upstream cannot serialize every seed into the request's latency.
+MAX_RELATED_CANDIDATES = 60
+
 
 def search_candidates_via_soundcharts(
     db: Session,
@@ -130,6 +134,7 @@ def related_candidates_from_seeds(
     *,
     max_seeds: int = MAX_RELATED_SEEDS,
     per_seed_limit: int = RELATED_TRACKS_LIMIT,
+    max_candidates: int = MAX_RELATED_CANDIDATES,
 ) -> tuple[list[TrackProfile], int]:
     """Discover candidates via Soundcharts related-tracks, seeded by event ISRCs (#556).
 
@@ -137,7 +142,9 @@ def related_candidates_from_seeds(
     then the master tracks store) and fetch related tracks via the dark-by-default
     adapter. Candidates are de-duplicated across seeds (by Soundcharts UUID and by
     normalized artist|title) and returned as ``TrackProfile(source="soundcharts")``
-    for the shared scorer/dedup pipeline.
+    for the shared scorer/dedup pipeline. Seeding stops early once ``max_candidates``
+    unique candidates are gathered, so a slow/degraded upstream cannot serialize
+    every seed's two blocking calls into the request's latency.
 
     Returns ``(candidates, seeds_used)`` where ``seeds_used`` counts seeds that
     resolved an ISRC and triggered a lookup. Requires NO connected music service;
@@ -149,6 +156,8 @@ def related_candidates_from_seeds(
     seen_names: set[str] = set()
 
     for request in requests[:max_seeds]:
+        if len(candidates) >= max_candidates:
+            break
         isrc = _seed_isrc(db, request)
         if not isrc:
             continue

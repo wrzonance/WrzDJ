@@ -15,6 +15,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.services.recommendation.camelot import parse_key
+from app.services.track_normalizer import valid_isrc
 
 logger = logging.getLogger(__name__)
 
@@ -228,9 +229,9 @@ def discover_songs(
         )
         response.raise_for_status()
     except httpx.HTTPStatusError as e:
-        logger.warning(
-            "Soundcharts API error %s: %s", e.response.status_code, e.response.text[:200]
-        )
+        # Log only the status code — never the upstream response body, which could
+        # echo request headers / account data and leak the configured credentials.
+        logger.warning("Soundcharts API error %s", e.response.status_code)
         return []
     except httpx.HTTPError as e:
         logger.warning("Soundcharts request failed: %s", e)
@@ -265,11 +266,15 @@ def discover_songs(
 
 
 def _normalize_isrc(isrc: str | None) -> str | None:
-    """Uppercase, trim, and strip hyphens so the ISRC matches Soundcharts' key."""
-    if not isrc:
-        return None
-    cleaned = isrc.strip().upper().replace("-", "")
-    return cleaned or None
+    """Normalize and validate an ISRC for use as a Soundcharts ``by-isrc`` path segment.
+
+    Delegates to the canonical :func:`valid_isrc`, which returns the value ONLY when
+    it matches the ISO 3901 shape (2-letter country + 3 alphanumeric + 7 digits) and
+    ``None`` otherwise. Strict validation keeps a crafted value (e.g. one containing
+    ``/`` or ``..``) from ever being interpolated into the request URL — a malformed
+    ISRC could never resolve at Soundcharts anyway, so dropping it is free.
+    """
+    return valid_isrc(isrc)
 
 
 def _flatten_genres(genres: list | None) -> tuple[str, ...]:
@@ -295,9 +300,9 @@ def _fetch_song_object(url: str, settings) -> dict | None:
         )
         response.raise_for_status()
     except httpx.HTTPStatusError as e:
-        logger.warning(
-            "Soundcharts song API error %s: %s", e.response.status_code, e.response.text[:200]
-        )
+        # Log only the status code — never the upstream response body, which could
+        # echo request headers / account data and leak the configured credentials.
+        logger.warning("Soundcharts song API error %s", e.response.status_code)
         return None
     except httpx.HTTPError as e:
         logger.warning("Soundcharts song request failed: %s", e)
@@ -442,9 +447,9 @@ def get_related_songs_by_isrc(
         )
         response.raise_for_status()
     except httpx.HTTPStatusError as e:
-        logger.warning(
-            "Soundcharts related API error %s: %s", e.response.status_code, e.response.text[:200]
-        )
+        # Log only the status code — never the upstream response body: an auth
+        # failure body could echo request headers / account data and leak secrets.
+        logger.warning("Soundcharts related API error %s", e.response.status_code)
         return []
     except httpx.HTTPError as e:
         logger.warning("Soundcharts related request failed: %s", e)
@@ -456,7 +461,10 @@ def get_related_songs_by_isrc(
         logger.warning("Soundcharts related API returned invalid JSON: %s", e)
         return []
 
-    items = payload.get("items", []) if isinstance(payload, dict) else []
+    items = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(items, list):
+        # A malformed payload (e.g. {"items": null}) must degrade to [], not crash.
+        items = []
     tracks = [t for t in (_related_item_to_track(item) for item in items) if t is not None]
     logger.info("Soundcharts related: %d tracks for seed ISRC", len(tracks))
     return tracks

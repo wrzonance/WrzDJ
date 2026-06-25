@@ -16,7 +16,7 @@ from app.models.set import Set, SetSlot
 from app.models.set_pool import SetPoolTrack
 from app.models.user import User
 from app.services.recommendation.camelot import compatibility_score, parse_key
-from app.services.recommendation.scorer import _score_bpm
+from app.services.recommendation.scorer import _score_bpm, _score_genre
 from app.services.setbuilder.curve import BUILTIN_TEMPLATES, interpolate_energy, uniform_midpoints
 from app.services.setbuilder.vibe_resolver import ResolvedVibe, build_pool_vibe_states
 
@@ -35,6 +35,7 @@ class TrackMeta:
     key: str | None
     energy: int | None
     mood: str | None = None
+    genre: str | None = None
     transitional_role: str | None = None
 
 
@@ -207,6 +208,12 @@ def _track_meta(track: SetPoolTrack, resolved: ResolvedVibe | None = None) -> Tr
     are dead constants (#543). The pool row remains the fallback so callers that
     pass no resolved vibe (and any row that does carry its own value) still work.
 
+    ``genre`` is sourced straight off the pool row (#545) — it is a guaranteed
+    contract field hydrated from the global ``tracks`` row on upsert, NOT part of
+    the vibe cascade (which only carries energy/mood), so it reads like bpm/key
+    rather than via ``resolved``. Missing genre stays ``None`` and degrades
+    neutrally in ``_genre_continuity``.
+
     ``transitional_role`` has no resolver source yet — the cascade only carries
     energy/mood — so its scoring term stays a neutral constant (see ``_role_fit``
     TODO). Re-point energy/mood at the global ``tracks`` row when that lands.
@@ -226,6 +233,7 @@ def _track_meta(track: SetPoolTrack, resolved: ResolvedVibe | None = None) -> Tr
         key=track.camelot or track.key,
         energy=energy,
         mood=mood,
+        genre=track.genre,
     )
 
 
@@ -330,12 +338,17 @@ def _candidate_score(
     key_strictness: float,
     pairings: set[tuple[str, str]],
 ) -> float:
+    # Genre (#545) is funded by halving the role term (0.10->0.05, a neutral
+    # constant today with no resolver source) and the mood term (0.10->0.05, the
+    # weakest live signal); the dominant energy/bpm/key terms are untouched, so
+    # existing ordering is preserved and all terms still sum to 1.00.
     score = (
         0.30 * _energy_match(candidate.energy, target_energy)
         + 0.25 * _bpm_continuity(previous, candidate)
         + 0.20 * _camelot_continuity(previous, candidate, key_strictness)
-        + 0.10 * _role_fit(candidate.transitional_role, position, slot_count, target_energy)
-        + 0.10 * _mood_continuity(previous, candidate)
+        + 0.10 * _genre_continuity(previous, candidate)
+        + 0.05 * _role_fit(candidate.transitional_role, position, slot_count, target_energy)
+        + 0.05 * _mood_continuity(previous, candidate)
         + 0.05 * _artist_diversity(candidate, selected)
     ) * 100
     if previous and (previous.slot_track_id, candidate.slot_track_id) in pairings:
@@ -367,6 +380,23 @@ def _mood_continuity(previous: TrackMeta | None, current: TrackMeta) -> float:
     if previous is None or not previous.mood or not current.mood:
         return 0.5
     return 1.0 if previous.mood.strip().lower() == current.mood.strip().lower() else 0.35
+
+
+def _genre_continuity(previous: TrackMeta | None, current: TrackMeta) -> float:
+    """Reward staying within / smoothly moving between related genres (#545).
+
+    Delegates to the recommendation scorer's curated genre affinity
+    (``_score_genre``: exact 1.0 / substring 0.5 / same-family 0.4 / related
+    family 0.2-0.4 / unrelated 0.0) by treating the previous track's genre as a
+    single-element dominant-genre lane — DRY, no second genre taxonomy.
+
+    Degrades neutrally to ``0.5`` (the no-information midpoint used by the other
+    ``_*_continuity`` helpers) at the set start or when either side has no genre,
+    so a missing-genre track is never penalized.
+    """
+    if previous is None or not previous.genre or not current.genre:
+        return 0.5
+    return _score_genre(current.genre, [previous.genre])
 
 
 def _role_fit(role: str | None, position: int, slot_count: int, target: float) -> float:

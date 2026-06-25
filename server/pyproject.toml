@@ -31,8 +31,6 @@ dependencies = [
     # SECURITY: minimum versions per 2026-05-19 audit.
     "idna>=3.15",            # CVE-2026-45409 (transitive from requests/httpx)
     "urllib3>=2.7.0",        # CVE-2026-44431, CVE-2026-44432 (transitive from requests)
-    # SECURITY: minimum versions per 2026-06-25 audit.
-    "msgpack>=1.2.1",        # GHSA-6v7p-g79w-8964 (OOB read on Unpacker reuse; transitive via cachecontrol/pip-audit)
     "anthropic>=0.40.0",
     "resend>=2.0.0",
     "better-profanity>=0.7.0",
@@ -53,6 +51,7 @@ dev = [
     "pip-audit>=2.6.0",
     "freezegun>=1.2.0",
     "pygments>=2.20.0",      # CVE-2026-4539 (transitive from bandit/pip-audit via rich)
+    "msgpack>=1.2.1",       # GHSA-6v7p-g79w-8964 (OOB read on Unpacker reuse; transitive from pip-audit via cachecontrol)
     "pip>=26.1.2",           # CVE-2026-3219, CVE-2026-6357, PYSEC-2026-196 (transitive from pip-audit)
 ]
 

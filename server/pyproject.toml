@@ -10,7 +10,7 @@ dependencies = [
     "alembic>=1.13.0",
     "psycopg[binary]>=3.1.0",
     "pydantic[email]>=2.0.0",
-    "pydantic-settings>=2.0.0",
+    "pydantic-settings>=2.14.2",  # GHSA-4xgf-cpjx-pc3j (symlink escape from secrets_dir)
     "bcrypt>=4.0.0",
     "httpx>=0.26.0",
     "python-multipart>=0.0.31",  # GHSA-5rvq/v9pg/6jv3/vffw (querystring DoS, neg Content-Length, smuggling)
@@ -51,7 +51,8 @@ dev = [
     "pip-audit>=2.6.0",
     "freezegun>=1.2.0",
     "pygments>=2.20.0",      # CVE-2026-4539 (transitive from bandit/pip-audit via rich)
-    "pip>=26.1",             # CVE-2026-3219, CVE-2026-6357 (transitive from pip-audit)
+    "msgpack>=1.2.1",       # GHSA-6v7p-g79w-8964 (OOB read on Unpacker reuse; transitive from pip-audit via cachecontrol)
+    "pip>=26.1.2",           # CVE-2026-3219, CVE-2026-6357, PYSEC-2026-196 (transitive from pip-audit)
 ]
 
 [build-system]

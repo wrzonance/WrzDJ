@@ -319,6 +319,54 @@ def test_restore_snapshot_keeps_duplicate_track_id_metadata_separate(db: Session
     assert restored["duplicate-b"].duration_sec == 421
 
 
+def test_restore_snapshot_preserves_current_failed_status(db: Session, test_user: User):
+    set_obj = Set(owner_id=test_user.id, name="Failed Status Merge")
+    db.add(set_obj)
+    db.flush()
+    source = SetPoolSource(set_id=set_obj.id, kind="manual", label="Manual")
+    db.add(source)
+    db.flush()
+    db.add(
+        SetPoolTrack(
+            set_id=set_obj.id,
+            source_id=source.id,
+            track_id="manual:failed",
+            title="Failed Match",
+            artist="Snapshot Artist",
+            bpm=126.0,
+            key="8A",
+            genre="House",
+            duration_sec=300,
+            dedupe_sig="failed-match",
+            enrichment_status="pending",
+        )
+    )
+    db.commit()
+    db.refresh(set_obj)
+    stale_snapshot = build_snapshot(set_obj)
+
+    current = db.query(SetPoolTrack).filter(SetPoolTrack.set_id == set_obj.id).one()
+    current.bpm = None
+    current.key = None
+    current.genre = None
+    current.duration_sec = None
+    current.enrichment_status = "failed"
+    db.commit()
+    set_id = set_obj.id
+    db.expunge_all()
+    set_obj = db.get(Set, set_id)
+    assert set_obj is not None
+
+    restore_snapshot(db, set_obj, stale_snapshot)
+
+    restored = db.query(SetPoolTrack).filter(SetPoolTrack.set_id == set_obj.id).one()
+    assert restored.bpm == 126.0
+    assert restored.key == "8A"
+    assert restored.genre == "House"
+    assert restored.duration_sec == 300
+    assert restored.enrichment_status == "failed"
+
+
 def test_restore_snapshot_derives_status_when_current_match_is_pending(
     db: Session, test_user: User
 ):
@@ -354,6 +402,50 @@ def test_restore_snapshot_derives_status_when_current_match_is_pending(
     restore_snapshot(db, set_obj, snapshot)
 
     restored = db.query(SetPoolTrack).filter(SetPoolTrack.set_id == set_obj.id).one()
+    assert restored.enrichment_status == "enriched"
+
+
+def test_restore_snapshot_derives_status_for_snapshot_only_track(db: Session, test_user: User):
+    set_obj = Set(owner_id=test_user.id, name="Snapshot Only Status")
+    db.add(set_obj)
+    db.flush()
+    source = SetPoolSource(set_id=set_obj.id, kind="manual", label="Manual")
+    db.add(source)
+    db.flush()
+    db.add(
+        SetPoolTrack(
+            set_id=set_obj.id,
+            source_id=source.id,
+            track_id="manual:snapshot-only",
+            title="Snapshot Only",
+            artist="Snapshot Artist",
+            bpm=128.0,
+            key="7A",
+            genre="House",
+            duration_sec=300,
+            dedupe_sig="snapshot-only",
+            enrichment_status="pending",
+        )
+    )
+    db.commit()
+    db.refresh(set_obj)
+    snapshot = build_snapshot(set_obj)
+    db.query(SetPoolTrack).filter(SetPoolTrack.set_id == set_obj.id).delete(
+        synchronize_session=False
+    )
+    db.commit()
+    set_id = set_obj.id
+    db.expunge_all()
+    set_obj = db.get(Set, set_id)
+    assert set_obj is not None
+
+    restore_snapshot(db, set_obj, snapshot)
+
+    restored = db.query(SetPoolTrack).filter(SetPoolTrack.set_id == set_obj.id).one()
+    assert restored.bpm == 128.0
+    assert restored.key == "7A"
+    assert restored.genre == "House"
+    assert restored.duration_sec == 300
     assert restored.enrichment_status == "enriched"
 
 

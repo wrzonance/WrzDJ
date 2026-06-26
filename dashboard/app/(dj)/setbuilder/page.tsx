@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
-import type { SetSummary } from '@/lib/api-types';
+import type { SetSummary, TasteProfile } from '@/lib/api-types';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import ShareDialog from './ShareDialog';
 
@@ -21,6 +21,8 @@ export default function SetbuilderPage() {
   const [renameValue, setRenameValue] = useState('');
   const [savingRename, setSavingRename] = useState(false);
   const [shareTarget, setShareTarget] = useState<SetSummary | null>(null);
+  const [tasteProfile, setTasteProfile] = useState<TasteProfile | null>(null);
+  const [resettingProfile, setResettingProfile] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -33,9 +35,11 @@ export default function SetbuilderPage() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      api
-        .listSets()
-        .then(setSets)
+      Promise.all([api.listSets(), api.getSetbuilderTasteProfile()])
+        .then(([loadedSets, profile]) => {
+          setSets(loadedSets);
+          setTasteProfile(profile);
+        })
         .catch(() => setError('Failed to load sets'))
         .finally(() => setLoading(false));
     }
@@ -79,6 +83,21 @@ export default function SetbuilderPage() {
   const handleShareChanged = (id: number, token: string | null) => {
     setSets((prev) => prev.map((s) => (s.id === id ? { ...s, share_token: token } : s)));
     setShareTarget((prev) => (prev && prev.id === id ? { ...prev, share_token: token } : prev));
+  };
+
+  const handleResetProfile = async () => {
+    if (!window.confirm('Reset your learned SetBuilder taste profile? Existing track edits stay saved.')) {
+      return;
+    }
+    setResettingProfile(true);
+    try {
+      const profile = await api.resetSetbuilderTasteProfile();
+      setTasteProfile(profile);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reset taste profile');
+    } finally {
+      setResettingProfile(false);
+    }
   };
 
   const startRename = (s: SetSummary) => {
@@ -150,6 +169,56 @@ export default function SetbuilderPage() {
           <ThemeToggle />
         </div>
       </div>
+
+      {tasteProfile && (
+        <div
+          className="card"
+          style={{
+            marginBottom: '1rem',
+            display: 'grid',
+            gap: '0.75rem',
+            padding: '1rem',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: '1rem',
+              alignItems: 'flex-start',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div>
+              <h2 style={{ fontSize: '1rem', marginBottom: '0.35rem' }}>Taste profile</h2>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: 0 }}>
+                {tasteProfile.summary}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={{ background: 'var(--surface-raised)' }}
+              onClick={handleResetProfile}
+              disabled={resettingProfile || tasteProfile.sample_count === 0}
+            >
+              {resettingProfile ? 'Resetting...' : 'Reset profile'}
+            </button>
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <span className="badge">
+              {tasteProfile.active
+                ? `Energy ${tasteProfile.energy_adjustment >= 0 ? '+' : ''}${tasteProfile.energy_adjustment.toFixed(1)}`
+                : `${tasteProfile.sample_count}/${tasteProfile.min_samples} samples`}
+            </span>
+            {tasteProfile.top_moods.map((mood) => (
+              <span key={mood.mood} className="badge">
+                {mood.mood}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {showCreate && (
         <div className="card" style={{ marginBottom: '2rem' }}>

@@ -173,6 +173,119 @@ def test_autobuild_then_restore_snapshot_returns_prior_order(db: Session, test_u
     assert after_ids == before_ids
 
 
+def test_restore_snapshot_preserves_current_enriched_pool_metadata(db: Session, test_user: User):
+    # Regression for issue #565: stale document snapshots from undo/autosave
+    # must not overwrite enrichment that completed server-side after capture.
+    set_obj = Set(owner_id=test_user.id, name="Enrichment Merge")
+    db.add(set_obj)
+    db.flush()
+    source = SetPoolSource(set_id=set_obj.id, kind="manual", label="Manual")
+    db.add(source)
+    db.flush()
+    db.add_all(
+        [
+            SetPoolTrack(
+                set_id=set_obj.id,
+                source_id=source.id,
+                track_id="manual:track-id-match",
+                title="Track Id Match",
+                artist="Snapshot Artist",
+                dedupe_sig="track-id-match",
+                enrichment_status="pending",
+            ),
+            SetPoolTrack(
+                set_id=set_obj.id,
+                source_id=source.id,
+                track_id=None,
+                title="Dedupe Match",
+                artist="Snapshot Artist",
+                dedupe_sig="dedupe-only-match",
+                enrichment_status="pending",
+            ),
+        ]
+    )
+    db.commit()
+    db.refresh(set_obj)
+    stale_snapshot = build_snapshot(set_obj)
+
+    current_tracks = db.query(SetPoolTrack).filter(SetPoolTrack.set_id == set_obj.id).all()
+    by_sig = {track.dedupe_sig: track for track in current_tracks}
+    by_sig["track-id-match"].bpm = 127.5
+    by_sig["track-id-match"].key = "6A"
+    by_sig["track-id-match"].camelot = "6A"
+    by_sig["track-id-match"].genre = "Afro House"
+    by_sig["track-id-match"].duration_sec = 356
+    by_sig["track-id-match"].enrichment_status = "enriched"
+    by_sig["dedupe-only-match"].bpm = 92.0
+    by_sig["dedupe-only-match"].key = "11B"
+    by_sig["dedupe-only-match"].camelot = "11B"
+    by_sig["dedupe-only-match"].genre = "Disco"
+    by_sig["dedupe-only-match"].duration_sec = 241
+    by_sig["dedupe-only-match"].enrichment_status = "enriched"
+    db.commit()
+    set_id = set_obj.id
+    db.expunge_all()
+    set_obj = db.get(Set, set_id)
+    assert set_obj is not None
+
+    restore_snapshot(db, set_obj, stale_snapshot)
+
+    restored = {
+        track.dedupe_sig: track
+        for track in db.query(SetPoolTrack).filter(SetPoolTrack.set_id == set_obj.id).all()
+    }
+    assert restored["track-id-match"].bpm == 127.5
+    assert restored["track-id-match"].key == "6A"
+    assert restored["track-id-match"].camelot == "6A"
+    assert restored["track-id-match"].genre == "Afro House"
+    assert restored["track-id-match"].duration_sec == 356
+    assert restored["track-id-match"].enrichment_status == "enriched"
+    assert restored["dedupe-only-match"].bpm == 92.0
+    assert restored["dedupe-only-match"].key == "11B"
+    assert restored["dedupe-only-match"].camelot == "11B"
+    assert restored["dedupe-only-match"].genre == "Disco"
+    assert restored["dedupe-only-match"].duration_sec == 241
+    assert restored["dedupe-only-match"].enrichment_status == "enriched"
+
+
+def test_restore_snapshot_derives_status_when_current_match_is_pending(
+    db: Session, test_user: User
+):
+    set_obj = Set(owner_id=test_user.id, name="Pending Status Merge")
+    db.add(set_obj)
+    db.flush()
+    source = SetPoolSource(set_id=set_obj.id, kind="manual", label="Manual")
+    db.add(source)
+    db.flush()
+    db.add(
+        SetPoolTrack(
+            set_id=set_obj.id,
+            source_id=source.id,
+            track_id="manual:pending",
+            title="Pending Match",
+            artist="Snapshot Artist",
+            dedupe_sig="pending-match",
+            enrichment_status="pending",
+        )
+    )
+    db.commit()
+    db.refresh(set_obj)
+    snapshot = build_snapshot(set_obj)
+    snapshot.pool.tracks[0].bpm = 128.0
+    snapshot.pool.tracks[0].key = "7A"
+    snapshot.pool.tracks[0].genre = "House"
+    snapshot.pool.tracks[0].duration_sec = 300
+    set_id = set_obj.id
+    db.expunge_all()
+    set_obj = db.get(Set, set_id)
+    assert set_obj is not None
+
+    restore_snapshot(db, set_obj, snapshot)
+
+    restored = db.query(SetPoolTrack).filter(SetPoolTrack.set_id == set_obj.id).one()
+    assert restored.enrichment_status == "enriched"
+
+
 def test_autobuild_display_summary_is_human_readable():
     summary = _tool_display_summary(
         "autobuild", {"rationale": "x"}, {"slot_count": 12, "iterations": 3}, {}, {}

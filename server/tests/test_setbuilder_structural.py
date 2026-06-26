@@ -248,6 +248,77 @@ def test_restore_snapshot_preserves_current_enriched_pool_metadata(db: Session, 
     assert restored["dedupe-only-match"].enrichment_status == "enriched"
 
 
+def test_restore_snapshot_keeps_duplicate_track_id_metadata_separate(db: Session, test_user: User):
+    set_obj = Set(owner_id=test_user.id, name="Duplicate Track ID Merge")
+    db.add(set_obj)
+    db.flush()
+    source = SetPoolSource(set_id=set_obj.id, kind="manual", label="Manual")
+    db.add(source)
+    db.flush()
+    db.add_all(
+        [
+            SetPoolTrack(
+                set_id=set_obj.id,
+                source_id=source.id,
+                track_id="manual:duplicate",
+                title="Duplicate A",
+                artist="Snapshot Artist",
+                dedupe_sig="duplicate-a",
+                enrichment_status="pending",
+            ),
+            SetPoolTrack(
+                set_id=set_obj.id,
+                source_id=source.id,
+                track_id="manual:duplicate",
+                title="Duplicate B",
+                artist="Snapshot Artist",
+                dedupe_sig="duplicate-b",
+                enrichment_status="pending",
+            ),
+        ]
+    )
+    db.commit()
+    db.refresh(set_obj)
+    stale_snapshot = build_snapshot(set_obj)
+
+    current_tracks = db.query(SetPoolTrack).filter(SetPoolTrack.set_id == set_obj.id).all()
+    by_sig = {track.dedupe_sig: track for track in current_tracks}
+    by_sig["duplicate-a"].bpm = 118.0
+    by_sig["duplicate-a"].key = "4A"
+    by_sig["duplicate-a"].camelot = "4A"
+    by_sig["duplicate-a"].genre = "Breaks"
+    by_sig["duplicate-a"].duration_sec = 303
+    by_sig["duplicate-a"].enrichment_status = "enriched"
+    by_sig["duplicate-b"].bpm = 132.0
+    by_sig["duplicate-b"].key = "9B"
+    by_sig["duplicate-b"].camelot = "9B"
+    by_sig["duplicate-b"].genre = "Techno"
+    by_sig["duplicate-b"].duration_sec = 421
+    by_sig["duplicate-b"].enrichment_status = "enriched"
+    db.commit()
+    set_id = set_obj.id
+    db.expunge_all()
+    set_obj = db.get(Set, set_id)
+    assert set_obj is not None
+
+    restore_snapshot(db, set_obj, stale_snapshot)
+
+    restored = {
+        track.dedupe_sig: track
+        for track in db.query(SetPoolTrack).filter(SetPoolTrack.set_id == set_obj.id).all()
+    }
+    assert restored["duplicate-a"].bpm == 118.0
+    assert restored["duplicate-a"].key == "4A"
+    assert restored["duplicate-a"].camelot == "4A"
+    assert restored["duplicate-a"].genre == "Breaks"
+    assert restored["duplicate-a"].duration_sec == 303
+    assert restored["duplicate-b"].bpm == 132.0
+    assert restored["duplicate-b"].key == "9B"
+    assert restored["duplicate-b"].camelot == "9B"
+    assert restored["duplicate-b"].genre == "Techno"
+    assert restored["duplicate-b"].duration_sec == 421
+
+
 def test_restore_snapshot_derives_status_when_current_match_is_pending(
     db: Session, test_user: User
 ):

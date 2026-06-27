@@ -1,5 +1,5 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import SetbuilderPage from '../page';
 
 vi.mock('next/navigation', () => ({
@@ -15,9 +15,13 @@ vi.mock('next/link', () => ({
 const mockListSets = vi.fn();
 const mockRenameSet = vi.fn();
 const mockDuplicateSet = vi.fn();
+const mockGetTasteProfile = vi.fn();
+const mockResetTasteProfile = vi.fn();
 vi.mock('@/lib/api', () => ({
   api: {
     listSets: () => mockListSets(),
+    getSetbuilderTasteProfile: () => mockGetTasteProfile(),
+    resetSetbuilderTasteProfile: () => mockResetTasteProfile(),
     createSet: vi.fn(),
     deleteSet: vi.fn(),
     renameSet: (id: number, name: string) => mockRenameSet(id, name),
@@ -42,6 +46,22 @@ describe('SetbuilderPage', () => {
     mockListSets.mockReset();
     mockRenameSet.mockReset();
     mockDuplicateSet.mockReset();
+    mockGetTasteProfile.mockReset();
+    mockResetTasteProfile.mockReset();
+    mockGetTasteProfile.mockResolvedValue({
+      sample_count: 0,
+      min_samples: 5,
+      active: false,
+      average_energy_delta: null,
+      energy_adjustment: 0,
+      top_moods: [],
+      summary: 'No learned taste profile yet.',
+      reset_at: null,
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('renders the empty state when there are no sets', async () => {
@@ -76,6 +96,86 @@ describe('SetbuilderPage', () => {
     render(<SetbuilderPage />);
     await waitFor(() => {
       expect(screen.getByText('Friday Wedding')).toBeInTheDocument();
+    });
+  });
+
+  it('keeps the sets list visible when the taste profile fails to load', async () => {
+    mockListSets.mockResolvedValue([
+      {
+        id: 1,
+        name: 'Friday Wedding',
+        event_id: null,
+        status: 'draft',
+        sharing_mode: 'private',
+        share_token: null,
+        created_at: '2026-06-07T00:00:00Z',
+        updated_at: '2026-06-07T00:00:00Z',
+      },
+    ]);
+    mockGetTasteProfile.mockRejectedValue(new Error('profile unavailable'));
+
+    render(<SetbuilderPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Friday Wedding')).toBeInTheDocument();
+      expect(screen.queryByText('Failed to load sets')).not.toBeInTheDocument();
+    });
+  });
+
+  it('renders the compact learned taste profile card', async () => {
+    mockListSets.mockResolvedValue([]);
+    mockGetTasteProfile.mockResolvedValue({
+      sample_count: 8,
+      min_samples: 5,
+      active: true,
+      average_energy_delta: 2,
+      energy_adjustment: 1.5,
+      top_moods: [{ mood: 'Peak', count: 5 }],
+      summary: 'Learned from 8 edits: energy +1.5; top mood Peak.',
+      reset_at: null,
+    });
+
+    render(<SetbuilderPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Taste profile')).toBeInTheDocument();
+      expect(screen.getAllByText(/energy \+1\.5/i).length).toBeGreaterThan(0);
+      expect(screen.getByText('Peak')).toBeInTheDocument();
+    });
+  });
+
+  it('resets the learned taste profile after confirmation', async () => {
+    mockListSets.mockResolvedValue([]);
+    mockGetTasteProfile.mockResolvedValue({
+      sample_count: 8,
+      min_samples: 5,
+      active: true,
+      average_energy_delta: 2,
+      energy_adjustment: 1.5,
+      top_moods: [{ mood: 'Peak', count: 5 }],
+      summary: 'Learned from 8 edits: energy +1.5; top mood Peak.',
+      reset_at: null,
+    });
+    mockResetTasteProfile.mockResolvedValue({
+      sample_count: 0,
+      min_samples: 5,
+      active: false,
+      average_energy_delta: null,
+      energy_adjustment: 0,
+      top_moods: [],
+      summary: 'No learned taste profile yet.',
+      reset_at: '2026-06-26T18:00:00Z',
+    });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    render(<SetbuilderPage />);
+    await waitFor(() => expect(screen.getByText('Taste profile')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /reset profile/i }));
+
+    await waitFor(() => {
+      expect(mockResetTasteProfile).toHaveBeenCalledTimes(1);
+      expect(screen.getByText(/no learned taste profile yet/i)).toBeInTheDocument();
     });
   });
 

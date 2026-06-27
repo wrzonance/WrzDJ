@@ -57,6 +57,26 @@ class SetDetail(SetSummary):
     exported_at: datetime | None
 
 
+class TasteProfileMoodOut(BaseModel):
+    """One mood preference learned from explicit vibe edits."""
+
+    mood: str
+    count: int
+
+
+class TasteProfileOut(BaseModel):
+    """Current DJ's read-time SetBuilder taste profile."""
+
+    sample_count: int
+    min_samples: int
+    active: bool
+    average_energy_delta: float | None
+    energy_adjustment: float
+    top_moods: list[TasteProfileMoodOut]
+    summary: str
+    reset_at: datetime | None
+
+
 # ---------------------------------------------------------------------------
 # Pool (issue #388)
 

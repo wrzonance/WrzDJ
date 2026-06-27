@@ -132,6 +132,47 @@ describe('ApiClient', () => {
       expect(chatUrl).toContain('/api/setbuilder/sets/42/agent/chat');
       expect(JSON.parse(chatOptions.body)).toEqual({ message: 'Swap these' });
     });
+
+    it('loads and resets the SetBuilder taste profile', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            sample_count: 5,
+            min_samples: 5,
+            active: true,
+            average_energy_delta: 2,
+            energy_adjustment: 1.5,
+            top_moods: [{ mood: 'Peak', count: 4 }],
+            summary: 'Learned from 5 edits: energy +1.5; top mood Peak.',
+            reset_at: null,
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            sample_count: 0,
+            min_samples: 5,
+            active: false,
+            average_energy_delta: null,
+            energy_adjustment: 0,
+            top_moods: [],
+            summary: 'No learned taste profile yet.',
+            reset_at: '2026-06-26T18:00:00Z',
+          }),
+        });
+
+      const profile = await api.getSetbuilderTasteProfile();
+      const reset = await api.resetSetbuilderTasteProfile();
+
+      expect(profile.active).toBe(true);
+      expect(reset.sample_count).toBe(0);
+      const [getUrl] = mockFetch.mock.calls[0];
+      expect(getUrl).toContain('/api/setbuilder/taste-profile');
+      const [resetUrl, resetOptions] = mockFetch.mock.calls[1];
+      expect(resetUrl).toContain('/api/setbuilder/taste-profile/reset');
+      expect(resetOptions.method).toBe('POST');
+    });
   });
 
   describe('search', () => {

@@ -84,6 +84,7 @@ import type {
   SortDirection,
   SystemSettings,
   SystemStats,
+  TasteProfile,
   TidalEventSettings,
   TidalSearchResult,
   TidalSyncResult,
@@ -197,6 +198,7 @@ export type {
   SyncResultEntry,
   SystemSettings,
   SystemStats,
+  TasteProfile,
   TidalEventSettings,
   TidalSearchResult,
   TidalSyncResult,
@@ -755,6 +757,12 @@ class ApiClient {
   }
   async deleteSet(setId: number): Promise<void> {
     await this.rawFetch(`/api/setbuilder/sets/${setId}`, { method: 'DELETE' });
+  }
+  async getSetbuilderTasteProfile(): Promise<TasteProfile> {
+    return this.fetch('/api/setbuilder/taste-profile');
+  }
+  async resetSetbuilderTasteProfile(): Promise<TasteProfile> {
+    return this.fetch('/api/setbuilder/taste-profile/reset', { method: 'POST' });
   }
 
   // WrzDJSet energy curve editor (#389)

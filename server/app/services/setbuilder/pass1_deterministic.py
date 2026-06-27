@@ -8,6 +8,7 @@ tie-breakers, greedy fill first, then a capped 2-opt-style swap refinement.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
@@ -18,12 +19,15 @@ from app.models.user import User
 from app.services.recommendation.camelot import compatibility_score, parse_key
 from app.services.recommendation.scorer import _score_bpm, _score_genre
 from app.services.setbuilder import targeting
+from app.services.setbuilder import taste_profile as taste_profile_service
 from app.services.setbuilder.curve import BUILTIN_TEMPLATES, interpolate_energy, uniform_midpoints
+from app.services.setbuilder.taste_profile import TasteProfile
 from app.services.setbuilder.vibe_resolver import ResolvedVibe, build_pool_vibe_states
 
 AVG_TRACK_LENGTH_SEC = 210
 MAX_SWAP_ITERATIONS = 50
 PAIRING_BOOST_POINTS = 20.0
+logger = logging.getLogger(__name__)
 
 # Hard fallback cap for the generated set when no explicit ``target_duration_sec``
 # is set (#538). Without this, ``_slot_count`` returned ``len(tracks)`` and a big
@@ -41,7 +45,7 @@ class TrackMeta:
     artist: str
     bpm: float | None
     key: str | None
-    energy: int | None
+    energy: float | None
     mood: str | None = None
     genre: str | None = None
     transitional_role: str | None = None
@@ -63,6 +67,19 @@ class BuildResult:
     transition_scores: list[TransitionScore]
 
 
+def _taste_profile_or_none(db: Session, set_obj: Set) -> TasteProfile | None:
+    try:
+        return taste_profile_service.build_taste_profile(db, set_obj.owner_id)
+    except Exception:
+        if not db.is_active:
+            db.rollback()
+        logger.warning(
+            "SetBuilder taste profile read failed; continuing without personalization",
+            exc_info=True,
+        )
+        return None
+
+
 def build_set(db: Session, set_obj: Set, *, commit: bool = True) -> BuildResult:
     """Build and persist a deterministic ordered set from the set pool."""
     pool_tracks = _pool_tracks(db, set_obj.id)
@@ -74,7 +91,8 @@ def build_set(db: Session, set_obj: Set, *, commit: bool = True) -> BuildResult:
     # duration-driven loop decides how many slots actually fit the target.
     targets = _target_energies(db, set_obj, max_slots)
     vibes = _pool_vibes(db, set_obj)
-    metas = [_track_meta(t, vibes.get(t.id)) for t in pool_tracks]
+    profile = _taste_profile_or_none(db, set_obj)
+    metas = [_track_meta(t, vibes.get(t.id), profile) for t in pool_tracks]
     by_track_id = {m.slot_track_id: m for m in metas}
     # Real per-track durations (avg fallback for missing/<=0), keyed the same way
     # the chooser identifies tracks, so the loop can accumulate actual playtime.
@@ -149,7 +167,8 @@ def recompute_transition_scores(
     if slots is None:
         slots = _ordered_slots(db, set_obj.id)
     vibes = _pool_vibes(db, set_obj)
-    pool_metas = [_track_meta(t, vibes.get(t.id)) for t in _pool_tracks(db, set_obj.id)]
+    profile = _taste_profile_or_none(db, set_obj)
+    pool_metas = [_track_meta(t, vibes.get(t.id), profile) for t in _pool_tracks(db, set_obj.id)]
     tracks_by_id = {meta.slot_track_id: meta for meta in pool_metas}
     scores: list[TransitionScore] = []
     for idx, slot in enumerate(slots):
@@ -229,7 +248,11 @@ def _saved_pairings(db: Session, set_id: int) -> set[tuple[str, str]]:
     return pairings
 
 
-def _track_meta(track: SetPoolTrack, resolved: ResolvedVibe | None = None) -> TrackMeta:
+def _track_meta(
+    track: SetPoolTrack,
+    resolved: ResolvedVibe | None = None,
+    profile: TasteProfile | None = None,
+) -> TrackMeta:
     """Build a scoring meta for a pool track.
 
     Energy and mood are sourced from the read-time vibe cascade (own > community
@@ -253,7 +276,7 @@ def _track_meta(track: SetPoolTrack, resolved: ResolvedVibe | None = None) -> Tr
     mood = None
     if resolved is not None:
         if resolved.energy is not None:
-            energy = resolved.energy
+            energy = taste_profile_service.taste_adjusted_energy(resolved, profile)
         mood = resolved.mood
     return TrackMeta(
         pool_id=track.id,

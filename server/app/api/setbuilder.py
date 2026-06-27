@@ -90,6 +90,8 @@ from app.schemas.setbuilder import (
     SlotOut,
     SlotTargetOut,
     SlotTargetUpdate,
+    TasteProfileMoodOut,
+    TasteProfileOut,
     TemplateWindowOut,
     TrackVibeStateOut,
     TransitionScoreOut,
@@ -121,6 +123,7 @@ from app.services.setbuilder import (
     pool,
     reorder,
     set_service,
+    taste_profile,
     vibe_enrichment,
     vibe_resolver,
 )
@@ -169,6 +172,43 @@ def _agent_message_out(message) -> AgentChatMessageOut:  # noqa: ANN001
         ],
         created_at=message.created_at,
     )
+
+
+def _taste_profile_out(profile: taste_profile.TasteProfile) -> TasteProfileOut:
+    return TasteProfileOut(
+        sample_count=profile.sample_count,
+        min_samples=profile.min_samples,
+        active=profile.active,
+        average_energy_delta=profile.average_energy_delta,
+        energy_adjustment=profile.energy_adjustment,
+        top_moods=[
+            TasteProfileMoodOut(mood=mood.mood, count=mood.count) for mood in profile.top_moods
+        ],
+        summary=profile.summary,
+        reset_at=profile.reset_at,
+    )
+
+
+@router.get("/taste-profile", response_model=TasteProfileOut)
+@limiter.limit("30/minute")
+def get_taste_profile(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> TasteProfileOut:
+    """Return the current DJ's learned SetBuilder taste profile."""
+    return _taste_profile_out(taste_profile.build_taste_profile(db, current_user.id))
+
+
+@router.post("/taste-profile/reset", response_model=TasteProfileOut)
+@limiter.limit("10/minute")
+def reset_taste_profile(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> TasteProfileOut:
+    """Reset learned profile training history without deleting override rows."""
+    return _taste_profile_out(taste_profile.reset_taste_profile(db, current_user.id))
 
 
 @router.post("/sets", response_model=SetDetail, status_code=status.HTTP_201_CREATED)

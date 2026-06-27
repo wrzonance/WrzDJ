@@ -9719,6 +9719,92 @@
         "title": "SystemStats",
         "type": "object"
       },
+      "TasteProfileMoodOut": {
+        "description": "One mood preference learned from explicit vibe edits.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "mood": {
+            "title": "Mood",
+            "type": "string"
+          }
+        },
+        "required": [
+          "count",
+          "mood"
+        ],
+        "title": "TasteProfileMoodOut",
+        "type": "object"
+      },
+      "TasteProfileOut": {
+        "description": "Current DJ's read-time SetBuilder taste profile.",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "average_energy_delta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Energy Delta"
+          },
+          "energy_adjustment": {
+            "title": "Energy Adjustment",
+            "type": "number"
+          },
+          "min_samples": {
+            "title": "Min Samples",
+            "type": "integer"
+          },
+          "reset_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reset At"
+          },
+          "sample_count": {
+            "title": "Sample Count",
+            "type": "integer"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "top_moods": {
+            "items": {
+              "$ref": "#/components/schemas/TasteProfileMoodOut"
+            },
+            "title": "Top Moods",
+            "type": "array"
+          }
+        },
+        "required": [
+          "active",
+          "average_energy_delta",
+          "energy_adjustment",
+          "min_samples",
+          "reset_at",
+          "sample_count",
+          "summary",
+          "top_moods"
+        ],
+        "title": "TasteProfileOut",
+        "type": "object"
+      },
       "TemplatePlaylistRequest": {
         "properties": {
           "playlist_id": {
@@ -20576,6 +20662,60 @@
           }
         ],
         "summary": "Put Vibe Windows",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/taste-profile": {
+      "get": {
+        "description": "Return the current DJ's learned SetBuilder taste profile.",
+        "operationId": "get_taste_profile_api_setbuilder_taste_profile_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TasteProfileOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Taste Profile",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/taste-profile/reset": {
+      "post": {
+        "description": "Reset learned profile training history without deleting override rows.",
+        "operationId": "reset_taste_profile_api_setbuilder_taste_profile_reset_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TasteProfileOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Reset Taste Profile",
         "tags": [
           "setbuilder"
         ]

@@ -35,13 +35,15 @@ export default function SetbuilderPage() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      Promise.all([api.listSets(), api.getSetbuilderTasteProfile()])
-        .then(([loadedSets, profile]) => {
-          setSets(loadedSets);
-          setTasteProfile(profile);
-        })
+      api
+        .listSets()
+        .then(setSets)
         .catch(() => setError('Failed to load sets'))
         .finally(() => setLoading(false));
+      api
+        .getSetbuilderTasteProfile()
+        .then(setTasteProfile)
+        .catch(() => setTasteProfile(null));
     }
   }, [isAuthenticated]);
 

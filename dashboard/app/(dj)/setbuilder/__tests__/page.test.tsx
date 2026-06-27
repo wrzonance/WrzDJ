@@ -1,5 +1,5 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import SetbuilderPage from '../page';
 
 vi.mock('next/navigation', () => ({
@@ -60,6 +60,10 @@ describe('SetbuilderPage', () => {
     });
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('renders the empty state when there are no sets', async () => {
     mockListSets.mockResolvedValue([]);
     render(<SetbuilderPage />);
@@ -92,6 +96,29 @@ describe('SetbuilderPage', () => {
     render(<SetbuilderPage />);
     await waitFor(() => {
       expect(screen.getByText('Friday Wedding')).toBeInTheDocument();
+    });
+  });
+
+  it('keeps the sets list visible when the taste profile fails to load', async () => {
+    mockListSets.mockResolvedValue([
+      {
+        id: 1,
+        name: 'Friday Wedding',
+        event_id: null,
+        status: 'draft',
+        sharing_mode: 'private',
+        share_token: null,
+        created_at: '2026-06-07T00:00:00Z',
+        updated_at: '2026-06-07T00:00:00Z',
+      },
+    ]);
+    mockGetTasteProfile.mockRejectedValue(new Error('profile unavailable'));
+
+    render(<SetbuilderPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Friday Wedding')).toBeInTheDocument();
+      expect(screen.queryByText('Failed to load sets')).not.toBeInTheDocument();
     });
   });
 

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.api import setbuilder as setbuilder_api
 from app.core.time import utcnow
-from app.models.set import Set
+from app.models.set import Set, SetSlot
 from app.models.set_pool import SetPoolSource, SetPoolTrack
 from app.models.set_taste_profile import SetTasteProfileReset
 from app.models.track_vibe import (
@@ -17,7 +17,7 @@ from app.models.track_vibe import (
     TrackVibeOverride,
 )
 from app.models.user import User
-from app.services.setbuilder.pass1_deterministic import build_set
+from app.services.setbuilder.pass1_deterministic import build_set, recompute_transition_scores
 from app.services.setbuilder.pass2_agent import _set_context
 from app.services.setbuilder.taste_profile import (
     ENERGY_ADJUSTMENT_CAP,
@@ -203,6 +203,44 @@ def test_pass1_ignores_taste_profile_below_sample_gate(db: Session, test_user: U
 
     assert result.slot_count == 1
     assert result.slots[0].track_id == "tidal:first"
+
+
+def test_pass1_continues_with_neutral_profile_when_profile_read_fails(
+    monkeypatch, db: Session, test_user: User
+):
+    set_obj = _mk_set(db, test_user)
+    source = _mk_source(db, set_obj)
+    _mk_pool_track(db, set_obj, source, idx=0, track_id="tidal:first")
+    monkeypatch.setattr(
+        "app.services.setbuilder.pass1_deterministic.taste_profile_service.build_taste_profile",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("profile unavailable")),
+    )
+
+    result = build_set(db, set_obj)
+
+    assert result.slot_count == 1
+    assert result.slots[0].track_id == "tidal:first"
+
+
+def test_transition_rescore_continues_with_neutral_profile_when_profile_read_fails(
+    monkeypatch, db: Session, test_user: User
+):
+    set_obj = _mk_set(db, test_user)
+    source = _mk_source(db, set_obj)
+    track = _mk_pool_track(db, set_obj, source, idx=0, track_id="tidal:first")
+    slot = SetSlot(set_id=set_obj.id, position=0, track_id=track.track_id)
+    db.add(slot)
+    db.commit()
+    db.refresh(slot)
+    monkeypatch.setattr(
+        "app.services.setbuilder.pass1_deterministic.taste_profile_service.build_taste_profile",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("profile unavailable")),
+    )
+
+    scores = recompute_transition_scores(db, set_obj)
+
+    assert scores[0].position == 0
+    assert scores[0].score == 100.0
 
 
 def test_pass2_context_includes_compact_taste_summary(db: Session, test_user: User):

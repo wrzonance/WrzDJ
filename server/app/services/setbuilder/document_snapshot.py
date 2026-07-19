@@ -16,6 +16,93 @@ from app.schemas.setbuilder import (
 from app.services.setbuilder import pool
 
 
+def _current_pool_track_metadata(
+    db: Session, set_id: int
+) -> tuple[dict[str, list[dict[str, object]]], dict[str, dict[str, object]]]:
+    """Snapshot server-owned enrichment fields before destructive restore."""
+    by_track_id: dict[str, list[dict[str, object]]] = {}
+    by_dedupe_sig: dict[str, dict[str, object]] = {}
+    current_tracks = (
+        db.query(
+            SetPoolTrack.track_id,
+            SetPoolTrack.dedupe_sig,
+            SetPoolTrack.bpm,
+            SetPoolTrack.key,
+            SetPoolTrack.camelot,
+            SetPoolTrack.genre,
+            SetPoolTrack.duration_sec,
+            SetPoolTrack.enrichment_status,
+        )
+        .filter(SetPoolTrack.set_id == set_id)
+        .order_by(SetPoolTrack.id)
+        .all()
+    )
+    for (
+        track_id,
+        dedupe_sig,
+        bpm,
+        key,
+        camelot,
+        genre,
+        duration_sec,
+        enrichment_status,
+    ) in current_tracks:
+        metadata = {
+            "bpm": bpm,
+            "key": key,
+            "camelot": camelot,
+            "genre": genre,
+            "duration_sec": duration_sec,
+            "enrichment_status": enrichment_status,
+        }
+        if track_id:
+            by_track_id.setdefault(track_id, []).append(metadata)
+        by_dedupe_sig.setdefault(dedupe_sig, metadata)
+    return by_track_id, by_dedupe_sig
+
+
+def _matched_current_metadata(
+    track: SetDocumentPoolTrack,
+    by_track_id: dict[str, list[dict[str, object]]],
+    by_dedupe_sig: dict[str, dict[str, object]],
+) -> dict[str, object] | None:
+    dedupe_match = by_dedupe_sig.get(track.dedupe_sig)
+    if track.track_id:
+        track_id_matches = by_track_id.get(track.track_id)
+        if track_id_matches:
+            if len(track_id_matches) == 1:
+                return track_id_matches[0]
+            return dedupe_match
+    return dedupe_match
+
+
+def _current_or_snapshot(
+    metadata: dict[str, object] | None, field: str, snapshot_value: object
+) -> object:
+    if metadata is None:
+        return snapshot_value
+    current_value = metadata[field]
+    return current_value if current_value is not None else snapshot_value
+
+
+def _merged_enrichment_status(
+    metadata: dict[str, object] | None,
+    *,
+    bpm: object,
+    key: object,
+    genre: object,
+    duration_sec: object,
+) -> str:
+    if metadata is not None and metadata["enrichment_status"] != pool.POOL_ENRICH_PENDING:
+        return str(metadata["enrichment_status"])
+    return pool.terminal_enrichment_status(
+        bpm=bpm,
+        key=key,
+        genre=genre,
+        duration_sec=duration_sec,
+    )
+
+
 def _remap_synthetic_pool_track_id(track_id: str | None, id_map: dict[int, int]) -> str | None:
     if not track_id or not track_id.startswith("pool:"):
         return track_id
@@ -108,6 +195,8 @@ def restore_snapshot(
     set_obj.bpm_ceiling = snapshot.settings.bpm_ceiling
     set_obj.key_strictness = snapshot.settings.key_strictness
 
+    current_by_track_id, current_by_dedupe_sig = _current_pool_track_metadata(db, set_obj.id)
+
     db.query(SetPoolTrack).filter(SetPoolTrack.set_id == set_obj.id).delete(
         synchronize_session=False
     )
@@ -135,6 +224,14 @@ def restore_snapshot(
 
     pool_track_id_map: dict[int, int] = {}
     for track in snapshot.pool.tracks:
+        current_metadata = _matched_current_metadata(
+            track, current_by_track_id, current_by_dedupe_sig
+        )
+        bpm = _current_or_snapshot(current_metadata, "bpm", track.bpm)
+        key = _current_or_snapshot(current_metadata, "key", track.key)
+        camelot = _current_or_snapshot(current_metadata, "camelot", track.camelot)
+        genre = _current_or_snapshot(current_metadata, "genre", track.genre)
+        duration_sec = _current_or_snapshot(current_metadata, "duration_sec", track.duration_sec)
         restored_track = SetPoolTrack(
             set_id=set_obj.id,
             source_id=source_id_map[track.source_id],
@@ -142,13 +239,13 @@ def restore_snapshot(
             title=track.title,
             artist=track.artist,
             album=track.album,
-            genre=track.genre,
-            bpm=track.bpm,
-            key=track.key,
-            camelot=track.camelot,
+            genre=genre,
+            bpm=bpm,
+            key=key,
+            camelot=camelot,
             energy=track.energy,
             isrc=track.isrc,
-            duration_sec=track.duration_sec,
+            duration_sec=duration_sec,
             artwork_url=track.artwork_url,
             dedupe_sig=track.dedupe_sig,
             # Restore enqueues no background worker, so derive a terminal status
@@ -156,11 +253,12 @@ def restore_snapshot(
             # stored value. A pre-change snapshot has no enrichment_status (it
             # defaults to "pending"), which would otherwise report in_progress
             # forever with nothing to clear it (mirrors the 064 backfill).
-            enrichment_status=pool.terminal_enrichment_status(
-                bpm=track.bpm,
-                key=track.key,
-                genre=track.genre,
-                duration_sec=track.duration_sec,
+            enrichment_status=_merged_enrichment_status(
+                current_metadata,
+                bpm=bpm,
+                key=key,
+                genre=genre,
+                duration_sec=duration_sec,
             ),
             created_at=track.created_at,
         )

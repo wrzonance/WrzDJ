@@ -45,7 +45,9 @@ def build_taste_profile(db: Session, user_id: int) -> TasteProfile:
     deltas = [
         float(row.energy_override - row.energy_was)
         for row in rows
-        if row.energy_override is not None and row.energy_was is not None
+        if row.energy_override is not None
+        and row.energy_was is not None
+        and row.energy_override != row.energy_was
     ]
     sample_count = len(deltas)
     average_delta = round(sum(deltas) / sample_count, 2) if deltas else None
@@ -78,13 +80,27 @@ def taste_adjusted_energy(
     """Apply the active profile's capped energy calibration to a resolved vibe value."""
     if resolved.energy is None:
         return None
-    if profile is None or not profile.active or profile.energy_adjustment == 0:
+    if (
+        resolved.energy_source == "own"
+        or profile is None
+        or not profile.active
+        or profile.energy_adjustment == 0
+    ):
         return float(resolved.energy)
     return round(max(0.0, min(10.0, float(resolved.energy) + profile.energy_adjustment)), 2)
 
 
-def profile_context(profile: TasteProfile) -> dict:
+def profile_context(profile: TasteProfile | None) -> dict:
     """Compact JSON-safe profile summary for pass-2 agent context."""
+    if profile is None:
+        return {
+            "active": False,
+            "sample_count": 0,
+            "min_samples": MIN_TASTE_SAMPLES,
+            "energy_adjustment": 0.0,
+            "top_moods": [],
+            "summary": "Taste profile unavailable.",
+        }
     return {
         "active": profile.active,
         "sample_count": profile.sample_count,
@@ -137,6 +153,9 @@ def _top_moods(rows: list[TrackVibeOverride]) -> list[TasteMood]:
     for row in rows:
         mood = (row.mood_override or "").strip()
         if not mood:
+            continue
+        previous_mood = (row.mood_was or "").strip()
+        if previous_mood and mood.casefold() == previous_mood.casefold():
             continue
         key = mood.lower()
         display_by_key.setdefault(key, mood)

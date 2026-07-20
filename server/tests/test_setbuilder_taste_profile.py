@@ -22,9 +22,12 @@ from app.services.setbuilder.pass2_agent import _set_context
 from app.services.setbuilder.taste_profile import (
     ENERGY_ADJUSTMENT_CAP,
     MIN_TASTE_SAMPLES,
+    TasteProfile,
     build_taste_profile,
+    taste_adjusted_energy,
 )
 from app.services.setbuilder.vibe_enrichment import PROMPT_VERSION, SCHEMA_VERSION
+from app.services.setbuilder.vibe_resolver import ResolvedVibe
 
 
 def _override(
@@ -35,6 +38,7 @@ def _override(
     energy: int | None,
     energy_was: int | None,
     mood: str | None = None,
+    mood_was: str | None = None,
     source: str = TRACK_VIBE_SOURCE_EXPLICIT_EDIT,
     created_at=None,
 ) -> TrackVibeOverride:
@@ -44,6 +48,7 @@ def _override(
         energy_override=energy,
         energy_was=energy_was,
         mood_override=mood,
+        mood_was=mood_was,
         source=source,
         created_at=created_at or utcnow(),
     )
@@ -172,6 +177,37 @@ def test_profile_ignores_upvotes_and_reset_excludes_older_history(db: Session, t
     assert profile.top_moods[0].mood == "cooldown"
 
 
+def test_profile_ignores_unchanged_carried_forward_fields(db: Session, test_user: User):
+    _override(db, test_user.id, 0, energy=8, energy_was=6, mood="Peak", mood_was="Warm")
+    for idx in range(1, MIN_TASTE_SAMPLES):
+        _override(db, test_user.id, idx, energy=8, energy_was=8, mood="Peak", mood_was="Peak")
+
+    profile = build_taste_profile(db, test_user.id)
+
+    assert profile.sample_count == 1
+    assert profile.active is False
+    assert profile.average_energy_delta == 2.0
+    assert len(profile.top_moods) == 1
+    assert profile.top_moods[0].mood == "Peak"
+    assert profile.top_moods[0].count == 1
+
+
+def test_taste_adjustment_does_not_double_apply_to_own_override():
+    profile = TasteProfile(
+        sample_count=MIN_TASTE_SAMPLES,
+        min_samples=MIN_TASTE_SAMPLES,
+        active=True,
+        average_energy_delta=2.0,
+        energy_adjustment=ENERGY_ADJUSTMENT_CAP,
+        top_moods=[],
+        summary="Active profile",
+        reset_at=None,
+    )
+    own = ResolvedVibe(energy=8, energy_source="own", mood=None, mood_source=None)
+
+    assert taste_adjusted_energy(own, profile) == 8.0
+
+
 def test_pass1_uses_taste_adjusted_energy_when_profile_is_active(db: Session, test_user: User):
     set_obj = _mk_set(db, test_user)
     source = _mk_source(db, set_obj)
@@ -254,6 +290,20 @@ def test_pass2_context_includes_compact_taste_summary(db: Session, test_user: Us
     assert context["taste_profile"]["sample_count"] == MIN_TASTE_SAMPLES
     assert "Peak" in context["taste_profile"]["summary"]
     assert "+1.5" in context["taste_profile"]["summary"]
+
+
+def test_pass2_context_continues_when_profile_read_fails(monkeypatch, db: Session, test_user: User):
+    set_obj = _mk_set(db, test_user)
+    monkeypatch.setattr(
+        "app.services.setbuilder.pass2_agent.build_taste_profile",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("profile unavailable")),
+    )
+
+    context = json.loads(_set_context(db, set_obj))
+
+    assert context["taste_profile"]["active"] is False
+    assert context["taste_profile"]["sample_count"] == 0
+    assert context["taste_profile"]["summary"] == "Taste profile unavailable."
 
 
 def test_taste_profile_api_get_and_reset_keeps_override_rows(db: Session, test_user: User):

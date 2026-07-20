@@ -390,7 +390,17 @@ def _critique_from_payload(payload: dict[str, Any]) -> SetCritique:
 def _set_context(db: Session, set_obj: Set) -> str:
     slots = _ordered_slots(db, set_obj.id)
     tracks = {_pass1_track_meta(t).slot_track_id: t for t in _pool_tracks(db, set_obj.id)}
-    taste_profile = build_taste_profile(db, set_obj.owner_id)
+    try:
+        taste_profile = build_taste_profile(db, set_obj.owner_id)
+    except Exception as exc:
+        if not db.is_active:
+            db.rollback()
+        logger.warning(
+            "SetBuilder taste profile read failed for agent context: %s",
+            exc,
+            exc_info=True,
+        )
+        taste_profile = None
     rows = []
     for slot in slots:
         track = tracks.get(slot.track_id or "")

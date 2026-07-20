@@ -204,6 +204,9 @@ export interface SetDetail extends SetSummary {
   exported_at: string | null;
 }
 
+export type TasteProfileMood = Schemas['TasteProfileMoodOut'];
+export type TasteProfile = Schemas['TasteProfileOut'];
+
 // WrzDJSet energy curve editor (#389)
 export type CurvePoint = Schemas['CurvePointModel'];
 export type BuiltinCurveTemplate = Schemas['BuiltinTemplateOut'];

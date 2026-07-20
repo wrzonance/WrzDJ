@@ -53,10 +53,11 @@ dev = [
     "pygments>=2.20.0",      # CVE-2026-4539 (transitive from bandit/pip-audit via rich)
     "msgpack>=1.2.1",       # GHSA-6v7p-g79w-8964 (OOB read on Unpacker reuse; transitive from pip-audit via cachecontrol)
     "pip>=26.1.2",           # CVE-2026-3219, CVE-2026-6357, PYSEC-2026-196 (transitive from pip-audit)
+    "setuptools>=83.0.0",    # PYSEC-2026-3447 (path traversal via PackageIndex.download)
 ]
 
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=83.0.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]

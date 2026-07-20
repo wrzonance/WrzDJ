@@ -3387,6 +3387,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setbuilder/taste-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Taste Profile
+         * @description Return the current DJ's learned SetBuilder taste profile.
+         */
+        get: operations["get_taste_profile_api_setbuilder_taste_profile_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/taste-profile/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset Taste Profile
+         * @description Reset learned profile training history without deleting override rows.
+         */
+        post: operations["reset_taste_profile_api_setbuilder_taste_profile_reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tidal/auth/cancel": {
         parameters: {
             query?: never;
@@ -6903,6 +6943,38 @@ export interface components {
             total_requests: number;
             /** Total Users */
             total_users: number;
+        };
+        /**
+         * TasteProfileMoodOut
+         * @description One mood preference learned from explicit vibe edits.
+         */
+        TasteProfileMoodOut: {
+            /** Count */
+            count: number;
+            /** Mood */
+            mood: string;
+        };
+        /**
+         * TasteProfileOut
+         * @description Current DJ's read-time SetBuilder taste profile.
+         */
+        TasteProfileOut: {
+            /** Active */
+            active: boolean;
+            /** Average Energy Delta */
+            average_energy_delta: number | null;
+            /** Energy Adjustment */
+            energy_adjustment: number;
+            /** Min Samples */
+            min_samples: number;
+            /** Reset At */
+            reset_at: string | null;
+            /** Sample Count */
+            sample_count: number;
+            /** Summary */
+            summary: string;
+            /** Top Moods */
+            top_moods: components["schemas"]["TasteProfileMoodOut"][];
         };
         /** TemplatePlaylistRequest */
         TemplatePlaylistRequest: {
@@ -13535,6 +13607,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_taste_profile_api_setbuilder_taste_profile_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TasteProfileOut"];
+                };
+            };
+        };
+    };
+    reset_taste_profile_api_setbuilder_taste_profile_reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TasteProfileOut"];
                 };
             };
         };

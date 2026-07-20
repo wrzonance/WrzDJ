@@ -72,6 +72,7 @@ from app.services.setbuilder.pass1_deterministic import (
     recompute_transition_scores,
 )
 from app.services.setbuilder.pass1_deterministic import _track_meta as _pass1_track_meta
+from app.services.setbuilder.taste_profile import build_taste_profile, profile_context
 
 logger = logging.getLogger(__name__)
 
@@ -389,6 +390,17 @@ def _critique_from_payload(payload: dict[str, Any]) -> SetCritique:
 def _set_context(db: Session, set_obj: Set) -> str:
     slots = _ordered_slots(db, set_obj.id)
     tracks = {_pass1_track_meta(t).slot_track_id: t for t in _pool_tracks(db, set_obj.id)}
+    try:
+        taste_profile = build_taste_profile(db, set_obj.owner_id)
+    except Exception as exc:
+        if not db.is_active:
+            db.rollback()
+        logger.warning(
+            "SetBuilder taste profile read failed for agent context: %s",
+            exc,
+            exc_info=True,
+        )
+        taste_profile = None
     rows = []
     for slot in slots:
         track = tracks.get(slot.track_id or "")
@@ -418,6 +430,7 @@ def _set_context(db: Session, set_obj: Set) -> str:
             "set_id": set_obj.id,
             "name": set_obj.name,
             "key_strictness": set_obj.key_strictness,
+            "taste_profile": profile_context(taste_profile),
             "slots": rows,
         },
         separators=(",", ":"),

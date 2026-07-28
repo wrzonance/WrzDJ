@@ -78,4 +78,4 @@ def test_set_template_updated_at_changes_on_update(db, test_user):
     db.refresh(tpl)
 
     assert tpl.name == "Renamed"
-    assert tpl.updated_at >= original_updated_at
+    assert tpl.updated_at > original_updated_at

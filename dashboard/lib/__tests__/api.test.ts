@@ -175,6 +175,122 @@ describe('ApiClient', () => {
     });
   });
 
+  describe('setbuilder templates API (issue #407)', () => {
+    it('saveSetAsTemplate POSTs the name to save-as-template', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 7,
+          name: 'Peak Hour Arc',
+          vibe_theme: null,
+          target_duration_sec: 3600,
+          avg_transition_overlap_sec: 8,
+          bpm_floor: null,
+          bpm_ceiling: null,
+          key_strictness: 0.2,
+          slot_count: 12,
+          curve_points: [],
+          created_at: '2026-07-27T00:00:00Z',
+          updated_at: '2026-07-27T00:00:00Z',
+        }),
+      });
+
+      const tpl = await api.saveSetAsTemplate(42, 'Peak Hour Arc');
+
+      expect(tpl.id).toBe(7);
+      expect(tpl.slot_count).toBe(12);
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/setbuilder/sets/42/save-as-template');
+      expect(options.method).toBe('POST');
+      expect(JSON.parse(options.body)).toEqual({ name: 'Peak Hour Arc' });
+    });
+
+    it('listSetTemplates GETs the gallery and returns it even when empty', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ templates: [] }),
+      });
+
+      const result = await api.listSetTemplates();
+
+      expect(result.templates).toEqual([]);
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/setbuilder/set-templates');
+      expect(options.method).toBeUndefined();
+    });
+
+    it('instantiateSetTemplate POSTs optional name + event_id', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 99,
+          name: 'Peak Hour Arc',
+          event_id: 5,
+          status: 'draft',
+          sharing_mode: 'private',
+          share_token: null,
+          created_at: '2026-07-27T00:00:00Z',
+          updated_at: '2026-07-27T00:00:00Z',
+          vibe_theme: null,
+          target_duration_sec: 3600,
+          avg_transition_overlap_sec: 8,
+          bpm_floor: null,
+          bpm_ceiling: null,
+          key_strictness: 0.2,
+          tidal_playlist_id: null,
+          exported_at: null,
+        }),
+      });
+
+      const newSet = await api.instantiateSetTemplate(7, 'Friday Night', 5);
+
+      expect(newSet.id).toBe(99);
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/setbuilder/set-templates/7/instantiate');
+      expect(options.method).toBe('POST');
+      expect(JSON.parse(options.body)).toEqual({ name: 'Friday Night', event_id: 5 });
+    });
+
+    it('instantiateSetTemplate omits name/event_id as null when not passed', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 100,
+          name: 'Peak Hour Arc',
+          event_id: null,
+          status: 'draft',
+          sharing_mode: 'private',
+          share_token: null,
+          created_at: '2026-07-27T00:00:00Z',
+          updated_at: '2026-07-27T00:00:00Z',
+          vibe_theme: null,
+          target_duration_sec: null,
+          avg_transition_overlap_sec: 8,
+          bpm_floor: null,
+          bpm_ceiling: null,
+          key_strictness: 0.2,
+          tidal_playlist_id: null,
+          exported_at: null,
+        }),
+      });
+
+      await api.instantiateSetTemplate(7);
+
+      const [, options] = mockFetch.mock.calls[0];
+      expect(JSON.parse(options.body)).toEqual({ name: null, event_id: null });
+    });
+
+    it('deleteSetTemplate sends DELETE with no body', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true });
+
+      await api.deleteSetTemplate(7);
+
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/setbuilder/set-templates/7');
+      expect(options.method).toBe('DELETE');
+    });
+  });
+
   describe('search', () => {
     it('encodes search query properly', async () => {
       mockFetch.mockResolvedValueOnce({

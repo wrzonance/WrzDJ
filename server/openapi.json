@@ -4561,6 +4561,36 @@
         "title": "IdentifyResponse",
         "type": "object"
       },
+      "InstantiateTemplateRequest": {
+        "description": "Body for creating a new draft set from a template.\n\n``name`` falls back to the template's own name when omitted/blank;\n``event_id`` is passed through uncritically, matching ``SetCreate``.",
+        "properties": {
+          "event_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "InstantiateTemplateRequest",
+        "type": "object"
+      },
       "IntegrationCheckResponse": {
         "description": "Response for POST /api/admin/integrations/{service}/check.",
         "properties": {
@@ -7949,6 +7979,22 @@
         "title": "ResolvedVibeOut",
         "type": "object"
       },
+      "SaveAsTemplateRequest": {
+        "description": "Body for extracting a template from an existing set.",
+        "properties": {
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "SaveAsTemplateRequest",
+        "type": "object"
+      },
       "SearchResult": {
         "properties": {
           "album": {
@@ -8971,6 +9017,172 @@
           "avg_transition_overlap_sec"
         ],
         "title": "SetTargetUpdate",
+        "type": "object"
+      },
+      "SetTemplateCurvePointModel": {
+        "description": "One energy-curve point stored in a template's ``curve_points_json``.",
+        "properties": {
+          "energy": {
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Energy",
+            "type": "integer"
+          },
+          "is_slow_window_end": {
+            "default": false,
+            "title": "Is Slow Window End",
+            "type": "boolean"
+          },
+          "is_slow_window_start": {
+            "default": false,
+            "title": "Is Slow Window Start",
+            "type": "boolean"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "position_sec": {
+            "minimum": 0.0,
+            "title": "Position Sec",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "energy",
+          "is_slow_window_end",
+          "is_slow_window_start",
+          "label",
+          "position_sec"
+        ],
+        "title": "SetTemplateCurvePointModel",
+        "type": "object"
+      },
+      "SetTemplateGalleryResponse": {
+        "description": "List payload for the template gallery (always 200, even when empty).",
+        "properties": {
+          "templates": {
+            "items": {
+              "$ref": "#/components/schemas/SetTemplateOut"
+            },
+            "title": "Templates",
+            "type": "array"
+          }
+        },
+        "required": [
+          "templates"
+        ],
+        "title": "SetTemplateGalleryResponse",
+        "type": "object"
+      },
+      "SetTemplateOut": {
+        "description": "A saved template for the gallery / detail surface.\n\n``slot_count`` and ``curve_points`` are derived from the stored JSON at\nthe API boundary \u2014 this schema is built explicitly, not read directly\noff the ``SetTemplate`` row via ``from_attributes``.",
+        "properties": {
+          "avg_transition_overlap_sec": {
+            "title": "Avg Transition Overlap Sec",
+            "type": "integer"
+          },
+          "bpm_ceiling": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bpm Ceiling"
+          },
+          "bpm_floor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bpm Floor"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "curve_points": {
+            "items": {
+              "$ref": "#/components/schemas/SetTemplateCurvePointModel"
+            },
+            "title": "Curve Points",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "key_strictness": {
+            "title": "Key Strictness",
+            "type": "number"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "slot_count": {
+            "title": "Slot Count",
+            "type": "integer"
+          },
+          "target_duration_sec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Duration Sec"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "vibe_theme": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vibe Theme"
+          }
+        },
+        "required": [
+          "avg_transition_overlap_sec",
+          "bpm_ceiling",
+          "bpm_floor",
+          "created_at",
+          "curve_points",
+          "id",
+          "key_strictness",
+          "name",
+          "slot_count",
+          "target_duration_sec",
+          "updated_at",
+          "vibe_theme"
+        ],
+        "title": "SetTemplateOut",
         "type": "object"
       },
       "ShareTokenOut": {
@@ -18171,6 +18383,132 @@
         ]
       }
     },
+    "/api/setbuilder/set-templates": {
+      "get": {
+        "description": "The DJ's saved templates, newest first. Always 200, even when empty.",
+        "operationId": "list_set_templates_api_setbuilder_set_templates_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetTemplateGalleryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Set Templates",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/set-templates/{template_id}": {
+      "delete": {
+        "description": "Delete an owned template; repeat delete or unowned id 404s.",
+        "operationId": "delete_set_template_api_setbuilder_set_templates__template_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "title": "Template Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Delete Set Template",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/set-templates/{template_id}/instantiate": {
+      "post": {
+        "description": "Create a new draft set from an owned template.",
+        "operationId": "instantiate_set_template_api_setbuilder_set_templates__template_id__instantiate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "title": "Template Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstantiateTemplateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Instantiate Set Template",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
     "/api/setbuilder/sets": {
       "get": {
         "description": "List the current DJ's sets, newest first.",
@@ -20123,6 +20461,64 @@
           }
         ],
         "summary": "Override Pool Vibe",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/save-as-template": {
+      "post": {
+        "description": "Extract a reusable template from an owned set.",
+        "operationId": "save_as_template_api_setbuilder_sets__set_id__save_as_template_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveAsTemplateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetTemplateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Save As Template",
         "tags": [
           "setbuilder"
         ]

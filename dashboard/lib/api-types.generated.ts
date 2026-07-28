@@ -2611,6 +2611,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setbuilder/set-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Set Templates
+         * @description The DJ's saved templates, newest first. Always 200, even when empty.
+         */
+        get: operations["list_set_templates_api_setbuilder_set_templates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/set-templates/{template_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Set Template
+         * @description Delete an owned template; repeat delete or unowned id 404s.
+         */
+        delete: operations["delete_set_template_api_setbuilder_set_templates__template_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/set-templates/{template_id}/instantiate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Instantiate Set Template
+         * @description Create a new draft set from an owned template.
+         */
+        post: operations["instantiate_set_template_api_setbuilder_set_templates__template_id__instantiate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setbuilder/sets": {
         parameters: {
             query?: never;
@@ -3217,6 +3277,26 @@ export interface paths {
          * @description Write an explicit DJ vibe edit, preserving omitted fields from their latest vote.
          */
         patch: operations["override_pool_vibe_api_setbuilder_sets__set_id__pool_vibes__pool_track_id__override_patch"];
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/save-as-template": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save As Template
+         * @description Extract a reusable template from an owned set.
+         */
+        post: operations["save_as_template_api_setbuilder_sets__set_id__save_as_template_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/setbuilder/sets/{set_id}/share": {
@@ -5275,6 +5355,19 @@ export interface components {
             reconcile_hint: boolean;
         };
         /**
+         * InstantiateTemplateRequest
+         * @description Body for creating a new draft set from a template.
+         *
+         *     ``name`` falls back to the template's own name when omitted/blank;
+         *     ``event_id`` is passed through uncritically, matching ``SetCreate``.
+         */
+        InstantiateTemplateRequest: {
+            /** Event Id */
+            event_id?: number | null;
+            /** Name */
+            name?: string | null;
+        };
+        /**
          * IntegrationCheckResponse
          * @description Response for POST /api/admin/integrations/{service}/check.
          */
@@ -6390,6 +6483,14 @@ export interface components {
             /** Mood Source */
             mood_source: ("own" | "community" | "llm") | null;
         };
+        /**
+         * SaveAsTemplateRequest
+         * @description Body for extracting a template from an existing set.
+         */
+        SaveAsTemplateRequest: {
+            /** Name */
+            name: string;
+        };
         /** SearchResult */
         SearchResult: {
             /** Album */
@@ -6718,6 +6819,76 @@ export interface components {
             avg_transition_overlap_sec: number;
             /** Target Duration Sec */
             target_duration_sec?: number | null;
+        };
+        /**
+         * SetTemplateCurvePointModel
+         * @description One energy-curve point stored in a template's ``curve_points_json``.
+         */
+        SetTemplateCurvePointModel: {
+            /** Energy */
+            energy: number;
+            /**
+             * Is Slow Window End
+             * @default false
+             */
+            is_slow_window_end: boolean;
+            /**
+             * Is Slow Window Start
+             * @default false
+             */
+            is_slow_window_start: boolean;
+            /** Label */
+            label: string | null;
+            /** Position Sec */
+            position_sec: number;
+        };
+        /**
+         * SetTemplateGalleryResponse
+         * @description List payload for the template gallery (always 200, even when empty).
+         */
+        SetTemplateGalleryResponse: {
+            /** Templates */
+            templates: components["schemas"]["SetTemplateOut"][];
+        };
+        /**
+         * SetTemplateOut
+         * @description A saved template for the gallery / detail surface.
+         *
+         *     ``slot_count`` and ``curve_points`` are derived from the stored JSON at
+         *     the API boundary — this schema is built explicitly, not read directly
+         *     off the ``SetTemplate`` row via ``from_attributes``.
+         */
+        SetTemplateOut: {
+            /** Avg Transition Overlap Sec */
+            avg_transition_overlap_sec: number;
+            /** Bpm Ceiling */
+            bpm_ceiling: number | null;
+            /** Bpm Floor */
+            bpm_floor: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Curve Points */
+            curve_points: components["schemas"]["SetTemplateCurvePointModel"][];
+            /** Id */
+            id: number;
+            /** Key Strictness */
+            key_strictness: number;
+            /** Name */
+            name: string;
+            /** Slot Count */
+            slot_count: number;
+            /** Target Duration Sec */
+            target_duration_sec: number | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Vibe Theme */
+            vibe_theme: string | null;
         };
         /**
          * ShareTokenOut
@@ -12011,6 +12182,90 @@ export interface operations {
             };
         };
     };
+    list_set_templates_api_setbuilder_set_templates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetTemplateGalleryResponse"];
+                };
+            };
+        };
+    };
+    delete_set_template_api_setbuilder_set_templates__template_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                template_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    instantiate_set_template_api_setbuilder_set_templates__template_id__instantiate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                template_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstantiateTemplateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_sets_api_setbuilder_sets_get: {
         parameters: {
             query?: never;
@@ -13262,6 +13517,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PoolVibesState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_as_template_api_setbuilder_sets__set_id__save_as_template_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveAsTemplateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetTemplateOut"];
                 };
             };
             /** @description Validation Error */

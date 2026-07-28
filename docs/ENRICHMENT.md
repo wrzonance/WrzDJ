@@ -220,15 +220,165 @@ feeding a soft, overridable build-readiness warning (`READY_THRESHOLD = 0.80`,
 `server/app/services/setbuilder/coverage.py:27-31`). It performs no resolution or enrichment itself — only counts what the
 pipelines above already produced.
 
-## Appendix: Files read in full for §1-3 of this document
+## 4. Source-of-Truth Matrix
 
-`server/app/services/tracks/provenance.py`, `tracks/store.py`, `sync/orchestrator.py`,
-`sync/enrichment_pipeline.py`, `spotify.py`, `beatport.py` (partial — auth flow + search/fetch
-functions), `tidal.py` (partial — auth flow + search/fetch functions), `musicbrainz.py`,
-`soundcharts.py`, `listenbrainz.py`, `track_match.py`, `schemas/beatport.py`,
-`setbuilder/pool.py` (partial — hydrate/enrich/import sections),
-`setbuilder/vibe_resolver.py`, `setbuilder/community_vibe.py`, `setbuilder/vibe_enrichment.py`,
-`setbuilder/taste_profile.py`, `setbuilder/coverage.py`, `recommendation/enrichment.py`,
-`recommendation/soundcharts_candidates.py`, `recommendation/service.py` (partial — candidate
-search sections), `recommendation/mb_verify.py` (partial — module header + one helper). A
-consolidated file map covering the full document lands with §8 in a later commit of this PR.
+The precedence ladder (`server/app/services/tracks/provenance.py:12-25`, verified live this
+session) is the same numeric scale for every master-store field:
+
+| Source | Precedence | Notes |
+|---|---|---|
+| `manual` | 100 | Highest trust. **No live call site writes this** — reserved for a future DJ manual-edit endpoint; not reachable today. |
+| `lexicon` | 90 | **Reserved, unwired** — issue #526's landing slot. No `lexicon.py` client exists yet. |
+| `soundcharts` | 50 | Tied with beatport/tidal/musicbrainz. |
+| `beatport` | 50 | Tied. |
+| `tidal` | 50 | Tied. |
+| `musicbrainz` | 50 | Tied. Cache-authoritative floor (`CACHE_TRUST_FLOOR = 50`, `provenance.py:44`) — only 50+ sources can short-circuit re-enrichment. |
+| `community` | 40 | **No live call site writes this to `Track.*`** — the string exists for `TrackVibe`'s own separate community tier (§3.3), never as a `Track` provenance source. |
+| `legacy` | 30 | Pre-store backfill from existing `Request` columns (#541) — used by `sync/enrichment_pipeline.py:265` and `server/app/scripts/backfill_tracks.py:76`. |
+| `llm` | 10 | **No live call site writes this to `Track.*`** — reserved; `TrackVibe`'s own LLM tier (§3.3) is a separate system. |
+| unknown/missing | 0 | `precedence()` default (`provenance.py:36`). |
+
+`upsert_track` (`server/app/services/tracks/store.py:68-150`) enforces this via
+`should_overwrite`: `precedence(new) >= precedence(existing)`, so **a tie overwrites** — the
+guard against equal-precedence churn between Beatport and Tidal (or MusicBrainz and Beatport) is
+therefore not a ladder property, it's the pipeline's own cascade order (`if not request.bpm`-
+style guards at `server/app/services/sync/enrichment_pipeline.py:532, 571`; the code comment at
+624-625 literally reads "avoid equal-precedence churn" for the parallel Soundcharts case).
+`ISRC` is not gated by this ladder at all — see its row below.
+
+| Field | Precedence / resolution | WrzDJSet boundary | Evidence |
+|---|---|---|---|
+| `genre` | MusicBrainz-first (artist-level), Beatport backfill only if MusicBrainz missed — both tier 50, order-guarded not precedence-driven | Same master-store value; SetBuilder never re-resolves genre itself | `enrichment_pipeline.py:521-568` |
+| `bpm` | Beatport-first, Tidal backup only if Beatport missed — both tier 50, order-guarded | Same master-store value; pool import/hydration reads it, never re-derives it | `enrichment_pipeline.py:531-604` |
+| `musical_key` | Same cascade as bpm (Beatport-first, Tidal backup) | Same as bpm | `enrichment_pipeline.py:531-604` |
+| `isrc` | **Not precedence-gated.** An identity field on `TrackIdentity`, not a `values`/provenance field: backfilled onto a signature-matched row only if currently `NULL` (`store.py:133-135`), never overwritten once set. A conflicting incoming ISRC on an existing row is refused outright rather than resolved by precedence (`store.py:112-131`) | Same identity field; pool import's `_hydrate_one` resolves by ISRC-then-signature exactly like the request path | `store.py:68,108-135` |
+| `Track.energy` | Numeric-precedence ladder above. **Only two sources are live today**: `soundcharts` (tier 50, request-time audio-features step, gated) and `legacy` (tier 30, backfill). `lexicon` (90) is reserved/unwired (#526); `manual`/`community`/`llm` (100/40/10) exist in the ladder but have zero live `Track.*` writers. Soundcharts also supplies `danceability`, `valence`, `acousticness`, `instrumentalness`, `speechiness`, `liveness`, `loudness`, `time_signature`, `explicit`, `duration` in the same call — footnoted here, not separate matrix rows (§1 field scope) | Read via `pool.hydrate_candidates_from_store` (§5); WrzDJSet does not write `Track.energy` itself | `models/track.py:31,46-48`; `provenance.py:12-25`; `enrichment_pipeline.py:622-640`; `pool.py:580` (`_enrich_and_writeback` only ever passes `"beatport"`\|`"tidal"`\|`"legacy"`, never energy) |
+| `TrackVibe.energy` | **Not the precedence ladder at all** — a genuinely separate three-tier system: own-DJ override → community consensus → LLM cache, first non-`None` wins (§3.3) | This **is** WrzDJSet's local-override tier, live today: tiers 1-2 (own, community) are zero-network DB reads; only tier 3 (LLM) calls out | `vibe_resolver.py:44-68`; `community_vibe.py:49-59`; `vibe_enrichment.py:32-38` |
+
+## 5. Cloud-only vs. Cloud+Optional-Local Boundary
+
+**(a) WrzDJ request-queue is 100% cloud.** Every field in §4 above resolves through Beatport,
+Tidal, MusicBrainz, or Soundcharts — all external HTTP APIs (`enrichment_pipeline.py:322-688`).
+No local/offline resolution path exists in this pipeline, and none is proposed by this document;
+the request queue is not in #526's scope.
+
+**(b) WrzDJSet is cloud-primary with a local override tier already live, plus a reserved second
+one.**
+
+- **Cloud-primary base**: pool candidates hydrate from the master `tracks` store —
+  `hydrate_candidates_from_store` (`server/app/services/setbuilder/pool.py:262-321`) — which is
+  itself populated by the same cloud providers as §4/§5(a). When the store misses and a genuine
+  gap remains, it falls through to the provider cascade (`enrich_track`, step 4 of the docstring
+  at `pool.py:270-289`) — still cloud.
+- **Already-live local override**: `TrackVibe.energy`'s own→community tiers
+  (`vibe_resolver.py:81-98`, `community_vibe.py:49-59`) resolve entirely from DB rows written by
+  DJs' own edits/votes — **zero network calls**, and they take priority over the LLM tier. This
+  is a real, shipping local-override mechanism today, not a future one.
+  `taste_profile.py`'s per-DJ calibration (§3.3) layers on top of it, also DB-only.
+  `coverage.py` (§3.3) reports on the *result* of this resolution; it performs no resolution
+  itself.
+- **Reserved, not-yet-wired local slot**: `"lexicon": 90` in `Track.energy`'s precedence ladder
+  (`provenance.py:14`) sits above every cloud source (50) and below only `manual` (100) — a
+  measured-local-source tier that outranks all cloud providers by design, but has no client
+  module wired to fill it yet (§2). This is issue #526's literal plug-in point: when a
+  `lexicon.py` adapter lands and calls `upsert_track(..., sources={"energy": "lexicon"})`, it
+  slots into the existing ladder with no other code change required.
+
+## 6. Provider Fate Recommendations
+
+**This section makes recommendations only** — no provider is removed, refactored, or
+reconfigured as a result of this document (§1). Every row below states a proposal for future
+work, phrased as "recommend," not as work already performed.
+
+| Provider / code path | Recommendation | Rationale | Evidence |
+|---|---|---|---|
+| Spotify | keep | Issue #527's own recon described Spotify as "now only an ISRC bridge" — this audit found **3 confirmed live roles**, not one: (1) client-credentials search, (2) ISRC bridge, (3) public-playlist-import resolving ISRC/duration/artwork. Recommend keeping all three; none is dormant. | `spotify.py:54-98` (search); `enrichment_pipeline.py:77-96` (`_get_isrc_from_spotify`); `pool.py:959-1008` (`_spotify_playlist_candidates`) |
+| Beatport | keep | Primary bpm/key/genre source across request-time enrichment, recommendation-engine gap-fill, and pool hydration; per-DJ OAuth. | `beatport.py:65-128`; `provenance.py:16` |
+| Tidal | keep | bpm/key/ISRC backup across the same three pipelines; per-DJ OAuth device flow. | `tidal.py:57-135`; `provenance.py:17` |
+| MusicBrainz | keep | Narrow, well-scoped genre-only artist-level utility, plus a candidate-quality gate for recommendations (not a metadata field supplier there). No API key required. | `musicbrainz.py:111-173`; `mb_verify.py:21` |
+| Soundcharts | keep | Already formalizing — merged PR #560 (closed #556) wired a second live recommendation-candidate generator on top of the existing audio-features gate; this is active, ongoing investment, not dormant wiring #527 asked us to reconsider. | `soundcharts.py:358,423`; `soundcharts_candidates.py:44-185`; PR #560 (merged 2026-06-25) |
+| ListenBrainz | keep | Candidate-discovery (LB Radio) plus an artist-popularity junk filter; app-level token, never supplies genre/bpm/key/ISRC/energy so it can't conflict with the ladder above. | `listenbrainz.py:35-148` |
+| `recommendation/enrichment.py`'s independent Beatport/Tidal merge | no-change | Never imports `tracks/store` and never writes the master store itself (§3.2) — a real, documented duplication of logic that also exists in `enrichment_pipeline.py`'s cascade, but consolidating it is exactly the "provider-strategy abstraction" #527 asks us to *consider*, not build here. See §7(a)/(c). | `recommendation/enrichment.py:134-176` |
+| `search_candidates_via_soundcharts` (discovery call site) | no-change | Only Soundcharts call site with no explicit enable flag (credential-presence-gated only), unlike its two sibling call sites which are both dark-by-default behind a boolean setting. Documented, not fixed here. See §7(b). | `soundcharts.py:212-215`; `recommendation/service.py:754-756` |
+
+## 7. Open Follow-ups
+
+Real inconsistencies and open questions this audit found and documents. **None of these is fixed
+by this PR** — every entry below states its own "not fixed here."
+
+- **(a) `recommendation/enrichment.py` bypasses the master tracks store.** `enrich_track` merges
+  Beatport/Tidal directly for one title/artist pair and never touches `tracks/store` — its output
+  only reaches the store when a *different* caller (`pool.py`'s `_enrich_and_writeback`) chooses
+  to upsert it. This is a real second, independent enrichment implementation alongside
+  `sync/enrichment_pipeline.py`'s cascade. **Not fixed here** — consolidating the two is future
+  work (see §7(c)). Evidence: `recommendation/enrichment.py:134-176`,
+  `setbuilder/pool.py:548-595`. Suggested labels: `refactor`, `area:recommendation`.
+- **(b) `search_candidates_via_soundcharts` has no feature flag.** Its two sibling Soundcharts
+  call sites (`get_song_features_by_isrc`, `get_related_songs_by_isrc`) are both dark-by-default
+  behind an explicit boolean setting; this one is gated only by credential presence. **Not fixed
+  here** — adding a matching `soundcharts_discovery_enabled`-style flag is a one-line follow-up,
+  deliberately left undone so this PR stays docs-only. Evidence: `soundcharts.py:212-215`,
+  `recommendation/service.py:754-756`, `core/config.py:131-141` (the two sibling flags this one
+  lacks). Suggested labels: `enhancement`, `area:recommendation`.
+- **(c) Provider-strategy abstraction — defer, do not build in parallel with #544.** Issue
+  #527's scope item 4 asks us to consider a clean provider interface + priority order if the
+  audit shows the ad-hoc chain is a maintenance cost. This audit found real duplication (7(a)
+  above, plus the ladder's tie-break-by-cascade-order behavior in §4) that would benefit from
+  one. However, **#544 is open and already in progress on this exact code** — an external
+  audio-features provider behind a "clean interface, config-gated" abstraction feeding
+  `Track.energy`, using the very `lexicon`-reserved slot this document maps in §5(b). Proposing a
+  second, competing abstraction here would collide with #544 mid-flight. **Recommend: defer —
+  in progress on #544** — revisit a broader provider-strategy abstraction only after #544 lands.
+  **Not fixed here**; no redesign is proposed by this document. Evidence: `provenance.py:14`
+  (the `lexicon` slot #544 targets), `enrichment_pipeline.py:531-604` and
+  `recommendation/enrichment.py:134-176` (the two independent Beatport/Tidal merges motivating
+  the question). Suggested labels: `research`, `blocked`.
+- **(d) Soundcharts related-tracks paid-tier cost is an open business decision, not a code gap.**
+  `soundcharts_related_tracks_enabled` defaults to `False` specifically because the endpoint is
+  paid-tier and no plan is provisioned yet — the config comment states this explicitly. **Not
+  fixed here** — this is a spend decision for a human, not something a docs PR or code change can
+  resolve. Evidence: `core/config.py:138-141`. Suggested labels: `business-decision`,
+  `area:recommendation`.
+
+## 8. Appendix: File Map
+
+Every file read in full or in relevant part while writing this document, grouped by area.
+
+**Precedence & store**
+`server/app/services/tracks/provenance.py` (full — `SOURCE_PRECEDENCE` ladder),
+`server/app/services/tracks/store.py` (full — `upsert_track`/`get_track`/`should_overwrite`),
+`server/app/models/track.py` (partial — energy/danceability/valence columns),
+`server/app/scripts/backfill_tracks.py` (partial — `"legacy"` source usage).
+
+**Request-time enrichment**
+`server/app/services/sync/orchestrator.py` (full), `server/app/services/sync/enrichment_pipeline.py`
+(full), `server/app/core/config.py` (partial — Soundcharts settings).
+
+**Provider clients**
+`server/app/services/spotify.py` (full), `server/app/services/beatport.py` (partial — auth +
+search/fetch), `server/app/services/tidal.py` (partial — auth + search/fetch),
+`server/app/services/musicbrainz.py` (full), `server/app/services/soundcharts.py` (full),
+`server/app/services/listenbrainz.py` (full), `server/app/services/track_match.py` (full),
+`server/app/schemas/beatport.py` (partial — result schema).
+
+**Recommendation engine**
+`server/app/services/recommendation/enrichment.py` (full),
+`server/app/services/recommendation/soundcharts_candidates.py` (full),
+`server/app/services/recommendation/service.py` (partial — candidate search sections),
+`server/app/services/recommendation/mb_verify.py` (partial — module header + one helper).
+
+**SetBuilder / WrzDJSet**
+`server/app/services/setbuilder/pool.py` (partial — hydrate/enrich/import/playlist-import
+sections), `server/app/services/setbuilder/vibe_resolver.py` (full),
+`server/app/services/setbuilder/community_vibe.py` (full),
+`server/app/services/setbuilder/vibe_enrichment.py` (partial),
+`server/app/services/setbuilder/taste_profile.py` (partial),
+`server/app/services/setbuilder/coverage.py` (partial).
+
+**GitHub issues/PRs cited.** #526, #541, #542, #551, #552, #554, #556, #563 are cited as they
+appear in code comments at the file:line evidence above (not independently re-verified against
+live GitHub state this session). #527 (this issue), #544, and #560 **were** independently checked
+live via `gh issue view` / `gh pr view` this session: #527 is open; #544 is open, 2 comments, in
+progress; #560 is a merged PR (2026-06-25) that closed #556 — its own recommendation-candidate
+work is complete, but it does not touch the broader provider-strategy question §7(c) defers to
+#544.

@@ -88,7 +88,9 @@ be Lexicon's natural landing point once #526 wires a client.
    codebase, not just rarely.
 7. `start_device_login` / `check_device_login` — `server/app/services/tidal.py:57-135`
 8. `_track_to_result` — `server/app/services/tidal.py:193-260` (`isrc` extraction at 222-228,
-   set on the result at 257; no `genre` field anywhere on `TidalSearchResult`)
+   set on the result at 257). `TidalSearchResult` schema — `server/app/schemas/tidal.py:16-30`
+   (no `genre` field anywhere in the class — mirrors the Beatport analog's schema citation in
+   footnote 6)
 9. Module docstring — `server/app/services/musicbrainz.py:7-11`
 10. `lookup_artist_genre` / `lookup_artist_genres` — `server/app/services/musicbrainz.py:111-173`
 11. `check_artist_exists` — `server/app/services/musicbrainz.py:61-108`, consumed by
@@ -227,15 +229,15 @@ session) is the same numeric scale for every master-store field:
 
 | Source | Precedence | Notes |
 |---|---|---|
-| `manual` | 100 | Highest trust. **No live call site writes this** — reserved for a future DJ manual-edit endpoint; not reachable today. |
+| `manual` | 100 | Highest trust. **No live call site writes this** — reserved for a future DJ manual-edit endpoint; not reachable today. Verified by enumerating the complete set of `upsert_track` callers this session — the only three modules that build a `sources` dict are `server/app/scripts/backfill_tracks.py:76` (`"legacy"` only), `server/app/services/sync/enrichment_pipeline.py:143,265,452,473,517,527,561,598,659` (`"soundcharts"`/`"legacy"`/`"beatport"`/`"tidal"`/`"musicbrainz"` only), and `server/app/services/setbuilder/pool.py:493-497,535,580-581` (`_candidate_source` / `_enrich_and_writeback` resolve only to `"beatport"`/`"tidal"`/`"legacy"`) — none assigns the literal `"manual"`. The `source_service: str = "manual"` default parameter on `candidate_from_manual` (`pool.py:1058`) is unverifiable client input that `_candidate_source` (`pool.py:474-496`) deliberately never trusts as a store-write source — a manual pick always resolves to `"legacy"`, never `"manual"` (docstring rationale at `pool.py:480-489`). |
 | `lexicon` | 90 | **Reserved, unwired** — issue #526's landing slot. No `lexicon.py` client exists yet. |
 | `soundcharts` | 50 | Tied with beatport/tidal/musicbrainz. |
 | `beatport` | 50 | Tied. |
 | `tidal` | 50 | Tied. |
 | `musicbrainz` | 50 | Tied. Cache-authoritative floor (`CACHE_TRUST_FLOOR = 50`, `provenance.py:44`) — only 50+ sources can short-circuit re-enrichment. |
-| `community` | 40 | **No live call site writes this to `Track.*`** — the string exists for `TrackVibe`'s own separate community tier (§3.3), never as a `Track` provenance source. |
+| `community` | 40 | **No live call site writes this to `Track.*`** — the string exists for `TrackVibe`'s own separate community tier (§3.3), never as a `Track` provenance source. Same three-caller sweep as the `manual` row above confirms no `sources` dict assignment anywhere ever uses the literal `"community"`; it appears only in `server/app/services/setbuilder/community_vibe.py` as a `TrackVibe`-tier concept, which never calls `upsert_track`. |
 | `legacy` | 30 | Pre-store backfill from existing `Request` columns (#541) — used by `sync/enrichment_pipeline.py:265` and `server/app/scripts/backfill_tracks.py:76`. |
-| `llm` | 10 | **No live call site writes this to `Track.*`** — reserved; `TrackVibe`'s own LLM tier (§3.3) is a separate system. |
+| `llm` | 10 | **No live call site writes this to `Track.*`** — reserved; `TrackVibe`'s own LLM tier (§3.3) is a separate system. Same three-caller sweep as the `manual` row above confirms no `sources` dict assignment anywhere ever uses the literal `"llm"`; `vibe_enrichment.py` (§3.3) writes `TrackVibe` rows directly and never calls `upsert_track`. |
 | unknown/missing | 0 | `precedence()` default (`provenance.py:36`). |
 
 `upsert_track` (`server/app/services/tracks/store.py:68-150`) enforces this via

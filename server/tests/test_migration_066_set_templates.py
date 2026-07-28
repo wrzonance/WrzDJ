@@ -25,6 +25,8 @@ from alembic.operations import Operations
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.engine import Connection
 
+from app.models.set_template import SetTemplate
+
 _MIGRATION_PATH = (
     Path(__file__).resolve().parent.parent / "alembic" / "versions" / "066_add_set_templates.py"
 )
@@ -114,6 +116,45 @@ def test_upgrade_nullability_matches_the_model(alembic_connection, migration_066
         assert columns[name]["nullable"] is False, f"{name} should be NOT NULL"
     for name in _EXPECTED_COLUMNS - _NOT_NULL_COLUMNS:
         assert columns[name]["nullable"] is True, f"{name} should be nullable"
+
+
+def test_upgrade_column_types_and_lengths_match_the_model(alembic_connection, migration_066):
+    """Names + nullability alone leave the drift-prone properties unchecked:
+    a ``String(50)`` silently widened to ``String(120)``, or an ``Integer``
+    that became ``Float``, would pass those and still fail ``alembic check``.
+    """
+    context = MigrationContext.configure(alembic_connection)
+    with Operations.context(context):
+        migration_066.upgrade()
+
+    migrated = _columns(alembic_connection, "set_templates")
+    for column in SetTemplate.__table__.columns:
+        actual = str(migrated[column.name]["type"]).upper()
+        expected = str(column.type).upper()
+        assert actual == expected, (
+            f"{column.name}: migration has {actual}, model declares {expected}"
+        )
+
+
+def test_upgrade_server_defaults_and_cascade_fk_match_the_model(alembic_connection, migration_066):
+    """``server_default`` and ``ON DELETE CASCADE`` are invisible to a
+    name/nullability comparison but are exactly what a hand-written
+    migration gets wrong."""
+    context = MigrationContext.configure(alembic_connection)
+    with Operations.context(context):
+        migration_066.upgrade()
+
+    migrated = _columns(alembic_connection, "set_templates")
+    assert "8" in str(migrated["avg_transition_overlap_sec"]["default"])
+    assert "0.2" in str(migrated["key_strictness"]["default"])
+
+    fks = inspect(alembic_connection).get_foreign_keys("set_templates")
+    assert len(fks) == 1, f"expected exactly one FK, got {fks}"
+    fk = fks[0]
+    assert fk["referred_table"] == "users"
+    assert fk["referred_columns"] == ["id"]
+    assert fk["constrained_columns"] == ["user_id"]
+    assert (fk["options"].get("ondelete") or "").upper() == "CASCADE"
 
 
 def test_downgrade_drops_table_and_index_cleanly(alembic_connection, migration_066):

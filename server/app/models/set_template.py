@@ -4,9 +4,11 @@ A template snapshots a source Set's target settings plus its slot skeleton
 (position/locked/target_energy/notes, no track assignments) and energy curve
 as JSON. ``slots_json`` / ``curve_points_json`` are always a valid JSON list
 string (``"[]"`` for none) — encode/decode helpers live in
-``services/setbuilder/set_templates.py``; validation of the decoded shape
-happens at the API boundary (Pydantic), matching the ``SetCurveTemplate``
-precedent (#389).
+``services/setbuilder/set_templates.py``. Only this application writes these
+columns, so the decoded dicts are trusted rather than re-validated on read,
+matching the ``SetCurveTemplate`` precedent (#389). Decoded curve points are
+still shaped by ``SetTemplateCurvePointModel`` on the way out, because the
+API returns them; slots are only counted, never emitted.
 """
 
 from datetime import datetime

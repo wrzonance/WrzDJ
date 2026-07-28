@@ -5,9 +5,10 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
-import type { SetSummary, TasteProfile } from '@/lib/api-types';
+import type { SetDetail, SetSummary, TasteProfile } from '@/lib/api-types';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import ShareDialog from './ShareDialog';
+import TemplateGalleryDialog from './TemplateGalleryDialog';
 
 export default function SetbuilderPage() {
   const { isAuthenticated, isLoading, role } = useAuth();
@@ -21,6 +22,7 @@ export default function SetbuilderPage() {
   const [renameValue, setRenameValue] = useState('');
   const [savingRename, setSavingRename] = useState(false);
   const [shareTarget, setShareTarget] = useState<SetSummary | null>(null);
+  const [showTemplateGallery, setShowTemplateGallery] = useState(false);
   const [tasteProfile, setTasteProfile] = useState<TasteProfile | null>(null);
   const [resettingProfile, setResettingProfile] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,6 +82,11 @@ export default function SetbuilderPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to duplicate set');
     }
+  };
+
+  const handleInstantiated = (created: SetDetail) => {
+    setShowTemplateGallery(false);
+    router.push(`/setbuilder/${created.id}`);
   };
 
   const handleShareChanged = (id: number, token: string | null) => {
@@ -167,6 +174,13 @@ export default function SetbuilderPage() {
           </Link>
           <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
             New Set
+          </button>
+          <button
+            className="btn"
+            style={{ background: 'var(--surface-raised)' }}
+            onClick={() => setShowTemplateGallery(true)}
+          >
+            From Template
           </button>
           <ThemeToggle />
         </div>
@@ -352,6 +366,13 @@ export default function SetbuilderPage() {
           set={shareTarget}
           onClose={() => setShareTarget(null)}
           onChanged={(token) => handleShareChanged(shareTarget.id, token)}
+        />
+      )}
+
+      {showTemplateGallery && (
+        <TemplateGalleryDialog
+          onClose={() => setShowTemplateGallery(false)}
+          onInstantiated={handleInstantiated}
         />
       )}
     </div>

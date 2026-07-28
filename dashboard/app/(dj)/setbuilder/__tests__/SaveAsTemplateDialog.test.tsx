@@ -93,4 +93,37 @@ describe('SaveAsTemplateDialog', () => {
     expect(onClose).toHaveBeenCalled();
     expect(mockSaveSetAsTemplate).not.toHaveBeenCalled();
   });
+
+  it('closes on Escape when idle', () => {
+    const onClose = vi.fn();
+    render(<SaveAsTemplateDialog set={makeSet()} onClose={onClose} onSaved={vi.fn()} />);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(mockSaveSetAsTemplate).not.toHaveBeenCalled();
+  });
+
+  it('locks Cancel, backdrop, and Escape while the save is in flight', async () => {
+    let resolveSave: (t: SetTemplate) => void = () => {};
+    mockSaveSetAsTemplate.mockReturnValue(
+      new Promise<SetTemplate>((resolve) => {
+        resolveSave = resolve;
+      })
+    );
+    const onClose = vi.fn();
+    const onSaved = vi.fn();
+    render(<SaveAsTemplateDialog set={makeSet()} onClose={onClose} onSaved={onSaved} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /save template/i }));
+    await waitFor(() => expect(mockSaveSetAsTemplate).toHaveBeenCalledTimes(1));
+
+    const cancel = screen.getByRole('button', { name: /cancel/i });
+    expect(cancel).toBeDisabled();
+    fireEvent.click(cancel);
+    fireEvent.click(screen.getByRole('dialog'));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+
+    resolveSave(makeTemplate());
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+  });
 });

@@ -44,7 +44,8 @@ class InstantiateTemplateRequest(BaseModel):
     """Body for creating a new draft set from a template.
 
     ``name`` falls back to the template's own name when omitted/blank;
-    ``event_id`` is passed through uncritically, matching ``SetCreate``.
+    ``event_id`` must reference an event the caller owns — the route
+    rejects any other id with a 404 (see ``_require_owned_event``).
     """
 
     name: str | None = Field(None, max_length=120)

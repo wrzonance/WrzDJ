@@ -59,6 +59,8 @@ function makeSetDetail(overrides: Partial<SetDetail> = {}): SetDetail {
 
 describe('TemplateGalleryDialog', () => {
   beforeEach(() => {
+    // Restore window.confirm spies so one test's stub can't leak into the next.
+    vi.restoreAllMocks();
     mockListSetTemplates.mockReset();
     mockInstantiateSetTemplate.mockReset();
     mockDeleteSetTemplate.mockReset();
@@ -173,6 +175,9 @@ describe('TemplateGalleryDialog', () => {
     mockListSetTemplates.mockResolvedValue({
       templates: [makeTemplate({ id: 1, name: 'First Arc' }), makeTemplate({ id: 2, name: 'Second Arc' })],
     });
+    // Confirm must say YES here: with it stubbed true, the delete assertion
+    // below can only pass because of the mutation lock, not a declined dialog.
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
     let resolveInstantiate: (v: SetDetail) => void = () => {};
     mockInstantiateSetTemplate.mockReturnValue(
       new Promise<SetDetail>((resolve) => {
@@ -200,11 +205,22 @@ describe('TemplateGalleryDialog', () => {
     expect(mockInstantiateSetTemplate).toHaveBeenCalledTimes(1);
     expect(mockDeleteSetTemplate).not.toHaveBeenCalled();
 
-    // Close is inert while mutating.
+    // Close and Escape are inert while mutating.
     fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).not.toHaveBeenCalled();
 
     resolveInstantiate(makeSetDetail());
     await waitFor(() => expect(onInstantiated).toHaveBeenCalledTimes(1));
+  });
+
+  it('closes on Escape when idle', async () => {
+    mockListSetTemplates.mockResolvedValue({ templates: [] });
+    const onClose = vi.fn();
+    render(<TemplateGalleryDialog onClose={onClose} onInstantiated={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText(/no templates saved yet/i)).toBeInTheDocument());
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

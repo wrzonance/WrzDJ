@@ -4562,7 +4562,7 @@
         "type": "object"
       },
       "InstantiateTemplateRequest": {
-        "description": "Body for creating a new draft set from a template.\n\n``name`` falls back to the template's own name when omitted/blank;\n``event_id`` is passed through uncritically, matching ``SetCreate``.",
+        "description": "Body for creating a new draft set from a template.\n\n``name`` falls back to the template's own name when omitted/blank;\n``event_id`` must reference an event the caller owns \u2014 the route\nrejects any other id with a 404 (see ``_require_owned_event``).",
         "properties": {
           "event_id": {
             "anyOf": [

@@ -145,8 +145,21 @@ def test_upgrade_server_defaults_and_cascade_fk_match_the_model(alembic_connecti
         migration_066.upgrade()
 
     migrated = _columns(alembic_connection, "set_templates")
-    assert "8" in str(migrated["avg_transition_overlap_sec"]["default"])
-    assert "0.2" in str(migrated["key_strictness"]["default"])
+    # Derived from the model so a model/migration default drift fails here.
+    # Scoped to columns where the MODEL declares a server_default: the
+    # migration alone also gives created_at/updated_at a CURRENT_TIMESTAMP
+    # default (the model fills those Python-side via utcnow), deliberately.
+    model_defaults = {
+        column.name: str(getattr(column.server_default.arg, "text", column.server_default.arg))
+        for column in SetTemplate.__table__.columns
+        if column.server_default is not None
+    }
+    assert model_defaults, "SetTemplate declares no server defaults — parity check is vacuous"
+    for name, expected in model_defaults.items():
+        actual = str(migrated[name]["default"])
+        assert expected in actual, (
+            f"{name}: migration default {actual!r} does not match model server_default {expected!r}"
+        )
 
     fks = inspect(alembic_connection).get_foreign_keys("set_templates")
     assert len(fks) == 1, f"expected exactly one FK, got {fks}"

@@ -69,9 +69,19 @@ export default function TemplateGalleryDialog({ onClose, onInstantiated }: Templ
     if (!mutating) onClose();
   };
 
+  // Escape dismissal for keyboard-only users, same lock as closeIfIdle.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !mutating) onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [mutating, onClose]);
+
   return (
     <div
       role="dialog"
+      aria-modal="true"
       aria-label="Start a set from a template"
       style={{
         position: 'fixed',

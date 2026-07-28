@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import type { SetSummary, SetTemplate } from '@/lib/api-types';
 
@@ -31,6 +31,15 @@ export default function SaveAsTemplateDialog({ set, onClose, onSaved }: SaveAsTe
     if (!busy) onClose();
   };
 
+  // Escape dismissal for keyboard-only users, same lock as closeIfIdle.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !busy) onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [busy, onClose]);
+
   const save = async () => {
     if (!canSave) return;
     setBusy(true);
@@ -47,6 +56,7 @@ export default function SaveAsTemplateDialog({ set, onClose, onSaved }: SaveAsTe
   return (
     <div
       role="dialog"
+      aria-modal="true"
       aria-label={`Save ${set.name} as template`}
       style={{
         position: 'fixed',

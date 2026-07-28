@@ -152,12 +152,13 @@ REJECTED → NEW (re-open)
 - `enrich_request_metadata` — defined in `enrichment_pipeline.py`; `orchestrator.py` only imports
   and re-exports it. Priority cascade: (0) direct fetch by track ID from Beatport/Tidal URLs; (0b)
   ISRC match for Spotify; (1) MusicBrainz artist genre; (2) Beatport fuzzy; (3) Tidal fuzzy; (4)
-  per-event BPM half/double-time correction (request-only, never persisted); (5) Soundcharts audio
-  features (gated, ISRC-only). `_apply_enrichment_result()` only fills missing fields.
+  per-event BPM half/double-time correction (mutates the request only — the cascade's store write
+  keeps the canonical pre-correction BPM); (5) Soundcharts audio features (gated, ISRC-only).
+  `_apply_enrichment_result()` only fills missing fields.
   `_find_best_match()` scores title 60% + artist 40% with original-version bonus / remix penalty /
   BPM tiebreaker. Resolved fields upsert into the master `tracks` store via a precedence-gated
-  cache-aside path that skips the whole cascade for already-trusted rows. Full provider/precedence
-  detail: `docs/ENRICHMENT.md`.
+  cache-aside path that skips the *core* cascade (steps 0-3) for already-trusted rows — energy
+  backfill can still call out. Full provider/precedence detail: `docs/ENRICHMENT.md`.
 
 ## WrzDJSet (Set Builder)
 

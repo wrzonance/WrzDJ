@@ -128,7 +128,12 @@ npm test -- --run
 
 - `ARCHITECTURE.md` — full multi-service architecture, services, CI/CD, kiosk, pitfalls.
 - `SECURITY.md` — security posture and project-specific rules.
+- `docs/ENRICHMENT.md` — music-metadata provider inventory and per-field source-of-truth
+  precedence (#527).
 - `docs/PLUGIN-ARCHITECTURE.md`, `docs/LLM-PLUGIN.md`, `docs/HUMAN-VERIFICATION.md`,
-  `docs/RECOVERY-IP-IDENTITY.md`, `docs/RUNBOOK.md`, `docs/CONTRIB.md`,
-  `docs/ENRICHMENT.md` (music-metadata provider inventory & source-of-truth precedence, #527).
-- `AGENTS.md` — GitNexus code-intelligence index (auto-generated; do not hand-edit).
+  `docs/RECOVERY-IP-IDENTITY.md`, `docs/RUNBOOK.md`, `docs/CONTRIB.md`.
+- `AGENTS.md` — **this file**, and the real one: `CLAUDE.md` is a git symlink pointing here
+  (`ae6dad6`), so both names load identical content and either path edits this file. It is
+  hand-maintained; there is no generator. (It previously described itself as an auto-generated
+  GitNexus index — stale since the symlink landed. The gitignored `.gitnexus` entry is an external
+  tool's local state, like `.aider*`/`.claude/`, and produces nothing in-tree.)

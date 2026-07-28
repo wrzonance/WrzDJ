@@ -377,10 +377,19 @@ sections), `server/app/services/setbuilder/vibe_resolver.py` (full),
 `server/app/services/setbuilder/taste_profile.py` (partial),
 `server/app/services/setbuilder/coverage.py` (partial).
 
-**GitHub issues/PRs cited.** #526, #541, #542, #551, #552, #554, #556, #563 are cited as they
-appear in code comments at the file:line evidence above (not independently re-verified against
-live GitHub state this session). #527 (this issue), #544, and #560 **were** independently checked
-live via `gh issue view` / `gh pr view` this session: #527 is open; #544 is open, 2 comments, in
-progress; #560 is a merged PR (2026-06-25) that closed #556 — its own recommendation-candidate
-work is complete, but it does not touch the broader provider-strategy question §7(c) defers to
-#544.
+**GitHub issues/PRs cited.** #541, #542, #551, #552, #554, #556, #563 are cited as they appear in
+code comments at the file:line evidence above (not independently re-verified against live GitHub
+state this session). **#526 is the one exception — it is not code-comment-sourced.** A repo-wide
+grep this session (`grep -rn "526" server --include="*.py"`) returns zero matches: no `.py` file
+anywhere in the codebase contains the string "526", unlike every other issue number in this list.
+Every §1/§2/§4/§5 reference to #526 in this document instead describes `provenance.py`'s reserved,
+unwired `"lexicon": 90` precedence slot (`provenance.py:14`, which itself carries no issue-number
+comment) — the issue number was supplied from this audit's own knowledge of the tracker, not read
+off a citation the code carries. #527 (this issue), #526, #544, and #560 **were** independently
+checked live via `gh issue view` / `gh pr view` this session to compensate: #527 is open; #526 is
+open — "research(setbuilder): LexiconDJ as an optional measured-energy source of truth for
+WrzDJSet (+ library sync)" — and its body's own "Hard boundary: this is WrzDJSet-only" and
+measured-energy-as-opt-in-source framing match every claim this document makes about it; #544 is
+open, 2 comments, in progress; #560 is a merged PR (2026-06-25) that closed #556 — its own
+recommendation-candidate work is complete, but it does not touch the broader provider-strategy
+question §7(c) defers to #544.

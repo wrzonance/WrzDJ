@@ -31,7 +31,13 @@ export default function TemplateGalleryDialog({ onClose, onInstantiated }: Templ
       .finally(() => setLoading(false));
   }, []);
 
+  // One mutation at a time for the whole dialog: per-card busy state alone
+  // still leaves every OTHER card's buttons live, so a second click could
+  // create a duplicate set or delete a template mid-instantiate.
+  const mutating = instantiatingId !== null || deletingId !== null;
+
   const instantiate = async (templateId: number) => {
+    if (mutating) return;
     setInstantiatingId(templateId);
     setError(null);
     try {
@@ -44,6 +50,7 @@ export default function TemplateGalleryDialog({ onClose, onInstantiated }: Templ
   };
 
   const remove = async (template: SetTemplate) => {
+    if (mutating) return;
     if (!window.confirm(`Delete the "${template.name}" template? This cannot be undone.`)) return;
     setDeletingId(template.id);
     setError(null);
@@ -55,6 +62,11 @@ export default function TemplateGalleryDialog({ onClose, onInstantiated }: Templ
     } finally {
       setDeletingId(null);
     }
+  };
+
+  /** Ignore backdrop/Close while a mutation is in flight. */
+  const closeIfIdle = () => {
+    if (!mutating) onClose();
   };
 
   return (
@@ -70,7 +82,7 @@ export default function TemplateGalleryDialog({ onClose, onInstantiated }: Templ
         justifyContent: 'center',
         zIndex: 100,
       }}
-      onClick={onClose}
+      onClick={closeIfIdle}
     >
       <div
         className="card"
@@ -109,6 +121,7 @@ export default function TemplateGalleryDialog({ onClose, onInstantiated }: Templ
                 template={template}
                 busyInstantiate={instantiatingId === template.id}
                 busyDelete={deletingId === template.id}
+                locked={mutating}
                 onInstantiate={() => instantiate(template.id)}
                 onDelete={() => remove(template)}
               />
@@ -121,7 +134,8 @@ export default function TemplateGalleryDialog({ onClose, onInstantiated }: Templ
             type="button"
             className="btn"
             style={{ background: 'var(--surface-raised)' }}
-            onClick={onClose}
+            disabled={mutating}
+            onClick={closeIfIdle}
           >
             Close
           </button>
@@ -135,11 +149,20 @@ interface TemplateCardProps {
   template: SetTemplate;
   busyInstantiate: boolean;
   busyDelete: boolean;
+  /** True while ANY card in the dialog is mutating — disables every action. */
+  locked: boolean;
   onInstantiate: () => void;
   onDelete: () => void;
 }
 
-function TemplateCard({ template, busyInstantiate, busyDelete, onInstantiate, onDelete }: TemplateCardProps) {
+function TemplateCard({
+  template,
+  busyInstantiate,
+  busyDelete,
+  locked,
+  onInstantiate,
+  onDelete,
+}: TemplateCardProps) {
   return (
     <div className="card" style={{ background: 'var(--surface-raised)', padding: '0.75rem 1rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
@@ -155,13 +178,13 @@ function TemplateCard({ template, busyInstantiate, busyDelete, onInstantiate, on
           <button
             type="button"
             className="btn btn-sm btn-primary"
-            disabled={busyInstantiate}
+            disabled={locked}
             onClick={onInstantiate}
           >
             {busyInstantiate ? 'Creating…' : 'Use template'}
           </button>
-          <button type="button" className="btn btn-sm btn-danger" disabled={busyDelete} onClick={onDelete}>
-            Delete
+          <button type="button" className="btn btn-sm btn-danger" disabled={locked} onClick={onDelete}>
+            {busyDelete ? 'Deleting…' : 'Delete'}
           </button>
         </div>
       </div>

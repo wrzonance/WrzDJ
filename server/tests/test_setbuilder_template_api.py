@@ -119,6 +119,29 @@ def test_save_as_template_rejects_blank_name(client, auth_headers, db, test_user
     assert resp.status_code == 422
 
 
+def test_save_as_template_rejects_whitespace_only_name(client, auth_headers, db, test_user):
+    """``min_length=1`` alone accepts ``"   "`` — the dashboard trims, but a
+    direct API client must not be able to store a blank gallery entry."""
+    src = _seed_set(db, test_user.id)
+    resp = client.post(
+        f"/api/setbuilder/sets/{src.id}/save-as-template",
+        headers=auth_headers,
+        json={"name": "   "},
+    )
+    assert resp.status_code == 422
+
+
+def test_save_as_template_trims_surrounding_whitespace(client, auth_headers, db, test_user):
+    src = _seed_set(db, test_user.id)
+    resp = client.post(
+        f"/api/setbuilder/sets/{src.id}/save-as-template",
+        headers=auth_headers,
+        json={"name": "  Warehouse  "},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["name"] == "Warehouse"
+
+
 # ---------------------------------------------------------------------------
 # GET /set-templates (gallery)
 # ---------------------------------------------------------------------------
@@ -223,6 +246,63 @@ def test_instantiate_template_owner_scoped_404(client, auth_headers, db, test_us
         headers=auth_headers,
         json={},
     )
+    assert resp.status_code == 404
+
+
+def test_instantiate_rejects_event_owned_by_another_dj(client, auth_headers, db, test_user):
+    """A set's ``event_id`` grants access to event-scoped data through the
+    set, so a DJ must never be able to bind their own set to someone else's
+    event. Pins that the id is validated against the caller's ownership
+    instead of being trusted.
+    """
+    from datetime import timedelta
+
+    from app.core.time import utcnow
+    from app.models.event import Event
+
+    other = _make_second_dj(db)
+    their_event = Event(
+        code="OTHER1",
+        join_code="OTHER2",
+        name="Not Mine",
+        created_by_user_id=other.id,
+        expires_at=utcnow() + timedelta(hours=6),
+    )
+    db.add(their_event)
+    db.commit()
+    db.refresh(their_event)
+
+    src = _seed_set(db, test_user.id)
+    tpl_id = client.post(
+        f"/api/setbuilder/sets/{src.id}/save-as-template",
+        headers=auth_headers,
+        json={"name": "Mine"},
+    ).json()["id"]
+
+    resp = client.post(
+        f"/api/setbuilder/set-templates/{tpl_id}/instantiate",
+        headers=auth_headers,
+        json={"event_id": their_event.id},
+    )
+
+    assert resp.status_code == 404
+    assert not [s for s in db.query(Set).all() if s.event_id == their_event.id]
+
+
+def test_instantiate_rejects_unknown_event_id(client, auth_headers, db, test_user):
+    src = _seed_set(db, test_user.id)
+    tpl_id = client.post(
+        f"/api/setbuilder/sets/{src.id}/save-as-template",
+        headers=auth_headers,
+        json={"name": "Mine"},
+    ).json()["id"]
+
+    resp = client.post(
+        f"/api/setbuilder/set-templates/{tpl_id}/instantiate",
+        headers=auth_headers,
+        json={"event_id": 999999},
+    )
+
     assert resp.status_code == 404
 
 

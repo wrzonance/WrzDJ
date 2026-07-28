@@ -167,4 +167,44 @@ describe('TemplateGalleryDialog', () => {
     expect(mockInstantiateSetTemplate).not.toHaveBeenCalled();
     expect(mockDeleteSetTemplate).not.toHaveBeenCalled();
   });
+  it('locks every card while one instantiation is in flight, so no duplicate set is created', async () => {
+    // Two cards: per-card busy state alone would leave the SECOND card's
+    // buttons live while the first is still creating a set.
+    mockListSetTemplates.mockResolvedValue({
+      templates: [makeTemplate({ id: 1, name: 'First Arc' }), makeTemplate({ id: 2, name: 'Second Arc' })],
+    });
+    let resolveInstantiate: (v: SetDetail) => void = () => {};
+    mockInstantiateSetTemplate.mockReturnValue(
+      new Promise<SetDetail>((resolve) => {
+        resolveInstantiate = resolve;
+      })
+    );
+    const onInstantiated = vi.fn();
+    const onClose = vi.fn();
+    render(<TemplateGalleryDialog onClose={onClose} onInstantiated={onInstantiated} />);
+
+    await waitFor(() => expect(screen.getByText('First Arc')).toBeInTheDocument());
+    const useButtons = screen.getAllByRole('button', { name: /use template/i });
+    fireEvent.click(useButtons[0]);
+
+    await waitFor(() => expect(mockInstantiateSetTemplate).toHaveBeenCalledTimes(1));
+
+    // Every action — including the other card's and the delete buttons — is disabled.
+    screen
+      .getAllByRole('button', { name: /use template|creating|delete/i })
+      .forEach((btn) => expect(btn).toBeDisabled());
+
+    // Clicking the second card again must not fire a second request.
+    fireEvent.click(useButtons[1]);
+    fireEvent.click(screen.getAllByRole('button', { name: /delete/i })[0]);
+    expect(mockInstantiateSetTemplate).toHaveBeenCalledTimes(1);
+    expect(mockDeleteSetTemplate).not.toHaveBeenCalled();
+
+    // Close is inert while mutating.
+    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    expect(onClose).not.toHaveBeenCalled();
+
+    resolveInstantiate(makeSetDetail());
+    await waitFor(() => expect(onInstantiated).toHaveBeenCalledTimes(1));
+  });
 });

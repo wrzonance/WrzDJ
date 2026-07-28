@@ -26,6 +26,11 @@ export default function SaveAsTemplateDialog({ set, onClose, onSaved }: SaveAsTe
   const trimmedName = name.trim();
   const canSave = trimmedName.length > 0 && trimmedName.length <= MAX_NAME_LENGTH && !busy;
 
+  /** Ignore backdrop/Cancel while the save is in flight. */
+  const closeIfIdle = () => {
+    if (!busy) onClose();
+  };
+
   const save = async () => {
     if (!canSave) return;
     setBusy(true);
@@ -52,7 +57,7 @@ export default function SaveAsTemplateDialog({ set, onClose, onSaved }: SaveAsTe
         justifyContent: 'center',
         zIndex: 100,
       }}
-      onClick={onClose}
+      onClick={closeIfIdle}
     >
       <div
         className="card"
@@ -93,7 +98,8 @@ export default function SaveAsTemplateDialog({ set, onClose, onSaved }: SaveAsTe
             type="button"
             className="btn"
             style={{ background: 'var(--surface-raised)' }}
-            onClick={onClose}
+            disabled={busy}
+            onClick={closeIfIdle}
           >
             Cancel
           </button>

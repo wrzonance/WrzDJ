@@ -108,7 +108,7 @@ def test_extract_template_preserves_slot_fields_and_strips_track_data(db, test_u
 
     tpl = set_templates.extract_template(db, src, test_user.id, "Extracted")
 
-    slots = set_templates._decode_slots(tpl.slots_json)
+    slots = set_templates.decode_slots(tpl.slots_json)
     assert len(slots) == 1
     slot = slots[0]
     assert slot["position"] == 2
@@ -141,7 +141,7 @@ def test_extract_template_copies_target_settings_and_curve_points(db, test_user)
     assert tpl.bpm_ceiling == src.bpm_ceiling
     assert tpl.key_strictness == src.key_strictness
 
-    points = set_templates._decode_curve_points(tpl.curve_points_json)
+    points = set_templates.decode_curve_points(tpl.curve_points_json)
     assert points == [
         {
             "position_sec": 30,
@@ -235,6 +235,28 @@ def test_instantiate_template_uses_explicit_name_and_event_id(db, test_user, tes
 # ---------------------------------------------------------------------------
 
 
+def test_instantiated_slots_are_never_locked_even_when_source_was(db, test_user):
+    """A locked slot means "keep the track I pinned here". Templates strip
+    every ``track_id``, so carrying ``locked`` through would produce a locked
+    EMPTY slot — and ``pass1_deterministic`` only refills slots where
+    ``locked == False``, keeping locked ones verbatim. Such a slot is a hole
+    no build can ever fill, so instantiation must always unlock.
+    """
+    src = _mk_set(db, test_user.id)
+    _add_slot(db, src, position=0, track_id="tidal:1", locked=True, target_energy=4.0)
+    _add_slot(db, src, position=1, track_id="tidal:2", locked=True, target_energy=6.0)
+
+    tpl = set_templates.extract_template(db, src, test_user.id, "All Locked")
+    new_set = set_templates.instantiate_template(db, tpl, test_user.id, None, None)
+
+    assert [s.locked for s in src.slots] == [True, True]
+    assert new_set.slots, "instantiation must still create the slots"
+    assert all(s.locked is False for s in new_set.slots)
+    assert all(s.track_id is None for s in new_set.slots)
+    # The stored template still records the source shape.
+    assert all(s["locked"] is True for s in set_templates.decode_slots(tpl.slots_json))
+
+
 def test_round_trip_preserves_targets_slots_and_curve_points_bit_for_bit(db, test_user):
     src = _mk_set(db, test_user.id)
     _add_slot(
@@ -282,10 +304,12 @@ def test_round_trip_preserves_targets_slots_and_curve_points_bit_for_bit(db, tes
     assert len(new_slots) == len(src_slots)
     for src_slot, new_slot in zip(src_slots, new_slots):
         assert new_slot.position == src_slot.position
-        assert new_slot.locked == src_slot.locked
         assert new_slot.notes == src_slot.notes
         assert new_slot.target_energy == src_slot.target_energy
         assert new_slot.track_id is None
+        # `locked` is deliberately NOT round-tripped — see
+        # test_instantiated_slots_are_never_locked_even_when_source_was.
+        assert new_slot.locked is False
 
     src_points = sorted(src.curve_points, key=lambda p: p.position_sec)
     new_points = sorted(new_set.curve_points, key=lambda p: p.position_sec)

@@ -71,10 +71,12 @@ def instantiate_template(
 ) -> Set:
     """Create a new draft/private ``Set`` from a template.
 
-    Every created ``SetSlot`` has ``track_id=None`` unconditionally. ``name``
-    falls back to ``tpl.name`` when None/blank; ``event_id`` is passed
-    through uncritically, matching ``create_set``'s existing (out-of-scope)
-    non-validation of event ownership. Never raises for an empty template.
+    Every created ``SetSlot`` has ``track_id=None`` and ``locked=False``
+    unconditionally — see the loop below for why an empty slot must never be
+    locked. ``name`` falls back to ``tpl.name`` when None/blank. ``event_id``
+    is stored as given; the caller is responsible for rejecting an event the
+    owner does not hold (``_require_owned_event`` in the router). Never
+    raises for an empty template.
     """
     resolved_name = name.strip() if name and name.strip() else tpl.name
     new_set = Set(
@@ -93,18 +95,23 @@ def instantiate_template(
     db.add(new_set)
     db.flush()
 
-    for slot in _decode_slots(tpl.slots_json):
+    for slot in decode_slots(tpl.slots_json):
         db.add(
             SetSlot(
                 set_id=new_set.id,
                 position=slot["position"],
                 track_id=None,
-                locked=slot["locked"],
+                # Always unlocked, even when the source slot was locked: the
+                # stored `locked` flag records the source's shape, but every
+                # instantiated slot is empty by design. pass1 keeps locked
+                # slots verbatim and only fills unlocked ones, so a locked
+                # empty slot would be a hole the builder can never fill.
+                locked=False,
                 notes=slot["notes"],
                 target_energy=slot["target_energy"],
             )
         )
-    for point in _decode_curve_points(tpl.curve_points_json):
+    for point in decode_curve_points(tpl.curve_points_json):
         db.add(
             SetCurvePoint(
                 set_id=new_set.id,
@@ -127,7 +134,9 @@ def delete_template(db: Session, tpl: SetTemplate) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Codec helpers (module-internal; no schema import)
+# Codec helpers (no schema import). ``decode_*`` are public — the API layer
+# reads stored JSON through them, mirroring ``curve.template_points``;
+# ``_encode_*`` stay private, since only this module ever writes.
 # ---------------------------------------------------------------------------
 
 
@@ -147,7 +156,7 @@ def _encode_slots(slots: list[SetSlot]) -> str:
     )
 
 
-def _decode_slots(slots_json: str) -> list[dict]:
+def decode_slots(slots_json: str) -> list[dict]:
     """JSON -> slot skeleton dicts."""
     return json.loads(slots_json)
 
@@ -169,6 +178,6 @@ def _encode_curve_points(points: list[SetCurvePoint]) -> str:
     )
 
 
-def _decode_curve_points(curve_points_json: str) -> list[dict]:
+def decode_curve_points(curve_points_json: str) -> list[dict]:
     """JSON -> curve point dicts."""
     return json.loads(curve_points_json)

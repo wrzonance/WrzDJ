@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_active_user, get_db
 from app.core.rate_limit import limiter
+from app.models.event import Event
 from app.models.set import Set
 from app.models.set_template import SetTemplate
 from app.models.user import User
@@ -35,6 +36,23 @@ def _get_owned_set_or_404(db: Session, set_id: int, user: User) -> Set:
     return set_obj
 
 
+def _require_owned_event(db: Session, event_id: int | None, user: User) -> None:
+    """Reject an ``event_id`` the caller does not own.
+
+    A set's ``event_id`` is a capability: downstream setbuilder routes read
+    event-scoped data through it. Binding a set to an event the caller does
+    not own is therefore never valid, and this route validates it up front
+    rather than trusting the client-supplied id.
+    """
+    if event_id is None:
+        return
+    owned = (
+        db.query(Event.id).filter(Event.id == event_id, Event.created_by_user_id == user.id).first()
+    )
+    if owned is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+
 def _get_owned_template_or_404(db: Session, template_id: int, user: User) -> SetTemplate:
     tpl = set_templates.get_owned_template(db, template_id, user.id)
     if tpl is None:
@@ -44,8 +62,8 @@ def _get_owned_template_or_404(db: Session, template_id: int, user: User) -> Set
 
 def _template_out(tpl: SetTemplate) -> SetTemplateOut:
     """Build the response schema explicitly from decoded JSON (no from_attributes)."""
-    slots = set_templates._decode_slots(tpl.slots_json)
-    curve_points = set_templates._decode_curve_points(tpl.curve_points_json)
+    slots = set_templates.decode_slots(tpl.slots_json)
+    curve_points = set_templates.decode_curve_points(tpl.curve_points_json)
     return SetTemplateOut(
         id=tpl.id,
         name=tpl.name,
@@ -108,6 +126,7 @@ def instantiate_set_template(
 ) -> SetDetail:
     """Create a new draft set from an owned template."""
     tpl = _get_owned_template_or_404(db, template_id, current_user)
+    _require_owned_event(db, body.event_id, current_user)
     new_set = set_templates.instantiate_template(db, tpl, current_user.id, body.name, body.event_id)
     return SetDetail.model_validate(new_set)
 

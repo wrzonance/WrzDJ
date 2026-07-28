@@ -1,26 +1,16 @@
 """Pydantic schemas for per-DJ SetBuilder templates (issue #407).
 
-Mirrors the ``SetDocumentSlot`` / ``SetDocumentCurvePoint`` field constraints
-in ``schemas/setbuilder.py`` since a template's ``slots_json`` /
-``curve_points_json`` decode into the same shapes minus track assignment.
+``SetTemplateCurvePointModel`` mirrors ``SetDocumentCurvePoint``'s field
+constraints in ``schemas/setbuilder.py`` — a template's ``curve_points_json``
+decodes into that same shape. Stored slots have no schema counterpart on
+purpose: they are never exposed individually, only counted
+(``SetTemplateOut.slot_count``), matching how ``curve.template_points``
+returns raw decoded dicts for the ``SetCurveTemplate`` precedent (#389).
 """
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
-
-
-class SetTemplateSlotModel(BaseModel):
-    """One slot skeleton entry stored in a template's ``slots_json``.
-
-    No ``track_id``/``transition_score``/``transition_warnings`` — templates
-    snapshot the timeline shape, never track assignments.
-    """
-
-    position: int = Field(..., ge=0)
-    target_energy: float | None = Field(None, ge=0.0, le=10.0)
-    locked: bool = False
-    notes: str | None = None
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class SetTemplateCurvePointModel(BaseModel):
@@ -37,6 +27,17 @@ class SaveAsTemplateRequest(BaseModel):
     """Body for extracting a template from an existing set."""
 
     name: str = Field(..., min_length=1, max_length=120)
+
+    @field_validator("name")
+    @classmethod
+    def _strip_and_require_non_blank(cls, value: str) -> str:
+        """``min_length`` alone lets ``"   "`` through and stores a blank
+        gallery entry. The dashboard already trims; direct API clients must
+        not be able to bypass it."""
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("name must not be blank")
+        return stripped
 
 
 class InstantiateTemplateRequest(BaseModel):

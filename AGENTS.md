@@ -129,5 +129,6 @@ npm test -- --run
 - `ARCHITECTURE.md` — full multi-service architecture, services, CI/CD, kiosk, pitfalls.
 - `SECURITY.md` — security posture and project-specific rules.
 - `docs/PLUGIN-ARCHITECTURE.md`, `docs/LLM-PLUGIN.md`, `docs/HUMAN-VERIFICATION.md`,
-  `docs/RECOVERY-IP-IDENTITY.md`, `docs/RUNBOOK.md`, `docs/CONTRIB.md`.
+  `docs/RECOVERY-IP-IDENTITY.md`, `docs/RUNBOOK.md`, `docs/CONTRIB.md`,
+  `docs/ENRICHMENT.md` (music-metadata provider inventory & source-of-truth precedence, #527).
 - `AGENTS.md` — GitNexus code-intelligence index (auto-generated; do not hand-edit).

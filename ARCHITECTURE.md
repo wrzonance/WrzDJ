@@ -132,10 +132,13 @@ REJECTED → NEW (re-open)
 (`actor = event.created_by`, `purpose = "recommendation"`); `call_llm` requires a `db` session.
 
 - `service.py` (orchestrator: profile → search → score → dedupe), `enrichment.py` (BPM/key/genre
-  backfill from Beatport/MusicBrainz/Tidal), `scorer.py` (BPM compat, harmonic mixing, genre affinity,
-  artist-diversity penalty), `camelot.py` (Camelot wheel, half/double-time), `llm_client.py`
-  (gateway-backed, forced `tool_use` schema), `llm_hooks.py`, `template.py` (playlist "vibe" source),
-  `mb_verify.py` (MusicBrainz verification to detect AI-generated filler), `soundcharts_candidates.py`.
+  backfill from Beatport/MusicBrainz/Tidal — a standalone title/artist merge that never writes the
+  master `tracks` store itself; reused by callers that do), `scorer.py` (BPM compat, harmonic
+  mixing, genre affinity, artist-diversity penalty), `camelot.py` (Camelot wheel, half/double-time),
+  `llm_client.py` (gateway-backed, forced `tool_use` schema), `llm_hooks.py`, `template.py`
+  (playlist "vibe" source), `mb_verify.py` (MusicBrainz verification to detect AI-generated filler),
+  `soundcharts_candidates.py` (two live Soundcharts-backed candidate generators: discovery search
+  and seed-based related-tracks). Full provider/pipeline detail: `docs/ENRICHMENT.md` §3.2.
 - Three modes: From Requests (event profile), From Playlist (template), AI Assist (Claude Haiku).
 - Endpoints on `events.py`: `POST /{code}/recommendations`, `.../from-template`, `.../llm`,
   `GET /{code}/playlists`.
@@ -143,12 +146,18 @@ REJECTED → NEW (re-open)
 ## Multi-Service Playlist Sync & Enrichment
 
 - `server/app/services/sync/` — plugin-based adapters: `base.py` (`PlaylistSyncAdapter` ABC),
-  `tidal_adapter.py`, `beatport_adapter.py`, `orchestrator.py` (coordinate + dedupe + enrich),
-  `registry.py`. Per-service results stored in `sync_results_json`.
-- `enrich_request_metadata` (in `orchestrator.py`) — priority cascade: (0) direct fetch by track ID
-  from Beatport/Tidal URLs; (0b) ISRC match for Spotify; (1) MusicBrainz artist genre; (2) Beatport
-  fuzzy; (3) Tidal fuzzy. `_apply_enrichment_result()` only fills missing fields. `_find_best_match()`
-  scores title 60% + artist 40% with original-version bonus / remix penalty / BPM tiebreaker.
+  `tidal_adapter.py`, `beatport_adapter.py`, `orchestrator.py` (coordinate + dedupe + enrich; only
+  a thin re-export layer for enrichment — see next bullet), `registry.py`. Per-service results
+  stored in `sync_results_json`.
+- `enrich_request_metadata` — defined in `enrichment_pipeline.py`; `orchestrator.py` only imports
+  and re-exports it. Priority cascade: (0) direct fetch by track ID from Beatport/Tidal URLs; (0b)
+  ISRC match for Spotify; (1) MusicBrainz artist genre; (2) Beatport fuzzy; (3) Tidal fuzzy; (4)
+  per-event BPM half/double-time correction (request-only, never persisted); (5) Soundcharts audio
+  features (gated, ISRC-only). `_apply_enrichment_result()` only fills missing fields.
+  `_find_best_match()` scores title 60% + artist 40% with original-version bonus / remix penalty /
+  BPM tiebreaker. Resolved fields upsert into the master `tracks` store via a precedence-gated
+  cache-aside path that skips the whole cascade for already-trusted rows. Full provider/precedence
+  detail: `docs/ENRICHMENT.md`.
 
 ## WrzDJSet (Set Builder)
 
@@ -187,6 +196,12 @@ Frontend: `dashboard/app/(dj)/setbuilder/`.
   routes through the gateway (`purpose="set_builder"`), batched forced-`tool_use`, cached globally so
   a second DJ pays nothing; the community tier is gated by `vibe_consensus_min_sample` /
   `vibe_consensus_max_stddev` (System Settings) so noise never masquerades as consensus.
+- `taste_profile.py` — per-DJ calibration layered on top of the resolved vibe, never a fourth
+  resolution tier: shifts a non-"own" resolved energy by a capped delta learned from that DJ's own
+  historical vibe edits.
+- `coverage.py` — read-only pre-build pool-readiness check: reports what fraction of a set's pool
+  carries all five pool→builder contract fields (bpm/key/genre/duration/energy), feeding a soft,
+  overridable build warning. Full vibe/energy source-of-truth detail: `docs/ENRICHMENT.md` §3.3/§4.
 - `export_common.py` / `export_files.py` / `export_tidal.py` — export the ordered timeline (falling
   back to pool order until timeline auto-fill lands): Tidal playlist (OAuth + fuzzy match), Rekordbox
   XML (`DJ_PLAYLISTS 1.0.0`, synthetic `file://` Location the DJ relinks), M3U8, and plaintext. A

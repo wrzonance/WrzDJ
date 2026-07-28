@@ -8,12 +8,10 @@ Pins the boundary invariants from the design spec:
   — templates are private to their owner, never shared.
 """
 
-import ast
-import inspect
-
 from app.api import setbuilder_templates
 from app.models.set import Set, SetCurvePoint, SetSlot
 from app.services.auth import get_password_hash
+from tests import ast_no_sharing_support
 
 
 def _seed_set(db, owner_id, **overrides) -> Set:
@@ -57,18 +55,14 @@ def _make_second_dj(db):
 
 
 def test_router_never_touches_collaborator_or_sharing_logic():
-    """Static check over the module body (docstrings excluded): no import of
-    SetCollaborator, no use of the share/duplicate service, no share-token
-    field access — templates are private to their owner, never shared.
+    """Static check over the module body (all docstrings excluded, not just
+    the module's own): no import of SetCollaborator, no use of the
+    share/duplicate service, no share-token field access — templates are
+    private to their owner, never shared. Shares its token list and
+    docstring-stripping with the broader cross-module check in
+    ``test_setbuilder_template_no_sharing_coupling.py``.
     """
-    source = inspect.getsource(setbuilder_templates)
-    tree = ast.parse(source)
-    body_without_docstrings = "\n".join(
-        ast.unparse(node) for node in tree.body if not isinstance(node, ast.Expr)
-    )
-    assert "SetCollaborator" not in body_without_docstrings
-    assert "share_service" not in body_without_docstrings
-    assert "share_token" not in body_without_docstrings
+    ast_no_sharing_support.assert_no_sharing_references(setbuilder_templates)
 
 
 # ---------------------------------------------------------------------------

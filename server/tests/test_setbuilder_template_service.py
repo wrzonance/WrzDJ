@@ -77,6 +77,21 @@ def test_extract_template_owned_by_user_and_never_raises_on_empty_set(db, test_u
     assert tpl.name == "My Template"
 
 
+def test_extract_template_owned_by_user_id_param_not_src_set_owner(db, test_user, admin_user):
+    """extract_template must attribute the new template to the ``user_id``
+    argument, never implicitly to ``src_set.owner_id`` — regression guard
+    for a plausible ``SetTemplate(user_id=src_set.owner_id, ...)`` slip
+    (the function receives both a ``Set`` with its own ``.owner_id`` and a
+    separate ``user_id`` param).
+    """
+    src = _mk_set(db, admin_user.id)
+
+    tpl = set_templates.extract_template(db, src, test_user.id, "Borrowed")
+
+    assert tpl.user_id == test_user.id
+    assert tpl.user_id != src.owner_id
+
+
 def test_extract_template_preserves_slot_fields_and_strips_track_data(db, test_user):
     src = _mk_set(db, test_user.id)
     _add_slot(
@@ -153,6 +168,20 @@ def test_instantiate_template_creates_draft_private_set_owned_by_caller(db, test
     assert new_set.owner_id == test_user.id
     assert new_set.status == "draft"
     assert new_set.sharing_mode == "private"
+
+
+def test_instantiate_template_owned_by_owner_id_param_not_template_user(db, test_user, admin_user):
+    """instantiate_template must attribute the new Set to the ``owner_id``
+    argument, never implicitly to ``tpl.user_id`` — regression guard for a
+    plausible ``Set(owner_id=tpl.user_id, ...)`` slip.
+    """
+    src = _mk_set(db, test_user.id)
+    tpl = set_templates.extract_template(db, src, test_user.id, "Extracted")
+
+    new_set = set_templates.instantiate_template(db, tpl, admin_user.id, None, None)
+
+    assert new_set.owner_id == admin_user.id
+    assert new_set.owner_id != tpl.user_id
 
 
 def test_instantiate_template_never_raises_on_empty_template(db, test_user):

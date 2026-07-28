@@ -2,8 +2,9 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import SetbuilderPage from '../page';
 
+const mockPush = vi.fn();
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: mockPush }),
 }));
 
 vi.mock('next/link', () => ({
@@ -17,6 +18,9 @@ const mockRenameSet = vi.fn();
 const mockDuplicateSet = vi.fn();
 const mockGetTasteProfile = vi.fn();
 const mockResetTasteProfile = vi.fn();
+const mockListSetTemplates = vi.fn();
+const mockInstantiateSetTemplate = vi.fn();
+const mockDeleteSetTemplate = vi.fn();
 vi.mock('@/lib/api', () => ({
   api: {
     listSets: () => mockListSets(),
@@ -28,6 +32,9 @@ vi.mock('@/lib/api', () => ({
     duplicateSet: (id: number) => mockDuplicateSet(id),
     shareSet: vi.fn(),
     revokeSetShare: vi.fn(),
+    listSetTemplates: () => mockListSetTemplates(),
+    instantiateSetTemplate: (id: number) => mockInstantiateSetTemplate(id),
+    deleteSetTemplate: (id: number) => mockDeleteSetTemplate(id),
   },
 }));
 
@@ -43,11 +50,15 @@ vi.mock('@/components/ThemeToggle', () => ({
 
 describe('SetbuilderPage', () => {
   beforeEach(() => {
+    mockPush.mockReset();
     mockListSets.mockReset();
     mockRenameSet.mockReset();
     mockDuplicateSet.mockReset();
     mockGetTasteProfile.mockReset();
     mockResetTasteProfile.mockReset();
+    mockListSetTemplates.mockReset();
+    mockInstantiateSetTemplate.mockReset();
+    mockDeleteSetTemplate.mockReset();
     mockGetTasteProfile.mockResolvedValue({
       sample_count: 0,
       min_samples: 5,
@@ -267,6 +278,89 @@ describe('SetbuilderPage', () => {
     await waitFor(() => {
       expect(mockDuplicateSet).toHaveBeenCalledWith(1);
       expect(screen.getByText('Friday Wedding (copy)')).toBeInTheDocument();
+    });
+  });
+
+  it('opens the template gallery and fetches templates when "From Template" is clicked', async () => {
+    mockListSets.mockResolvedValue([]);
+    mockListSetTemplates.mockResolvedValue({
+      templates: [
+        {
+          id: 3,
+          name: 'Peak Hour Arc',
+          vibe_theme: null,
+          target_duration_sec: 3600,
+          avg_transition_overlap_sec: 8,
+          bpm_floor: null,
+          bpm_ceiling: null,
+          key_strictness: 0.2,
+          slot_count: 12,
+          curve_points: [],
+          created_at: '2026-06-07T00:00:00Z',
+          updated_at: '2026-06-07T00:00:00Z',
+        },
+      ],
+    });
+    render(<SetbuilderPage />);
+    await waitFor(() => expect(screen.getByText(/no sets yet/i)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /from template/i }));
+
+    await waitFor(() => {
+      expect(mockListSetTemplates).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('Peak Hour Arc')).toBeInTheDocument();
+    });
+  });
+
+  it('instantiates a template and navigates to the newly created set', async () => {
+    mockListSets.mockResolvedValue([]);
+    mockListSetTemplates.mockResolvedValue({
+      templates: [
+        {
+          id: 3,
+          name: 'Peak Hour Arc',
+          vibe_theme: null,
+          target_duration_sec: 3600,
+          avg_transition_overlap_sec: 8,
+          bpm_floor: null,
+          bpm_ceiling: null,
+          key_strictness: 0.2,
+          slot_count: 12,
+          curve_points: [],
+          created_at: '2026-06-07T00:00:00Z',
+          updated_at: '2026-06-07T00:00:00Z',
+        },
+      ],
+    });
+    mockInstantiateSetTemplate.mockResolvedValue({
+      id: 9,
+      name: 'Peak Hour Arc',
+      event_id: null,
+      status: 'draft',
+      sharing_mode: 'private',
+      share_token: null,
+      created_at: '2026-06-08T00:00:00Z',
+      updated_at: '2026-06-08T00:00:00Z',
+      vibe_theme: null,
+      target_duration_sec: 3600,
+      avg_transition_overlap_sec: 8,
+      bpm_floor: null,
+      bpm_ceiling: null,
+      key_strictness: 0.2,
+      tidal_playlist_id: null,
+      exported_at: null,
+    });
+
+    render(<SetbuilderPage />);
+    await waitFor(() => expect(screen.getByText(/no sets yet/i)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /from template/i }));
+    await waitFor(() => expect(screen.getByText('Peak Hour Arc')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /use template/i }));
+
+    await waitFor(() => {
+      expect(mockInstantiateSetTemplate).toHaveBeenCalledWith(3);
+      expect(mockPush).toHaveBeenCalledWith('/setbuilder/9');
     });
   });
 });

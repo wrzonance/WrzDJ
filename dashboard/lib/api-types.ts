@@ -312,6 +312,10 @@ export interface PaginatedResponse<T> {
   limit: number;
 }
 
+// WrzDJSet reusable set templates (issue #407)
+export type SetTemplate = Schemas['SetTemplateOut'];
+export type SetTemplateGalleryResponse = Schemas['SetTemplateGalleryResponse'];
+
 // --- Setlist export (#396) — auto-re-exports aliased to historical names ---
 
 export type ExportTarget = Schemas['ExportPreflightIn']['target'];

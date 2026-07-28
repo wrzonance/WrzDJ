@@ -74,6 +74,8 @@ import type {
   SetDetail,
   SetSlotOut,
   SetSummary,
+  SetTemplate,
+  SetTemplateGalleryResponse,
   SharedSetView,
   ShareTokenOut,
   SlotTargetOut,
@@ -185,6 +187,8 @@ export type {
   SetDocumentSnapshot,
   SetDetail,
   SetSummary,
+  SetTemplate,
+  SetTemplateGalleryResponse,
   SharedCurvePointView,
   SharedSetView,
   SharedSlotView,
@@ -986,6 +990,30 @@ class ApiClient {
     return this.publicFetch(
       `${getApiUrl()}/api/public/setbuilder/shared/${encodeURIComponent(token)}`
     );
+  }
+
+  // WrzDJSet reusable set templates (issue #407)
+  async saveSetAsTemplate(setId: number, name: string): Promise<SetTemplate> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/save-as-template`, {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+  }
+  async listSetTemplates(): Promise<SetTemplateGalleryResponse> {
+    return this.fetch('/api/setbuilder/set-templates');
+  }
+  async instantiateSetTemplate(
+    templateId: number,
+    name?: string,
+    eventId?: number
+  ): Promise<SetDetail> {
+    return this.fetch(`/api/setbuilder/set-templates/${templateId}/instantiate`, {
+      method: 'POST',
+      body: JSON.stringify({ name: name ?? null, event_id: eventId ?? null }),
+    });
+  }
+  async deleteSetTemplate(templateId: number): Promise<void> {
+    await this.rawFetch(`/api/setbuilder/set-templates/${templateId}`, { method: 'DELETE' });
   }
 
   // --- Setlist export (#396) ---

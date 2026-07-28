@@ -132,9 +132,10 @@ REJECTED → NEW (re-open)
 (`actor = event.created_by`, `purpose = "recommendation"`); `call_llm` requires a `db` session.
 
 - `service.py` (orchestrator: profile → search → score → dedupe), `enrichment.py` (BPM/key/genre
-  backfill from Beatport/MusicBrainz/Tidal — a standalone title/artist merge that never writes the
-  master `tracks` store itself; reused by callers that do), `scorer.py` (BPM compat, harmonic
-  mixing, genre affinity, artist-diversity penalty), `camelot.py` (Camelot wheel, half/double-time),
+  backfill from Beatport/Tidal only — it imports no MusicBrainz client; a standalone title/artist
+  merge that never writes the master `tracks` store itself, reused by callers that do),
+  `scorer.py` (BPM compat, harmonic mixing, genre affinity, artist-diversity penalty),
+  `camelot.py` (Camelot wheel, half/double-time),
   `llm_client.py` (gateway-backed, forced `tool_use` schema), `llm_hooks.py`, `template.py`
   (playlist "vibe" source), `mb_verify.py` (MusicBrainz verification to detect AI-generated filler),
   `soundcharts_candidates.py` (two live Soundcharts-backed candidate generators: discovery search

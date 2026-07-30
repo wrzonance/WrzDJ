@@ -11,8 +11,9 @@ the master `tracks` store, `TrackVibe`). It is the documentation half of issue *
 refactored, or reconfigured as a result of this document. Any "formalize"/"remove"
 recommendation below (§6) is a proposal for future work, not something this PR enacts.
 
-Audited **live on `main` at 2026-07-27** by reading every cited file in full this session —
-grepping or trusting prior recon notes was not treated as sufficient. Every non-trivial claim
+Audited **live on `main` at 2026-07-27** by reading each cited file in full or its relevant
+sections (the appendix marks which, per file) this session — grepping or trusting prior recon
+notes was not treated as sufficient. Every non-trivial claim
 below carries a `path:line` citation, verified against the worktree at the time of writing. Where
 a claim could not be independently verified this session, it is marked **"unverified — needs
 follow-up"** rather than asserted as fact. Issue #527's own "Verified starting state" section
@@ -51,7 +52,7 @@ matrix rows.
 | Beatport | `server/app/services/beatport.py` | Per-DJ OAuth2 — server-side login-code-token exchange⁵ | bpm, key, genre, duration — **no ISRC field at all**⁶ | request-queue, recommendation-enrichment, pool-hydrate-enrich | connected-token (`user.beatport_access_token`) | keep |
 | Tidal | `server/app/services/tidal.py` | Per-DJ OAuth2 — device-code flow⁷ | bpm, key, ISRC, duration — no genre⁸ | request-queue, recommendation-enrichment, pool-hydrate-enrich | connected-token (`user.tidal_access_token`) | keep |
 | MusicBrainz | `server/app/services/musicbrainz.py` | none — public API⁹ | genre (artist-level)¹⁰; artist-existence verification¹¹ | request-queue, recommendation-enrichment (junk-artist filter) | none | keep |
-| Soundcharts | `server/app/services/soundcharts.py` | App API key (`x-app-id`/`x-api-key`, server-wide) | Audio features: energy + 9 others (never bpm/key/genre, see §3.1)¹²; discovery candidates (title/artist only)¹³; related-track candidates (title/artist only)¹⁴ | request-queue (audio-features step), recommendation-soundcharts-candidates (both generators) | **inconsistent across call sites** — see note below | keep |
+| Soundcharts | `server/app/services/soundcharts.py` | App API key (`x-app-id`/`x-api-key`, server-wide) | Audio features persisted: energy + 10 others (the client also returns tempo_bpm/key/genres, but the pipeline never writes them to the store — see §3.1)¹²; discovery candidates (title/artist only)¹³; related-track candidates (title/artist only)¹⁴ | request-queue (audio-features step), recommendation-soundcharts-candidates (both generators) | **inconsistent across call sites** — see note below | keep |
 | ListenBrainz | `server/app/services/listenbrainz.py` | **Differs by endpoint**: `lb_radio_discover` needs the server-wide `listenbrainz_user_token` (**not** per-DJ); `fetch_artist_popularity` is fully anonymous — it builds no `Authorization` header at all¹⁵ | Artist popularity counts; LB-Radio title/artist candidates¹⁶ — never genre/bpm/key/ISRC | recommendation-enrichment (LB Radio discovery + artist-popularity junk filter) | LB Radio: token presence. Popularity: **none** — it runs even on a deployment with no token configured¹⁵ | keep |
 
 **Note on Soundcharts' gate.** The client module has three independent call sites with three
@@ -501,9 +502,9 @@ endpoints, which never touch `SetPoolTrack.energy`).
 
 **GitHub issues/PRs cited.** #541, #542, #551, #552, #554, #556, #563 are cited as they appear in
 code comments at the file:line evidence above (not independently re-verified against live GitHub
-state this session). **#526 is the one exception — it is not code-comment-sourced.** A repo-wide
-grep this session (`grep -rn "526" server --include="*.py"`) returns zero matches: no `.py` file
-anywhere in the codebase contains the string "526", unlike every other issue number in this list.
+state this session). **#526 is the one exception — it is not code-comment-sourced.** A repo-root
+search this session (`rg -n --glob '*.py' '\b526\b' .`) returns zero matches: no `.py` file
+anywhere in the codebase contains the number 526, unlike every other issue number in this list.
 Every §1/§2/§4/§5 reference to #526 in this document instead describes `provenance.py`'s reserved,
 unwired `"lexicon": 90` precedence slot (`provenance.py:14`, which itself carries no issue-number
 comment) — the issue number was supplied from this audit's own knowledge of the tracker, not read

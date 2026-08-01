@@ -1,0 +1,104 @@
+# Dependabot runs alongside Mend Renovate (renovate.json) on purpose.
+#
+# Every Renovate run in this org was suppressed by Mend's platform-level
+# `mode=silent`, which blocked all PRs and Dependency Dashboards. Dependabot is
+# enabled here so dependency updates stay visible, and so the two tools can be
+# compared side by side before we settle on one. Expect duplicate PRs until then
+# -- that is intentional, not a misconfiguration.
+#
+# Ecosystem coverage mirrors the repo layout: three npm workspaces, one uv-managed
+# Python service, three Dockerfiles, and the workflow pins.
+version: 2
+
+updates:
+  # --- npm workspaces ---
+  - package-ecosystem: "npm"
+    directory: "/bridge"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 20
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      bridge-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+        # DJ protocol libs are manual-review only (see renovate.json); keep them
+        # out of the grouped PR so each arrives on its own and gets read.
+        exclude-patterns:
+          - "alphatheta-connect"
+          - "stagelinq"
+
+  - package-ecosystem: "npm"
+    directory: "/bridge-app"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 20
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      electron-forge:
+        patterns:
+          - "@electron-forge/*"
+      bridge-app-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+        exclude-patterns:
+          - "@electron-forge/*"
+          - "alphatheta-connect"
+          - "stagelinq"
+
+  - package-ecosystem: "npm"
+    directory: "/dashboard"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 20
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      dashboard-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # --- Python service (uv.lock + pyproject.toml) ---
+  - package-ecosystem: "uv"
+    directory: "/server"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 20
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      server-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # --- container base images ---
+  - package-ecosystem: "docker"
+    directories:
+      - "/bridge"
+      - "/dashboard"
+      - "/server"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(docker)"
+
+  # --- workflow action pins ---
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 20
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      github-actions-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"

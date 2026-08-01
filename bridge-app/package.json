@@ -11,7 +11,8 @@
     "lint": "eslint src/",
     "test": "vitest",
     "test:run": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "alphatheta-connect": "0.15.0",
@@ -36,6 +37,7 @@
     "electron": "^42.0.1",
     "eslint": "^10.3.0",
     "jsdom": "^29.1.1",
+    "patch-package": "^8.0.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "typescript": "^6.0.3",

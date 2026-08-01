@@ -1,0 +1,39 @@
+diff --git a/node_modules/stagelinq/dist/network/NetworkDevice.js b/node_modules/stagelinq/dist/network/NetworkDevice.js
+index a4e2c3b..7f9d1e8 100644
+--- a/node_modules/stagelinq/dist/network/NetworkDevice.js
++++ b/node_modules/stagelinq/dist/network/NetworkDevice.js
+@@ -44,7 +44,15 @@
+ const trackPath_1 = require("../utils/trackPath");
+ const assert_1 = require("assert");
+ const WriteContext_1 = require("../utils/WriteContext");
+-const FileType = __importStar(require("file-type"));
++
++function sniffImageType(buf) {
++    if (!buf || buf.length < 12) return undefined;
++    if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return { ext: 'jpg', mime: 'image/jpeg' };
++    if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return { ext: 'png', mime: 'image/png' };
++    if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return { ext: 'gif', mime: 'image/gif' };
++    if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 && buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return { ext: 'webp', mime: 'image/webp' };
++    return undefined;
++}
+ const fs = __importStar(require("fs"));
+ const tcp = __importStar(require("../utils/tcp"));
+ const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
+@@ -154,7 +162,7 @@
+         const albumArtExtensions = {};
+         for (const entry of result) {
+             // @ts-ignore
+-            const filetype = await FileType.fromBuffer(entry.albumArt);
++            const filetype = sniffImageType(entry.albumArt);
+             // @ts-ignore
+             if (filetype)
+                 albumArtExtensions[entry.id] = filetype.ext;
+@@ -179,7 +187,7 @@
+         }
+         const result = await this.querySource(p_sourceName, 'SELECT * FROM AlbumArt WHERE albumArt NOT NULL');
+         for (const entry of result) {
+-            const filetype = await FileType.fromBuffer(entry.albumArt);
++            const filetype = sniffImageType(entry.albumArt);
+             const ext = filetype ? '.' + filetype.ext : '';
+             const filepath = `${path}/${entry.id}${ext}`;
+             fs.writeFileSync(filepath, entry.albumArt);

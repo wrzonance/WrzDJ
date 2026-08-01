@@ -10,7 +10,8 @@
     "dev": "node --env-file=.env --watch --import tsx src/index.ts",
     "test": "vitest",
     "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "alphatheta-connect": "0.21.1",
@@ -21,6 +22,7 @@
   "devDependencies": {
     "@types/node": "^25.7.0",
     "@vitest/coverage-v8": "^4.1.6",
+    "patch-package": "^8.0.1",
     "tsx": "^4.0.0",
     "typescript": "^6.0.3",
     "vitest": "^4.0.0"

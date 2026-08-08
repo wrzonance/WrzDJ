@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "owner": "wrzonance",
+  "project": {
+    "number": 3,
+    "id": "PVT_kwDOEMq2wc4BYqYX",
+    "title": "WrzDJ"
+  },
+  "statusField": {
+    "id": "PVTSSF_lADOEMq2wc4BYqYXzhTukrA",
+    "name": "Status",
+    "options": {
+      "Backlog": "f75ad846",
+      "Ready": "08afe404",
+      "In progress": "47fc9ee4",
+      "In review": "4cc61d42",
+      "Done": "98236657"
+    }
+  },
+  "generatedAt": "2026-08-08T21:02:20Z",
+  "fingerprint": "sha256:fc811af4394dec0e9aa3ae75160a1364d29435c9af3a16163aaa7dfd04bb4cc4"
+}

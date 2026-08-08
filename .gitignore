@@ -82,3 +82,8 @@ notes/
 .claude/
 .superpowers/
 .worktrees/
+
+# agentkit: .agent/ is working state; these two files are the declaration
+.agent/*
+!.agent/config.env
+!.agent/board.json

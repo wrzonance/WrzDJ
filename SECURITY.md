@@ -9,6 +9,13 @@ covers the baseline (secrets, prompt-injection, dependency CVE/license policy).
 > in plaintext in the database — a retroactive fix. These rules prevent that class
 > of error from recurring.
 
+## Reporting a vulnerability
+
+Report suspected vulnerabilities privately through GitHub's advisory form:
+<https://github.com/wrzonance/WrzDJ/security/advisories/new>. Do not open a public
+issue for anything exploitable. Reports are acknowledged and triaged there, and a fix
+ships as a dated release (see `release.yml`) once verified.
+
 ## Sensitive Data at Rest
 
 - **Never store tokens, secrets, API keys, or credentials in plaintext.** Use the

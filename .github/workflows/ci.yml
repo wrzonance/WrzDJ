@@ -8,6 +8,10 @@ on:
   pull_request:
     branches: [main, develop]
 
+# Read-only default for every job; jobs that need more declare it themselves.
+permissions:
+  contents: read
+
 jobs:
   backend:
     name: Backend Tests

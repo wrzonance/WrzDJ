@@ -10,6 +10,10 @@ on:
         required: false
         default: 'all'
 
+# Read-only default for every job; jobs that need more declare it themselves.
+permissions:
+  contents: read
+
 jobs:
   validate-tag:
     name: Validate tag format
@@ -48,9 +52,14 @@ jobs:
       - name: Check platform filter
         id: filter
         shell: bash
+        env:
+          # Pass workflow inputs through env rather than expanding them inside
+          # the script (zizmor template-injection).
+          PLATFORMS_INPUT: ${{ inputs.platforms || 'all' }}
+          MATRIX_PLATFORM: ${{ matrix.platform }}
         run: |
-          PLATFORMS="${{ inputs.platforms || 'all' }}"
-          if [[ "$PLATFORMS" == "all" || "$PLATFORMS" == *"${{ matrix.platform }}"* ]]; then
+          PLATFORMS="$PLATFORMS_INPUT"
+          if [[ "$PLATFORMS" == "all" || "$PLATFORMS" == *"$MATRIX_PLATFORM"* ]]; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
           else
             echo "skip=true" >> "$GITHUB_OUTPUT"

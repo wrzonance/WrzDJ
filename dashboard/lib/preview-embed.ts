@@ -55,17 +55,33 @@ export function getPreviewSource(data: PreviewData): PreviewSourceType | null {
   const urlSource = detectSourceFromUrl(data.sourceUrl);
   if (urlSource) return urlSource;
   const src = data.source?.toLowerCase();
-  if (src === 'spotify' || src === 'tidal' || src === 'beatport') {
-    return src;
+  if (src === 'spotify' || src === 'tidal') return src;
+  // The Beatport branch renders an outbound link to sourceUrl, so the source
+  // field alone must not label a foreign URL as Beatport.
+  if (src === 'beatport' && (!data.sourceUrl || isBeatportHost(data.sourceUrl))) {
+    return 'beatport';
   }
   return null;
+}
+
+/**
+ * True only when the URL's host is beatport.com or a subdomain of it. A bare
+ * substring test would also match `https://evil.example/?beatport.com`.
+ */
+function isBeatportHost(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === 'beatport.com' || host.endsWith('.beatport.com');
+  } catch {
+    return false;
+  }
 }
 
 function detectSourceFromUrl(url: string | null | undefined): PreviewSourceType | null {
   if (!url) return null;
   if (SPOTIFY_TRACK_RE.test(url)) return 'spotify';
   if (TIDAL_TRACK_RE.test(url)) return 'tidal';
-  if (/beatport\.com/.test(url)) return 'beatport';
+  if (isBeatportHost(url)) return 'beatport';
   return null;
 }
 

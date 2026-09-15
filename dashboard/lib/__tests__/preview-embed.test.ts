@@ -124,3 +124,37 @@ describe('getEmbedUrl', () => {
     ).toBeNull();
   });
 });
+
+describe('Beatport source detection (host-anchored)', () => {
+  it('detects beatport.com and its subdomains by hostname', () => {
+    expect(
+      getPreviewSource({ sourceUrl: 'https://www.beatport.com/track/strobe/12345', source: 'unknown' })
+    ).toBe('beatport');
+    expect(
+      getPreviewSource({ sourceUrl: 'https://beatport.com/track/strobe/12345', source: 'unknown' })
+    ).toBe('beatport');
+  });
+
+  it('does not treat a foreign URL that merely mentions beatport.com as Beatport', () => {
+    expect(
+      getPreviewSource({ sourceUrl: 'https://evil.example/?ref=beatport.com', source: 'unknown' })
+    ).toBeNull();
+    expect(
+      getPreviewSource({ sourceUrl: 'https://beatport.com.evil.example/track/1', source: 'unknown' })
+    ).toBeNull();
+    expect(getPreviewSource({ sourceUrl: 'not a url beatport.com', source: 'unknown' })).toBeNull();
+  });
+});
+
+describe('source-field fallback for Beatport', () => {
+  it('still honours the source field when the URL is a Beatport host or absent', () => {
+    expect(
+      getPreviewSource({ source: 'beatport', sourceUrl: 'https://www.beatport.com/track/x/1' })
+    ).toBe('beatport');
+    expect(getPreviewSource({ source: 'beatport', sourceUrl: null })).toBe('beatport');
+  });
+
+  it('refuses to label a foreign URL as Beatport on the strength of the source field', () => {
+    expect(getPreviewSource({ source: 'beatport', sourceUrl: 'https://evil.example/' })).toBeNull();
+  });
+});

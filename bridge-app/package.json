@@ -45,7 +45,7 @@
     "node": ">=22.0.0"
   },
   "overrides": {
-    "fast-uri": "^3.1.2",
+    "fast-uri": "^3.1.7",
     "tar": "^7.5.16",
     "tmp": "^0.2.7",
     "@tootallnate/once": "^3.0.1",

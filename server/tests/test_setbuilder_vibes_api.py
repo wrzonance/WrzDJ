@@ -153,7 +153,8 @@ class TestVibesOwnership:
 
     def test_vibes_require_auth(self, client, set_id):
         assert client.get(f"/api/setbuilder/sets/{set_id}/pool/vibes").status_code == 401
-        assert client.post(f"/api/setbuilder/sets/{set_id}/pool/vibes/enrich").status_code == 401
+        anon_enrich = client.post(f"/api/setbuilder/sets/{set_id}/pool/vibes/enrich")
+        assert anon_enrich.status_code == 401
 
 
 class TestGetPoolVibes:

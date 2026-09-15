@@ -22,7 +22,13 @@ from app.schemas.now_playing import (
     PlayHistoryEntry,
     PlayHistoryResponse,
 )
-from app.services.bridge_integration import poll_commands, queue_command
+from app.services.bridge_integration import (
+    clear_now_playing,
+    handle_now_playing_update,
+    poll_commands,
+    queue_command,
+    update_bridge_status,
+)
 from app.services.event import (
     EventLookupResult,
     get_event_by_code_for_owner,
@@ -30,13 +36,7 @@ from app.services.event import (
     get_event_by_join_code_with_status,
 )
 from app.services.event_bus import publish_event
-from app.services.now_playing import (
-    clear_now_playing,
-    get_now_playing,
-    get_play_history,
-    handle_now_playing_update,
-    update_bridge_status,
-)
+from app.services.now_playing import get_now_playing, get_play_history
 from app.services.system_settings import get_system_settings
 
 router = APIRouter()

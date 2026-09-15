@@ -329,12 +329,8 @@ def test_org_connector_test_endpoint(client, admin_headers, db):
 
 def test_org_endpoints_404_for_user_scoped_rows(client, admin_headers, db, test_user):
     personal = _mk_user_connector(db, test_user.id)
-    assert (
-        client.delete(
-            f"/api/admin/llm/org-connectors/{personal.id}", headers=admin_headers
-        ).status_code
-        == 404
-    )
+    deleted = client.delete(f"/api/admin/llm/org-connectors/{personal.id}", headers=admin_headers)
+    assert deleted.status_code == 404
     assert (
         client.put(
             f"/api/admin/llm/org-connectors/{personal.id}/credentials",

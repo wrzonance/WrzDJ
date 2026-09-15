@@ -4,7 +4,7 @@
  * Tests the binary parsing functions in isolation using hand-crafted buffers
  * that replicate Serato's session file format.
  */
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
   decodeUtf16BE,
   parseAdatContent,

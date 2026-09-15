@@ -177,12 +177,10 @@ export function parseSessionBytes(buf: Buffer): ParseResult {
   while (pos + 8 <= buf.length) {
     const tag = readTag(buf, pos);
     const chunkLen = readU32(buf, pos + 4);
-    const chunkStart = pos;
     pos += 8;
 
     if (pos + chunkLen > buf.length) {
-      // Incomplete chunk — rewind to the start of this chunk
-      pos = chunkStart;
+      // Incomplete chunk — stop here; bytesConsumed stays at the last complete chunk
       break;
     }
 

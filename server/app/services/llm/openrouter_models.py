@@ -87,7 +87,8 @@ async def get_openrouter_models(*, force_refresh: bool = False) -> list[AIModelI
     models = _parse_models(body)
     if models:
         _cache = (_now(), models)
-    elif _cache is not None:
+        return _cache[1]
+    if _cache is not None:
         # Empty parse but we had a prior good list — keep serving it.
         return _cache[1]
     return models

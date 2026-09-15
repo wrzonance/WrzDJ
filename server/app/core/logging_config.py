@@ -2,7 +2,8 @@ import logging
 import logging.handlers
 import os
 
-_CONFIGURED = False
+# Mutable guard so repeat configure_logging() calls are no-ops.
+_state = {"configured": False}
 
 
 class _SingleLineFormatter(logging.Formatter):
@@ -42,10 +43,9 @@ def configure_logging() -> None:
 
     Call once at application startup before any loggers emit messages.
     """
-    global _CONFIGURED
-    if _CONFIGURED:
+    if _state["configured"]:
         return
-    _CONFIGURED = True
+    _state["configured"] = True
 
     from pythonjsonlogger.json import JsonFormatter
 

@@ -624,7 +624,7 @@ def _parse_duration(length_str: str | None) -> int | None:
         if len(parts) == 3:
             return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
     except (ValueError, IndexError):
-        pass
+        pass  # unparseable duration string: report unknown length
     return None
 
 

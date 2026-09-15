@@ -26,9 +26,23 @@ MUSICBRAINZ_BASE = "https://musicbrainz.org/ws/2"
 USER_AGENT = "WrzDJ/1.0 (https://github.com/wrzdjband/WrzDJ)"
 HTTP_TIMEOUT = 10.0
 
-# Thread-safe throttle: MusicBrainz enforces 1 req/sec
-_throttle_lock = threading.Lock()
-_last_request_time: float = 0.0
+
+class _Throttle:
+    """Thread-safe pacing for MusicBrainz's 1 request/second limit."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.last_request_time = 0.0
+
+    def wait(self) -> None:
+        with self.lock:
+            elapsed = time.monotonic() - self.last_request_time
+            if elapsed < 1.0:
+                time.sleep(1.0 - elapsed)
+            self.last_request_time = time.monotonic()
+
+
+_throttle = _Throttle()
 
 
 def _throttled_get(url: str, params: dict) -> dict | None:
@@ -36,13 +50,7 @@ def _throttled_get(url: str, params: dict) -> dict | None:
 
     Returns parsed JSON or None on any error.
     """
-    global _last_request_time
-
-    with _throttle_lock:
-        elapsed = time.monotonic() - _last_request_time
-        if elapsed < 1.0:
-            time.sleep(1.0 - elapsed)
-        _last_request_time = time.monotonic()
+    _throttle.wait()
 
     try:
         with httpx.Client(timeout=HTTP_TIMEOUT) as client:

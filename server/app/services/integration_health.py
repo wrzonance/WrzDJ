@@ -92,7 +92,6 @@ def _check_beatport_capabilities() -> ServiceCapabilities:
             playlist_sync=CapabilityStatus.NOT_CONFIGURED,
         )
 
-    auth_status = CapabilityStatus.CONFIGURED
     try:
         import httpx
 

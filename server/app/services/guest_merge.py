@@ -1,6 +1,5 @@
 """Guest merge service — consolidates two Guest records into one."""
 
-import logging
 from dataclasses import dataclass
 
 from sqlalchemy import case, update
@@ -10,8 +9,6 @@ from app.models.guest import Guest
 from app.models.guest_profile import GuestProfile
 from app.models.request import Request
 from app.models.request_vote import RequestVote
-
-_logger = logging.getLogger("app.guest.merge")
 
 
 @dataclass

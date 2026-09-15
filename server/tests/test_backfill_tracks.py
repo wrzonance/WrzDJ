@@ -10,7 +10,6 @@ with none), runs the backfill, and asserts:
 import app.scripts.backfill_tracks as bf
 from app.models.request import Request, RequestStatus
 from app.models.track import Track
-from app.scripts.backfill_tracks import backfill_tracks
 from app.services.setbuilder.pool import dedupe_signature
 
 
@@ -42,7 +41,7 @@ def test_backfill_creates_legacy_tracks(db, test_event):
     )
     db.commit()
 
-    result = backfill_tracks(db)
+    result = bf.backfill_tracks(db)
 
     assert result["scanned"] == 1
     assert result["upserted"] == 1
@@ -70,7 +69,7 @@ def test_backfill_partial_metadata_only_writes_present_fields(db, test_event):
     )
     db.commit()
 
-    backfill_tracks(db)
+    bf.backfill_tracks(db)
 
     sig = dedupe_signature("Deadmau5", "Strobe")
     track = db.query(Track).filter(Track.signature == sig).one()
@@ -93,7 +92,7 @@ def test_backfill_skips_requests_with_no_metadata(db, test_event):
     )
     db.commit()
 
-    result = backfill_tracks(db)
+    result = bf.backfill_tracks(db)
 
     assert result["scanned"] == 0
     assert result["upserted"] == 0
@@ -121,7 +120,7 @@ def test_backfill_duplicate_song_collapses_to_one_row(db, test_event):
     )
     db.commit()
 
-    result = backfill_tracks(db)
+    result = bf.backfill_tracks(db)
 
     assert result["scanned"] == 2
     sig = dedupe_signature("Avicii", "Levels")
@@ -145,7 +144,7 @@ def test_backfill_is_idempotent(db, test_event):
     )
     db.commit()
 
-    backfill_tracks(db)
+    bf.backfill_tracks(db)
     sig = dedupe_signature("Daft Punk", "One More Time")
     first = db.query(Track).filter(Track.signature == sig).one()
     first_id = first.id
@@ -153,7 +152,7 @@ def test_backfill_is_idempotent(db, test_event):
     rows_before = db.query(Track).count()
 
     # Second run must add no rows and change no values.
-    result = backfill_tracks(db)
+    result = bf.backfill_tracks(db)
     rows_after = db.query(Track).count()
     assert rows_after == rows_before, "re-run must not create new rows"
 
@@ -202,7 +201,7 @@ def test_backfill_isolates_a_failing_row(db, test_event, monkeypatch):
 
     monkeypatch.setattr(bf, "upsert_track", flaky_upsert)
 
-    result = backfill_tracks(db)
+    result = bf.backfill_tracks(db)
 
     assert result["errors"] == 1
     assert result["upserted"] == 1  # the good row survived the bad row's failure

@@ -8,7 +8,7 @@ interface OnboardingOverlayProps {
 }
 
 export function OnboardingOverlay({ page }: OnboardingOverlayProps) {
-  const { onboardingActive, currentStep, activeSpotId, getSpotsForPage, nextStep, prevStep, skipOnboarding } = useHelp();
+  const { onboardingActive, currentStep, getSpotsForPage, nextStep, prevStep, skipOnboarding } = useHelp();
   const [spotRect, setSpotRect] = useState<DOMRect | null>(null);
 
   const spots = getSpotsForPage(page);

@@ -1100,19 +1100,17 @@ export default function EventQueuePage() {
               >
                 Event Management
               </button>
-              {event && (
-                <button
-                  className={`event-tab${activeTab === 'pre-event' ? ' active' : ''}`}
-                  onClick={() => setActiveTab('pre-event')}
-                >
-                  Pre-Event Voting
-                  {'collection_opens_at' in event && event.collection_opens_at == null && (
-                    <span style={{ marginLeft: 6, fontSize: '0.75em', opacity: 0.7 }}>
-                      (off)
-                    </span>
-                  )}
-                </button>
-              )}
+              <button
+                className={`event-tab${activeTab === 'pre-event' ? ' active' : ''}`}
+                onClick={() => setActiveTab('pre-event')}
+              >
+                Pre-Event Voting
+                {'collection_opens_at' in event && event.collection_opens_at == null && (
+                  <span style={{ marginLeft: 6, fontSize: '0.75em', opacity: 0.7 }}>
+                    (off)
+                  </span>
+                )}
+              </button>
             </div>
           </HelpSpot>
 

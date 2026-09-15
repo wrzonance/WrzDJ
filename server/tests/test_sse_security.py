@@ -9,6 +9,7 @@ could open unlimited long-lived SSE connections (DoS) or brute-force
 See docs/security/audit-2026-04-08.md CRIT-5.
 """
 
+import contextlib
 from datetime import timedelta
 
 import pytest
@@ -95,17 +96,14 @@ class TestSseRateLimit:
 
         original_enabled = limiter.enabled
         limiter.enabled = True
-        try:
-            # Clear any residual rate-limit state from prior tests
+        # Clear any residual rate-limit state from prior tests; the storage
+        # backend may have nothing to reset.
+        with contextlib.suppress(Exception):
             limiter.reset()
-        except Exception:
-            pass
         yield
         limiter.enabled = original_enabled
-        try:
+        with contextlib.suppress(Exception):
             limiter.reset()
-        except Exception:
-            pass
 
     def test_sse_rate_limited_per_ip(
         self,

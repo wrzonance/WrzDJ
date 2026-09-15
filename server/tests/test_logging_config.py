@@ -19,11 +19,11 @@ def clean_root_logger():
     root = logging.getLogger()
     original_handlers = list(root.handlers)
     original_level = root.level
-    original_configured = logging_config._CONFIGURED
+    original_configured = logging_config._state["configured"]
     root.handlers.clear()
-    logging_config._CONFIGURED = False
+    logging_config._state["configured"] = False
     yield
-    logging_config._CONFIGURED = original_configured
+    logging_config._state["configured"] = original_configured
     _reset_root_logger(original_handlers, original_level)
 
 

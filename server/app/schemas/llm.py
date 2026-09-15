@@ -17,7 +17,7 @@ from app.models.llm_feature_preference import KNOWN_FEATURES
 # (``test_feature_key_literal_matches_known_features``) guards that the Literal
 # and ``KNOWN_FEATURES`` never drift apart.
 FeatureKey = Literal["recommendation", "set_builder"]
-KNOWN_FEATURE_VALUES: tuple[str, ...] = tuple(sorted(KNOWN_FEATURES))
+KNOWN_FEATURE_VALUES = tuple(sorted(KNOWN_FEATURES))
 
 ConnectorType = Literal[
     "openai_apikey",

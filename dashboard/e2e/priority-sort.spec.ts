@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { createTestApi, setupAuth, waitForPage, TEST_TRACKS, type TestApi } from './helpers';
+import { createTestApi, setupAuth, waitForPage, type TestApi } from './helpers';
 
 /**
  * E2E tests for the Smart Request Sorting (priority sort) feature.

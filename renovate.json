@@ -12,7 +12,7 @@
     },
     {
       "description": "Group electron-forge updates",
-      "matchPackagePatterns": ["^@electron-forge/"],
+      "matchPackageNames": ["/^@electron-forge//"],
       "groupName": "electron-forge"
     }
   ]

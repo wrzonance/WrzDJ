@@ -1,0 +1,45 @@
+# OpenSSF Scorecard: a weekly regression gate on our own supply-chain posture
+# (unpinned actions, over-broad token permissions, dangerous workflow patterns,
+# branch-protection drift). Results land in the Security tab as SARIF and are
+# published to the OpenSSF API so the public scorecard stays current (#578).
+name: OpenSSF Scorecard
+
+on:
+  branch_protection_rule:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "30 7 * * 1" # Weekly on Monday 07:30 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read # lets the CI-Tests / Token-Permissions checks read workflow runs
+      security-events: write # upload SARIF
+      id-token: write # publish_results signs the upload with an OIDC token
+
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Run Scorecard
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - name: Upload SARIF to code scanning
+        uses: github/codeql-action/upload-sarif@9e0d7b8d25671d64c341c19c0152d693099fb5ba # v4.35.5
+        with:
+          sarif_file: results.sarif
+          category: ossf-scorecard

@@ -13,3 +13,9 @@ name: "WrzDJ CodeQL Config"
 # on a single-purpose kiosk appliance (not the main backend).
 paths-ignore:
   - kiosk/wifi-portal/portal.py
+
+# Run the broader security-extended suite instead of the default high-precision
+# "security" pack. It adds lower-precision taint sources/sinks; triage the extra
+# findings (fix or dismiss with a reason) rather than reverting this (#578).
+queries:
+  - uses: security-extended

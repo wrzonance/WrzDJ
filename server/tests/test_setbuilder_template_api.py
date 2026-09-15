@@ -352,7 +352,8 @@ def test_delete_template_owner_scoped_404(client, auth_headers, db, test_user):
 def test_template_routes_require_auth(client, db, test_user, pending_headers):
     _seed_set(db, test_user.id)
     assert client.get("/api/setbuilder/set-templates").status_code == 401
-    assert client.post("/api/setbuilder/set-templates/1/instantiate", json={}).status_code == 401
+    anon_instantiate = client.post("/api/setbuilder/set-templates/1/instantiate", json={})
+    assert anon_instantiate.status_code == 401
     anon_delete = client.delete("/api/setbuilder/set-templates/1")
     assert anon_delete.status_code == 401
     assert client.get("/api/setbuilder/set-templates", headers=pending_headers).status_code == 403

@@ -228,9 +228,12 @@ def test_share_routes_owner_scoped(client, auth_headers, db, test_user):
 
 def test_share_routes_require_auth(client, db, test_user, pending_headers):
     src = _seed_set(db, test_user.id)
-    assert client.post(f"/api/setbuilder/sets/{src.id}/share").status_code == 401
-    assert client.delete(f"/api/setbuilder/sets/{src.id}/share").status_code == 401
-    assert client.post(f"/api/setbuilder/sets/{src.id}/duplicate").status_code == 401
+    anon_share = client.post(f"/api/setbuilder/sets/{src.id}/share")
+    assert anon_share.status_code == 401
+    anon_unshare = client.delete(f"/api/setbuilder/sets/{src.id}/share")
+    assert anon_unshare.status_code == 401
+    anon_duplicate = client.post(f"/api/setbuilder/sets/{src.id}/duplicate")
+    assert anon_duplicate.status_code == 401
     pending_share = client.post(f"/api/setbuilder/sets/{src.id}/share", headers=pending_headers)
     assert pending_share.status_code == 403
     pending_duplicate = client.post(

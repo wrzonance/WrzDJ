@@ -4,6 +4,10 @@ WORKDIR /app
 
 # Install system dependencies. `apt-get upgrade` pulls the Debian security
 # updates published since the pinned base-image digest was built (Trivy gate).
+# Trade-off, chosen deliberately: this layer resolves against Debian's mutable
+# repositories, so the build is only as reproducible as the digest pin above,
+# and Docker keeps the cached layer until that pin changes. Renovate bumps the
+# digest as new base images ship, which is what refreshes this layer.
 RUN apt-get update && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends \
     gcc \
@@ -13,7 +17,7 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends \
 
 # Copy requirements and install dependencies
 COPY pyproject.toml .
-RUN pip install --upgrade "pip>=26.1" "setuptools>=83.0.0"
+RUN pip install --no-cache-dir --upgrade "pip>=26.1" "setuptools>=83.0.0"
 RUN pip install --no-cache-dir -e .
 
 # Copy application code

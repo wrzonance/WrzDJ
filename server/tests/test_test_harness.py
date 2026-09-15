@@ -53,8 +53,6 @@ def test_no_background_test_client_skips_lifespan_tasks():
 
 def test_real_lifespan_starts_and_cancels_background_tasks():
     async def neverending():
-        import asyncio
-
         await asyncio.Event().wait()
 
     with (

@@ -218,16 +218,12 @@ def test_share_revoke(client, auth_headers, db, test_user):
 def test_share_routes_owner_scoped(client, auth_headers, db, test_user):
     other = _make_second_dj(db)
     theirs = _seed_set(db, other.id)
-    assert (
-        client.post(f"/api/setbuilder/sets/{theirs.id}/share", headers=auth_headers).status_code
-        == 404
-    )
+    shared = client.post(f"/api/setbuilder/sets/{theirs.id}/share", headers=auth_headers)
+    assert shared.status_code == 404
     unshared = client.delete(f"/api/setbuilder/sets/{theirs.id}/share", headers=auth_headers)
     assert unshared.status_code == 404
-    assert (
-        client.post(f"/api/setbuilder/sets/{theirs.id}/duplicate", headers=auth_headers).status_code
-        == 404
-    )
+    duplicated = client.post(f"/api/setbuilder/sets/{theirs.id}/duplicate", headers=auth_headers)
+    assert duplicated.status_code == 404
 
 
 def test_share_routes_require_auth(client, db, test_user, pending_headers):
@@ -237,10 +233,10 @@ def test_share_routes_require_auth(client, db, test_user, pending_headers):
     assert client.post(f"/api/setbuilder/sets/{src.id}/duplicate").status_code == 401
     pending_share = client.post(f"/api/setbuilder/sets/{src.id}/share", headers=pending_headers)
     assert pending_share.status_code == 403
-    assert (
-        client.post(f"/api/setbuilder/sets/{src.id}/duplicate", headers=pending_headers).status_code
-        == 403
+    pending_duplicate = client.post(
+        f"/api/setbuilder/sets/{src.id}/duplicate", headers=pending_headers
     )
+    assert pending_duplicate.status_code == 403
 
 
 def test_set_list_surfaces_share_state(client, auth_headers, db, test_user):

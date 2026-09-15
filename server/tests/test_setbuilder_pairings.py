@@ -238,27 +238,21 @@ def test_pairing_routes_require_active_dj(client, auth_headers, pending_headers)
         client.post(f"/api/setbuilder/sets/{set_obj['id']}/pairings", json=payload).status_code
         == 401
     )
-    assert (
-        client.get(
-            f"/api/setbuilder/sets/{set_obj['id']}/pairings", headers=pending_headers
-        ).status_code
-        == 403
+    pending_list = client.get(
+        f"/api/setbuilder/sets/{set_obj['id']}/pairings", headers=pending_headers
     )
-    assert (
-        client.post(
-            f"/api/setbuilder/sets/{set_obj['id']}/pairings",
-            json=payload,
-            headers=pending_headers,
-        ).status_code
-        == 403
+    assert pending_list.status_code == 403
+    pending_create = client.post(
+        f"/api/setbuilder/sets/{set_obj['id']}/pairings",
+        json=payload,
+        headers=pending_headers,
     )
-    assert (
-        client.patch(
-            f"/api/setbuilder/sets/{set_obj['id']}/pairings/1",
-            json={"note": "x"},
-        ).status_code
-        == 401
+    assert pending_create.status_code == 403
+    anon_patch = client.patch(
+        f"/api/setbuilder/sets/{set_obj['id']}/pairings/1",
+        json={"note": "x"},
     )
+    assert anon_patch.status_code == 401
     assert client.delete(f"/api/setbuilder/sets/{set_obj['id']}/pairings/1").status_code == 401
     pending_patch = client.patch(
         f"/api/setbuilder/sets/{set_obj['id']}/pairings/1",

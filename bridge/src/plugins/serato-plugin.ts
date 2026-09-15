@@ -19,7 +19,11 @@
  *   - https://github.com/whatsnowplaying/whats-now-playing (Python, MIT)
  */
 import { EventEmitter } from "events";
-import { readFileSync, statSync, watch, type FSWatcher } from "fs";
+import { closeSync, fstatSync, openSync, readSync, statSync, watch, type FSWatcher } from "fs";
+
+function isMissingFileError(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as NodeJS.ErrnoException).code === "ENOENT";
+}
 
 import type {
   EquipmentSourcePlugin,
@@ -200,39 +204,37 @@ export class SeratoPlugin extends EventEmitter implements EquipmentSourcePlugin 
       return;
     }
 
-    let fileSize: number;
+    // Open once and fstat/read through the same descriptor: sizing the read
+    // from a separate stat() would be a check-then-act race against Serato's
+    // writer (CodeQL js/file-system-race). Only the bytes past fileOffset are
+    // read, so a growing session file is not re-read from the start each poll.
+    let fd: number;
     try {
-      const stat = statSync(this.sessionPath);
-      fileSize = stat.size;
-    } catch {
-      // File may have been deleted — try to find a new one
-      this.sessionPath = null;
-      this.emit("connection", { connected: false });
+      fd = openSync(this.sessionPath, "r");
+    } catch (err) {
+      if (isMissingFileError(err)) {
+        // File was deleted or rotated — try to find a new one
+        this.sessionPath = null;
+        this.emit("connection", { connected: false });
+        return;
+      }
+      this.recordReadError(err);
       return;
     }
 
-    if (fileSize <= this.fileOffset) return;
-
-    // Read new bytes
     let newBytes: Buffer;
     try {
-      const contents = readFileSync(this.sessionPath);
-      // Slice against the bytes actually read: the file may have grown (or been
-      // rewritten) between the stat above and this read.
-      if (contents.length <= this.fileOffset) return;
-      newBytes = contents.subarray(this.fileOffset);
+      const fileSize = fstatSync(fd).size;
+      if (fileSize <= this.fileOffset) return;
+      const length = fileSize - this.fileOffset;
+      const buffer = Buffer.alloc(length);
+      const bytesRead = readSync(fd, buffer, 0, length, this.fileOffset);
+      newBytes = buffer.subarray(0, bytesRead);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.emit("log", `Error reading session file: ${message}`);
-      this.consecutiveReadErrors += 1;
-      if (this.consecutiveReadErrors >= 5) {
-        this.emit("log", `Session file unreadable after ${this.consecutiveReadErrors} attempts — rescanning`);
-        this.sessionPath = null;
-        this.fileOffset = 0;
-        this.consecutiveReadErrors = 0;
-        this.emit("connection", { connected: false });
-      }
+      this.recordReadError(err);
       return;
+    } finally {
+      closeSync(fd);
     }
 
     this.consecutiveReadErrors = 0;
@@ -244,6 +246,20 @@ export class SeratoPlugin extends EventEmitter implements EquipmentSourcePlugin 
 
     for (const entry of result.entries) {
       this.processEntry(entry);
+    }
+  }
+
+  /** Count a failed read; after five in a row, drop the file and rescan. */
+  private recordReadError(err: unknown): void {
+    const message = err instanceof Error ? err.message : String(err);
+    this.emit("log", `Error reading session file: ${message}`);
+    this.consecutiveReadErrors += 1;
+    if (this.consecutiveReadErrors >= 5) {
+      this.emit("log", `Session file unreadable after ${this.consecutiveReadErrors} attempts — rescanning`);
+      this.sessionPath = null;
+      this.fileOffset = 0;
+      this.consecutiveReadErrors = 0;
+      this.emit("connection", { connected: false });
     }
   }
 

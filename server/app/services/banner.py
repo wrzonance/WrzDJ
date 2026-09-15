@@ -150,15 +150,20 @@ def process_banner_upload(file: UploadFile, event_code: str) -> tuple[str, str, 
     if size == 0:
         raise ValueError("File is empty.")
 
-    # Open and validate image format
+    # Image.open() is lazy (header sniff only); check the allowlist BEFORE .load()
+    # so only the four permitted decoders ever see the uploaded bytes (#583).
     try:
         img = Image.open(file.file)
-        img.load()  # Force full read to catch truncated files
     except Exception:
         raise ValueError("Invalid or corrupt image file.")
 
     if img.format not in ALLOWED_FORMATS:
         raise ValueError(f"Unsupported image format '{img.format}'. Use JPEG, PNG, GIF, or WebP.")
+
+    try:
+        img.load()  # Force full read to catch truncated files
+    except Exception:
+        raise ValueError("Invalid or corrupt image file.")
 
     # Convert to RGB (WebP output, drop alpha)
     if img.mode in ("RGBA", "LA", "P", "PA"):

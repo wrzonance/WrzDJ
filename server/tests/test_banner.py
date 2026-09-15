@@ -135,6 +135,21 @@ class TestProcessBannerUpload:
         with pytest.raises(ValueError, match="Unsupported"):
             process_banner_upload(upload, "TEST01")
 
+    def test_unsupported_format_rejected_before_decode(self):
+        # Regression for #583: the allowlist must gate the decoder. Image.open()
+        # only reads the header; a non-allowlisted format must be rejected before
+        # .load() hands attacker bytes to that format's decoder.
+        img = _make_rgb_image()
+        buf = io.BytesIO()
+        img.save(buf, format="BMP")
+        buf.seek(0)
+        upload = UploadFile(file=buf, filename="test.bmp")
+        decode_guard = patch.object(
+            Image.Image, "load", side_effect=AssertionError("decoded before allowlist")
+        )
+        with decode_guard, pytest.raises(ValueError, match="Unsupported"):
+            process_banner_upload(upload, "TEST01")
+
     @patch("app.services.banner._get_banners_dir")
     def test_handles_rgba_image(self, mock_dir, tmp_path):
         mock_dir.return_value = tmp_path

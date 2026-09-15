@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.time import utcnow
 from app.models.pending_email_change import PendingEmailChange
 from app.models.user import User
-from app.services.account import (  # noqa: F401
+from app.services.account import (
     EmailTakenError,
     TokenExpiredError,
     TokenNotFoundError,
@@ -18,7 +18,6 @@ from app.services.account import (  # noqa: F401
     change_password,
     confirm_email_change,
     get_active_pending_email_change,
-    invalidate_pending_email_changes,
     request_email_change,
 )
 from app.services.auth import verify_password

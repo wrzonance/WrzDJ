@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import logging
 import mimetypes
 from contextlib import asynccontextmanager
@@ -131,9 +130,8 @@ async def lifespan(app: FastAPI, *, run_background_tasks: bool = True):
     finally:
         for task in tasks:
             task.cancel()
-        for task in tasks:
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+        # Cancelled children surface as CancelledError results, not raises.
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 @asynccontextmanager

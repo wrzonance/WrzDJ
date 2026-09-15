@@ -319,7 +319,7 @@ def get_expired_events_for_user(db: Session, user: User) -> list[tuple[Event, in
         .outerjoin(Request, Request.event_id == Event.id)
         .filter(
             Event.created_by_user_id == user.id,
-            Event.archived_at == None,
+            Event.archived_at.is_(None),
             (Event.expires_at <= utcnow()) | (Event.is_active == False),
         )
         .group_by(Event.id)

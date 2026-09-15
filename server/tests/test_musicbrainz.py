@@ -7,6 +7,7 @@ import pytest
 
 from app.services.musicbrainz import (
     USER_AGENT,
+    _throttle,
     _throttled_get,
     check_artist_exists,
     lookup_artist_genre,
@@ -17,9 +18,7 @@ from app.services.musicbrainz import (
 @pytest.fixture(autouse=True)
 def _reset_throttle():
     """Reset the throttle timer between tests."""
-    import app.services.musicbrainz as mb
-
-    mb._last_request_time = 0.0
+    _throttle.last_request_time = 0.0
     yield
 
 

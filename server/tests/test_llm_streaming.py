@@ -249,10 +249,10 @@ class _FakeStreamClient:
         client = self
 
         class _Ctx:
-            async def __aenter__(self_inner):
+            async def __aenter__(self):
                 return client._response
 
-            async def __aexit__(self_inner, *exc):
+            async def __aexit__(self, *exc):
                 return False
 
         return _Ctx()
@@ -270,8 +270,10 @@ async def test_stream_openai_chat_yields_text_then_final(monkeypatch):
         "",
         'data: {"choices":[{"delta":{"content":" there"},"finish_reason":null}]}',
         "",
-        'data: {"choices":[{"delta":{},"finish_reason":"stop"}],'
-        '"usage":{"prompt_tokens":4,"completion_tokens":2}}',
+        (
+            'data: {"choices":[{"delta":{},"finish_reason":"stop"}],'
+            + '"usage":{"prompt_tokens":4,"completion_tokens":2}}'
+        ),
         "",
         "data: [DONE]",
         "",

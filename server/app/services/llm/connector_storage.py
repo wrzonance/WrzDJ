@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from datetime import datetime
 from typing import Any
 
@@ -46,8 +45,6 @@ from app.services.llm.url_validator import (
     InvalidBaseUrlError,
     validate_compatible_base_url,
 )
-
-logger = logging.getLogger(__name__)
 
 
 def list_connectors_for_user(db: Session, user_id: int) -> list[LlmConnector]:

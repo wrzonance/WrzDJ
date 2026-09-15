@@ -152,7 +152,7 @@ def scan_wifi():
             try:
                 sig = int(parts[1])
             except ValueError:
-                pass
+                pass  # nmcli printed no numeric signal; keep 0
             security = parts[2].strip() if parts[2].strip() else "Open"
             networks.append({
                 "ssid": ssid,
@@ -287,7 +287,7 @@ def get_connection_status():
                 status["ssid"] = parts[3]
                 break
     except Exception:
-        pass
+        pass  # nmcli missing/failed: report disconnected
     if status["connected"]:
         try:
             result = subprocess.run(
@@ -301,7 +301,7 @@ def get_connection_status():
                     status["ip"] = addr
                     break
         except Exception:
-            pass
+            pass  # nmcli missing/failed: leave ip blank
         status["internet"] = check_internet()
     return status
 
@@ -689,7 +689,8 @@ class PortalHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = self.path.split("?")[0]
         if path == "/api/connect":
-            return self._handle_connect()
+            self._handle_connect()
+            return
         self._send_json({"error": "Not found"}, 404)
 
     def _handle_root(self):
@@ -867,7 +868,7 @@ def main():
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        pass
+        pass  # Ctrl-C is a normal shutdown path; cleanup runs in finally
     finally:
         if PortalHandler.hotspot_active:
             stop_hotspot()

@@ -793,15 +793,6 @@ describe("PluginBridge", () => {
 
     it("resets backoff on successful reconnection", async () => {
       plugin = createMockPlugin();
-      let failNext = false;
-      const originalStart = plugin.start.bind(plugin);
-      (plugin as unknown as Record<string, unknown>).start = async (config?: Record<string, unknown>) => {
-        if (failNext) {
-          failNext = false;
-          throw new Error("Connection failed");
-        }
-        return originalStart(config);
-      };
       bridge = new PluginBridge(plugin, DEFAULT_CONFIG);
       await bridge.start();
 

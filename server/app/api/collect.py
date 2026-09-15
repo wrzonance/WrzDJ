@@ -37,7 +37,6 @@ from app.schemas.collect import (
     CollectProfileResponse,
     CollectSubmitRequest,
     CollectVoteRequest,
-    EnrichPreviewItem,  # noqa: F401
     EnrichPreviewRequest,
     EnrichPreviewResponse,
     EnrichPreviewResult,
@@ -118,7 +117,7 @@ def _banner_colors_for_event(event: Event) -> list[str] | None:
         if isinstance(value, list) and all(isinstance(c, str) for c in value):
             return value
     except (_json.JSONDecodeError, TypeError):
-        pass
+        pass  # malformed stored value: treat as no custom colours
     return None
 
 

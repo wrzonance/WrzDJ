@@ -4,12 +4,9 @@ Tests pure logic (config parsing, nmcli output parsing, HTML generation,
 input validation) without requiring a Raspberry Pi or network access.
 """
 
-import json
 import os
 import tempfile
 from unittest import mock
-
-import pytest
 
 # Import portal module from the kiosk wifi-portal directory.
 # We need to add its parent to sys.path since it's not a regular package.

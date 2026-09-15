@@ -260,21 +260,17 @@ def test_pairing_routes_require_active_dj(client, auth_headers, pending_headers)
         == 401
     )
     assert client.delete(f"/api/setbuilder/sets/{set_obj['id']}/pairings/1").status_code == 401
-    assert (
-        client.patch(
-            f"/api/setbuilder/sets/{set_obj['id']}/pairings/1",
-            json={"note": "x"},
-            headers=pending_headers,
-        ).status_code
-        == 403
+    pending_patch = client.patch(
+        f"/api/setbuilder/sets/{set_obj['id']}/pairings/1",
+        json={"note": "x"},
+        headers=pending_headers,
     )
-    assert (
-        client.delete(
-            f"/api/setbuilder/sets/{set_obj['id']}/pairings/1",
-            headers=pending_headers,
-        ).status_code
-        == 403
+    assert pending_patch.status_code == 403
+    pending_delete = client.delete(
+        f"/api/setbuilder/sets/{set_obj['id']}/pairings/1",
+        headers=pending_headers,
     )
+    assert pending_delete.status_code == 403
 
 
 def test_delete_pairing_removes_timeline_marker(client, auth_headers, db):

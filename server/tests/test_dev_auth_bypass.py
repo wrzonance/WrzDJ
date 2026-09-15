@@ -15,7 +15,6 @@ from unittest.mock import patch
 import pytest
 from cryptography.fernet import Fernet
 
-import app.core.config as config
 from app.core.config import Settings, validate_settings
 
 
@@ -72,7 +71,7 @@ class TestGateBypassIntegration:
     def test_bypass_lets_gated_endpoint_through(self, client, test_event):
         client.cookies.clear()
         bypass = Settings(env="development", dev_auth_bypass=True)
-        with patch.object(config, "get_settings", lambda: bypass):
+        with patch("app.core.config.get_settings", lambda: bypass):
             r = client.get(f"/api/public/collect/{test_event.code}/profile")
         assert r.status_code == 200, r.text
 
@@ -84,7 +83,7 @@ class TestGateBypassIntegration:
         r = client.post(f"/api/requests/{test_request.id}/vote")
         assert r.status_code == 401
         bypass = Settings(env="development", dev_auth_bypass=True)
-        with patch.object(config, "get_settings", lambda: bypass):
+        with patch("app.core.config.get_settings", lambda: bypass):
             r2 = client.post(f"/api/requests/{test_request.id}/vote")
         # Identity resolved by the bypass → NOT 401 (200 vote, or a post-identity
         # votability status — never the "guest identity required" 401).
@@ -122,7 +121,7 @@ class TestLeakedDevGuestCannotBackdoorProd:
 
         gid = _dev_bypass_guest_id(db)
         bypass = Settings(env="development", dev_auth_bypass=True)
-        with patch.object(config, "get_settings", lambda: bypass):
+        with patch("app.core.config.get_settings", lambda: bypass):
             assert get_guest_id(self._req(_DEV_BYPASS_GUEST_TOKEN), db) == gid
 
     def test_normal_token_still_resolves_when_bypass_off(self, db):

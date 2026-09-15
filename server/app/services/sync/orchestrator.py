@@ -21,11 +21,7 @@ from sqlalchemy.orm import Session
 from app.models.request import Request
 from app.services.intent_parser import parse_intent
 from app.services.sync.base import SyncResult, SyncStatus, TrackMatch, sanitize_sync_error
-from app.services.sync.enrichment_pipeline import (  # noqa: F401
-    _extract_source_track_id,
-    _get_isrc_from_spotify,
-    enrich_request_metadata,
-)
+from app.services.sync.enrichment_pipeline import enrich_request_metadata
 from app.services.sync.registry import get_connected_adapters
 from app.services.track_normalizer import normalize_track
 
@@ -263,7 +259,7 @@ def _is_already_synced(request: Request, service_name: str) -> bool:
                     r.get("service") == service_name and r.get("status") == "added" for r in parsed
                 )
         except (json.JSONDecodeError, TypeError):
-            pass
+            pass  # corrupt sync_results_json: fall through to "not synced"
 
     return False
 

@@ -35,9 +35,6 @@ def pooled_engine(monkeypatch):
     Patches app.db.session.SessionLocal AND the name already imported into
     app.api.sse so the endpoint resolves our pooled session factory.
     """
-    import app.api.sse as sse_module
-    import app.db.session as db_session
-
     engine = create_engine(
         "sqlite:///file:sse_pool_test?mode=memory&cache=shared&uri=true",
         poolclass=QueuePool,
@@ -48,8 +45,8 @@ def pooled_engine(monkeypatch):
     Base.metadata.create_all(bind=engine)
     test_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-    monkeypatch.setattr(db_session, "SessionLocal", test_session)
-    monkeypatch.setattr(sse_module, "SessionLocal", test_session, raising=False)
+    monkeypatch.setattr("app.db.session.SessionLocal", test_session)
+    monkeypatch.setattr("app.api.sse.SessionLocal", test_session, raising=False)
 
     # Seed an active event using a short-lived session.
     with test_session() as s:
@@ -171,8 +168,8 @@ def test_n_concurrent_idle_streams_hold_zero_pool_connections(pooled_engine):
         for t in primer_tasks:
             try:
                 await t
-            except (asyncio.CancelledError, BaseException):  # noqa: BLE001
-                pass
+            except (asyncio.CancelledError, Exception):
+                pass  # primer tasks are torn down; their outcome is irrelevant
         for g in generators:
             await g.aclose()
 

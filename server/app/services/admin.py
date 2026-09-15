@@ -146,7 +146,7 @@ def get_system_stats(db: Session) -> dict:
         db.query(Event)
         .filter(
             Event.is_active == True,  # noqa: E712
-            Event.archived_at == None,  # noqa: E711
+            Event.archived_at.is_(None),
             Event.expires_at > utcnow(),
         )
         .count()

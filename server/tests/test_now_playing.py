@@ -22,25 +22,27 @@ from app.models.play_history import PlayHistory
 from app.models.request import Request, RequestStatus
 from app.models.user import User
 from app.services.auth import get_password_hash
+from app.services.bridge_integration import (
+    clear_now_playing,
+    handle_now_playing_update,
+    update_bridge_status,
+)
 from app.services.now_playing import (
     NOW_PLAYING_AUTO_HIDE_MINUTES,
     archive_to_history,
     clear_manual_now_playing,
-    clear_now_playing,
     fuzzy_match_pending_request,
     fuzzy_match_score,
     get_manual_hide_setting,
     get_next_play_order,
     get_now_playing,
     get_play_history,
-    handle_now_playing_update,
     is_now_playing_hidden,
     lookup_tidal_album_art,
     normalize_artist,
     normalize_track_title,
     set_manual_now_playing,
     set_now_playing_visibility,
-    update_bridge_status,
 )
 
 

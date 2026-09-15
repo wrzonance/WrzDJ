@@ -399,11 +399,3 @@ def clear_manual_now_playing(db: Session, event_id: int, request_id: int) -> Non
     existing.matched_request_id = None
     existing.started_at = utcnow()
     db.commit()
-
-
-# Re-export bridge integration functions for backward compatibility
-from app.services.bridge_integration import (  # noqa: E402, F401
-    clear_now_playing,
-    handle_now_playing_update,
-    update_bridge_status,
-)

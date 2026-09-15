@@ -11,10 +11,9 @@ from app.models.event import Event
 from app.models.request import Request, RequestStatus
 from app.models.user import User
 from app.services.sync.base import SyncResult, SyncStatus, TrackMatch
+from app.services.sync.enrichment_pipeline import _extract_source_track_id, _get_isrc_from_spotify
 from app.services.sync.orchestrator import (
     MultiSyncResult,
-    _extract_source_track_id,
-    _get_isrc_from_spotify,
     _is_already_synced,
     _persist_sync_result,
     enrich_request_metadata,

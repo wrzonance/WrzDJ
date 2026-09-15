@@ -1,7 +1,6 @@
 """Tests for GET /api/public/guest/verify-status."""
 
 import hashlib
-from datetime import timedelta  # noqa: F401
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session

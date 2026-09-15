@@ -1,0 +1,10 @@
+# Trivy suppressions for the Trivy Image Scan workflow (.github/workflows/trivy.yml).
+# Trivy reads this file from the checkout root automatically. Every entry needs a
+# justification and a revisit trigger; never add an ID here just to go green.
+
+# pip 26.2.1 vendors msgpack 1.1.2 and a partial setuptools 70.3.0 (pkg_resources
+# only) in pip/_vendor/vendor.txt. That code only runs when pip itself runs, and the
+# api image never invokes pip after the build step (see server/scripts/start.sh).
+# Revisit: remove once pip ships a release vendoring msgpack>=1.2.1 / setuptools>=78.1.1.
+GHSA-6v7p-g79w-8964
+CVE-2025-47273

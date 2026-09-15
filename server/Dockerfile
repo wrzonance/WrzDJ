@@ -2,8 +2,10 @@ FROM python:3.11-slim@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install system dependencies. `apt-get upgrade` pulls the Debian security
+# updates published since the pinned base-image digest was built (Trivy gate).
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
     curl \
@@ -11,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy requirements and install dependencies
 COPY pyproject.toml .
-RUN pip install --upgrade "pip>=26.1"
+RUN pip install --upgrade "pip>=26.1" "setuptools>=83.0.0"
 RUN pip install --no-cache-dir -e .
 
 # Copy application code

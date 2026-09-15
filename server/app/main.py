@@ -121,17 +121,21 @@ async def lifespan(app: FastAPI, *, run_background_tasks: bool = True):
         from app.services.llm.health_monitor import health_monitor_loop
 
         tasks = [
-            asyncio.create_task(_tidal_collection_poll_loop()),
-            asyncio.create_task(_llm_call_log_cleanup_loop()),
-            asyncio.create_task(health_monitor_loop()),
+            asyncio.create_task(_tidal_collection_poll_loop(), name="tidal_collection_poll"),
+            asyncio.create_task(_llm_call_log_cleanup_loop(), name="llm_call_log_cleanup"),
+            asyncio.create_task(health_monitor_loop(), name="llm_health_monitor"),
         ]
     try:
         yield
     finally:
         for task in tasks:
             task.cancel()
-        # Cancelled children surface as CancelledError results, not raises.
-        await asyncio.gather(*tasks, return_exceptions=True)
+        # Cancelled children come back as CancelledError results. A task that had
+        # already died of its own exception is logged instead of aborting shutdown.
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for task, result in zip(tasks, results, strict=True):
+            if isinstance(result, Exception):
+                logger.error("Background task %s failed", task.get_name(), exc_info=result)
 
 
 @asynccontextmanager

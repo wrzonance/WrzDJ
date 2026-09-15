@@ -793,22 +793,37 @@ describe("PluginBridge", () => {
 
     it("resets backoff on successful reconnection", async () => {
       plugin = createMockPlugin();
+      let failNext = false;
+      const originalStart = plugin.start.bind(plugin);
+      (plugin as unknown as Record<string, unknown>).start = async (config?: Record<string, unknown>) => {
+        if (failNext) {
+          failNext = false;
+          throw new Error("Connection failed");
+        }
+        return originalStart(config);
+      };
       bridge = new PluginBridge(plugin, DEFAULT_CONFIG);
       await bridge.start();
 
       const logs: string[] = [];
       bridge.on("log", (msg: string) => logs.push(msg));
 
-      // First cycle: connect → disconnect → reconnect succeeds
+      // First cycle: connect → disconnect → first attempt fails, so backoff grows to 4s
       plugin.emit("connection", { connected: true, deviceName: "CDJ" });
       plugin.emit("connection", { connected: false });
-      await vi.advanceTimersByTimeAsync(2000); // 2s backoff
+      failNext = true;
+      await vi.advanceTimersByTimeAsync(2000); // attempt 1 (2s) fails
+      expect(logs.some((m) => m.includes("Reconnect failed"))).toBe(true);
+      expect(logs.some((m) => m.includes("reconnecting in 4s"))).toBe(true);
+
+      // Attempt 2 (4s) succeeds
+      await vi.advanceTimersByTimeAsync(4000);
       expect(logs.some((m) => m.includes("Reconnected to Mock Plugin successfully"))).toBe(true);
 
       // Clear logs
       logs.length = 0;
 
-      // Second cycle: disconnect again → backoff should reset to 2s (not 4s)
+      // Second cycle: disconnect again → backoff must be back at 2s, not 8s
       plugin.emit("connection", { connected: true, deviceName: "CDJ" });
       plugin.emit("connection", { connected: false });
       expect(logs.some((m) => m.includes("reconnecting in 2s"))).toBe(true);

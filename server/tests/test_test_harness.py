@@ -1,6 +1,8 @@
 """Regression tests for backend pytest harness behavior."""
 
 import ast
+import asyncio
+import logging
 from pathlib import Path
 from unittest.mock import patch
 
@@ -69,6 +71,32 @@ def test_real_lifespan_starts_and_cancels_background_tasks():
     tidal_loop.assert_called_once()
     cleanup_loop.assert_called_once()
     health_loop.assert_called_once()
+
+
+def test_real_lifespan_logs_background_task_that_already_failed(caplog):
+    """A background task that crashed before shutdown must be logged, not
+    re-raised out of the lifespan teardown (regression for #655)."""
+
+    async def neverending():
+        await asyncio.Event().wait()
+
+    async def explodes():
+        raise RuntimeError("poll loop crashed")
+
+    with (
+        patch("app.main._tidal_collection_poll_loop", side_effect=explodes),
+        patch("app.main._llm_call_log_cleanup_loop", side_effect=neverending),
+        patch("app.services.llm.health_monitor.health_monitor_loop", side_effect=neverending),
+        caplog.at_level(logging.ERROR, logger="app.main"),
+    ):
+        real_app = create_app()
+        with TestClient(real_app) as client:
+            assert client.get("/health").status_code == 200
+
+    failures = [r for r in caplog.records if "tidal_collection_poll" in r.getMessage()]
+    assert len(failures) == 1
+    assert failures[0].exc_info is not None
+    assert "poll loop crashed" in str(failures[0].exc_info[1])
 
 
 def test_auth_headers_for_user_builds_valid_token(test_user: User):

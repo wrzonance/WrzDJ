@@ -1,0 +1,89 @@
+# Scans the two container images we publish to GHCR (see docker-publish.yml)
+# for OS-package and application CVEs and uploads the results to the Security
+# tab. pip-audit / npm audit in ci.yml only see our own dependency manifests;
+# this is the one gate that looks at the Debian/Alpine layer underneath them.
+#
+# Non-blocking for now (exit-code 0): establish a clean baseline first, then
+# promote it to a hard gate (#578).
+name: Trivy Image Scan
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/**"
+      - "dashboard/**"
+      - ".github/workflows/trivy.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "server/**"
+      - "dashboard/**"
+      - ".github/workflows/trivy.yml"
+  schedule:
+    - cron: "0 7 * * 1" # Weekly on Monday 07:00 UTC, an hour after CodeQL
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Scan ${{ matrix.image }} image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: api
+            context: ./server
+            build-args: ""
+            cache-scope: ci-api
+          - image: web
+            context: ./dashboard
+            build-args: |
+              NEXT_PUBLIC_API_URL=http://localhost:8000
+            cache-scope: ci-web
+
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      # amd64 only, loaded into the local daemon, never pushed. Reuses the
+      # layer cache ci.yml's "Docker Build Smoke Test" already populates.
+      - name: Build image
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: ${{ matrix.context }}
+          build-args: ${{ matrix.build-args }}
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: wrzdj-${{ matrix.image }}:scan
+          cache-from: type=gha,scope=${{ matrix.cache-scope }}
+
+      - name: Scan with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: wrzdj-${{ matrix.image }}:scan
+          format: sarif
+          output: trivy-${{ matrix.image }}.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+
+      # Dependabot-authored PRs run with a read-only GITHUB_TOKEN and cannot
+      # upload SARIF; the scan itself still runs and is visible in the job log.
+      - name: Upload SARIF to code scanning
+        if: github.actor != 'dependabot[bot]'
+        uses: github/codeql-action/upload-sarif@9e0d7b8d25671d64c341c19c0152d693099fb5ba # v4.35.5
+        with:
+          sarif_file: trivy-${{ matrix.image }}.sarif
+          category: trivy-${{ matrix.image }}

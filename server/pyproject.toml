@@ -27,7 +27,7 @@ dependencies = [
     # SECURITY: minimum versions per 2026-05-07 audit.
     "python-dotenv>=1.2.2",  # CVE-2026-28684 (transitive from pydantic-settings chain)
 "mako>=1.3.12",          # CVE-2026-44307 (transitive from alembic)
-    "pyasn1>=0.6.3",         # CVE-2026-30922 (transitive from cryptography chain)
+    "pyasn1>=0.6.4",         # CVE-2026-30922 (transitive from cryptography chain)
     # SECURITY: minimum versions per 2026-05-19 audit.
     "idna>=3.15",            # CVE-2026-45409 (transitive from requests/httpx)
     "urllib3>=2.7.0",        # CVE-2026-44431, CVE-2026-44432 (transitive from requests)

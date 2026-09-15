@@ -1059,3 +1059,39 @@ class TestSearchWithExpiredTokenAutoRefresh:
 
         results = search_beatport_tracks(db, beatport_user_expired, "deadmau5")
         assert results == []
+
+
+class TestBeatportIdValidation:
+    """Regression for CodeQL py/partial-ssrf: IDs are path segments of the API URL."""
+
+    @pytest.mark.parametrize("bad_id", ["../search/?q=", "12345/../../me", "", "abc", "1 2"])
+    @patch("app.services.beatport.httpx.Client")
+    def test_get_beatport_track_rejects_non_numeric_id(
+        self, mock_client_cls, bad_id, db: Session, beatport_user: User
+    ):
+        assert get_beatport_track(db, beatport_user, bad_id) is None
+        mock_client_cls.assert_not_called()
+
+    @pytest.mark.parametrize("bad_id", ["../search/?q=", "12345/../../me", "", "abc"])
+    @patch("app.services.beatport.httpx.Client")
+    def test_get_playlist_tracks_rejects_non_numeric_id(
+        self, mock_client_cls, bad_id, db: Session, beatport_user: User
+    ):
+        assert get_playlist_tracks(db, beatport_user, bad_id) == []
+        mock_client_cls.assert_not_called()
+
+    @patch("app.services.beatport.httpx.Client")
+    def test_numeric_id_still_reaches_the_api(
+        self, mock_client_cls, db: Session, beatport_user: User
+    ):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"results": []}
+        mock_response.raise_for_status = MagicMock()
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get.return_value = mock_response
+        mock_client_cls.return_value = mock_client
+
+        assert get_playlist_tracks(db, beatport_user, "987654") == []
+        assert "/my/playlists/987654/tracks/" in mock_client.get.call_args.args[0]

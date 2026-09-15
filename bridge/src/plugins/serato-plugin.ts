@@ -216,8 +216,11 @@ export class SeratoPlugin extends EventEmitter implements EquipmentSourcePlugin 
     // Read new bytes
     let newBytes: Buffer;
     try {
-      const fd = readFileSync(this.sessionPath);
-      newBytes = fd.subarray(this.fileOffset, fileSize);
+      const contents = readFileSync(this.sessionPath);
+      // Slice against the bytes actually read: the file may have grown (or been
+      // rewritten) between the stat above and this read.
+      if (contents.length <= this.fileOffset) return;
+      newBytes = contents.subarray(this.fileOffset);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.emit("log", `Error reading session file: ${message}`);

@@ -76,6 +76,9 @@ jobs:
           format: sarif
           output: trivy-${{ matrix.image }}.sarif
           severity: CRITICAL,HIGH
+          # Without this the SARIF still carries every severity and the
+          # Security tab fills with LOW/MEDIUM noise the gate does not act on.
+          limit-severities-for-sarif: true
           ignore-unfixed: true
           exit-code: "0"
 

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import UploadFile
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageEnhance, UnidentifiedImageError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -150,15 +150,16 @@ def process_banner_upload(file: UploadFile, event_code: str) -> tuple[str, str, 
     if size == 0:
         raise ValueError("File is empty.")
 
-    # Image.open() is lazy (header sniff only); check the allowlist BEFORE .load()
-    # so only the four permitted decoders ever see the uploaded bytes (#583).
+    # Restrict Image.open() to the allowlisted plugins so no other decoder's
+    # _open() ever sees the uploaded bytes (#583). Pillow raises
+    # UnidentifiedImageError both for non-images and for formats outside the
+    # allowlist, so the two cases share one message.
     try:
-        img = Image.open(file.file)
+        img = Image.open(file.file, formats=sorted(ALLOWED_FORMATS))
+    except UnidentifiedImageError:
+        raise ValueError("Unsupported or corrupt image file. Use JPEG, PNG, GIF, or WebP.")
     except Exception:
         raise ValueError("Invalid or corrupt image file.")
-
-    if img.format not in ALLOWED_FORMATS:
-        raise ValueError(f"Unsupported image format '{img.format}'. Use JPEG, PNG, GIF, or WebP.")
 
     try:
         img.load()  # Force full read to catch truncated files

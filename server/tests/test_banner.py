@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi import UploadFile
-from PIL import Image
+from PIL import IcoImagePlugin, Image
 
 from app.services.banner import (
     _create_kiosk_variant,
@@ -122,7 +122,7 @@ class TestProcessBannerUpload:
     def test_rejects_corrupt_file(self):
         buf = io.BytesIO(b"not an image at all")
         upload = UploadFile(file=buf, filename="corrupt.png")
-        with pytest.raises(ValueError, match="Invalid or corrupt"):
+        with pytest.raises(ValueError, match="corrupt"):
             process_banner_upload(upload, "TEST01")
 
     def test_rejects_unsupported_format(self):
@@ -134,6 +134,37 @@ class TestProcessBannerUpload:
         upload = UploadFile(file=buf, filename="test.bmp")
         with pytest.raises(ValueError, match="Unsupported"):
             process_banner_upload(upload, "TEST01")
+
+    def test_unsupported_format_rejected_before_decode(self):
+        # Regression for #583: the allowlist must gate the decoder. Image.open()
+        # only reads the header; a non-allowlisted format must be rejected before
+        # .load() hands attacker bytes to that format's decoder.
+        img = _make_rgb_image()
+        buf = io.BytesIO()
+        img.save(buf, format="BMP")
+        buf.seek(0)
+        upload = UploadFile(file=buf, filename="test.bmp")
+        decode_guard = patch.object(
+            Image.Image, "load", side_effect=AssertionError("decoded before allowlist")
+        )
+        with decode_guard, pytest.raises(ValueError, match="Unsupported"):
+            process_banner_upload(upload, "TEST01")
+
+    def test_non_allowlisted_plugin_never_invoked(self):
+        # Regression for #583: Pillow's ICO plugin decodes inside _open(), so a
+        # lazy-open check is not enough. The allowlist must be passed to
+        # Image.open(formats=...) so non-allowlisted plugins never run at all.
+        img = _make_rgb_image(64, 64)
+        buf = io.BytesIO()
+        img.save(buf, format="ICO")
+        buf.seek(0)
+        upload = UploadFile(file=buf, filename="test.ico")
+        with patch.object(
+            IcoImagePlugin.IcoImageFile, "_open", side_effect=AssertionError("ICO plugin ran")
+        ) as ico_open:
+            with pytest.raises(ValueError, match="Unsupported"):
+                process_banner_upload(upload, "TEST01")
+        ico_open.assert_not_called()
 
     @patch("app.services.banner._get_banners_dir")
     def test_handles_rgba_image(self, mock_dir, tmp_path):

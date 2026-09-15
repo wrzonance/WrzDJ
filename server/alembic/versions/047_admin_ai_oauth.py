@@ -29,8 +29,8 @@ from sqlalchemy.orm import Session
 from alembic import op
 from app.core.encryption import encrypt_value
 
-revision: str = "047"
-down_revision: str | None = "046"
+revision = "047"
+down_revision = "046"
 branch_labels = None
 depends_on = None
 

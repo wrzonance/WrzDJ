@@ -9,16 +9,14 @@ Revises: 061
 Create Date: 2026-06-23
 """
 
-from collections.abc import Sequence
-
 import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "062"
-down_revision: str | None = "061"
-branch_labels: str | Sequence[str] | None = None
-depends_on: str | Sequence[str] | None = None
+revision = "062"
+down_revision = "061"
+branch_labels = None
+depends_on = None
 
 
 def upgrade() -> None:

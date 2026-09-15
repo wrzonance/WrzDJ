@@ -15,14 +15,12 @@ Revises: 034
 Create Date: 2026-04-25
 """
 
-from collections.abc import Sequence
-
 from alembic import op
 
-revision: str = "035_guest_profiles_event_cascade"
-down_revision: str | None = "034"
-branch_labels: str | Sequence[str] | None = None
-depends_on: str | Sequence[str] | None = None
+revision = "035_guest_profiles_event_cascade"
+down_revision = "034"
+branch_labels = None
+depends_on = None
 
 CONSTRAINT_NAME = "guest_profiles_event_id_fkey"
 

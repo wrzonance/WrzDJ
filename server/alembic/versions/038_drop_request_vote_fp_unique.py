@@ -12,10 +12,10 @@ Create Date: 2026-04-27
 
 from alembic import op
 
-revision: str = "038"
-down_revision: str | None = "037"
-branch_labels: str | None = None
-depends_on: str | None = None
+revision = "038"
+down_revision = "037"
+branch_labels = None
+depends_on = None
 
 
 def upgrade() -> None:

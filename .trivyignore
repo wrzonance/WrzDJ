@@ -1,0 +1,16 @@
+# Trivy suppressions for the Trivy Image Scan workflow (.github/workflows/trivy.yml).
+# Trivy reads this file from the checkout root automatically. Every entry needs a
+# justification and an `exp:` date; when it expires the finding comes back on its
+# own, so a stale premise cannot hide behind an old ignore. Never add an ID here
+# just to go green.
+
+# pip (>=26.1 as installed by server/Dockerfile; 26.2.1 at the time of writing) vendors
+# msgpack 1.1.2 and a partial setuptools 70.3.0 (pkg_resources only) for its own use in
+# pip/_vendor/vendor.txt. That code only runs when pip itself runs, and the api image
+# never invokes pip after the build step (see server/scripts/start.sh). A genuine
+# runtime install of either package would be caught by pip-audit in ci.yml, which
+# scans the project's own dependency tree, not pip's vendored one.
+# Revisit at expiry: drop these once a pip release vendors msgpack>=1.2.1 and
+# setuptools>=78.1.1 (check pip/_vendor/vendor.txt in the built image).
+GHSA-6v7p-g79w-8964 exp:2026-12-15
+CVE-2025-47273 exp:2026-12-15

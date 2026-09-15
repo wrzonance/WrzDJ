@@ -1,4 +1,8 @@
 FROM node:26-alpine@sha256:ef24c5053d50fdc3e4e56eb4e7ddb7861874ab0fdc797046ba897581deb8e868 AS base
+# Pull the Alpine security updates published since the pinned digest was built
+# (Trivy gate). Every later stage inherits the patched packages. Same trade-off
+# as server/Dockerfile: the layer is cached until Renovate bumps the digest.
+RUN apk upgrade --no-cache
 
 # Install dependencies only when needed
 FROM base AS deps

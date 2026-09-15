@@ -14,9 +14,11 @@ from app.services.beatport import (
     BEATPORT_API_BASE,
     DEFAULT_TOKEN_EXPIRY,
     _authorize_url,
+    _is_valid_beatport_id,
     _parse_duration,
     _refresh_token_if_needed,
     _token_url,
+    add_track_to_beatport_playlist,
     add_tracks_to_beatport_playlist,
     create_beatport_playlist,
     disconnect_beatport,
@@ -676,7 +678,7 @@ class TestBeatportPlaylist:
 
         from app.services.beatport import add_track_to_beatport_playlist
 
-        result = add_track_to_beatport_playlist(db, beatport_user, "playlist-1", "12345")
+        result = add_track_to_beatport_playlist(db, beatport_user, "1001", "12345")
 
         assert result is True
         call_kwargs = mock_client.post.call_args
@@ -697,9 +699,7 @@ class TestBeatportPlaylist:
         mock_client.post.return_value = mock_response
         mock_client_cls.return_value = mock_client
 
-        result = add_tracks_to_beatport_playlist(
-            db, beatport_user, "playlist-1", ["12345", "67890"]
-        )
+        result = add_tracks_to_beatport_playlist(db, beatport_user, "1001", ["12345", "67890"])
 
         assert result is True
         assert mock_client.post.call_count == 2
@@ -715,7 +715,7 @@ class TestBeatportPlaylist:
 
         from app.services.beatport import add_track_to_beatport_playlist
 
-        result = add_track_to_beatport_playlist(db, beatport_user, "playlist-1", "99999")
+        result = add_track_to_beatport_playlist(db, beatport_user, "1001", "99999")
         assert result is False
 
 
@@ -1095,3 +1095,16 @@ class TestBeatportIdValidation:
 
         assert get_playlist_tracks(db, beatport_user, "987654") == []
         assert "/my/playlists/987654/tracks/" in mock_client.get.call_args.args[0]
+
+    @patch("app.services.beatport.httpx.Client")
+    def test_add_track_rejects_malformed_ids(
+        self, mock_client_cls, db: Session, beatport_user: User
+    ):
+        assert add_track_to_beatport_playlist(db, beatport_user, "../me", "123") is False
+        assert add_track_to_beatport_playlist(db, beatport_user, "123", "9/../x") is False
+        mock_client_cls.assert_not_called()
+
+    def test_non_string_ids_are_rejected(self):
+        assert _is_valid_beatport_id(123) is False
+        assert _is_valid_beatport_id("123") is True
+        assert _is_valid_beatport_id("١٢") is False  # Arabic-Indic digits

@@ -48,7 +48,7 @@ def _is_valid_beatport_id(value: str) -> bool:
     ``../search/?q=`` would redirect the caller's bearer token to a different
     Beatport endpoint (CodeQL py/partial-ssrf).
     """
-    return bool(_BEATPORT_ID_RE.fullmatch(str(value)))
+    return isinstance(value, str) and _BEATPORT_ID_RE.fullmatch(value) is not None
 
 
 def _auth_base() -> str:
@@ -276,6 +276,7 @@ def list_user_playlists(db: Session, user: User) -> list[BeatportPlaylistInfo]:
 
 def get_playlist_tracks(db: Session, user: User, playlist_id: str) -> list[BeatportSearchResult]:
     """Get all tracks from a Beatport playlist as BeatportSearchResult objects."""
+    playlist_id = str(playlist_id)
     if not _is_valid_beatport_id(playlist_id):
         logger.warning("Rejected malformed Beatport playlist id")
         return []
@@ -565,6 +566,7 @@ def browse_beatport_tracks(
 
 def get_beatport_track(db: Session, user: User, track_id: str) -> BeatportSearchResult | None:
     """Fetch a single track from Beatport by ID."""
+    track_id = str(track_id)
     if not _is_valid_beatport_id(track_id):
         logger.warning("Rejected malformed Beatport track id")
         return None
@@ -656,6 +658,10 @@ def create_beatport_playlist(db: Session, user: User, event: Event) -> str | Non
 
 def _get_playlist_track_ids(user: User, playlist_id: str) -> set[str]:
     """Fetch the set of track IDs already on a Beatport playlist."""
+    playlist_id = str(playlist_id)
+    if not _is_valid_beatport_id(playlist_id):
+        logger.warning("Rejected malformed Beatport playlist id")
+        return set()
     try:
         with httpx.Client(timeout=HTTP_TIMEOUT) as client:
             response = client.get(
@@ -674,6 +680,10 @@ def add_track_to_beatport_playlist(
     db: Session, user: User, playlist_id: str, track_id: str
 ) -> bool:
     """Add a single track to a Beatport playlist. Skips if already present."""
+    playlist_id, track_id = str(playlist_id), str(track_id)
+    if not (_is_valid_beatport_id(playlist_id) and _is_valid_beatport_id(track_id)):
+        logger.warning("Rejected malformed Beatport playlist or track id")
+        return False
     if not _refresh_token_if_needed(db, user):
         return False
 

@@ -145,3 +145,16 @@ describe('Beatport source detection (host-anchored)', () => {
     expect(getPreviewSource({ sourceUrl: 'not a url beatport.com', source: 'unknown' })).toBeNull();
   });
 });
+
+describe('source-field fallback for Beatport', () => {
+  it('still honours the source field when the URL is a Beatport host or absent', () => {
+    expect(
+      getPreviewSource({ source: 'beatport', sourceUrl: 'https://www.beatport.com/track/x/1' })
+    ).toBe('beatport');
+    expect(getPreviewSource({ source: 'beatport', sourceUrl: null })).toBe('beatport');
+  });
+
+  it('refuses to label a foreign URL as Beatport on the strength of the source field', () => {
+    expect(getPreviewSource({ source: 'beatport', sourceUrl: 'https://evil.example/' })).toBeNull();
+  });
+});

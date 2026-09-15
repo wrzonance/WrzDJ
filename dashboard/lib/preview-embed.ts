@@ -55,8 +55,11 @@ export function getPreviewSource(data: PreviewData): PreviewSourceType | null {
   const urlSource = detectSourceFromUrl(data.sourceUrl);
   if (urlSource) return urlSource;
   const src = data.source?.toLowerCase();
-  if (src === 'spotify' || src === 'tidal' || src === 'beatport') {
-    return src;
+  if (src === 'spotify' || src === 'tidal') return src;
+  // The Beatport branch renders an outbound link to sourceUrl, so the source
+  // field alone must not label a foreign URL as Beatport.
+  if (src === 'beatport' && (!data.sourceUrl || isBeatportHost(data.sourceUrl))) {
+    return 'beatport';
   }
   return null;
 }

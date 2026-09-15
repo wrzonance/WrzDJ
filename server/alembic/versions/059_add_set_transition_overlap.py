@@ -8,16 +8,14 @@ Average transition overlap is a per-set planning input. It shrinks effective
 playtime as tracks blend: total - (slots - 1) * overlap.
 """
 
-from collections.abc import Sequence
-
 import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "059"
-down_revision: str | None = "058"
-branch_labels: str | Sequence[str] | None = None
-depends_on: str | Sequence[str] | None = None
+revision = "059"
+down_revision = "058"
+branch_labels = None
+depends_on = None
 
 
 def upgrade() -> None:

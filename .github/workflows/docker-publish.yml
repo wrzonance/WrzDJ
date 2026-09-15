@@ -8,6 +8,10 @@ on:
     branches: [main]
     tags: ['v*']
 
+# Read-only default for every job; jobs that need more declare it themselves.
+permissions:
+  contents: read
+
 env:
   REGISTRY: ghcr.io
   API_IMAGE: ghcr.io/wrzonance/wrzdj-api

@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "alphatheta-connect": "0.21.1",
-    "metadata-connect": "1.1.10",
+    "metadata-connect": "1.2.2",
     "onelibrary-connect": "1.1.1",
     "stagelinq": "3.0.4"
   },

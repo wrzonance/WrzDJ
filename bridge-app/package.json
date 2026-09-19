@@ -17,7 +17,7 @@
     "alphatheta-connect": "0.15.0",
     "electron-squirrel-startup": "^1.0.1",
     "electron-store": "^11.0.2",
-    "stagelinq": "3.0.4"
+    "stagelinq": "3.5.5"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.6.0",

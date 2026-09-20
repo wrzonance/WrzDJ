@@ -27,7 +27,7 @@
     "@electron-forge/plugin-auto-unpack-natives": "^7.6.0",
     "@electron-forge/plugin-vite": "^7.6.0",
     "@reforged/maker-appimage": "^5.2.0",
-    "@testing-library/jest-dom": "^6.4.0",
+    "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

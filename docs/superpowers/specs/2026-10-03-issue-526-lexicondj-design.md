@@ -15,7 +15,7 @@ The current WrzDJ code already has two distinct energy paths:
 
 The requested seamless match-and-enrich path is **not ready to implement safely**. Lexicon's current documented Track schema exposes integer Energy from 0 through 10, but does not document an ISRC field. Its Energy column also does not disclose whether its value came from audio analysis, Find Tags, or a manual edit. The plugin can read the same documented fields as the Local API, so moving the integration into a plugin does not solve either gap.
 
-Proceed with a separate, narrow `import_from_lexicon` follow-up for explicitly selected library tracks into the DJ's own set pool. Do not call those values verified measurements, do not infer ISRC, and do not write imported Lexicon values into the shared `Track.energy` store. The first version should omit Energy from import. Revisit energy enrichment only after Lexicon provides documented stable identity and value-origin fields, or after a separately designed user-confirmed matching flow can prove the target track and explain that Lexicon does not expose analysis provenance.
+Proceed with a separate, narrow `import_from_lexicon` follow-up for explicitly selected library tracks into the DJ's own set pool. The first version should import only title and artist, omit Energy and other carried metadata, and never write plugin-supplied values into the shared `Track` store. Do not call Lexicon Energy a verified measurement or infer ISRC. Revisit energy enrichment only after Lexicon provides documented stable identity and value-origin fields, or after a separately designed user-confirmed mapping flow can prove the target track and explain that Lexicon does not expose analysis provenance.
 
 ## 2. Scope and boundaries
 
@@ -68,17 +68,19 @@ Lexicon documents plugin ZIP installation under `Documents/Lexicon/Plugins`, sel
 
 ### 4.5 Licensing / data handling
 
-The Terms page currently displays a version dated 2026-09-23 that takes effect 2026-10-23, and says the previous Terms remain in force until then. The previous version was not independently obtained for this research, so the exact current license posture remains unverified. The displayed upcoming version does not itself grant WrzDJ a license to redistribute Lexicon or library data. Keep the integration user-initiated: the DJ runs their own Lexicon, selects tracks, and sends only fields necessary for their own WrzDJSet pool. Never bundle Lexicon software or transmit the full library automatically. Recheck the Terms in force before shipping.
+The Terms page currently displays a version dated 2026-09-23 that takes effect 2026-10-23, and says the previous Terms remain in force until then. The previous version was not independently obtained for this research, so the exact current license posture remains unverified. The displayed upcoming version does not itself grant WrzDJ a license to redistribute Lexicon or library data. Keep the integration user-initiated: the DJ runs their own Lexicon, selects tracks, and sends only fields necessary for their own WrzDJSet pool. Never bundle Lexicon software or transmit the full library automatically. Before enabling data transfer, verify the Terms then in force and document that the user-initiated plugin transfer is permitted; if the terms do not answer this or appear to prohibit it, hold the implementation for an operator decision and vendor clarification.
 
 ## 5. Chosen architecture for the follow-up
 
 ### Phase A — selected-track pool import
 
-Add `import_from_lexicon` as a separate #442-family import source. The user selects one or more Lexicon tracks in the plugin, selects a destination WrzDJSet, reviews the import, and submits a bounded batch to a DJ-scoped WrzDJ endpoint over HTTPS. Import only title, artist, and other explicitly approved display/import fields; omit Energy and ISRC. Lexicon's local track ID is only an ephemeral request reference and must not be treated as globally unique.
+Add `import_from_lexicon` as a separate #442-family import source. The user selects one or more Lexicon tracks in the plugin, enters a destination WrzDJSet ID, reviews the import, and submits a bounded batch to a DJ-scoped WrzDJ endpoint over HTTPS. Import only title and artist; omit Energy, ISRC, and other metadata. Lexicon's local track ID is not submitted or persisted.
 
-The endpoint resolves its owner from a narrow, revocable credential paired to that DJ; it must not accept a client-supplied owner ID. Store only a one-way token hash server-side. The plugin may retain the bearer in Lexicon's documented private action storage; do not claim Lexicon encrypts that storage, and explain that local users with access to the Lexicon profile can access it. It validates all fields and batch size, checks set ownership, creates pool membership additively through existing pool services, and never writes `requests`. Existing source dedupe and undo behavior should be preserved. If the import surface is an agent mutation, it belongs in the closed allowlist, requires `rationale`, and gets a regression test that proves `requests` remain untouched, matching #524.
+The endpoint resolves its owner from a narrow, revocable credential paired to that DJ; it must not accept a client-supplied owner ID. Store only a one-way token hash server-side. The token may call only the Lexicon import endpoint and its own revoke endpoint; the user enters a destination set ID from WrzDJ rather than giving this token a set-listing permission. Issue it from an authenticated WrzDJ account session, show the opaque token once, and expire it after 90 days. The plugin may retain the bearer in Lexicon's documented private action storage; do not claim Lexicon encrypts that storage, and explain that local users with access to the Lexicon profile can access it. The account page must always provide token listing/revocation, independent of the plugin.
 
-Avoid accepting an arbitrary API base URL while attaching a bearer token. The packaged production plugin should whitelist the WrzDJ HTTPS host. Self-hosted/custom origins need a separate, reviewed pairing/configuration flow.
+Validate only title and artist in this version, cap a request at 200 rows, and reject an oversized request atomically rather than splitting it. Persist an idempotency receipt keyed by credential and a client-generated request UUID for seven days: same key and body replays the original result; same key with a different body returns 409. Existing pool title/artist signature dedupe may conflate different versions with identical names, so the plugin preview must state that limitation before confirmation and the response must identify skipped duplicates. The import is additive through existing pool services and never writes `requests` or the shared `Track` store. If the import is an agent mutation, it belongs in the closed allowlist, requires `rationale`, and gets a regression test that proves `requests` remain untouched, matching #524.
+
+The production plugin must use a build-time fixed WrzDJ HTTPS origin that matches its network permission allowlist. Do not accept a runtime API base URL while attaching the bearer. Self-hosted/custom origins need a separately built plugin with a matching allowlist; do not weaken the production package to support arbitrary hosts.
 
 ### Phase B — owner-scoped Lexicon Energy (blocked)
 
@@ -91,12 +93,14 @@ If Lexicon later exposes a documented value and identity contract, the existing 
 For Phase A:
 
 - Plugin action reads selected tracks only and presents a preview before upload.
-- Narrow pairing credential is DJ-scoped, revocable, stored as a one-way hash server-side, and accepted only by the Lexicon import route.
-- Endpoint rejects unknown fields, out-of-range values, oversized batches, invalid or expired credentials, and non-owned set IDs with safe errors.
+- Narrow pairing credential is DJ-scoped, revocable, stored as a one-way hash server-side, expires after 90 days, and is accepted only by the import and self-revoke endpoints.
+- Endpoint rejects unknown fields, oversized batches, invalid/expired credentials, and non-owned set IDs with safe errors; it imports only title and artist.
+- Same idempotency key and body replay the result; reusing a key with different content returns 409. Over-cap requests fail atomically.
 - Imported tracks are additive, deduplicated through established pool rules, and undoable where routed through the agent mutation flow.
 - The import does not write `requests`, does not write shared `Track.energy`, does not claim ISRC, and has no effect on another DJ's pool or vibe.
-- Plugin works through outbound HTTPS without Lexicon Local API being enabled.
-- Contract versioning is explicit between plugin and backend; older/newer plugin versions fail with a user-readable compatibility message.
+- Plugin uses a build-time fixed allowlisted HTTPS origin and works without Lexicon Local API being enabled.
+- Contract version is checked from a header before body schema validation; older/newer plugin versions fail with a user-readable compatibility message.
+- Before enabling the feature, verify and record that the Terms then in force permit user-initiated transfer to WrzDJ; otherwise hold for operator/vendor clarification.
 
 Phase B is not accepted until Lexicon's documented fields meet §5 Phase B prerequisites and the owner-scoped resolver has tests for precedence, isolation, removal, and community exclusion.
 
@@ -110,6 +114,6 @@ Ask Lexicon to document whether the Local API/plugin Track object can expose ISR
 - The issue's Local API description is corrected: current documentation says all interfaces and read/write endpoints, not localhost-only/read-only.
 - The numeric schema and analyzer semantics are kept distinct: 0–10 identity mapping is known; per-value analyzer provenance is not.
 - The plugin is not treated as a way to recover undocumented API fields.
-- No claims depend on the Terms version that takes effect after the research date.
+- The current Terms remain unverified; the upcoming version is not used as permission to ship a transfer feature. A licensing check is a release gate.
 
 🤖 Co-authored by Codex gpt-6-luna.

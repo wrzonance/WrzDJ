@@ -14150,7 +14150,9 @@ export interface operations {
             };
             header?: never;
             path?: never;
-            cookie?: never;
+            cookie?: {
+                wrzdj_spotify_oauth_state?: string | null;
+            };
         };
         requestBody?: never;
         responses: {

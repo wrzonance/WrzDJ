@@ -134,6 +134,7 @@ from app.services.setbuilder import (
     coverage as pool_coverage_service,
 )
 from app.services.setbuilder.playlist_url import InvalidPlaylistUrl, parse_public_playlist_url
+from app.services.spotify_oauth import refresh_access_token
 
 router = APIRouter()
 
@@ -1670,7 +1671,7 @@ def export_preflight(
         )
 
     if payload.target == "spotify":
-        if not current_user.spotify_access_token:
+        if not refresh_access_token(db, current_user):
             return ExportPreflightOut(
                 target=payload.target,
                 source=source,
@@ -1766,7 +1767,7 @@ def export_set_spotify(
 ) -> ExportSpotifyOut:
     """Export the ordered setlist to a new private Spotify playlist."""
     set_obj = _get_owned_or_404(db, set_id, current_user)
-    if not current_user.spotify_access_token:
+    if not refresh_access_token(db, current_user):
         raise HTTPException(status_code=400, detail="Spotify account not connected")
     _, tracks = export_common.collect_export_tracks(set_obj)
     if not tracks:

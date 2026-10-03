@@ -28,9 +28,43 @@ def test_authorization_url_persists_one_time_state(db, test_user, monkeypatch):
 
     assert url.startswith("https://accounts.spotify.com/authorize?")
     assert params["client_id"] == ["client-id"]
-    assert params["scope"] == ["playlist-modify-private"]
+    assert {"playlist-modify-private", "user-library-modify"}.issubset(params["scope"][0].split())
     assert test_user.spotify_oauth_state == params["state"][0]
     assert params["state"][0].startswith(f"{test_user.id}.")
+
+
+def test_exchange_accepts_all_required_scopes_regardless_of_order(monkeypatch):
+    _settings(monkeypatch)
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "access_token": "access",
+                "refresh_token": "refresh",
+                "scope": "user-library-modify playlist-modify-private",
+            }
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def post(self, *args, **kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(spotify_oauth.httpx, "Client", FakeClient)
+
+    result = spotify_oauth._exchange_code("code")
+
+    assert result["access_token"] == "access"
 
 
 def test_finish_authorization_rejects_mismatched_state(db, test_user, monkeypatch):
@@ -44,6 +78,49 @@ def test_finish_authorization_rejects_mismatched_state(db, test_user, monkeypatc
 
     with pytest.raises(spotify_oauth.SpotifyOAuthError, match="Invalid Spotify authorization"):
         spotify_oauth.finish_authorization(db, f"{test_user.id}.1000.random", "code")
+
+
+@pytest.mark.parametrize(
+    "state",
+    ["2147483648.1000.nonce", "1.1000.nønce"],
+)
+def test_finish_authorization_rejects_malformed_state_without_database_errors(
+    db, test_user, monkeypatch, state
+):
+    _settings(monkeypatch)
+    with pytest.raises(spotify_oauth.SpotifyOAuthError, match="Invalid Spotify authorization"):
+        spotify_oauth.finish_authorization(db, state, "code")
+
+
+def test_failed_refresh_clears_stale_credentials(db, test_user, monkeypatch):
+    import httpx
+
+    _settings(monkeypatch)
+    test_user.spotify_access_token = "stale-access"
+    test_user.spotify_refresh_token = "revoked-refresh"
+    from datetime import UTC, datetime, timedelta
+
+    test_user.spotify_token_expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    db.commit()
+
+    class FailedClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def post(self, *args, **kwargs):
+            raise httpx.ConnectError("offline")
+
+    monkeypatch.setattr(spotify_oauth.httpx, "Client", FailedClient)
+
+    assert not spotify_oauth.refresh_access_token(db, test_user)
+    assert test_user.spotify_access_token is None
+    assert test_user.spotify_refresh_token is None
 
 
 def test_finish_authorization_saves_encrypted_tokens_and_clears_state(db, test_user, monkeypatch):

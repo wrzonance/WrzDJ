@@ -13,13 +13,15 @@ from app.models.user import User
 from app.services import spotify
 from app.services.setbuilder.export_common import ExportTrack
 from app.services.spotify_oauth import HTTP_TIMEOUT, refresh_access_token
-from app.services.track_normalizer import fuzzy_match_score
+from app.services.track_normalizer import artist_match_score, fuzzy_match_score
 from app.services.version_filter import is_unwanted_version
 
 logger = logging.getLogger(__name__)
 
 SPOTIFY_API_BASE = "https://api.spotify.com/v1"
-MATCH_THRESHOLD = 0.5
+MIN_TITLE_SIMILARITY = 0.85
+MIN_ARTIST_SIMILARITY = 0.85
+MATCH_THRESHOLD = 0.88
 MAX_ADD_BATCH = 100
 _SPOTIFY_ID_RE = re.compile(r"^[A-Za-z0-9]{1,128}$")
 
@@ -54,11 +56,15 @@ def _search_match(db: Session, track: ExportTrack, query: str) -> str | None:
     for candidate in spotify.search_songs(db, query):
         if not candidate.spotify_id or is_unwanted_version(candidate.title):
             continue
-        score = (
-            fuzzy_match_score(track.title, candidate.title) * 0.7
-            + fuzzy_match_score(track.artist, candidate.artist) * 0.3
-        )
-        if score > best_score and score >= MATCH_THRESHOLD:
+        title_score = fuzzy_match_score(track.title, candidate.title)
+        artist_score = artist_match_score(track.artist, candidate.artist)
+        score = title_score * 0.7 + artist_score * 0.3
+        if (
+            score > best_score
+            and title_score >= MIN_TITLE_SIMILARITY
+            and artist_score >= MIN_ARTIST_SIMILARITY
+            and score >= MATCH_THRESHOLD
+        ):
             best_score = score
             best_id = candidate.spotify_id
     return best_id
@@ -128,6 +134,22 @@ def _spotify_request(
         raise SpotifyExportError("Spotify playlist operation failed") from exc
 
 
+def _remove_created_playlist(user: User, playlist_id: str, access_token: str | None) -> None:
+    """Best-effort remove a partially exported playlist from the user's library."""
+    if not access_token:
+        return
+    try:
+        with httpx.Client(timeout=HTTP_TIMEOUT) as client:
+            response = client.delete(
+                f"{SPOTIFY_API_BASE}/me/library",
+                params={"uris": f"spotify:playlist:{playlist_id}"},
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            response.raise_for_status()
+    except httpx.HTTPError as exc:
+        logger.warning("Spotify partial playlist cleanup failed: %s", type(exc).__name__)
+
+
 def export_to_spotify(
     db: Session,
     user: User,
@@ -156,14 +178,19 @@ def export_to_spotify(
         raise SpotifyExportError("Spotify returned an invalid playlist")
 
     uris = [uri for _, uri in resolved]
-    for start in range(0, len(uris), MAX_ADD_BATCH):
-        _spotify_request(
-            db,
-            user,
-            "POST",
-            f"/playlists/{playlist_id}/items",
-            json_body={"uris": uris[start : start + MAX_ADD_BATCH]},
-        )
+    cleanup_token = user.spotify_access_token
+    try:
+        for start in range(0, len(uris), MAX_ADD_BATCH):
+            _spotify_request(
+                db,
+                user,
+                "POST",
+                f"/playlists/{playlist_id}/items",
+                json_body={"uris": uris[start : start + MAX_ADD_BATCH]},
+            )
+    except (SpotifyExportError, SpotifyNotConnected):
+        _remove_created_playlist(user, playlist_id, cleanup_token)
+        raise
 
     playlist_url = playlist.get("external_urls", {}).get("spotify")
     if not isinstance(playlist_url, str) or not playlist_url.startswith(

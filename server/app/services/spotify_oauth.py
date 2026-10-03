@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 AUTH_URL = "https://accounts.spotify.com/authorize"
 OAUTH_EXCHANGE_URL = "https://accounts.spotify.com/api/token"
-SCOPES = "playlist-modify-private"
+SCOPES = "playlist-modify-private user-library-modify"
 HTTP_TIMEOUT = 15.0
 
 
@@ -100,26 +100,22 @@ def _exchange_code(code: str) -> dict:
         or not token_data["refresh_token"]
     ):
         raise SpotifyOAuthError("Spotify returned an incomplete token response")
-    if SCOPES not in str(token_data.get("scope", "")).split():
+    granted_scopes = set(str(token_data.get("scope", "")).split())
+    if not set(SCOPES.split()).issubset(granted_scopes):
         raise SpotifyOAuthError("Spotify did not grant playlist write access")
     return token_data
 
 
 def finish_authorization(db: Session, state: str, code: str) -> User:
     """Validate callback state, exchange the code, and store encrypted tokens."""
-    try:
-        user_id_text, issued_text, nonce = state.split(".", maxsplit=2)
-        user_id = int(user_id_text)
-        issued_at = int(issued_text)
-    except (ValueError, TypeError):
-        raise SpotifyOAuthError("Invalid Spotify authorization state") from None
+    user_id, issued_at, nonce = _parse_state(state)
     if not nonce or abs(time() - issued_at) > 600:
         raise SpotifyOAuthError("Spotify authorization state expired")
     user = db.get(User, user_id)
     if (
         user is None
         or not user.spotify_oauth_state
-        or not secrets.compare_digest(user.spotify_oauth_state, state)
+        or not secrets.compare_digest(user.spotify_oauth_state.encode(), state.encode())
     ):
         raise SpotifyOAuthError("Invalid Spotify authorization state")
 
@@ -134,22 +130,39 @@ def finish_authorization(db: Session, state: str, code: str) -> User:
 
 def cancel_authorization(db: Session, state: str) -> None:
     """Validate and clear a state when the user cancels at Spotify."""
-    try:
-        user_id_text, issued_text, nonce = state.split(".", maxsplit=2)
-        user_id = int(user_id_text)
-        issued_at = int(issued_text)
-    except (ValueError, TypeError):
-        raise SpotifyOAuthError("Invalid Spotify authorization state") from None
+    user_id, issued_at, nonce = _parse_state(state)
     if not nonce or abs(time() - issued_at) > 600:
         raise SpotifyOAuthError("Spotify authorization state expired")
     user = db.get(User, user_id)
     if (
         user is None
         or not user.spotify_oauth_state
-        or not secrets.compare_digest(user.spotify_oauth_state, state)
+        or not secrets.compare_digest(user.spotify_oauth_state.encode(), state.encode())
     ):
         raise SpotifyOAuthError("Invalid Spotify authorization state")
     user.spotify_oauth_state = None
+    db.commit()
+
+
+def _parse_state(state: str) -> tuple[int, int, str]:
+    """Validate bounds and encoding before database access or constant-time comparison."""
+    if not isinstance(state, str) or not state.isascii() or len(state) > 200:
+        raise SpotifyOAuthError("Invalid Spotify authorization state")
+    try:
+        user_id_text, issued_text, nonce = state.split(".", maxsplit=2)
+        user_id = int(user_id_text)
+        issued_at = int(issued_text)
+    except (ValueError, TypeError):
+        raise SpotifyOAuthError("Invalid Spotify authorization state") from None
+    if not 1 <= user_id <= 2_147_483_647 or not nonce or not nonce.isascii():
+        raise SpotifyOAuthError("Invalid Spotify authorization state")
+    return user_id, issued_at, nonce
+
+
+def _clear_credentials(db: Session, user: User) -> None:
+    user.spotify_access_token = None
+    user.spotify_refresh_token = None
+    user.spotify_token_expires_at = None
     db.commit()
 
 
@@ -164,6 +177,7 @@ def refresh_access_token(db: Session, user: User) -> bool:
         if expires_at > datetime.now(UTC):
             return True
     if not user.spotify_refresh_token:
+        _clear_credentials(db, user)
         return False
 
     settings = get_settings()
@@ -191,9 +205,11 @@ def refresh_access_token(db: Session, user: User) -> bool:
         return True
     except SpotifyOAuthError as exc:
         logger.warning("Spotify token refresh failed: %s", type(exc).__name__)
+        _clear_credentials(db, user)
         return False
     except (httpx.HTTPError, KeyError, ValueError, TypeError) as exc:
         logger.warning("Spotify token refresh failed: %s", type(exc).__name__)
+        _clear_credentials(db, user)
         return False
 
 

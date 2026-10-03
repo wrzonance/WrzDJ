@@ -1035,7 +1035,10 @@ class ApiClient {
   }
 
   async startSpotifyAuthorization(): Promise<{ authorization_url: string }> {
-    return this.fetch('/api/spotify/auth/start', { method: 'POST' });
+    return this.fetch('/api/spotify/auth/start', {
+      method: 'POST',
+      credentials: 'include',
+    });
   }
 
   async exportSetToSpotify(setId: number, skipUnresolved: boolean): Promise<ExportSpotifyResult> {

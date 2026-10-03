@@ -21367,6 +21367,22 @@
               ],
               "title": "Error"
             }
+          },
+          {
+            "in": "cookie",
+            "name": "wrzdj_spotify_oauth_state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Wrzdj Spotify Oauth State"
+            }
           }
         ],
         "responses": {

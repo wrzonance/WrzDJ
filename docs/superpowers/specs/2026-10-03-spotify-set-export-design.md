@@ -6,10 +6,11 @@ Let a DJ export the ordered WrzDJSet timeline or pool to a new private Spotify p
 
 ## Design
 
-- Link the DJ's Spotify account with Authorization Code OAuth. Persist access and refresh tokens plus one-time state in `EncryptedText` columns. The callback validates a short-lived, user-bound random state before exchanging the authorization code.
+- Link the DJ's Spotify account with Authorization Code OAuth. Persist access and refresh tokens plus one-time state in `EncryptedText` columns. The callback validates a short-lived, user-bound random state and an HttpOnly browser cookie before exchanging the authorization code.
 - Resolve namespaced `spotify:<id>` references directly, then try an exact ISRC search, then title/artist search with the existing fuzzy matcher and unwanted-version filter. Preserve input order and report every unresolved entry.
 - Add `spotify` to the existing export preflight contract. When tracks are unresolved, return the same 409 interrupt used by Tidal. Only `skip_unresolved=true` allows playlist creation with matched items alone.
-- Create a fresh private playlist, then append Spotify URIs in ordered batches of at most 100. Mark the set exported only after all batches succeed and persist its Spotify playlist ID.
+- Create a fresh private playlist, then append Spotify URIs in ordered batches of at most 100. If a batch fails, best-effort remove the partial playlist from the user's library. Mark the set exported only after all batches succeed and persist its Spotify playlist ID.
+- Request Spotify's private-playlist write and library-modify scopes so failed partial exports can be removed from the user's library.
 - Extend the existing export modal with OAuth linking, preflight feedback, explicit unresolved-track choice, and a result link.
 
 ## Boundaries and invariants
@@ -25,3 +26,4 @@ Let a DJ export the ordered WrzDJSet timeline or pool to a new private Spotify p
 - [Spotify Authorization Code flow](https://developer.spotify.com/documentation/web-api/tutorials/code-flow)
 - [Spotify Create Playlist](https://developer.spotify.com/documentation/web-api/reference/create-playlist)
 - [Spotify Add Items to Playlist](https://developer.spotify.com/documentation/web-api/reference/add-items-to-playlist)
+- [Spotify Remove Items from Library](https://developer.spotify.com/documentation/web-api/reference/remove-library-items)

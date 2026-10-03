@@ -36,6 +36,36 @@ def test_unmatched_spotify_track_is_returned_as_unresolved(db, test_user, monkey
     assert [(track.position, track.title) for track in unresolved] == [(2, "Unknown")]
 
 
+def test_fuzzy_match_requires_both_title_and_artist_similarity(db, test_user, monkeypatch):
+    monkeypatch.setattr(
+        export_spotify.spotify,
+        "search_songs",
+        lambda *args: [SimpleNamespace(spotify_id="wrong", title="Exact Title", artist="Other")],
+    )
+
+    resolved, unresolved = export_spotify.resolve_for_spotify(
+        db, test_user, [_track(0, "Exact Title", "Correct Artist")]
+    )
+
+    assert resolved == []
+    assert len(unresolved) == 1
+
+
+def test_same_artist_with_a_weak_title_match_is_unresolved(db, test_user, monkeypatch):
+    monkeypatch.setattr(
+        export_spotify.spotify,
+        "search_songs",
+        lambda *args: [SimpleNamespace(spotify_id="wrong", title="Song", artist="Artist")],
+    )
+
+    resolved, unresolved = export_spotify.resolve_for_spotify(
+        db, test_user, [_track(0, "Completely Different Long Title", "Artist")]
+    )
+
+    assert resolved == []
+    assert len(unresolved) == 1
+
+
 def test_export_batches_in_order_and_marks_set_exported(db, test_user, monkeypatch):
     set_obj = Set(owner_id=test_user.id, name="Night")
     db.add(set_obj)
@@ -65,6 +95,38 @@ def test_export_batches_in_order_and_marks_set_exported(db, test_user, monkeypat
     assert outcome.added == 205
     db.refresh(set_obj)
     assert (set_obj.status, set_obj.spotify_playlist_id) == ("exported", "playlist1")
+
+
+def test_partial_export_attempts_to_remove_created_playlist(db, test_user, monkeypatch):
+    set_obj = Set(owner_id=test_user.id, name="Night")
+    db.add(set_obj)
+    db.commit()
+    test_user.spotify_access_token = "access-token"
+    calls = []
+
+    def fake_request(db_, user, method, path, *, json_body=None):
+        calls.append((method, path, json_body))
+        if path == "/me/playlists":
+            return {"id": "playlist1"}
+        if path.startswith("/playlists/"):
+            raise export_spotify.SpotifyExportError("batch failed")
+        return {}
+
+    cleanup = []
+    monkeypatch.setattr(export_spotify, "_spotify_request", fake_request)
+    monkeypatch.setattr(
+        export_spotify,
+        "_remove_created_playlist",
+        lambda user, playlist_id, access_token: cleanup.append((access_token, playlist_id)),
+    )
+
+    import pytest
+
+    with pytest.raises(export_spotify.SpotifyExportError, match="batch failed"):
+        export_spotify.export_to_spotify(
+            db, test_user, set_obj, [(_track(0, "Song", "Artist"), "spotify:track:id")]
+        )
+    assert cleanup == [("access-token", "playlist1")]
 
 
 def test_spotify_preflight_preserves_unresolved_and_requires_explicit_skip(
@@ -98,6 +160,7 @@ def test_spotify_preflight_preserves_unresolved_and_requires_explicit_skip(
     db.commit()
     test_user.spotify_access_token = "access-token"
     db.commit()
+    monkeypatch.setattr("app.api.setbuilder.refresh_access_token", lambda db_, user: True)
     monkeypatch.setattr(
         "app.services.setbuilder.export_spotify.spotify.search_songs",
         lambda *args: [],

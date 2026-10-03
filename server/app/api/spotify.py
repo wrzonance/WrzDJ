@@ -1,8 +1,9 @@
 """Spotify account authorization and playlist-export status."""
 
+import secrets
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -17,6 +18,7 @@ from app.services.spotify_oauth import (
     cancel_authorization,
     disconnect,
     finish_authorization,
+    refresh_access_token,
 )
 
 router = APIRouter()
@@ -32,6 +34,10 @@ class SpotifyStatusOut(BaseModel):
     expires_at: str | None = None
 
 
+OAUTH_STATE_COOKIE = "wrzdj_spotify_oauth_state"
+OAUTH_STATE_COOKIE_PATH = "/api/spotify/auth/callback"
+
+
 def _spotify_configured() -> bool:
     settings = get_settings()
     return bool(
@@ -45,12 +51,18 @@ def _spotify_configured() -> bool:
 @router.get("/status", response_model=SpotifyStatusOut)
 def status_for_user(
     current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
 ) -> SpotifyStatusOut:
+    linked = refresh_access_token(db, current_user)
     expires_at = current_user.spotify_token_expires_at
     return SpotifyStatusOut(
         configured=_spotify_configured(),
-        linked=bool(current_user.spotify_access_token),
-        expires_at=expires_at.isoformat() + ("Z" if expires_at.tzinfo is None else ""),
+        linked=linked,
+        expires_at=(
+            expires_at.isoformat() + ("Z" if expires_at.tzinfo is None else "")
+            if linked and expires_at
+            else None
+        ),
     )
 
 
@@ -58,11 +70,22 @@ def status_for_user(
 @limiter.limit("10/minute")
 def start_authorization(
     request: Request,
+    response: Response,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ) -> SpotifyAuthorizationOut:
     try:
-        return SpotifyAuthorizationOut(authorization_url=authorization_url(db, current_user))
+        url = authorization_url(db, current_user)
+        response.set_cookie(
+            OAUTH_STATE_COOKIE,
+            current_user.spotify_oauth_state,
+            max_age=600,
+            httponly=True,
+            secure=get_settings().spotify_redirect_uri.startswith("https://"),
+            samesite="lax",
+            path=OAUTH_STATE_COOKIE_PATH,
+        )
+        return SpotifyAuthorizationOut(authorization_url=url)
     except SpotifyOAuthError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -77,8 +100,13 @@ def authorization_callback(
     state: str = Query(..., min_length=5, max_length=200),
     code: str | None = Query(None, min_length=1, max_length=2048),
     error: str | None = Query(None, max_length=100),
+    oauth_state_cookie: str | None = Cookie(None, alias=OAUTH_STATE_COOKIE),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
+    if not oauth_state_cookie or not secrets.compare_digest(
+        state.encode("utf-8"), oauth_state_cookie.encode("utf-8")
+    ):
+        raise HTTPException(status_code=400, detail="Invalid Spotify authorization state")
     settings = get_settings()
     if not error and code:
         try:
@@ -94,10 +122,12 @@ def authorization_callback(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
     else:
         raise HTTPException(status_code=400, detail="Missing Spotify authorization code")
-    return RedirectResponse(
+    response = RedirectResponse(
         f"{settings.public_url.rstrip('/')}/setbuilder?{urlencode({'spotify': result})}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
+    response.delete_cookie(OAUTH_STATE_COOKIE, path=OAUTH_STATE_COOKIE_PATH)
+    return response
 
 
 @router.post("/disconnect")

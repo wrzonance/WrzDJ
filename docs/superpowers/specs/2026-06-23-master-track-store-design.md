@@ -141,6 +141,7 @@ enrich track (request submit, or pool import)
 
 ## 11. Open questions / future
 
+- Catalog growth, capacity guardrails, and the threshold for infrastructure extraction are defined in the [global track catalog scaling plan](2026-10-03-track-catalog-scaling-plan.md) (#546).
 - ReccoBeats fallback + batch backfill (quota path) — hook left in the cascade.
 - Lexicon measured-energy override (#526) — slots in at precedence 90.
 - Provenance-driven re-enrichment/TTL job — enabled by `fetched_at`, deferred.

@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
 import type { Event, TidalStatus, BeatportStatus, ActivityLogEntry } from '@/lib/api-types';
 import { useHelp } from '@/lib/help/HelpContext';
+import { useLocale } from '@/lib/locale';
 import { HelpSpot } from '@/components/help/HelpSpot';
 import { HelpButton } from '@/components/help/HelpButton';
 import { OnboardingOverlay } from '@/components/help/OnboardingOverlay';
@@ -16,6 +17,7 @@ import { CollectionFieldset, collectionSchema } from '@/components/CollectionFie
 const PAGE_ID = 'dashboard';
 
 export default function DashboardPage() {
+  const { locale, messages } = useLocale();
   const { isAuthenticated, isLoading, role, logout } = useAuth();
   const { hasSeenPage, startOnboarding } = useHelp();
   const router = useRouter();
@@ -207,7 +209,7 @@ export default function DashboardPage() {
 
       <HelpSpot spotId="events-header" page={PAGE_ID} order={1} title="Your Events" description="This is your events dashboard. All your DJ events appear here.">
         <div className="header">
-          <h1>Dashboard</h1>
+          <h1 lang={locale}>{messages.dashboard.title}</h1>
           <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
             {role === 'admin' && (
               <HelpSpot spotId="events-admin" page={PAGE_ID} order={3} title="Admin Panel" description="Access the admin panel to manage users, view all events, and configure integrations.">
@@ -217,31 +219,33 @@ export default function DashboardPage() {
               </HelpSpot>
             )}
             <HelpSpot spotId="events-create" page={PAGE_ID} order={2} title="Create Event" description="Click to create a new event. Each event gets a unique code and QR that guests scan to submit requests.">
-              <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
-                Create Event
+              <button className="btn btn-primary" lang={locale} onClick={() => setShowCreate(true)}>
+                {messages.dashboard.createEvent}
               </button>
             </HelpSpot>
             <Link
               href="/setbuilder"
+              lang={locale}
               className="btn"
               style={{ background: 'var(--surface-raised)', textDecoration: 'none', color: 'var(--text)' }}
             >
-              Set Builder
+              {messages.dashboard.setBuilder}
             </Link>
             <a
               href="https://github.com/thewrz/WrzDJ/releases/latest"
+              lang={locale}
               target="_blank"
               rel="noopener noreferrer"
               className="btn btn-sm"
               style={{ background: 'var(--surface-raised)', textDecoration: 'none', color: 'var(--text)' }}
             >
-              Bridge App
+              {messages.dashboard.bridgeApp}
             </a>
-            <Link href="/account" className="btn" style={{ background: 'var(--surface-raised)', textDecoration: 'none', color: 'var(--text)' }}>
-              Account
+            <Link href="/account" lang={locale} className="btn" style={{ background: 'var(--surface-raised)', textDecoration: 'none', color: 'var(--text)' }}>
+              {messages.dashboard.account}
             </Link>
-            <button className="btn" style={{ background: 'var(--surface-raised)' }} onClick={logout}>
-              Logout
+            <button className="btn" lang={locale} style={{ background: 'var(--surface-raised)' }} onClick={logout}>
+              {messages.dashboard.logout}
             </button>
           </div>
         </div>

@@ -1,6 +1,7 @@
 """Spotify account authorization and playlist-export status."""
 
-import secrets
+import hashlib
+import hmac
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
@@ -36,6 +37,12 @@ class SpotifyStatusOut(BaseModel):
 
 OAUTH_STATE_COOKIE = "wrzdj_spotify_oauth_state"
 OAUTH_STATE_COOKIE_PATH = "/api/spotify/auth/callback"
+
+
+def _oauth_state_cookie_value(state: str, signing_key: str) -> str:
+    """Return a browser-binding digest without storing raw OAuth state in the cookie."""
+    message = f"wrzdj-spotify-oauth-state:{state}".encode()
+    return hmac.new(signing_key.encode(), message, hashlib.sha256).hexdigest()
 
 
 def _spotify_configured() -> bool:
@@ -76,12 +83,13 @@ def start_authorization(
 ) -> SpotifyAuthorizationOut:
     try:
         url = authorization_url(db, current_user)
+        settings = get_settings()
         response.set_cookie(
             OAUTH_STATE_COOKIE,
-            current_user.spotify_oauth_state,
+            _oauth_state_cookie_value(current_user.spotify_oauth_state, settings.jwt_secret),
             max_age=600,
             httponly=True,
-            secure=get_settings().spotify_redirect_uri.startswith("https://"),
+            secure=settings.spotify_redirect_uri.startswith("https://"),
             samesite="lax",
             path=OAUTH_STATE_COOKIE_PATH,
         )
@@ -103,11 +111,14 @@ def authorization_callback(
     oauth_state_cookie: str | None = Cookie(None, alias=OAUTH_STATE_COOKIE),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
-    if not oauth_state_cookie or not secrets.compare_digest(
-        state.encode("utf-8"), oauth_state_cookie.encode("utf-8")
+    settings = get_settings()
+    expected_cookie = _oauth_state_cookie_value(state, settings.jwt_secret)
+    if (
+        not oauth_state_cookie
+        or not oauth_state_cookie.isascii()
+        or not hmac.compare_digest(expected_cookie, oauth_state_cookie)
     ):
         raise HTTPException(status_code=400, detail="Invalid Spotify authorization state")
-    settings = get_settings()
     if not error and code:
         try:
             finish_authorization(db, state, code)

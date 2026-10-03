@@ -64,7 +64,7 @@ export class WatchedFolderReader implements LocalLibraryReader {
     try {
       entries = await readdir(directory, { withFileTypes: true });
     } catch (error) {
-      if (isMissingPath(error)) return;
+      if (directory !== root && isMissingPath(error)) return;
       throw withPathContext("read library directory", directory, error);
     }
 

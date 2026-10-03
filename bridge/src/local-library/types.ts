@@ -1,7 +1,7 @@
 export interface LocalLibraryTrack {
   /** Stable path relative to the configured library root, with `/` separators. */
   readonly id: string;
-  /** Absolute path for bridge-side file access. Do not expose this in browser-facing payloads. */
+  /** Canonical absolute path for bridge-side access; omit from browser-facing payloads. */
   readonly filePath: string;
   readonly title: string;
   readonly artist: string | null;

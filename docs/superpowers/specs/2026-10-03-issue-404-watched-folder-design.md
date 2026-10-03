@@ -16,18 +16,22 @@ playback, parsed `title`, nullable `artist`, and lowercase `extension`. `LocalLi
 LocalLibraryTrack[]>`.
 
 `WatchedFolderReader(rootPath)` implements the reader. A recursive scan includes only known audio
-extensions, ignores symbolic links, and returns deterministic path order. A basename in the form
-`Artist - Title.ext` supplies artist and title; other basenames supply title only. Search rescans,
-then performs case-insensitive substring matching across title and artist. Empty search returns the
-full scan.
+extensions, ignores symbolic links, skips common OS trash/system folders and AppleDouble audio
+sidecars, and returns deterministic path order. A basename in the form `Artist - Title.ext`
+supplies artist and title; other basenames supply title only. IDs use the path relative to the
+canonical root, and `filePath` is canonical and absolute. Search rescans, then performs
+case-insensitive, NFC-normalized substring matching across combined artist and title. Empty search
+returns the full scan.
 
 ## Invariants and errors
 
-- Returned file paths remain beneath the canonical selected root; symbolic links are not followed.
+- Returned canonical file paths remain beneath the canonical selected root; symbolic links are not
+  followed.
 - Unsupported files are absent, extension matching is case-insensitive, and IDs remain stable for a
   file's relative path within that root.
-- Filesystem failures reject with the failing path and original error as `cause`; they are not hidden
-  as an empty library.
+- Known OS trash/system directories and `._` AppleDouble files are absent. A nested directory that
+  disappears during scanning is skipped; other filesystem failures reject with path context and the
+  original error as `cause`.
 - The scanner does not read file contents or load third-party packages.
 
 The implementation uses Node's `fs/promises` directory entries and path utilities. These APIs are

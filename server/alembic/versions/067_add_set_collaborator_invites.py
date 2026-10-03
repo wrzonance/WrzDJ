@@ -30,11 +30,13 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["created_by"], ["users.id"], ondelete="SET NULL"),
         sa.ForeignKeyConstraint(["set_id"], ["sets.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("token_hash"),
     )
     op.create_index("ix_set_collaborator_invites_set_id", "set_collaborator_invites", ["set_id"])
     op.create_index(
-        "ix_set_collaborator_invites_token_hash", "set_collaborator_invites", ["token_hash"]
+        "ix_set_collaborator_invites_token_hash",
+        "set_collaborator_invites",
+        ["token_hash"],
+        unique=True,
     )
 
 

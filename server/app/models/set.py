@@ -64,6 +64,7 @@ class Set(Base):
     )
 
     tidal_playlist_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    spotify_playlist_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     exported_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

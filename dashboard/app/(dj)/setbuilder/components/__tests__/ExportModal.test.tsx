@@ -6,7 +6,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import type { ExportPreflight, ExportTidalResult, SetDetail } from '@/lib/api-types';
+import type { ExportPreflight, ExportSpotifyResult, ExportTidalResult, SetDetail } from '@/lib/api-types';
 import ExportModal from '../ExportModal';
 
 // ---- Mock the API singleton ----
@@ -14,6 +14,8 @@ import ExportModal from '../ExportModal';
 const mockApi = vi.hoisted(() => ({
   exportPreflight: vi.fn(),
   exportSetToTidal: vi.fn(),
+  exportSetToSpotify: vi.fn(),
+  startSpotifyAuthorization: vi.fn(),
   exportSetFile: vi.fn(),
 }));
 
@@ -46,6 +48,7 @@ function makeSet(overrides: Partial<SetDetail> = {}): SetDetail {
     bpm_ceiling: null,
     key_strictness: 0,
     tidal_playlist_id: null,
+    spotify_playlist_id: null,
     exported_at: null,
     created_at: '2026-06-10T00:00:00Z',
     updated_at: '2026-06-10T00:00:00Z',
@@ -61,6 +64,7 @@ function makePreflightClean(target: ExportPreflight['target'] = 'rekordbox'): Ex
     resolved_count: 10,
     unresolved: [],
     tidal_connected: null,
+    spotify_connected: null,
   };
 }
 
@@ -69,7 +73,11 @@ function makePreflightWithUnresolved(
 ): ExportPreflight {
   // Backend sets reason per target: tidal preflight → no_tidal_match,
   // file targets (rekordbox/m3u/txt) → missing_metadata.
-  const reason = target === 'tidal' ? ('no_tidal_match' as const) : ('missing_metadata' as const);
+  const reason = target === 'tidal'
+    ? ('no_tidal_match' as const)
+    : target === 'spotify'
+      ? ('no_spotify_match' as const)
+      : ('missing_metadata' as const);
   return {
     target,
     source: 'timeline',
@@ -92,12 +100,22 @@ function makePreflightWithUnresolved(
       },
     ],
     tidal_connected: null,
+    spotify_connected: null,
   };
 }
 
 const TIDAL_RESULT: ExportTidalResult = {
   playlist_id: 'pl-1',
   playlist_url: 'https://tidal.com/playlist/pl-1',
+  added: 10,
+  skipped: 0,
+  exported_at: '2026-06-10T12:00:00Z',
+  status: 'exported',
+};
+
+const SPOTIFY_RESULT: ExportSpotifyResult = {
+  playlist_id: 'spotify-pl-1',
+  playlist_url: 'https://open.spotify.com/playlist/spotify-pl-1',
   added: 10,
   skipped: 0,
   exported_at: '2026-06-10T12:00:00Z',
@@ -116,11 +134,11 @@ beforeEach(() => {
 });
 
 // ============================================================
-// 1. Platform picker — all 8 rows, 3 disabled with "Coming soon"
+// 1. Platform picker — all 8 rows, 2 disabled with "Coming soon"
 // ============================================================
 
 describe('ExportModal — platform picker', () => {
-  it('renders all 8 platform rows with 3 disabled and showing "Coming soon"', () => {
+  it('renders all 8 platform rows with 2 disabled and showing "Coming soon"', () => {
     render(<ExportModal {...baseProps} />);
 
     // Available platforms (Engine DJ + Lexicon both ship via Rekordbox XML)
@@ -135,9 +153,9 @@ describe('ExportModal — platform picker', () => {
     expect(screen.getByText('Spotify')).toBeTruthy();
     expect(screen.getByText('Apple Music')).toBeTruthy();
 
-    // Exactly 3 "Coming soon" badges
+    // Exactly 2 "Coming soon" badges
     const comingSoonBadges = screen.getAllByText('Coming soon');
-    expect(comingSoonBadges).toHaveLength(3);
+    expect(comingSoonBadges).toHaveLength(2);
   });
 
   it('Engine DJ and Lexicon rows are enabled (not "Coming soon")', () => {
@@ -148,15 +166,14 @@ describe('ExportModal — platform picker', () => {
     expect((lexiconBtn as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('unavailable rows are disabled and clicking them does not call exportPreflight', () => {
+  it('Apple Music is disabled and clicking it does not call exportPreflight', () => {
     render(<ExportModal {...baseProps} />);
 
-    // Find the Spotify button (unavailable row)
-    const spotifyBtn = screen.getByRole('button', { name: /spotify/i });
-    expect((spotifyBtn as HTMLButtonElement).disabled).toBe(true);
+    const appleMusicBtn = screen.getByRole('button', { name: /apple music/i });
+    expect((appleMusicBtn as HTMLButtonElement).disabled).toBe(true);
 
     // Clicking a disabled button must not trigger the preflight call
-    fireEvent.click(spotifyBtn);
+    fireEvent.click(appleMusicBtn);
     expect(mockApi.exportPreflight).not.toHaveBeenCalled();
   });
 });
@@ -344,6 +361,53 @@ describe('ExportModal — Tidal export', () => {
     expect(onSetUpdated).toHaveBeenCalledWith({
       status: 'exported',
       tidal_playlist_id: 'pl-1',
+      exported_at: '2026-06-10T12:00:00Z',
+    });
+  });
+});
+
+describe('ExportModal — Spotify export', () => {
+  it('shows a connect action and blocks export when Spotify is not linked', async () => {
+    mockApi.exportPreflight.mockResolvedValue({
+      ...makePreflightClean('spotify'),
+      spotify_connected: false,
+    });
+    mockApi.startSpotifyAuthorization.mockResolvedValue({
+      authorization_url: 'https://accounts.spotify.com/authorize?state=state',
+    });
+
+    render(<ExportModal {...baseProps} />);
+    fireEvent.click(screen.getByText('Spotify'));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /connect spotify/i })).toBeTruthy();
+    });
+    expect(screen.queryByRole('button', { name: /export to spotify/i })).toBeNull();
+  });
+
+  it('exports after connected preflight and shows Spotify playlist result', async () => {
+    mockApi.exportPreflight.mockResolvedValue({
+      ...makePreflightClean('spotify'),
+      spotify_connected: true,
+    });
+    mockApi.exportSetToSpotify.mockResolvedValue(SPOTIFY_RESULT);
+    const onSetUpdated = vi.fn();
+
+    render(<ExportModal {...baseProps} onSetUpdated={onSetUpdated} />);
+    fireEvent.click(screen.getByText('Spotify'));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /export to spotify/i })).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /export to spotify/i }));
+
+    await waitFor(() => {
+      expect(mockApi.exportSetToSpotify).toHaveBeenCalledWith(42, false);
+      expect(screen.getByRole('link', { name: /open in spotify/i })).toBeTruthy();
+    });
+    expect(onSetUpdated).toHaveBeenCalledWith({
+      status: 'exported',
+      spotify_playlist_id: 'spotify-pl-1',
       exported_at: '2026-06-10T12:00:00Z',
     });
   });

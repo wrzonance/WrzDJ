@@ -201,6 +201,7 @@ export interface SetDetail extends SetSummary {
   bpm_ceiling: number | null;
   key_strictness: number;
   tidal_playlist_id: string | null;
+  spotify_playlist_id: string | null;
   exported_at: string | null;
 }
 
@@ -323,3 +324,4 @@ export type ExportFileFormat = Schemas['ExportFileIn']['format'];
 export type UnresolvedTrack = Schemas['UnresolvedTrackOut'];
 export type ExportPreflight = Schemas['ExportPreflightOut'];
 export type ExportTidalResult = Schemas['ExportTidalOut'];
+export type ExportSpotifyResult = Schemas['ExportSpotifyOut'];

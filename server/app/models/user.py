@@ -48,6 +48,12 @@ class User(Base):
     beatport_oauth_code_verifier: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     beatport_subscription: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
+    # Spotify playlist-export OAuth tokens and transient state (encrypted at rest).
+    spotify_access_token: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
+    spotify_refresh_token: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
+    spotify_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    spotify_oauth_state: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
+
     # Help onboarding state (JSON array of page IDs)
     help_pages_seen: Mapped[str | None] = mapped_column(Text, nullable=True)
 

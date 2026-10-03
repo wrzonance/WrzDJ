@@ -78,6 +78,7 @@ All config lives in `.env` at the repo root. Key variables:
 | `JWT_SECRET` | Auth token signing key |
 | `SPOTIFY_CLIENT_ID` | Spotify API credentials |
 | `SPOTIFY_CLIENT_SECRET` | Spotify API credentials |
+| `SPOTIFY_REDIRECT_URI` | Registered Spotify OAuth callback, e.g. `https://api.example.com/api/spotify/auth/callback` |
 | `TIDAL_CLIENT_ID` | Tidal API credentials |
 | `TIDAL_CLIENT_SECRET` | Tidal API credentials |
 | `TIDAL_REDIRECT_URI` | Tidal OAuth callback URL |

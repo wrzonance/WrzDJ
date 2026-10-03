@@ -2911,6 +2911,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setbuilder/sets/{set_id}/export/spotify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Set Spotify
+         * @description Export the ordered setlist to a new private Spotify playlist.
+         */
+        post: operations["export_set_spotify_api_setbuilder_sets__set_id__export_spotify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setbuilder/sets/{set_id}/export/tidal": {
         parameters: {
             query?: never;
@@ -3501,6 +3521,74 @@ export interface paths {
          * @description Reset learned profile training history without deleting override rows.
          */
         post: operations["reset_taste_profile_api_setbuilder_taste_profile_reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/spotify/auth/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Authorization Callback */
+        get: operations["authorization_callback_api_spotify_auth_callback_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/spotify/auth/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Authorization */
+        post: operations["start_authorization_api_spotify_auth_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/spotify/disconnect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disconnect Account */
+        post: operations["disconnect_account_api_spotify_disconnect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/spotify/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Status For User */
+        get: operations["status_for_user_api_spotify_status_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5161,7 +5249,7 @@ export interface components {
              * Target
              * @enum {string}
              */
-            target: "tidal" | "rekordbox" | "m3u" | "txt" | "enginedj" | "lexicon";
+            target: "tidal" | "spotify" | "rekordbox" | "m3u" | "txt" | "enginedj" | "lexicon";
         };
         /**
          * ExportPreflightOut
@@ -5175,17 +5263,54 @@ export interface components {
              * @enum {string}
              */
             source: "timeline" | "pool";
+            /** Spotify Connected */
+            spotify_connected: boolean | null;
             /**
              * Target
              * @enum {string}
              */
-            target: "tidal" | "rekordbox" | "m3u" | "txt" | "enginedj" | "lexicon";
+            target: "tidal" | "spotify" | "rekordbox" | "m3u" | "txt" | "enginedj" | "lexicon";
             /** Tidal Connected */
             tidal_connected: boolean | null;
             /** Total */
             total: number;
             /** Unresolved */
             unresolved: components["schemas"]["UnresolvedTrackOut"][];
+        };
+        /**
+         * ExportSpotifyIn
+         * @description Body for Spotify export; skip_unresolved requires explicit DJ choice.
+         */
+        ExportSpotifyIn: {
+            /**
+             * Skip Unresolved
+             * @default false
+             */
+            skip_unresolved: boolean;
+        };
+        /**
+         * ExportSpotifyOut
+         * @description Successful Spotify playlist export.
+         */
+        ExportSpotifyOut: {
+            /** Added */
+            added: number;
+            /**
+             * Exported At
+             * Format: date-time
+             */
+            exported_at: string;
+            /** Playlist Id */
+            playlist_id: string;
+            /** Playlist Url */
+            playlist_url: string;
+            /** Skipped */
+            skipped: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "locked" | "exported";
         };
         /**
          * ExportTidalIn
@@ -6591,6 +6716,8 @@ export interface components {
              * @enum {string}
              */
             sharing_mode: "private" | "invite_only";
+            /** Spotify Playlist Id */
+            spotify_playlist_id: string | null;
             /**
              * Status
              * @enum {string}
@@ -7039,6 +7166,20 @@ export interface components {
          * @enum {string}
          */
         SortDirection: "asc" | "desc";
+        /** SpotifyAuthorizationOut */
+        SpotifyAuthorizationOut: {
+            /** Authorization Url */
+            authorization_url: string;
+        };
+        /** SpotifyStatusOut */
+        SpotifyStatusOut: {
+            /** Configured */
+            configured: boolean;
+            /** Expires At */
+            expires_at: string | null;
+            /** Linked */
+            linked: boolean;
+        };
         /** StatusMessageResponse */
         StatusMessageResponse: {
             /** Message */
@@ -7434,7 +7575,7 @@ export interface components {
              * Reason
              * @enum {string}
              */
-            reason: "no_tidal_match" | "missing_metadata";
+            reason: "no_tidal_match" | "no_spotify_match" | "missing_metadata";
             /** Title */
             title: string;
             /** Track Id */
@@ -12802,6 +12943,64 @@ export interface operations {
             };
         };
     };
+    export_set_spotify_api_setbuilder_sets__set_id__export_spotify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportSpotifyIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportSpotifyOut"];
+                };
+            };
+            /** @description Spotify account not connected, or no exportable tracks. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unresolved tracks — retry with skip_unresolved=true to proceed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnresolvedTracksError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Upstream Spotify export failed. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     export_set_tidal_api_setbuilder_sets__set_id__export_tidal_post: {
         parameters: {
             query?: never;
@@ -13938,6 +14137,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TasteProfileOut"];
+                };
+            };
+        };
+    };
+    authorization_callback_api_spotify_auth_callback_get: {
+        parameters: {
+            query: {
+                state: string;
+                code?: string | null;
+                error?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                wrzdj_spotify_oauth_state?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_authorization_api_spotify_auth_start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpotifyAuthorizationOut"];
+                };
+            };
+        };
+    };
+    disconnect_account_api_spotify_disconnect_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+        };
+    };
+    status_for_user_api_spotify_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpotifyStatusOut"];
                 };
             };
         };

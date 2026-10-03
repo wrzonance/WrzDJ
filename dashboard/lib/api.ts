@@ -103,6 +103,7 @@ import type {
   ExportFileFormat,
   ExportPreflight,
   ExportTidalResult,
+  ExportSpotifyResult,
 } from './api-types';
 
 export type {
@@ -215,6 +216,7 @@ export type {
   ExportFileFormat,
   ExportPreflight,
   ExportTidalResult,
+  ExportSpotifyResult,
   UnresolvedTrack,
 } from './api-types';
 
@@ -1027,6 +1029,20 @@ class ApiClient {
 
   async exportSetToTidal(setId: number, skipUnresolved: boolean): Promise<ExportTidalResult> {
     return this.fetch(`/api/setbuilder/sets/${setId}/export/tidal`, {
+      method: 'POST',
+      body: JSON.stringify({ skip_unresolved: skipUnresolved }),
+    });
+  }
+
+  async startSpotifyAuthorization(): Promise<{ authorization_url: string }> {
+    return this.fetch('/api/spotify/auth/start', {
+      method: 'POST',
+      credentials: 'include',
+    });
+  }
+
+  async exportSetToSpotify(setId: number, skipUnresolved: boolean): Promise<ExportSpotifyResult> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/export/spotify`, {
       method: 'POST',
       body: JSON.stringify({ skip_unresolved: skipUnresolved }),
     });

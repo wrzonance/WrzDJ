@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   renderSeratoCrate,
   writeSeratoCrate,
-  type SeratoCrateTrack,
 } from "../plugins/serato-crate-writer.js";
 
 const directories: string[] = [];
@@ -17,21 +16,6 @@ function createDirectory(): string {
   return directory;
 }
 
-function encodeText(value: string): Buffer {
-  const data = Buffer.alloc((value.length + 1) * 2);
-  for (let index = 0; index < value.length; index += 1) {
-    data.writeUInt16BE(value.charCodeAt(index), index * 2);
-  }
-  return data;
-}
-
-function chunk(tag: string, data: Buffer): Buffer {
-  const header = Buffer.alloc(8);
-  header.write(tag, 0, 4, "ascii");
-  header.writeUInt32BE(data.length, 4);
-  return Buffer.concat([header, data]);
-}
-
 afterEach(() => {
   for (const directory of directories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
@@ -39,19 +23,21 @@ afterEach(() => {
 });
 
 describe("Serato crate writer", () => {
-  it("renders the version header and ordered track paths in Serato chunks", () => {
-    const tracks: SeratoCrateTrack[] = [
-      { volumeRelativePath: "Music/Beyoncé/Álbum/01 - Song.mp3" },
-      { volumeRelativePath: "DJ/次/track.flac" },
-    ];
-    const expected = Buffer.concat([
-      chunk("vrsn", encodeText("1.0/Serato ScratchLive Crate")),
-      ...tracks.map(({ volumeRelativePath }) =>
-        chunk("otrk", chunk("ptrk", encodeText(volumeRelativePath))),
-      ),
-    ]);
+  it("matches the known crate bytes without adding a UTF-16 terminator", () => {
+    const expected = Buffer.from(
+      "7672736e000000380031002e0030002f00530065007200610074006f00200053006300720061007400630068004c006900760065002000430072006100740065" +
+        "6f74726b0000001e7074726b00000016004d0075007300690063002f0061002e006d00700033",
+      "hex",
+    );
 
-    expect(renderSeratoCrate(tracks)).toEqual(expected);
+    expect(renderSeratoCrate([{ volumeRelativePath: "Music/a.mp3" }])).toEqual(expected);
+  });
+
+  it("encodes non-ASCII volume-relative paths as UTF-16BE", () => {
+    const expectedPath = Buffer.from("0044004a002f6b21", "hex");
+    const rendered = renderSeratoCrate([{ volumeRelativePath: "DJ/次" }]);
+
+    expect(rendered.includes(expectedPath)).toBe(true);
   });
 
   it("writes a new crate and returns its path", async () => {
@@ -97,7 +83,22 @@ describe("Serato crate writer", () => {
     );
   });
 
-  it.each(["", ".", "..", "../escape", "folder/name", "folder\\name", "bad\nname"])(
+  it.each([
+    "",
+    ".",
+    "..",
+    "../escape",
+    "folder/name",
+    "folder\\name",
+    "bad\nname",
+    "a:b",
+    "CON",
+    "NUL",
+    "COM1",
+    "CONIN$",
+    "safe%%nested",
+    "trailing.",
+  ])(
     "rejects unsafe crate name %j",
     async (crateName) => {
       const directory = createDirectory();

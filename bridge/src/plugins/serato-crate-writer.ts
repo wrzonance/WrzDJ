@@ -1,8 +1,10 @@
-import { open, stat } from "fs/promises";
+import { randomUUID } from "crypto";
+import { link, open, stat, unlink } from "fs/promises";
 import { join } from "path";
 
 const CRATE_VERSION = "1.0/Serato ScratchLive Crate";
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/u;
+const WINDOWS_DEVICE_NAME = /^(?:con|conin\$|conout\$|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\..*)?$/iu;
 
 export interface SeratoCrateTrack {
   /** Path relative to the root of the volume containing the audio file. */
@@ -15,8 +17,12 @@ function validateCrateName(crateName: string): void {
     crateName !== crateName.trim() ||
     crateName === "." ||
     crateName === ".." ||
+    crateName.startsWith(".") ||
+    crateName.endsWith(".") ||
     crateName.toLowerCase().endsWith(".crate") ||
-    /[\\/]/u.test(crateName) ||
+    crateName.includes("%%") ||
+    /[<>:"/\\|?*]/u.test(crateName) ||
+    WINDOWS_DEVICE_NAME.test(crateName) ||
     CONTROL_CHARACTERS.test(crateName)
   ) {
     throw new TypeError("Crate name must be a plain file name without an extension");
@@ -37,7 +43,7 @@ function validateVolumeRelativePath(value: string): void {
 }
 
 function encodeUtf16BE(value: string): Buffer {
-  const output = Buffer.alloc((value.length + 1) * 2);
+  const output = Buffer.alloc(value.length * 2);
   for (let index = 0; index < value.length; index += 1) {
     output.writeUInt16BE(value.charCodeAt(index), index * 2);
   }
@@ -65,7 +71,8 @@ export function renderSeratoCrate(tracks: readonly SeratoCrateTrack[]): Buffer {
 
 /**
  * Create a new crate file without replacing an existing one.
- * Exclusive creation makes concurrent writes to the same name conflict safely.
+ * The completed temporary file is linked into place atomically. Existing crate
+ * names cause a conflict rather than replacing the destination.
  */
 export async function writeSeratoCrate(
   directory: string,
@@ -74,18 +81,30 @@ export async function writeSeratoCrate(
 ): Promise<string> {
   validateCrateName(crateName);
   const output = join(directory, `${crateName}.crate`);
+  const temporary = join(directory, `.${crateName}.${randomUUID()}.tmp`);
   const bytes = renderSeratoCrate(tracks);
   const directoryStat = await stat(directory);
   if (!directoryStat.isDirectory()) {
     throw new TypeError("Crate destination must be an existing directory");
   }
 
-  const file = await open(output, "wx", 0o600);
+  const file = await open(temporary, "wx", 0o600);
   try {
-    await file.writeFile(bytes);
-    await file.sync();
+    try {
+      await file.writeFile(bytes);
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    await link(temporary, output);
+    return output;
   } finally {
-    await file.close();
+    try {
+      await unlink(temporary);
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+        throw error;
+      }
+    }
   }
-  return output;
 }

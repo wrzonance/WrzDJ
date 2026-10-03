@@ -27,7 +27,10 @@ MAX_EXPORT_PLAY_HISTORY = 10000
 
 def _content_disposition(filename: str) -> str:
     """Build an RFC 6266 Content-Disposition header value for a download."""
-    safe_filename = filename.replace('"', '\\"')
+    fallback = "".join(
+        character if 0x20 <= ord(character) <= 0x7E else "_" for character in filename
+    )
+    safe_filename = fallback.replace("\\", "\\\\").replace('"', '\\"')
     ascii_filename = quote(filename, safe="")
     return f"attachment; filename=\"{safe_filename}\"; filename*=UTF-8''{ascii_filename}"
 

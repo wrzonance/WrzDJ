@@ -193,6 +193,30 @@ export interface SetSummary {
   updated_at: string;
 }
 
+export interface CollaboratorInviteCreate {
+  role: 'editor' | 'viewer';
+}
+
+export interface CollaboratorInviteCreated {
+  token: string;
+  role: 'editor' | 'viewer';
+  expires_at: string;
+}
+
+export interface CollaboratorInvite {
+  id: number;
+  role: 'editor' | 'viewer';
+  created_at: string;
+  expires_at: string;
+  accepted: boolean;
+  revoked: boolean;
+}
+
+export interface CollaboratorAccepted {
+  set_id: number;
+  role: 'editor' | 'viewer';
+}
+
 export interface SetDetail extends SetSummary {
   vibe_theme: string | null;
   target_duration_sec: number | null;

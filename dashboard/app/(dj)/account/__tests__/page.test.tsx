@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import AccountPage from '../page';
+import { LocaleProvider } from '@/lib/locale';
 
 const mockPush = vi.fn();
 vi.mock('next/navigation', () => ({
@@ -70,6 +71,18 @@ describe('AccountPage', () => {
     await waitFor(() => {
       expect(screen.getByText('AI / Model providers')).toBeInTheDocument();
     });
+  });
+
+  it('saves the selected dashboard language', async () => {
+    render(<LocaleProvider><AccountPage /></LocaleProvider>);
+
+    const language = screen.getByLabelText('Dashboard language');
+    fireEvent.change(language, { target: { value: 'es' } });
+
+    expect(localStorage.getItem('wrzdj-locale')).toBe('es');
+    expect(document.documentElement.lang).toBe('es');
+    expect(screen.getByLabelText('Idioma del panel')).toHaveValue('es');
+    localStorage.removeItem('wrzdj-locale');
   });
 
   it('submits password change with correct payload', async () => {

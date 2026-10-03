@@ -1,6 +1,7 @@
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import DashboardPage from '../page';
+import { LocaleProvider } from '@/lib/locale';
 
 const mockPush = vi.fn();
 vi.mock('next/navigation', () => ({
@@ -118,6 +119,18 @@ describe('DashboardPage', () => {
     vi.mocked(api.getEvents).mockResolvedValue([]);
     render(<DashboardPage />);
     expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute('href', '/account');
+  });
+
+  it('uses the saved dashboard locale for primary actions', async () => {
+    vi.mocked(api.getEvents).mockResolvedValue([]);
+    localStorage.setItem('wrzdj-locale', 'es');
+    render(<LocaleProvider><DashboardPage /></LocaleProvider>);
+
+    expect(await screen.findByRole('button', { name: 'Crear evento' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Cuenta' })).toHaveAttribute('href', '/account');
+    expect(screen.getByRole('link', { name: 'Creador de sets' })).toHaveAttribute('href', '/setbuilder');
+    expect(document.documentElement.lang).toBe('es');
+    localStorage.removeItem('wrzdj-locale');
   });
 
   it('renders Set Builder link to /setbuilder', async () => {

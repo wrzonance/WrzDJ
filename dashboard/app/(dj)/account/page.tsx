@@ -7,8 +7,11 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
 import AiProvidersSection from '@/components/AiProvidersSection';
+import { LOCALES, type Locale } from '@/lib/locales';
+import { useLocale } from '@/lib/locale';
 
 export default function AccountPage() {
+  const { locale, setLocale, messages } = useLocale();
   const router = useRouter();
   const { isAuthenticated, isLoading } = useAuth();
 
@@ -122,6 +125,23 @@ export default function AccountPage() {
           ← Dashboard
         </Link>
         <h1 style={{ margin: 0, fontSize: '1.5rem' }}>Account Settings</h1>
+      </div>
+
+      <div style={{ background: 'var(--card)', borderRadius: '0.75rem', padding: '1.5rem', marginBottom: '1.5rem' }}>
+        <h2 style={{ marginTop: 0, marginBottom: '0.75rem', fontSize: '1.1rem' }}>{messages.language.heading}</h2>
+        <label htmlFor="dashboard-language" style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+          {messages.language.label}
+        </label>
+        <select
+          id="dashboard-language"
+          className="input"
+          value={locale}
+          onChange={event => setLocale(event.target.value as Locale)}
+          style={{ width: '100%', marginBottom: '1.5rem', boxSizing: 'border-box' }}
+        >
+          <option value={LOCALES[0]}>{messages.language.english}</option>
+          <option value={LOCALES[1]}>{messages.language.spanish}</option>
+        </select>
       </div>
 
       <div style={{ background: 'var(--card)', borderRadius: '0.75rem', padding: '1.5rem', marginBottom: '1.5rem' }}>

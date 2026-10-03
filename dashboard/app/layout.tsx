@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { DM_Sans, Plus_Jakarta_Sans, JetBrains_Mono, Space_Grotesk } from 'next/font/google';
 import { AuthProvider } from '@/lib/auth';
 import { HelpProvider } from '@/lib/help/HelpContext';
+import { LocaleProvider } from '@/lib/locale';
 import { ThemeProvider } from '@/lib/theme';
 import './globals.css';
 
@@ -51,9 +52,11 @@ export default function RootLayout({
     <html lang="en" className={`${dmSans.variable} ${plusJakarta.variable} ${jetbrainsMono.variable} ${spaceGrotesk.variable}`}>
       <body>
         <ThemeProvider>
-          <AuthProvider>
-            <HelpProvider>{children}</HelpProvider>
-          </AuthProvider>
+          <LocaleProvider>
+            <AuthProvider>
+              <HelpProvider>{children}</HelpProvider>
+            </AuthProvider>
+          </LocaleProvider>
         </ThemeProvider>
       </body>
     </html>

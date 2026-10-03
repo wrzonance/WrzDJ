@@ -20,7 +20,8 @@ def _make_dj(db, username):
 
 
 def test_owner_can_issue_invite_and_recipient_accepts_once(client, db, test_user, auth_headers):
-    set_obj = Set(owner_id=test_user.id, name="Collab set")
+    existing_share_token = "s" * 43
+    set_obj = Set(owner_id=test_user.id, name="Collab set", share_token=existing_share_token)
     db.add(set_obj)
     db.commit()
     recipient = _make_dj(db, "collab-dj")
@@ -47,19 +48,67 @@ def test_owner_can_issue_invite_and_recipient_accepts_once(client, db, test_user
     assert collaboration.user_id == recipient.id
     assert collaboration.invited_by == test_user.id
 
+    second_invite = client.post(
+        f"/api/setbuilder/sets/{set_obj.id}/collaborator-invites",
+        json={"role": "viewer"},
+        headers=auth_headers,
+    )
+    assert second_invite.status_code == 201
+    duplicate = client.post(
+        f"/api/setbuilder/collaborator-invites/{second_invite.json()['token']}/accept",
+        headers=recipient_headers,
+    )
+    assert duplicate.status_code == 409
+    assert db.query(SetCollaborator).filter_by(user_id=recipient.id).count() == 1
+
     replay = client.post(
         f"/api/setbuilder/collaborator-invites/{invite['token']}/accept",
         headers=recipient_headers,
     )
     assert replay.status_code == 410
-    assert set_obj.sharing_mode == "invite_only"
+    assert set_obj.sharing_mode == "private"
+    assert set_obj.share_token == existing_share_token
 
     owner = client.get(
         f"/api/setbuilder/sets/{set_obj.id}/collaborator-invites", headers=auth_headers
     )
     assert owner.status_code == 200
-    assert owner.json()[0]["accepted"] is True
+    assert owner.json()[0]["accepted"] is False
+    assert owner.json()[1]["accepted"] is True
     assert "token" not in owner.json()[0]
+
+    revoke_accepted = client.delete(
+        f"/api/setbuilder/sets/{set_obj.id}/collaborator-invites/{owner.json()[1]['id']}",
+        headers=auth_headers,
+    )
+    assert revoke_accepted.status_code == 409
+    after_revoke = client.get(
+        f"/api/setbuilder/sets/{set_obj.id}/collaborator-invites", headers=auth_headers
+    )
+    assert after_revoke.json()[1]["revoked"] is False
+
+
+def test_owner_cannot_accept_own_invite(client, db, test_user, auth_headers):
+    from app.models.set_collaborator_invite import SetCollaboratorInvite
+
+    set_obj = Set(owner_id=test_user.id, name="Owner invite")
+    db.add(set_obj)
+    db.commit()
+    created = client.post(
+        f"/api/setbuilder/sets/{set_obj.id}/collaborator-invites",
+        json={"role": "viewer"},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201
+
+    accepted = client.post(
+        f"/api/setbuilder/collaborator-invites/{created.json()['token']}/accept",
+        headers=auth_headers,
+    )
+    assert accepted.status_code == 409
+    invite = db.query(SetCollaboratorInvite).one()
+    assert invite.accepted_at is None
+    assert db.query(SetCollaborator).count() == 0
 
 
 def test_invite_creation_is_owner_only_and_role_is_validated(client, db, test_user, auth_headers):

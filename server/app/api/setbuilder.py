@@ -162,7 +162,7 @@ def create_collaborator_invite(
 ) -> CollaboratorInviteCreated:
     """Create a single-use editor or viewer invitation for an owned set."""
     set_obj = _get_owned_or_404(db, set_id, current_user)
-    invite, token = collaboration.create_invite(db, set_obj, current_user, payload.role)
+    invite, token = collaboration.create_invite(db, set_obj.id, current_user, payload.role)
     return CollaboratorInviteCreated(token=token, role=invite.role, expires_at=invite.expires_at)
 
 
@@ -203,7 +203,12 @@ def revoke_collaborator_invite(
     invite = collaboration.get_invite_for_owner(db, set_id, invite_id)
     if invite is None:
         raise HTTPException(status_code=404, detail="Invite not found")
-    collaboration.revoke_invite(db, invite)
+    try:
+        collaboration.revoke_invite(db, invite)
+    except collaboration.InviteAlreadyAccepted as exc:
+        raise HTTPException(
+            status_code=409, detail="Invite was accepted; revoke the collaborator instead"
+        ) from exc
 
 
 @router.post("/collaborator-invites/{token}/accept", response_model=CollaboratorAccepted)
@@ -221,6 +226,10 @@ def accept_collaborator_invite(
         raise HTTPException(status_code=410, detail="Invite is no longer available") from exc
     except collaboration.AlreadyCollaborator as exc:
         raise HTTPException(status_code=409, detail="Already a collaborator") from exc
+    except collaboration.OwnerCannotAcceptInvite as exc:
+        raise HTTPException(
+            status_code=409, detail="Set owners cannot accept collaborator invites"
+        ) from exc
     return CollaboratorAccepted(set_id=collaborator.set_id, role=collaborator.role)
 
 

@@ -762,7 +762,7 @@ Each item below is one GitHub issue, milestone `AI Engine Back-end Redesign`.
 
 **Provider status (2026-10-03):** OpenAI now documents ChatGPT-plan token sharing for open-source and locally hosted apps, including dynamic OAuth client registration. That program is not yet a trigger for WrzDJ's server-side callback: OpenAI's documented OSS flow requires a `127.0.0.1` loopback callback, while paid or remotely hosted apps must submit an interest form. Reassess when a provider publishes a documented registration path that supports a remotely hosted service callback, or when WrzDJ adopts a local client that can own the loopback callback. See [OpenAI's OSS token-sharing overview](https://developers.openai.com/siwc/token-sharing-open-source) and [registration and sign-in flow](https://developers.openai.com/siwc/token-sharing-open-source/sign-in).
 
-**Depends on:** External — public provider registration program.
+**Depends on:** External — a provider registration flow that supports remotely hosted callbacks, or a WrzDJ local client that can own the loopback callback.
 
 ---
 

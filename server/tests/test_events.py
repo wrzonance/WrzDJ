@@ -556,6 +556,27 @@ class TestCsvExport:
         assert "Export Artist" in content
         assert "Test note" in content
 
+    def test_export_csv_filename_header_safely_encodes_unicode_and_controls(
+        self, client: TestClient, auth_headers: dict, test_event: Event, db: Session
+    ):
+        test_event.name = "日本語 😄\r\nX-Injected: yes"
+        db.commit()
+
+        response = client.get(
+            f"/api/events/{test_event.code}/export/csv",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        disposition = response.headers["content-disposition"]
+        assert "\r" not in disposition
+        assert "\n" not in disposition
+        assert "x-injected" not in response.headers
+        assert "X-Injected: yes" not in disposition
+        assert "filename*=UTF-8''" in disposition
+        assert 'filename="' in disposition
+        assert all(ord(character) < 128 for character in disposition)
+
     def test_export_csv_no_auth(self, client: TestClient, test_event: Event):
         """Test exporting without auth fails."""
         response = client.get(f"/api/events/{test_event.code}/export/csv")

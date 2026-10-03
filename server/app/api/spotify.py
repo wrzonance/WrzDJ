@@ -1,7 +1,6 @@
 """Spotify account authorization and playlist-export status."""
 
-import hashlib
-import hmac
+import secrets
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
@@ -11,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_active_user, get_db
 from app.core.config import get_settings
+from app.core.encryption import DecryptionError, decrypt_encrypted_value, encrypt_value
 from app.core.rate_limit import limiter
 from app.models.user import User
 from app.services.spotify_oauth import (
@@ -37,12 +37,6 @@ class SpotifyStatusOut(BaseModel):
 
 OAUTH_STATE_COOKIE = "wrzdj_spotify_oauth_state"
 OAUTH_STATE_COOKIE_PATH = "/api/spotify/auth/callback"
-
-
-def _oauth_state_cookie_value(state: str, signing_key: str) -> str:
-    """Return a browser-binding digest without storing raw OAuth state in the cookie."""
-    message = f"wrzdj-spotify-oauth-state:{state}".encode()
-    return hmac.new(signing_key.encode(), message, hashlib.sha256).hexdigest()
 
 
 def _spotify_configured() -> bool:
@@ -86,7 +80,7 @@ def start_authorization(
         settings = get_settings()
         response.set_cookie(
             OAUTH_STATE_COOKIE,
-            _oauth_state_cookie_value(current_user.spotify_oauth_state, settings.jwt_secret),
+            encrypt_value(current_user.spotify_oauth_state),
             max_age=600,
             httponly=True,
             secure=settings.spotify_redirect_uri.startswith("https://"),
@@ -111,14 +105,17 @@ def authorization_callback(
     oauth_state_cookie: str | None = Cookie(None, alias=OAUTH_STATE_COOKIE),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
-    settings = get_settings()
-    expected_cookie = _oauth_state_cookie_value(state, settings.jwt_secret)
+    try:
+        cookie_state = decrypt_encrypted_value(oauth_state_cookie) if oauth_state_cookie else None
+    except (DecryptionError, ValueError):
+        cookie_state = None
     if (
-        not oauth_state_cookie
-        or not oauth_state_cookie.isascii()
-        or not hmac.compare_digest(expected_cookie, oauth_state_cookie)
+        not cookie_state
+        or not cookie_state.isascii()
+        or not secrets.compare_digest(state.encode(), cookie_state.encode())
     ):
         raise HTTPException(status_code=400, detail="Invalid Spotify authorization state")
+    settings = get_settings()
     if not error and code:
         try:
             finish_authorization(db, state, code)

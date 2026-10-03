@@ -107,6 +107,16 @@ def decrypt_value(ciphertext: str | None) -> str | None:
         raise DecryptionError("Failed to decrypt value — wrong key or corrupted data") from exc
 
 
+def decrypt_encrypted_value(ciphertext: str) -> str:
+    """Decrypt a value only when it has the Fernet prefix; never allow legacy plaintext."""
+    if not ciphertext.startswith(_FERNET_PREFIX):
+        raise DecryptionError("Value is not Fernet-encrypted")
+    plaintext = decrypt_value(ciphertext)
+    if plaintext is None:
+        raise DecryptionError("Encrypted value was empty")
+    return plaintext
+
+
 def reset_fernet() -> None:
     """Reset the cached Fernet instance (for testing only)."""
     global _fernet  # noqa: PLW0603

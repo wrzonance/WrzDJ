@@ -6,7 +6,6 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from sqlalchemy import text
 
-from app.core import config
 from app.services import spotify_oauth
 
 
@@ -17,7 +16,6 @@ def _settings(monkeypatch):
         spotify_redirect_uri="https://api.example.test/api/spotify/auth/callback",
         public_url="https://app.example.test",
     )
-    monkeypatch.setattr(config, "get_settings", lambda: settings)
     monkeypatch.setattr(spotify_oauth, "get_settings", lambda: settings)
     return settings
 

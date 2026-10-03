@@ -43,17 +43,16 @@ def authorization_url(db: Session, user: User) -> str:
     state = f"{user.id}.{int(time())}.{secrets.token_urlsafe(32)}"
     user.spotify_oauth_state = state
     db.commit()
-    return f"{AUTH_URL}?{
-        urlencode(
-            {
-                'client_id': settings.spotify_client_id,
-                'response_type': 'code',
-                'redirect_uri': settings.spotify_redirect_uri,
-                'scope': SCOPES,
-                'state': state,
-            }
-        )
-    }"
+    query = urlencode(
+        {
+            "client_id": settings.spotify_client_id,
+            "response_type": "code",
+            "redirect_uri": settings.spotify_redirect_uri,
+            "scope": SCOPES,
+            "state": state,
+        }
+    )
+    return f"{AUTH_URL}?{query}"
 
 
 def _basic_auth(client_id: str, client_secret: str) -> str:

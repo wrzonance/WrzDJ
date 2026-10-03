@@ -9,8 +9,8 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('next/link', () => ({
-  default: ({ children, href }: { children: React.ReactNode; href: string }) => (
-    <a href={href}>{children}</a>
+  default: ({ children, href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
+    <a href={href} {...props}>{children}</a>
   ),
 }));
 
@@ -100,6 +100,8 @@ function mockEvent(overrides = {}) {
 describe('DashboardPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    document.documentElement.lang = 'en';
+    document.cookie = 'wrzdj-locale=; Path=/; Max-Age=0';
     mockRole = 'dj';
     mockIsAuthenticated = true;
     mockIsLoading = false;
@@ -123,14 +125,13 @@ describe('DashboardPage', () => {
 
   it('uses the saved dashboard locale for primary actions', async () => {
     vi.mocked(api.getEvents).mockResolvedValue([]);
-    localStorage.setItem('wrzdj-locale', 'es');
-    render(<LocaleProvider><DashboardPage /></LocaleProvider>);
+    render(<LocaleProvider initialLocale="es"><DashboardPage /></LocaleProvider>);
 
-    expect(await screen.findByRole('button', { name: 'Crear evento' })).toBeInTheDocument();
+    const createEvent = await screen.findByRole('button', { name: 'Crear evento' });
+    expect(createEvent).toHaveAttribute('lang', 'es');
     expect(screen.getByRole('link', { name: 'Cuenta' })).toHaveAttribute('href', '/account');
-    expect(screen.getByRole('link', { name: 'Creador de sets' })).toHaveAttribute('href', '/setbuilder');
-    expect(document.documentElement.lang).toBe('es');
-    localStorage.removeItem('wrzdj-locale');
+    expect(screen.getByRole('link', { name: 'Creador de sets' })).toHaveAttribute('lang', 'es');
+    expect(document.documentElement.lang).toBe('en');
   });
 
   it('renders Set Builder link to /setbuilder', async () => {

@@ -128,8 +128,8 @@ export default function AccountPage() {
       </div>
 
       <div style={{ background: 'var(--card)', borderRadius: '0.75rem', padding: '1.5rem', marginBottom: '1.5rem' }}>
-        <h2 style={{ marginTop: 0, marginBottom: '0.75rem', fontSize: '1.1rem' }}>{messages.language.heading}</h2>
-        <label htmlFor="dashboard-language" style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+        <h2 lang={locale} style={{ marginTop: 0, marginBottom: '0.75rem', fontSize: '1.1rem' }}>{messages.language.heading}</h2>
+        <label lang={locale} htmlFor="dashboard-language" style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
           {messages.language.label}
         </label>
         <select
@@ -139,8 +139,8 @@ export default function AccountPage() {
           onChange={event => setLocale(event.target.value as Locale)}
           style={{ width: '100%', marginBottom: '1.5rem', boxSizing: 'border-box' }}
         >
-          <option value={LOCALES[0]}>{messages.language.english}</option>
-          <option value={LOCALES[1]}>{messages.language.spanish}</option>
+          <option lang={locale} value={LOCALES[0]}>{messages.language.english}</option>
+          <option lang={locale} value={LOCALES[1]}>{messages.language.spanish}</option>
         </select>
       </div>
 

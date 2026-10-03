@@ -1,7 +1,8 @@
 import { act, render, screen } from '@testing-library/react';
 import { renderToString } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { LocaleProvider, useLocale } from '../locale';
+import { localeOrDefault } from '../locales';
 
 function LocaleProbe() {
   const { locale, setLocale, messages } = useLocale();
@@ -15,25 +16,26 @@ function LocaleProbe() {
 }
 
 describe('LocaleProvider', () => {
-  it('loads a saved locale and reflects it in text, storage, and the document', async () => {
-    localStorage.setItem('wrzdj-locale', 'es');
-    expect(renderToString(<LocaleProvider><LocaleProbe /></LocaleProvider>)).toContain('Create Event');
-    render(<LocaleProvider><LocaleProbe /></LocaleProvider>);
+  beforeEach(() => {
+    document.documentElement.lang = 'en';
+    document.cookie = 'wrzdj-locale=; Path=/; Max-Age=0';
+  });
+
+  it('renders a saved locale immediately on the server and client', () => {
+    expect(renderToString(<LocaleProvider initialLocale="es"><LocaleProbe /></LocaleProvider>)).toContain('Crear evento');
+    render(<LocaleProvider initialLocale="es"><LocaleProbe /></LocaleProvider>);
 
     expect(screen.getByTestId('locale')).toHaveTextContent('es');
     expect(screen.getByText('Crear evento')).toBeInTheDocument();
-    expect(document.documentElement.lang).toBe('es');
-
-    localStorage.removeItem('wrzdj-locale');
+    expect(document.documentElement.lang).toBe('en');
   });
 
   it('falls back to English for an unsupported saved locale', async () => {
-    localStorage.setItem('wrzdj-locale', 'fr');
-    render(<LocaleProvider><LocaleProbe /></LocaleProvider>);
+    expect(localeOrDefault('fr')).toBe('en');
+    render(<LocaleProvider initialLocale={localeOrDefault('fr')}><LocaleProbe /></LocaleProvider>);
 
     expect(screen.getByTestId('locale')).toHaveTextContent('en');
     expect(document.documentElement.lang).toBe('en');
-    localStorage.removeItem('wrzdj-locale');
   });
 
   it('persists a user locale selection and updates translated messages', async () => {
@@ -44,8 +46,7 @@ describe('LocaleProvider', () => {
     });
 
     expect(screen.getByText('Crear evento')).toBeInTheDocument();
-    expect(localStorage.getItem('wrzdj-locale')).toBe('es');
-    expect(document.documentElement.lang).toBe('es');
-    localStorage.removeItem('wrzdj-locale');
+    expect(document.cookie).toContain('wrzdj-locale=es');
+    expect(document.documentElement.lang).toBe('en');
   });
 });

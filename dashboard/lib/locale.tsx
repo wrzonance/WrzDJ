@@ -1,9 +1,7 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { isLocale, LOCALE_MESSAGES, type Locale } from './locales';
-
-const STORAGE_KEY = 'wrzdj-locale';
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { LOCALE_COOKIE_NAME, LOCALE_MESSAGES, type Locale } from './locales';
 
 interface LocaleContextValue {
   locale: Locale;
@@ -19,34 +17,24 @@ const defaultValue: LocaleContextValue = {
 
 const LocaleContext = createContext<LocaleContextValue>(defaultValue);
 
-function readSavedLocale(): Locale {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    return isLocale(saved) ? saved : 'en';
-  } catch {
-    return 'en';
-  }
-}
-
-export function LocaleProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>('en');
-
-  useEffect(() => {
-    setLocaleState(readSavedLocale());
-  }, []);
+export function LocaleProvider({
+  children,
+  initialLocale = 'en',
+}: {
+  children: ReactNode;
+  initialLocale?: Locale;
+}) {
+  const [locale, setLocaleState] = useState<Locale>(initialLocale);
 
   const setLocale = useCallback((nextLocale: Locale) => {
     setLocaleState(nextLocale);
     try {
-      localStorage.setItem(STORAGE_KEY, nextLocale);
+      const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+      document.cookie = `${LOCALE_COOKIE_NAME}=${nextLocale}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`;
     } catch {
-      // The in-memory preference still applies when storage is unavailable.
+      // The in-memory preference still applies when cookies are unavailable.
     }
   }, []);
-
-  useEffect(() => {
-    document.documentElement.lang = locale;
-  }, [locale]);
 
   const value = useMemo(() => ({ locale, setLocale, messages: LOCALE_MESSAGES[locale] }), [locale, setLocale]);
 

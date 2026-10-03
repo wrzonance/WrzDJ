@@ -1,4 +1,5 @@
 export const LOCALES = ['en', 'es'] as const;
+export const LOCALE_COOKIE_NAME = 'wrzdj-locale';
 
 export type Locale = (typeof LOCALES)[number];
 
@@ -56,4 +57,8 @@ export const LOCALE_MESSAGES: Record<Locale, LocaleMessages> = {
 
 export function isLocale(value: string | null): value is Locale {
   return value !== null && LOCALES.includes(value as Locale);
+}
+
+export function localeOrDefault(value: string | null): Locale {
+  return isLocale(value) ? value : 'en';
 }

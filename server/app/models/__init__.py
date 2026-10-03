@@ -17,6 +17,7 @@ from app.models.request_vote import RequestVote
 from app.models.search_cache import SearchCache
 from app.models.set import Set, SetCollaborator, SetCurvePoint, SetSlot
 from app.models.set_agent import SetAgentMessage, SetAgentSession
+from app.models.set_collaborator_invite import SetCollaboratorInvite
 from app.models.set_pairing import SetPairing
 from app.models.set_pool import SetPoolSource, SetPoolTrack
 from app.models.set_taste_profile import SetTasteProfileReset
@@ -49,6 +50,7 @@ __all__ = [
     "SetAgentMessage",
     "SetAgentSession",
     "SetCollaborator",
+    "SetCollaboratorInvite",
     "SetCurvePoint",
     "SetCurveTemplate",
     "SetPairing",

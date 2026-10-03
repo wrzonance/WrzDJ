@@ -1,3 +1,4 @@
+import type { Dirent } from "node:fs";
 import { readdir, realpath, stat } from "node:fs/promises";
 import { basename, extname, join, relative, sep } from "node:path";
 import type { LocalLibraryReader, LocalLibraryTrack } from "./types.js";
@@ -25,14 +26,25 @@ const IGNORED_DIRECTORY_NAMES = new Set([
   "system volume information",
 ]);
 
+interface WatchedFolderFileSystem {
+  readdir(path: string, options: { withFileTypes: true }): Promise<Dirent[]>;
+  realpath(path: string): Promise<string>;
+  stat(path: string): Promise<{ isDirectory(): boolean }>;
+}
+
+const defaultFileSystem: WatchedFolderFileSystem = { readdir, realpath, stat };
+
 export class WatchedFolderReader implements LocalLibraryReader {
-  constructor(private readonly rootPath: string) {}
+  constructor(
+    private readonly rootPath: string,
+    private readonly fileSystem: WatchedFolderFileSystem = defaultFileSystem,
+  ) {}
 
   async scan(): Promise<readonly LocalLibraryTrack[]> {
     let root: string;
     try {
-      root = await realpath(this.rootPath);
-      const rootStats = await stat(root);
+      root = await this.fileSystem.realpath(this.rootPath);
+      const rootStats = await this.fileSystem.stat(root);
       if (!rootStats.isDirectory()) {
         throw new Error("configured path is not a directory");
       }
@@ -62,7 +74,7 @@ export class WatchedFolderReader implements LocalLibraryReader {
   ): Promise<void> {
     let entries;
     try {
-      entries = await readdir(directory, { withFileTypes: true });
+      entries = await this.fileSystem.readdir(directory, { withFileTypes: true });
     } catch (error) {
       if (directory !== root && isMissingPath(error)) return;
       throw withPathContext("read library directory", directory, error);

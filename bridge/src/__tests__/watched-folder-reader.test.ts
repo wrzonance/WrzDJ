@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { WatchedFolderReader } from "../local-library/watched-folder-reader.js";
 
 const temporaryRoots: string[] = [];
@@ -107,5 +107,37 @@ describe("WatchedFolderReader", () => {
       message: expect.stringContaining(missingRoot),
       cause: expect.objectContaining({ code: "ENOENT" }),
     });
+  });
+
+  it("fails if the selected root disappears after validation", async () => {
+    const root = await makeRoot();
+    const missing = Object.assign(new Error("directory vanished"), { code: "ENOENT" });
+    const fileSystem = {
+      realpath: async () => root,
+      stat: async () => ({ isDirectory: () => true }),
+      readdir: vi.fn().mockRejectedValue(missing),
+    };
+
+    await expect(new WatchedFolderReader(root, fileSystem).scan()).rejects.toMatchObject({
+      message: expect.stringContaining(root),
+      cause: missing,
+    });
+  });
+
+  it("skips a nested directory that disappears during scanning", async () => {
+    const root = await makeRoot();
+    const missing = Object.assign(new Error("directory vanished"), { code: "ENOENT" });
+    const fileSystem = {
+      realpath: async () => root,
+      stat: async () => ({ isDirectory: () => true }),
+      readdir: vi
+        .fn()
+        .mockResolvedValueOnce([
+          { name: "vanishing", isDirectory: () => true, isFile: () => false },
+        ])
+        .mockRejectedValueOnce(missing),
+    };
+
+    await expect(new WatchedFolderReader(root, fileSystem).scan()).resolves.toEqual([]);
   });
 });

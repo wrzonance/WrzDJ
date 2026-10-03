@@ -80,7 +80,6 @@ def authorization_callback(
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     settings = get_settings()
-    result = "error"
     if not error and code:
         try:
             finish_authorization(db, state, code)

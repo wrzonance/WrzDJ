@@ -1,7 +1,7 @@
 # Global Track Catalog: Scaling Plan
 
-**Issue:** #546 · **Date:** 2026-10-03  
-**Related:** [Master Song Store design](2026-06-23-master-track-store-design.md) · #539 / #540  
+**Issue:** #546 · **Date:** 2026-10-03
+**Related:** [Master Song Store design](2026-06-23-master-track-store-design.md) · #539 / #540
 **Status:** Recommended operating plan; thresholds are initial guardrails, to be checked against a measured baseline.
 
 ## Decision

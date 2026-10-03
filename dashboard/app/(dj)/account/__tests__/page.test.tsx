@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import AccountPage from '../page';
+import { LocaleProvider } from '@/lib/locale';
 
 const mockPush = vi.fn();
 vi.mock('next/navigation', () => ({
@@ -45,6 +46,8 @@ vi.mock('@/lib/api', () => ({
 describe('AccountPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    document.documentElement.lang = 'en';
+    document.cookie = 'wrzdj-locale=; Path=/; Max-Age=0';
     mockGetMe.mockResolvedValue({
       id: 1,
       username: 'testuser',
@@ -70,6 +73,18 @@ describe('AccountPage', () => {
     await waitFor(() => {
       expect(screen.getByText('AI / Model providers')).toBeInTheDocument();
     });
+  });
+
+  it('saves the selected dashboard language', async () => {
+    render(<LocaleProvider><AccountPage /></LocaleProvider>);
+
+    const language = screen.getByLabelText('Dashboard language');
+    fireEvent.change(language, { target: { value: 'es' } });
+
+    expect(document.cookie).toContain('wrzdj-locale=es');
+    expect(document.documentElement.lang).toBe('en');
+    expect(screen.getByLabelText('Idioma del panel')).toHaveValue('es');
+    expect(screen.getByText('Idioma del panel').closest('label')).toHaveAttribute('lang', 'es');
   });
 
   it('submits password change with correct payload', async () => {

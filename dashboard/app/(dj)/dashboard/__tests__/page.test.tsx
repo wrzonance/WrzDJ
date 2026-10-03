@@ -1,6 +1,7 @@
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import DashboardPage from '../page';
+import { LocaleProvider } from '@/lib/locale';
 
 const mockPush = vi.fn();
 vi.mock('next/navigation', () => ({
@@ -8,8 +9,8 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('next/link', () => ({
-  default: ({ children, href }: { children: React.ReactNode; href: string }) => (
-    <a href={href}>{children}</a>
+  default: ({ children, href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
+    <a href={href} {...props}>{children}</a>
   ),
 }));
 
@@ -99,6 +100,8 @@ function mockEvent(overrides = {}) {
 describe('DashboardPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    document.documentElement.lang = 'en';
+    document.cookie = 'wrzdj-locale=; Path=/; Max-Age=0';
     mockRole = 'dj';
     mockIsAuthenticated = true;
     mockIsLoading = false;
@@ -118,6 +121,17 @@ describe('DashboardPage', () => {
     vi.mocked(api.getEvents).mockResolvedValue([]);
     render(<DashboardPage />);
     expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute('href', '/account');
+  });
+
+  it('uses the saved dashboard locale for primary actions', async () => {
+    vi.mocked(api.getEvents).mockResolvedValue([]);
+    render(<LocaleProvider initialLocale="es"><DashboardPage /></LocaleProvider>);
+
+    const createEvent = await screen.findByRole('button', { name: 'Crear evento' });
+    expect(createEvent).toHaveAttribute('lang', 'es');
+    expect(screen.getByRole('link', { name: 'Cuenta' })).toHaveAttribute('href', '/account');
+    expect(screen.getByRole('link', { name: 'Creador de sets' })).toHaveAttribute('lang', 'es');
+    expect(document.documentElement.lang).toBe('en');
   });
 
   it('renders Set Builder link to /setbuilder', async () => {

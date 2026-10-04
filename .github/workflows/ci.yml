@@ -297,3 +297,31 @@ jobs:
 
       - name: Test standalone web runtime
         run: bash scripts/test-web-image.sh wrzdj-web:smoke
+
+      - name: Build bridge image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./bridge
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: wrzdj-bridge:smoke
+          cache-from: type=gha,scope=ci-bridge
+          cache-to: type=gha,mode=max,scope=ci-bridge
+
+      - name: Test bridge runtime
+        run: bash scripts/test-bridge-image.sh wrzdj-bridge:smoke
+
+      - name: Build development proxy image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./deploy/dev-proxy
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: wrzdj-proxy:smoke
+          cache-from: type=gha,scope=ci-proxy
+          cache-to: type=gha,mode=max,scope=ci-proxy
+
+      - name: Test development proxy runtime
+        run: bash scripts/test-proxy-image.sh wrzdj-proxy:smoke

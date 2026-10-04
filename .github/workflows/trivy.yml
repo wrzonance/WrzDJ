@@ -1,4 +1,4 @@
-# Scans the two container images we publish to GHCR (see docker-publish.yml)
+# Scans the API/web images published to GHCR and local bridge/proxy images
 # for OS-package and application CVEs and uploads the results to the Security
 # tab. pip-audit / npm audit in ci.yml only see our own dependency manifests;
 # this is the one gate that looks at the Debian/Alpine layer underneath them.
@@ -13,12 +13,16 @@ on:
     paths:
       - "server/**"
       - "dashboard/**"
+      - "bridge/**"
+      - "deploy/dev-proxy/**"
       - ".github/workflows/trivy.yml"
   pull_request:
     branches: [main]
     paths:
       - "server/**"
       - "dashboard/**"
+      - "bridge/**"
+      - "deploy/dev-proxy/**"
       - ".github/workflows/trivy.yml"
   schedule:
     - cron: "0 7 * * 1" # Weekly on Monday 07:00 UTC, an hour after CodeQL
@@ -48,6 +52,14 @@ jobs:
             build-args: |
               NEXT_PUBLIC_API_URL=http://localhost:8000
             cache-scope: ci-web
+          - image: bridge
+            context: ./bridge
+            build-args: ""
+            cache-scope: ci-bridge
+          - image: proxy
+            context: ./deploy/dev-proxy
+            build-args: ""
+            cache-scope: ci-proxy
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

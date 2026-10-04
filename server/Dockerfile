@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir --upgrade "pip>=26.1" "setuptools>=83.0.0"
 RUN pip install --no-cache-dir -e .
 
 # Installation is complete; pip's vendored libraries are not runtime dependencies.
-# Keep setuptools for editable-package metadata, but omit pip from the image.
+# Remove pip itself after it has installed the application and its dependencies.
 RUN python -m pip uninstall --yes pip
 
 # Copy application code

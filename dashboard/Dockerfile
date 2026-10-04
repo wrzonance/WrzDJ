@@ -1,4 +1,4 @@
-FROM node:26-alpine@sha256:ef24c5053d50fdc3e4e56eb4e7ddb7861874ab0fdc797046ba897581deb8e868 AS base
+FROM node:26-alpine@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80 AS base
 # Pull the Alpine security updates published since the pinned digest was built
 # (Trivy gate). Every later stage inherits the patched packages. Same trade-off
 # as server/Dockerfile: the layer is cached until Renovate bumps the digest.
@@ -30,6 +30,10 @@ RUN npm run build
 # Production image
 FROM base AS runner
 WORKDIR /app
+
+# The standalone server starts with node; npm and its bundled dependencies are
+# build tools. Keep them in builder/deps only, outside the production image.
+RUN npm uninstall --global npm
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1

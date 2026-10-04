@@ -31,7 +31,7 @@ Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`
 
 - Docker + Docker Compose (for PostgreSQL 16)
 - Python 3.11+ with venv
-- Node.js 22+ with npm
+- Node.js 24.15+ on the 24.x LTS line, or Node.js 26+ with npm
 
 ### 1. Start the database
 

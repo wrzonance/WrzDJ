@@ -42,6 +42,7 @@ bridge-app/index.html
 Thumbs.db
 
 # Testing
+.vitest/
 .coverage
 coverage/
 coverage-report.html

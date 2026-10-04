@@ -204,6 +204,11 @@ jobs:
             "out/WrzDJ Bridge-linux-x64/wrzdj-bridge.real" \
             "out/WrzDJ Bridge-linux-x64/resources"
 
+      - name: Test packaged renderer and preload
+        run: |
+          xvfb-run --auto-servernum node ../scripts/test-bridge-app-ui.cjs \
+            "out/WrzDJ Bridge-linux-x64/wrzdj-bridge.real"
+
       - name: Security audit
         run: npm audit --audit-level=high
         continue-on-error: true

@@ -30,7 +30,7 @@ function createWindow(): BrowserWindow {
     title: 'WrzDJ Bridge',
     backgroundColor: '#0a0a0a',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
     },

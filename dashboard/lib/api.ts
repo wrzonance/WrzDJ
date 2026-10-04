@@ -30,6 +30,9 @@ import type {
   BridgeCommandResponse,
   BuildSetResponse,
   BuilderPlaylists,
+  CollaboratorAccepted,
+  CollaboratorInvite,
+  CollaboratorInviteCreated,
   DisplaySettingsResponse,
   PublicBridgeStatus,
   Event,
@@ -984,6 +987,28 @@ class ApiClient {
   }
   async revokeSetShare(setId: number): Promise<void> {
     await this.rawFetch(`/api/setbuilder/sets/${setId}/share`, { method: 'DELETE' });
+  }
+  async createCollaboratorInvite(
+    setId: number,
+    role: 'editor' | 'viewer'
+  ): Promise<CollaboratorInviteCreated> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/collaborator-invites`, {
+      method: 'POST',
+      body: JSON.stringify({ role }),
+    });
+  }
+  async listCollaboratorInvites(setId: number): Promise<CollaboratorInvite[]> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/collaborator-invites`);
+  }
+  async revokeCollaboratorInvite(setId: number, inviteId: number): Promise<void> {
+    await this.rawFetch(`/api/setbuilder/sets/${setId}/collaborator-invites/${inviteId}`, {
+      method: 'DELETE',
+    });
+  }
+  async acceptCollaboratorInvite(token: string): Promise<CollaboratorAccepted> {
+    return this.fetch(`/api/setbuilder/collaborator-invites/${encodeURIComponent(token)}/accept`, {
+      method: 'POST',
+    });
   }
   /** Public, unauthenticated read-only view of a shared set. */
   async getSharedSet(token: string): Promise<SharedSetView> {

@@ -1975,6 +1975,117 @@
         "title": "ChangePasswordRequest",
         "type": "object"
       },
+      "CollaboratorAccepted": {
+        "properties": {
+          "role": {
+            "enum": [
+              "editor",
+              "viewer"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "set_id": {
+            "title": "Set Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "role",
+          "set_id"
+        ],
+        "title": "CollaboratorAccepted",
+        "type": "object"
+      },
+      "CollaboratorInviteCreate": {
+        "properties": {
+          "role": {
+            "enum": [
+              "editor",
+              "viewer"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "title": "CollaboratorInviteCreate",
+        "type": "object"
+      },
+      "CollaboratorInviteCreated": {
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "editor",
+              "viewer"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expires_at",
+          "role",
+          "token"
+        ],
+        "title": "CollaboratorInviteCreated",
+        "type": "object"
+      },
+      "CollaboratorInviteOut": {
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "revoked": {
+            "title": "Revoked",
+            "type": "boolean"
+          },
+          "role": {
+            "enum": [
+              "editor",
+              "viewer"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "accepted",
+          "created_at",
+          "expires_at",
+          "id",
+          "revoked",
+          "role"
+        ],
+        "title": "CollaboratorInviteOut",
+        "type": "object"
+      },
       "CollectEventPreview": {
         "properties": {
           "banner_colors": {
@@ -18187,6 +18298,54 @@
         ]
       }
     },
+    "/api/setbuilder/collaborator-invites/{token}/accept": {
+      "post": {
+        "description": "Accept an invite with the recipient's active DJ account.",
+        "operationId": "accept_collaborator_invite_api_setbuilder_collaborator_invites__token__accept_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollaboratorAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Accept Collaborator Invite",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
     "/api/setbuilder/curve-templates": {
       "get": {
         "description": "Built-in templates plus the current DJ's saved templates.",
@@ -18893,6 +19052,164 @@
           }
         ],
         "summary": "Build Set",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/collaborator-invites": {
+      "get": {
+        "description": "List invitation status for an owned set without exposing invite tokens.",
+        "operationId": "list_collaborator_invites_api_setbuilder_sets__set_id__collaborator_invites_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CollaboratorInviteOut"
+                  },
+                  "title": "Response List Collaborator Invites Api Setbuilder Sets  Set Id  Collaborator Invites Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Collaborator Invites",
+        "tags": [
+          "setbuilder"
+        ]
+      },
+      "post": {
+        "description": "Create a single-use editor or viewer invitation for an owned set.",
+        "operationId": "create_collaborator_invite_api_setbuilder_sets__set_id__collaborator_invites_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollaboratorInviteCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollaboratorInviteCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Create Collaborator Invite",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/collaborator-invites/{invite_id}": {
+      "delete": {
+        "description": "Revoke an unused invitation for an owned set.",
+        "operationId": "revoke_collaborator_invite_api_setbuilder_sets__set_id__collaborator_invites__invite_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "invite_id",
+            "required": true,
+            "schema": {
+              "title": "Invite Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Revoke Collaborator Invite",
         "tags": [
           "setbuilder"
         ]

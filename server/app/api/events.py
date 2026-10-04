@@ -1,6 +1,5 @@
 import json
 from datetime import UTC, datetime
-from urllib.parse import quote
 
 from fastapi import (
     APIRouter,
@@ -14,9 +13,9 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.api import events_exports
 from app.api.deps import (
     get_current_active_user,
     get_current_user_optional,
@@ -85,23 +84,15 @@ from app.services.event import (
     update_event,
 )
 from app.services.event_bus import publish_event
-from app.services.export import (
-    export_play_history_to_csv,
-    export_requests_to_csv,
-    generate_export_filename,
-    generate_play_history_export_filename,
-)
 from app.services.kiosk import is_trusted_kiosk_for_event
 from app.services.now_playing import (
     get_manual_hide_setting,
-    get_play_history,
     set_now_playing_visibility,
 )
 from app.services.request import (
     accept_all_new_requests,
     bulk_delete_requests,
     create_request,
-    get_requests_for_event,
     reject_all_new_requests,
 )
 from app.services.request_sort import (
@@ -118,6 +109,13 @@ from app.services.tidal import (
 )
 
 router = APIRouter()
+
+# Preserve the previous module-level exports for callers that imported these names.
+MAX_EXPORT_PLAY_HISTORY = events_exports.MAX_EXPORT_PLAY_HISTORY
+MAX_EXPORT_REQUESTS = events_exports.MAX_EXPORT_REQUESTS
+_content_disposition = events_exports._content_disposition
+export_event_csv = events_exports.export_event_csv
+export_play_history_csv = events_exports.export_play_history_csv
 
 
 def _to_naive_utc(dt: datetime) -> datetime:
@@ -136,20 +134,6 @@ settings = get_settings()
 
 # FIXME: per-process cache — value drifts in multi-worker deployments until next request
 _llm_rate_limit_cache: dict[str, int] = {"value": 3}
-
-# Maximum number of requests to export in a single CSV
-# Set to 10,000 to prevent memory issues and excessive download times
-MAX_EXPORT_REQUESTS = 10000
-
-# Maximum number of play history entries to export in a single CSV
-MAX_EXPORT_PLAY_HISTORY = 10000
-
-
-def _content_disposition(filename: str) -> str:
-    """Build an RFC 6266 Content-Disposition header value for a download."""
-    safe_filename = filename.replace('"', '\\"')
-    ascii_filename = quote(filename, safe="")
-    return f"attachment; filename=\"{safe_filename}\"; filename*=UTF-8''{ascii_filename}"
 
 
 def _get_base_url(request: Request | None) -> str | None:
@@ -609,50 +593,6 @@ def get_display_settings(
         now_playing_auto_hide_minutes=event.now_playing_auto_hide_minutes,
         requests_open=event.requests_open,
         kiosk_display_only=event.kiosk_display_only,
-    )
-
-
-@router.get("/{code}/export/csv")
-@limiter.limit("5/minute")
-def export_event_csv(
-    request: Request,
-    event: Event = Depends(get_owned_event),
-    db: Session = Depends(get_db),
-) -> StreamingResponse:
-    """Export event requests as CSV. Owner can export regardless of event status."""
-    # Get all requests for the event (no status filter, limited for safety)
-    requests = get_requests_for_event(db, event, status=None, since=None, limit=MAX_EXPORT_REQUESTS)
-
-    # Generate CSV content
-    csv_content = export_requests_to_csv(event, requests)
-    filename = generate_export_filename(event)
-
-    return StreamingResponse(
-        iter([csv_content]),
-        media_type="text/csv",
-        headers={"Content-Disposition": _content_disposition(filename)},
-    )
-
-
-@router.get("/{code}/export/play-history/csv")
-@limiter.limit("5/minute")
-def export_play_history_csv(
-    request: Request,
-    event: Event = Depends(get_owned_event),
-    db: Session = Depends(get_db),
-) -> StreamingResponse:
-    """Export play history as CSV. Owner can export regardless of event status."""
-    # Get all play history entries for the event (limited for safety)
-    history_items, _ = get_play_history(db, event.id, limit=MAX_EXPORT_PLAY_HISTORY, offset=0)
-
-    # Generate CSV content
-    csv_content = export_play_history_to_csv(event, history_items)
-    filename = generate_play_history_export_filename(event)
-
-    return StreamingResponse(
-        iter([csv_content]),
-        media_type="text/csv",
-        headers={"Content-Disposition": _content_disposition(filename)},
     )
 
 
@@ -1389,3 +1329,6 @@ def delete_banner(
     delete_banner_from_event(db, event)
 
     return _event_to_out(event, request)
+
+
+router.include_router(events_exports.router)

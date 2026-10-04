@@ -13,11 +13,11 @@ argument formatting. Deactivate each logger when that run stops, so callbacks
 from a stopped run cannot leak into a later run. Preserve file transfer enabled,
 database auto-download disabled, existing device events and the connect timeout.
 
-AlphaTheta 0.28.4 publishes `file:../metadata-connect` and
+AlphaTheta 0.28.5 publishes `file:../metadata-connect` and
 `file:../onelibrary-connect` dependencies. A disposable npm probe verified that
 explicit registry dependencies plus scoped `$dependency` overrides produce a
 lockfile with registry integrity hashes and no local links. Apply that strategy
-to both consumers. Pin AlphaTheta 0.28.4, StageLinq 3.5.7, metadata-connect 1.2.2
+to both consumers. Pin AlphaTheta 0.28.5, StageLinq 3.5.7, metadata-connect 1.2.2
 and onelibrary-connect 1.1.6; preserve the existing security overrides.
 
 Sources: official npm manifests and published StageLinq `types/logger.d.ts` and
@@ -61,3 +61,9 @@ remains outside this automated check.
 Existing npm audit findings are documented with reachability evidence and review
 dates in `docs/security/dependency-audit-2026-10-04.md`; the audits are not reported
 as passing simply because the workflow tolerates their exit status.
+
+A final registry check found AlphaTheta 0.28.5. Its published package changes
+streaming title/artist fallback and leaves dependencies/API exports unchanged;
+include that patch so the drift closure targets the latest checked version.
+The GitHub latest-release endpoint returned 404; the official npm tarball diff
+provides the patch evidence instead.

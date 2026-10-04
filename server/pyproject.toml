@@ -22,7 +22,7 @@ dependencies = [
     # Bumping transitives to direct deps to enforce floor.
     "Pillow>=12.3.0",        # CVE-2026-25990 (banner upload); 2026-08 GHSA cluster (decoder OOB/DoS)
     "cryptography>=50.0.0",  # GHSA-537c-gmf6-5ccf / CVE-2026-34180; GHSA-g6cj-pr64-35w5 (PKCS#7 Bleichenbacher)
-    "PyJWT>=2.13.0",         # GHSA-xgmm/993g/w7vc/jq35/fhv5 (HS256 forgery, alg-allowlist bypass, SSRF, DoS)
+    "PyJWT>=2.15.1",         # 2.14/2.15 security fixes plus padded-JWS compatibility fix
     "aiohttp>=3.14.3",       # GHSA cluster (ws memory bypass, HTTP/1 pipeline DoS, CRLF, x-origin cookies); GHSA-cq5v-8q36-5273
     "requests>=2.33.0",      # CVE-2026-25645 (URL parsing)
     # SECURITY: minimum versions per 2026-05-07 audit.
@@ -31,7 +31,7 @@ dependencies = [
     "pyasn1>=0.6.4",         # CVE-2026-30922 (transitive from cryptography chain)
     # SECURITY: minimum versions per 2026-05-19 audit.
     "idna>=3.15",            # CVE-2026-45409 (transitive from requests/httpx)
-    "urllib3>=2.7.0",        # CVE-2026-44431, CVE-2026-44432 (transitive from requests)
+    "urllib3>=2.8.0",        # GHSA-8988/vxq7/gh4c (proxy TLS bypass, streaming memory/CPU DoS)
     "anthropic>=0.40.0",
     "resend>=2.0.0",
     "better-profanity>=0.7.0",

@@ -35,7 +35,8 @@ export class StageLinqPlugin extends EventEmitter implements EquipmentSourcePlug
   private static readonly CONNECT_TIMEOUT_MS = 30_000;
 
   private running = false;
-  private loggerListener: ((...args: unknown[]) => void) | null = null;
+  private disconnectFailed = false;
+  private stopLogging: (() => void) | null = null;
 
   get isRunning(): boolean {
     return this.running;
@@ -48,18 +49,41 @@ export class StageLinqPlugin extends EventEmitter implements EquipmentSourcePlug
 
     this.running = true;
 
+    // A failed shutdown leaves upstream connected and ignores a new logger.
+    // Recover that connection before configuring a fresh run.
+    if (this.disconnectFailed) {
+      try {
+        await StageLinq.disconnect();
+        this.disconnectFailed = false;
+      } catch (error) {
+        this.running = false;
+        throw error;
+      }
+    }
+
+    // Each run owns its forwarding callback. Releasing it also silences late
+    // messages from an old library instance after this plugin starts again.
+    let listener: ((...args: unknown[]) => void) | null = (...args) => {
+      this.emit("log", args.map(String).join(" "));
+    };
+    this.stopLogging = () => {
+      listener = null;
+    };
+    const forward = (level: string, ...args: unknown[]) => listener?.(level, ...args);
+
     // Configure StageLinQ options BEFORE accessing StageLinq.devices or
     // StageLinq.logger. The options setter resets the internal singleton.
     StageLinq.options = {
       downloadDbSources: false,
       enableFileTranfer: true,
+      logger: {
+        trace: (...args) => forward("trace", ...args),
+        debug: (...args) => forward("debug", ...args),
+        info: (...args) => forward("info", ...args),
+        warn: (...args) => forward("warn", ...args),
+        error: (...args) => forward("error", ...args),
+      },
     };
-
-    // Forward stagelinq library's internal debug logs
-    this.loggerListener = (...args: unknown[]) => {
-      this.emit("log", args.map(String).join(" "));
-    };
-    StageLinq.logger.on("any", this.loggerListener);
 
     // Wire event handlers AFTER options are set
     this.wireEvents();
@@ -91,22 +115,13 @@ export class StageLinqPlugin extends EventEmitter implements EquipmentSourcePlug
     try {
       await StageLinq.disconnect();
     } catch {
-      // Best effort on shutdown
+      // Keep stop best-effort, but require recovery before the next start.
+      this.disconnectFailed = true;
     }
 
-    this.removeLoggerListener();
+    this.stopLogging?.();
+    this.stopLogging = null;
     this.removeAllListeners();
-  }
-
-  private removeLoggerListener(): void {
-    if (this.loggerListener) {
-      try {
-        StageLinq.logger.removeListener("any", this.loggerListener);
-      } catch {
-        // Best effort
-      }
-      this.loggerListener = null;
-    }
   }
 
   private wireEvents(): void {

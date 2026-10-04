@@ -237,7 +237,7 @@ graph TD
 
 - Docker + Docker Compose
 - Python 3.11+
-- Node.js 22+
+- Node.js 24.15+ on the 24.x LTS line, or Node.js 26+
 - [Tidal Developer Account](https://developer.tidal.com/) (for song search and album art enrichment)
 
 ### 1. Clone and configure

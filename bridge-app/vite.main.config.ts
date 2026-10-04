@@ -35,9 +35,9 @@ function collectTransitiveDeps(entryDeps: string[], nodeModulesDir: string): str
 
 /**
  * Copies externalized dependencies (and all their transitive deps) into the
- * build output's node_modules/ so they're available at runtime in the packaged
- * app. Required because @electron-forge/plugin-vite excludes the project's
- * node_modules/ from the asar (it assumes Vite bundles everything).
+ * build output's node_modules/. Forge's packageAfterCopy hook moves this staged
+ * tree to the package root before native rebuilding. Required because the Vite
+ * plugin excludes the project's node_modules/ (it assumes Vite bundles everything).
  */
 function copyExternals(deps: string[]): Plugin {
   return {

@@ -44,7 +44,7 @@ prompt-injection hygiene.
 ### Prerequisites
 - PostgreSQL 16 via Docker: `docker compose up -d db`
 - Python 3.11+ with venv at `server/.venv/`
-- Node.js 22+
+- Node.js 24.15+ on the 24.x LTS line, or Node.js 26+
 
 ### Run services
 ```bash

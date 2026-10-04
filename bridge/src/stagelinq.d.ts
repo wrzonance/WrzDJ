@@ -60,12 +60,16 @@ declare module "stagelinq" {
     downloadDbSources?: boolean;
     /** Note: typo is in the stagelinq library API */
     enableFileTranfer?: boolean;
+    logger?: StageLinqLogger;
   }
 
-  /** Internal library logger — EventEmitter that emits log/debug/warn/error/info/any events */
+  /** Logger injected through options; StageLinq defaults to a silent logger. */
   interface StageLinqLogger {
-    on(event: "any" | "log" | "debug" | "warn" | "error" | "info" | "silly", listener: (...args: unknown[]) => void): this;
-    removeListener(event: string, listener: (...args: unknown[]) => void): this;
+    trace(message: string, ...args: unknown[]): void;
+    debug(message: string, ...args: unknown[]): void;
+    info(message: string, ...args: unknown[]): void;
+    warn(message: string, ...args: unknown[]): void;
+    error(message: string, ...args: unknown[]): void;
   }
 
   interface DevicesEmitter extends EventEmitter {

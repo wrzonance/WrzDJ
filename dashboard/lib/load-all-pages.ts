@@ -56,7 +56,7 @@ export async function loadAllPages<T>(
 ): Promise<LoadAllResult<T>> {
   const signal = opts?.signal;
   const acc: T[] = [];
-  let total = 0;
+  let total: number;
   let offset = 0;
   let statusCounts: Record<string, number> | undefined;
 

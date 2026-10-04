@@ -6,6 +6,7 @@
  */
 import { EventEmitter } from "events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { StageLinqOptions } from "stagelinq";
 
 import type {
   PluginConnectionEvent,
@@ -18,12 +19,20 @@ import type {
 // --- Mock setup ---
 
 const mockDevices = new EventEmitter();
-const mockLogger = new EventEmitter();
+const noopLogger = {
+  trace: vi.fn(),
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+};
 
 const mockStageLinq = {
-  options: null as unknown,
+  options: null as StageLinqOptions | null,
   devices: mockDevices,
-  logger: mockLogger,
+  get logger() {
+    return this.options?.logger ?? noopLogger;
+  },
   connect: vi.fn().mockResolvedValue(undefined),
   disconnect: vi.fn().mockResolvedValue(undefined),
 };
@@ -42,7 +51,7 @@ describe("StageLinqPlugin", () => {
     plugin = new StageLinqPlugin();
     vi.clearAllMocks();
     mockDevices.removeAllListeners();
-    mockLogger.removeAllListeners();
+    mockStageLinq.options = null;
   });
 
   afterEach(async () => {
@@ -87,7 +96,7 @@ describe("StageLinqPlugin", () => {
     it("sets StageLinq options and calls connect on start", async () => {
       await plugin.start();
 
-      expect(mockStageLinq.options).toEqual({
+      expect(mockStageLinq.options).toMatchObject({
         downloadDbSources: false,
         enableFileTranfer: true,
       });
@@ -115,6 +124,35 @@ describe("StageLinqPlugin", () => {
 
       await plugin.start();
       await plugin.stop(); // Should not throw
+    });
+
+    it("retries failed shutdown before starting a fresh run", async () => {
+      // Regression at 9e94e74b: upstream retains its old logger until disconnect succeeds.
+      await plugin.start();
+      const previousLogger = mockStageLinq.logger;
+      mockStageLinq.disconnect.mockRejectedValueOnce(new Error("socket error"));
+      await plugin.stop();
+      await plugin.start();
+      const logs: string[] = [];
+      plugin.on("log", (message: string) => logs.push(message));
+      previousLogger.info("old run");
+      mockStageLinq.logger.info("new run");
+      expect(mockStageLinq.disconnect).toHaveBeenCalledTimes(2);
+      expect(logs).toEqual(["info new run"]);
+    });
+
+    it("keeps restart stopped if shutdown recovery still fails", async () => {
+      await plugin.start();
+      mockStageLinq.disconnect
+        .mockRejectedValueOnce(new Error("socket error"))
+        .mockRejectedValueOnce(new Error("socket error"));
+      await plugin.stop();
+      await expect(plugin.start()).rejects.toThrow("socket error");
+      expect(plugin.isRunning).toBe(false);
+      expect(mockStageLinq.connect).toHaveBeenCalledTimes(1);
+      mockStageLinq.disconnect.mockResolvedValue(undefined);
+      await plugin.start();
+      expect(plugin.isRunning).toBe(true);
     });
   });
 
@@ -352,28 +390,39 @@ describe("StageLinqPlugin", () => {
   });
 
   describe("logger forwarding", () => {
-    it("forwards logger events as log emissions", async () => {
-      const logs: string[] = [];
-      plugin.on("log", (msg: string) => logs.push(msg));
+    // Regression #690 at a3aa51ae: upstream logger injection replaces EventEmitter.
+    it.each(["trace", "debug", "info", "warn", "error"] as const)(
+      "forwards %s messages and arguments as log emissions",
+      async (level) => {
+        const logs: string[] = [];
+        plugin.on("log", (message: string) => logs.push(message));
+        await plugin.start();
+        mockStageLinq.logger[level]("test message", 42);
+        expect(logs).toContain(`${level} test message 42`);
+      },
+    );
 
+    it("stops forwarding messages after stop", async () => {
       await plugin.start();
-
-      mockLogger.emit("any", "debug", "test message");
-
-      expect(logs.some((l) => l.includes("debug") && l.includes("test message"))).toBe(true);
+      const previousLogger = mockStageLinq.logger;
+      await plugin.stop();
+      const logs: string[] = [];
+      // Attach after stop so removeAllListeners cannot hide continued emissions.
+      plugin.on("log", (message: string) => logs.push(message));
+      previousLogger.info("late message");
+      expect(logs).toEqual([]);
     });
 
-    it("cleans up logger listener on stop", async () => {
+    it("only forwards the current run after restart", async () => {
       await plugin.start();
-
-      const listenerCount = mockLogger.listenerCount("any");
-      expect(listenerCount).toBeGreaterThan(0);
-
+      const previousLogger = mockStageLinq.logger;
       await plugin.stop();
-
-      // After stop, logger listener should be removed
-      // (removeAllListeners on plugin doesn't affect mockLogger)
-      expect(mockLogger.listenerCount("any")).toBe(0);
+      await plugin.start();
+      const logs: string[] = [];
+      plugin.on("log", (message: string) => logs.push(message));
+      previousLogger.warn("previous run");
+      mockStageLinq.logger.info("current run");
+      expect(logs).toEqual(["info current run"]);
     });
   });
 });

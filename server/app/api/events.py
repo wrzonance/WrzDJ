@@ -113,7 +113,6 @@ router = APIRouter()
 # Preserve the previous module-level exports for callers that imported these names.
 MAX_EXPORT_PLAY_HISTORY = events_exports.MAX_EXPORT_PLAY_HISTORY
 MAX_EXPORT_REQUESTS = events_exports.MAX_EXPORT_REQUESTS
-_content_disposition = events_exports._content_disposition
 export_event_csv = events_exports.export_event_csv
 export_play_history_csv = events_exports.export_play_history_csv
 

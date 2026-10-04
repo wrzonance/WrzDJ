@@ -1,4 +1,4 @@
-FROM python:3.14-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6
+FROM python:3.14-slim@sha256:c3e521df8b2b498a7a682e7e18676771cb80c6b75b8699af886b2d554ce40151
 
 WORKDIR /app
 
@@ -15,12 +15,22 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install dependencies
-COPY pyproject.toml .
-RUN pip install --no-cache-dir --upgrade "pip>=26.1" "setuptools>=83.0.0"
-RUN pip install --no-cache-dir -e .
+# Install the committed production graph with artifact hash verification. pyaes
+# and ratelimit publish only source: preinstall their locked backend, without isolation,
+# so source builds cannot download additional, unpinned build dependencies.
+# Mount uv for this step so neither it nor its cache enters the runtime image.
+COPY pyproject.toml uv.lock ./
+RUN --mount=from=ghcr.io/astral-sh/uv:0.12.23@sha256:61d393e44e249f2e4b526b6c7ddcecce245946826e608e11c93ad4f5bba55b21,source=/uv,target=/bin/uv \
+    export UV_NO_CACHE=1 \
+    && uv export --quiet --locked --only-group build --no-emit-project --output-file requirements.build \
+    && uv pip install --system --no-cache --require-hashes --no-deps --only-binary :all: -r requirements.build \
+    && uv export --quiet --locked --no-dev --no-emit-project --output-file requirements.lock \
+    && uv pip install --system --no-cache --require-hashes --no-deps --no-build-isolation \
+        --only-binary :all: --no-binary pyaes,ratelimit -r requirements.lock \
+    && uv pip uninstall --system setuptools \
+    && python -m pip uninstall --yes pip
 
-# Copy application code
+# Run application source directly from /app; no editable installation is needed.
 COPY . .
 
 # Make start script executable

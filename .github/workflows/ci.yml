@@ -245,9 +245,13 @@ jobs:
           context: ./server
           platforms: linux/amd64
           push: false
-          load: false
+          load: true
+          tags: wrzdj-api:smoke
           cache-from: type=gha,scope=ci-api
           cache-to: type=gha,mode=max,scope=ci-api
+
+      - name: Test locked API runtime
+        run: bash scripts/test-api-image.sh wrzdj-api:smoke
 
       - name: Build frontend image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
@@ -257,6 +261,10 @@ jobs:
             NEXT_PUBLIC_API_URL=http://localhost:8000
           platforms: linux/amd64
           push: false
-          load: false
+          load: true
+          tags: wrzdj-web:smoke
           cache-from: type=gha,scope=ci-web
           cache-to: type=gha,mode=max,scope=ci-web
+
+      - name: Test standalone web runtime
+        run: bash scripts/test-web-image.sh wrzdj-web:smoke

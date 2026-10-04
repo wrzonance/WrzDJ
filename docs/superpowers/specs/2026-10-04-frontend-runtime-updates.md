@@ -17,6 +17,12 @@ options. No API key or proxy mode is configured. Test the actual library with
 sampling forced: fingerprint generation must make no external requests, while
 WrzDJ identification and refresh still receive nonempty hashes and components.
 
+The published 1.11.0 and 1.12.0 component sources, component filter, hash and stable
+serialization implementations compare byte-for-byte identical. The backend
+still checks the canonical cookie before fingerprint reconciliation. The network
+regression observes fetch, beacon, XHR, image and script transports; an actual
+Chromium check of both built guest pages also intercepts every outbound request.
+
 js-yaml 5 is blocked by the current openapi-typescript 7.13.0 integration.
 An isolated normal install with js-yaml 5.4.2 fails importing Redocly 1's removed
 `types.merge` API. A second probe with Redocly 2.57.0 (which supports js-yaml 5)

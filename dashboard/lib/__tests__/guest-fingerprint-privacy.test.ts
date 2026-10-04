@@ -5,12 +5,26 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 // Exercise the real Thumbmark package; only browser/network boundaries are stubbed.
 describe('guest fingerprint privacy', () => {
   const requests: { url: string; body: string | undefined }[] = [];
+  let originalBeacon: PropertyDescriptor | undefined;
 
   beforeEach(() => {
     vi.resetModules();
     sessionStorage.clear();
     localStorage.clear();
     requests.length = 0;
+    const recordExternal = (url: string | URL) => {
+      requests.push({ url: String(url), body: undefined });
+    };
+    originalBeacon = Object.getOwnPropertyDescriptor(navigator, 'sendBeacon');
+    Object.defineProperty(navigator, 'sendBeacon', {
+      configurable: true,
+      value: vi.fn((url: string | URL) => { recordExternal(url); return true; }),
+    });
+    vi.spyOn(XMLHttpRequest.prototype, 'open').mockImplementation((_method, url) => {
+      recordExternal(url);
+    });
+    vi.spyOn(HTMLImageElement.prototype, 'src', 'set').mockImplementation(recordExternal);
+    vi.spyOn(HTMLScriptElement.prototype, 'src', 'set').mockImplementation(recordExternal);
     // Vitest's Node TextEncoder returns buffers from a different realm than jsdom.
     const encoder = new TextEncoder();
     vi.stubGlobal('TextEncoder', class {
@@ -30,6 +44,8 @@ describe('guest fingerprint privacy', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    if (originalBeacon) Object.defineProperty(navigator, 'sendBeacon', originalBeacon);
+    else Reflect.deleteProperty(navigator, 'sendBeacon');
   });
 
   it('identifies and refreshes without sending fingerprint data to third parties', async () => {

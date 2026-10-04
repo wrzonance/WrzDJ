@@ -2,8 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 
 vi.mock('@thumbmarkjs/thumbmarkjs', () => ({
-  setOption: vi.fn(),
-  getFingerprint: vi.fn().mockResolvedValue({ hash: 'mock_hash_value', data: {} }),
+  getThumbmark: vi.fn().mockResolvedValue({ thumbmark: 'mock_hash_value', components: {} }),
 }));
 
 describe('useGuestIdentity (F6)', () => {

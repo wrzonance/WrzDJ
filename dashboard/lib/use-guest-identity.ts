@@ -27,17 +27,18 @@ export function useGuestIdentity(): GuestIdentity {
 
   const doIdentify = useCallback(async () => {
     try {
-      const { getFingerprint } = await import("@thumbmarkjs/thumbmarkjs");
+      const { getThumbmark } = await import("@thumbmarkjs/thumbmarkjs");
 
-      const fp = await getFingerprint(true);
+      // Fingerprints are reconciled by WrzDJ; never send upstream telemetry.
+      const fp = await getThumbmark({ logging: false, collect_beacon: false });
 
       const resp = await fetch(`${API_URL}/api/public/guest/identify`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          fingerprint_hash: fp.hash,
-          fingerprint_components: fp.data,
+          fingerprint_hash: fp.thumbmark,
+          fingerprint_components: fp.components,
         }),
       });
 

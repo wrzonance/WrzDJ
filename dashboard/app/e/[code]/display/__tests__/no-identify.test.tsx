@@ -22,7 +22,7 @@ Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock, wri
 // accidentally re-imported; the hook is intentionally absent from this page.
 vi.mock('@thumbmarkjs/thumbmarkjs', () => ({
   setOption: vi.fn(),
-  getFingerprint: vi.fn().mockResolvedValue({ hash: 'testhash', data: {} }),
+  getThumbmark: vi.fn().mockResolvedValue({ thumbmark: 'testhash', components: {} }),
 }));
 
 // Mock SSE hook

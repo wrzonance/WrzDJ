@@ -28,7 +28,7 @@ async function checkLaunch(executablePath, profile, update) {
     });
     await page.waitForURL((url) => url.protocol === 'file:', { timeout: 5_000 });
     await page.waitForFunction(() => typeof window.bridgeApi?.getSettings === 'function',
-      null, { timeout: 5_000 });
+      null, { polling: 100, timeout: 5_000 });
     const result = await page.evaluate(async (write) => {
       const api = window.bridgeApi;
       if (write) {
@@ -53,7 +53,8 @@ async function checkLaunch(executablePath, profile, update) {
 async function main() {
   assert.equal(process.argv.length, 3, 'Pass the packaged Electron executable');
   const executable = path.resolve(process.argv[2]);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'wrzdj-package-ui-'));
+  // Electron canonicalizes userData even when TMPDIR contains a symlink.
+  const profile = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'wrzdj-package-ui-')));
   try {
     await checkLaunch(executable, profile, true);
     await checkLaunch(executable, profile, false);

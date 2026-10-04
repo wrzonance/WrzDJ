@@ -207,7 +207,24 @@ jobs:
       - name: Test packaged renderer and preload
         run: |
           xvfb-run --auto-servernum node ../scripts/test-bridge-app-ui.cjs \
-            "out/WrzDJ Bridge-linux-x64/wrzdj-bridge.real"
+            "out/WrzDJ Bridge-linux-x64/wrzdj-bridge"
+
+      - name: Make and test AppImage
+        run: |
+          if ! command -v mksquashfs >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends squashfs-tools
+          fi
+          npm run make -- --platform=linux --arch=x64 --from-package
+          appimage=$(realpath out/make/AppImage/x64/WrzDJ-Bridge.AppImage)
+          artifact_dir=$(mktemp -d)
+          trap 'rm -rf "$artifact_dir"' EXIT
+          (cd "$artifact_dir" && "$appimage" --appimage-extract >/dev/null)
+          app_dir="$artifact_dir/squashfs-root/usr/lib/wrzdj-bridge"
+          node ../scripts/test-bridge-app-package.cjs \
+            "$app_dir/wrzdj-bridge.real" "$app_dir/resources"
+          xvfb-run --auto-servernum node ../scripts/test-bridge-app-ui.cjs \
+            "$app_dir/wrzdj-bridge"
 
       - name: Security audit
         run: npm audit --audit-level=high

@@ -35,6 +35,7 @@ export class StageLinqPlugin extends EventEmitter implements EquipmentSourcePlug
   private static readonly CONNECT_TIMEOUT_MS = 30_000;
 
   private running = false;
+  private disconnectFailed = false;
   private stopLogging: (() => void) | null = null;
 
   get isRunning(): boolean {
@@ -47,6 +48,18 @@ export class StageLinqPlugin extends EventEmitter implements EquipmentSourcePlug
     }
 
     this.running = true;
+
+    // A failed shutdown leaves upstream connected and ignores a new logger.
+    // Recover that connection before configuring a fresh run.
+    if (this.disconnectFailed) {
+      try {
+        await StageLinq.disconnect();
+        this.disconnectFailed = false;
+      } catch (error) {
+        this.running = false;
+        throw error;
+      }
+    }
 
     // Each run owns its forwarding callback. Releasing it also silences late
     // messages from an old library instance after this plugin starts again.
@@ -102,7 +115,8 @@ export class StageLinqPlugin extends EventEmitter implements EquipmentSourcePlug
     try {
       await StageLinq.disconnect();
     } catch {
-      // Best effort on shutdown
+      // Keep stop best-effort, but require recovery before the next start.
+      this.disconnectFailed = true;
     }
 
     this.stopLogging?.();

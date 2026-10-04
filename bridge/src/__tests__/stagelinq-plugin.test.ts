@@ -125,6 +125,35 @@ describe("StageLinqPlugin", () => {
       await plugin.start();
       await plugin.stop(); // Should not throw
     });
+
+    it("retries failed shutdown before starting a fresh run", async () => {
+      // Regression at 9e94e74b: upstream retains its old logger until disconnect succeeds.
+      await plugin.start();
+      const previousLogger = mockStageLinq.logger;
+      mockStageLinq.disconnect.mockRejectedValueOnce(new Error("socket error"));
+      await plugin.stop();
+      await plugin.start();
+      const logs: string[] = [];
+      plugin.on("log", (message: string) => logs.push(message));
+      previousLogger.info("old run");
+      mockStageLinq.logger.info("new run");
+      expect(mockStageLinq.disconnect).toHaveBeenCalledTimes(2);
+      expect(logs).toEqual(["info new run"]);
+    });
+
+    it("keeps restart stopped if shutdown recovery still fails", async () => {
+      await plugin.start();
+      mockStageLinq.disconnect
+        .mockRejectedValueOnce(new Error("socket error"))
+        .mockRejectedValueOnce(new Error("socket error"));
+      await plugin.stop();
+      await expect(plugin.start()).rejects.toThrow("socket error");
+      expect(plugin.isRunning).toBe(false);
+      expect(mockStageLinq.connect).toHaveBeenCalledTimes(1);
+      mockStageLinq.disconnect.mockResolvedValue(undefined);
+      await plugin.start();
+      expect(plugin.isRunning).toBe(true);
+    });
   });
 
   describe("nowPlaying events", () => {

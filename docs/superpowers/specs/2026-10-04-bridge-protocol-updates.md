@@ -67,3 +67,9 @@ streaming title/artist fallback and leaves dependencies/API exports unchanged;
 include that patch so the drift closure targets the latest checked version.
 The GitHub latest-release endpoint returned 404; the official npm tarball diff
 provides the patch evidence instead.
+
+Final review found that a failed disconnect leaves the upstream singleton
+connected, preventing logger replacement. Keep shutdown best-effort, but retry
+the failed disconnect before configuring the next run; if recovery still fails,
+reject restart and keep the plugin stopped. Regression tests cover recovery and
+repeated failure while retaining silence from prior-run loggers.

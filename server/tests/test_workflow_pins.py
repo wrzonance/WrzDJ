@@ -58,3 +58,18 @@ def test_third_party_actions_pinned_to_sha(workflow_path: Path):
         f"{workflow_path.name}: third-party actions must be pinned to 40-char SHA, "
         f"found: {offenders}"
     )
+
+
+def test_privileged_qemu_images_pinned_to_digest():
+    """Regression at 9b653e96: pin the image QEMU's action runs with privileges."""
+    offenders = []
+    for path in WORKFLOW_DIR.glob("*.yml"):
+        data = yaml.safe_load(path.read_text())
+        for job in (data.get("jobs") or {}).values():
+            for step in job.get("steps") or []:
+                if step.get("uses", "").partition("@")[0] != "docker/setup-qemu-action":
+                    continue
+                image = (step.get("with") or {}).get("image", "")
+                if not re.search(r"@sha256:[0-9a-f]{64}$", str(image)):
+                    offenders.append(f"{path.name}: {image or 'implicit latest image'}")
+    assert not offenders, f"QEMU images must use immutable SHA-256 digests: {offenders}"

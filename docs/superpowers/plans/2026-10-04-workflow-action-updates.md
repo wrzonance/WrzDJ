@@ -15,3 +15,10 @@
    as a draft, push, and verify all technical CI on the exact head.
 6. Run the single final cross-provider review, fix verified findings without a
    second review, and merge the tested SHA. Verify main and refresh all queues.
+
+Review follow-up: the review approved the action updates. Verify its remaining
+default/stale-reference observations; pin the verified QEMU image used by both
+publish jobs. First reproduce the missing image pins with a boundary regression,
+then add the digest inputs and a scoped Renovate rule. Validate rule extraction,
+numeric build versioning and the complete Renovate configuration. Re-run local
+workflow checks and latest-head CI; do not repeat the cross-provider review.

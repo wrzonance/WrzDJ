@@ -257,6 +257,10 @@ jobs:
             NEXT_PUBLIC_API_URL=http://localhost:8000
           platforms: linux/amd64
           push: false
-          load: false
+          load: true
+          tags: wrzdj-web:smoke
           cache-from: type=gha,scope=ci-web
           cache-to: type=gha,mode=max,scope=ci-web
+
+      - name: Test standalone web runtime
+        run: bash scripts/test-web-image.sh wrzdj-web:smoke

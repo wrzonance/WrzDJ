@@ -1,4 +1,4 @@
-FROM python:3.14-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6
+FROM python:3.14-slim@sha256:c3e521df8b2b498a7a682e7e18676771cb80c6b75b8699af886b2d554ce40151
 
 WORKDIR /app
 
@@ -19,6 +19,10 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends \
 COPY pyproject.toml .
 RUN pip install --no-cache-dir --upgrade "pip>=26.1" "setuptools>=83.0.0"
 RUN pip install --no-cache-dir -e .
+
+# Installation is complete; pip's vendored libraries are not runtime dependencies.
+# Remove pip itself after it has installed the application and its dependencies.
+RUN python -m pip uninstall --yes pip
 
 # Copy application code
 COPY . .

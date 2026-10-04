@@ -13,9 +13,9 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "alphatheta-connect": "0.21.1",
-    "metadata-connect": "1.1.10",
-    "onelibrary-connect": "1.1.1",
+    "alphatheta-connect": "0.28.4",
+    "metadata-connect": "1.2.2",
+    "onelibrary-connect": "1.1.6",
     "stagelinq": "3.5.7"
   },
   "devDependencies": {
@@ -33,6 +33,10 @@
     "ip-address": "^10.7.3",
     "lodash": "^4.18.1",
     "vite": "^8.0.16",
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.1",
+    "alphatheta-connect": {
+      "metadata-connect": "$metadata-connect",
+      "onelibrary-connect": "$onelibrary-connect"
+    }
   }
 }

@@ -41,6 +41,14 @@ const config: ForgeConfig = {
     new MakerZIP({}, ['darwin']),
   ],
   hooks: {
+    packageAfterCopy: async (_config, buildPath) => {
+      // Forge rebuilds natives in the package root's node_modules. Move the
+      // staged Vite externals there before that step, so they target Electron.
+      fs.renameSync(
+        path.join(buildPath, '.vite', 'build', 'node_modules'),
+        path.join(buildPath, 'node_modules'),
+      );
+    },
     postPackage: async (_config, options) => {
       if (options.platform === 'linux') {
         const outDir = options.outputPaths[0];

@@ -197,6 +197,13 @@ jobs:
       - name: Run tests with coverage
         run: npm test -- --run --coverage
 
+      - name: Package and test Electron runtime
+        run: |
+          npm run package -- --platform=linux --arch=x64
+          node ../scripts/test-bridge-app-package.cjs \
+            "out/WrzDJ Bridge-linux-x64/wrzdj-bridge.real" \
+            "out/WrzDJ Bridge-linux-x64/resources"
+
       - name: Security audit
         run: npm audit --audit-level=high
         continue-on-error: true

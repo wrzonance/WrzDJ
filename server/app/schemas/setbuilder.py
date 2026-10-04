@@ -28,6 +28,30 @@ class SetTargetUpdate(BaseModel):
     avg_transition_overlap_sec: int = Field(..., ge=0, le=32)
 
 
+class CollaboratorInviteCreate(BaseModel):
+    role: Literal["editor", "viewer"]
+
+
+class CollaboratorInviteCreated(BaseModel):
+    token: str
+    role: Literal["editor", "viewer"]
+    expires_at: datetime
+
+
+class CollaboratorInviteOut(BaseModel):
+    id: int
+    role: Literal["editor", "viewer"]
+    created_at: datetime
+    expires_at: datetime
+    accepted: bool
+    revoked: bool
+
+
+class CollaboratorAccepted(BaseModel):
+    set_id: int
+    role: Literal["editor", "viewer"]
+
+
 class SetSummary(BaseModel):
     """Set list item (no children)."""
 

@@ -2543,6 +2543,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setbuilder/collaborator-invites/{token}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept Collaborator Invite
+         * @description Accept an invite with the recipient's active DJ account.
+         */
+        post: operations["accept_collaborator_invite_api_setbuilder_collaborator_invites__token__accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setbuilder/curve-templates": {
         parameters: {
             query?: never;
@@ -2782,6 +2802,50 @@ export interface paths {
          */
         post: operations["build_set_api_setbuilder_sets__set_id__build_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/collaborator-invites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Collaborator Invites
+         * @description List invitation status for an owned set without exposing invite tokens.
+         */
+        get: operations["list_collaborator_invites_api_setbuilder_sets__set_id__collaborator_invites_get"];
+        put?: never;
+        /**
+         * Create Collaborator Invite
+         * @description Create a single-use editor or viewer invitation for an owned set.
+         */
+        post: operations["create_collaborator_invite_api_setbuilder_sets__set_id__collaborator_invites_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/setbuilder/sets/{set_id}/collaborator-invites/{invite_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke Collaborator Invite
+         * @description Revoke an unused invitation for an owned set.
+         */
+        delete: operations["revoke_collaborator_invite_api_setbuilder_sets__set_id__collaborator_invites__invite_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -4461,6 +4525,63 @@ export interface components {
             current_password: string;
             /** New Password */
             new_password: string;
+        };
+        /** CollaboratorAccepted */
+        CollaboratorAccepted: {
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "editor" | "viewer";
+            /** Set Id */
+            set_id: number;
+        };
+        /** CollaboratorInviteCreate */
+        CollaboratorInviteCreate: {
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "editor" | "viewer";
+        };
+        /** CollaboratorInviteCreated */
+        CollaboratorInviteCreated: {
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "editor" | "viewer";
+            /** Token */
+            token: string;
+        };
+        /** CollaboratorInviteOut */
+        CollaboratorInviteOut: {
+            /** Accepted */
+            accepted: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Id */
+            id: number;
+            /** Revoked */
+            revoked: boolean;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "editor" | "viewer";
         };
         /** CollectEventPreview */
         CollectEventPreview: {
@@ -12046,6 +12167,37 @@ export interface operations {
             };
         };
     };
+    accept_collaborator_invite_api_setbuilder_collaborator_invites__token__accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollaboratorAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_curve_templates_api_setbuilder_curve_templates_get: {
         parameters: {
             query?: never;
@@ -12514,6 +12666,102 @@ export interface operations {
             };
             /** @description Build requires explicit confirmation */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_collaborator_invites_api_setbuilder_sets__set_id__collaborator_invites_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollaboratorInviteOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_collaborator_invite_api_setbuilder_sets__set_id__collaborator_invites_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollaboratorInviteCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollaboratorInviteCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_collaborator_invite_api_setbuilder_sets__set_id__collaborator_invites__invite_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+                invite_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };

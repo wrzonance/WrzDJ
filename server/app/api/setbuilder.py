@@ -713,11 +713,14 @@ def _playback_report_out(report: playhistory_feedback.FeedbackReport) -> PlayHis
     )
 
 
-def _require_event_attached(set_obj: Set) -> None:
+def _require_event_attached(db: Session, set_obj: Set, user: User) -> None:
     if set_obj.event_id is None:
         raise HTTPException(
             status_code=400, detail="Set must be attached to an event for a playback report"
         )
+    # The binding is validated when written; re-check at read time as well so a
+    # row that predates that validation cannot read through to the event.
+    require_owned_event_id(db, set_obj.event_id, user)
 
 
 @router.get(
@@ -734,7 +737,7 @@ def get_playback_report(
 ) -> PlayHistoryFeedbackOut:
     """Planned-vs-actual report comparing the set's slots to the event's play history."""
     set_obj = _get_owned_or_404(db, set_id, current_user)
-    _require_event_attached(set_obj)
+    _require_event_attached(db, set_obj, current_user)
     report = playhistory_feedback.build_feedback_report(db, set_obj)
     return _playback_report_out(report)
 
@@ -753,7 +756,7 @@ def apply_playback_pairings(
 ) -> ApplyPairingFeedbackOut:
     """Feed real consecutive plays into pairing use-counts (explicit DJ action)."""
     set_obj = _get_owned_or_404(db, set_id, current_user)
-    _require_event_attached(set_obj)
+    _require_event_attached(db, set_obj, current_user)
     report = playhistory_feedback.build_feedback_report(db, set_obj)
     bumped = playhistory_feedback.apply_outcomes_to_pairings(db, set_obj, report)
     return ApplyPairingFeedbackOut(bumped=bumped, pairings=_pairings_state(db, set_obj))

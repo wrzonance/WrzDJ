@@ -307,3 +307,21 @@ def test_playback_report_unreachable_for_another_djs_event(client, db, test_even
     assert own.status_code == 201
     report = client.get(f"/api/setbuilder/sets/{own.json()['id']}/playback-report", headers=other)
     assert report.status_code == 400  # no event attached; never another DJ's
+
+
+def test_playback_report_refuses_set_bound_to_another_djs_event(client, db, test_event):
+    """Defense in depth: a row that already carries a foreign event_id (minted
+    before validation existed) must not read that event's play history."""
+    from app.models.set import Set
+
+    other = _make_second_dj(db)
+    poisoned = Set(owner_id=other.id, name="Pre-existing", event_id=test_event.id)
+    db.add(poisoned)
+    db.commit()
+    headers = _login(client, "otherdj", "x" * 12)
+    report = client.get(f"/api/setbuilder/sets/{poisoned.id}/playback-report", headers=headers)
+    assert report.status_code == 404
+    apply = client.post(
+        f"/api/setbuilder/sets/{poisoned.id}/playback-report/apply-pairings", headers=headers
+    )
+    assert apply.status_code == 404

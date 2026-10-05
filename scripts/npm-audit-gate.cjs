@@ -17,6 +17,15 @@ const path = require('node:path');
 const BLOCKING_SEVERITIES = new Set(['high', 'critical']);
 const IGNORE_FILE = path.join(__dirname, '..', '.npm-audit-ignore.json');
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const SEVERITIES = new Set(['info', 'low', 'moderate', 'high', 'critical']);
+
+// A string that both matches the ISO shape and survives a round trip through
+// Date is a real calendar day; "2026-13-01" or "2026-02-30" would be normalized.
+function isCalendarDate(value) {
+  if (!ISO_DATE.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
 
 function parseIgnores(raw) {
   const entries = JSON.parse(raw);
@@ -27,8 +36,8 @@ function parseIgnores(raw) {
     if (typeof entry.id !== 'string' || entry.id === '') {
       throw new Error(`ignore entry ${index} needs an advisory id`);
     }
-    if (typeof entry.expires !== 'string' || !ISO_DATE.test(entry.expires)) {
-      throw new Error(`ignore entry ${entry.id} needs expires as YYYY-MM-DD`);
+    if (typeof entry.expires !== 'string' || !isCalendarDate(entry.expires)) {
+      throw new Error(`ignore entry ${entry.id} needs expires as a real YYYY-MM-DD date`);
     }
     if (typeof entry.reason !== 'string' || entry.reason.trim() === '') {
       throw new Error(`ignore entry ${entry.id} needs a reason`);
@@ -37,20 +46,32 @@ function parseIgnores(raw) {
   return entries;
 }
 
+function malformed(name, what) {
+  return new Error(`npm audit record for ${name} is malformed (${what}); refusing to treat it as clean`);
+}
+
 // A package's `via` lists either an advisory object or the name of the
-// dependency it inherits one from; only the objects are advisories.
+// dependency it inherits one from; only the objects are advisories. Anything
+// that is neither is a shape this gate does not understand, so it fails closed.
+function advisoryFrom(name, via) {
+  if (typeof via === 'string') return null;
+  if (typeof via !== 'object' || via === null) throw malformed(name, 'via entry is not a string or object');
+  if (!SEVERITIES.has(via.severity)) throw malformed(name, 'advisory has no known severity');
+  const id = typeof via.url === 'string' && via.url !== '' ? via.url.split('/').pop() : via.source;
+  if (id === undefined || id === null || id === '') throw malformed(name, 'advisory has no url or source id');
+  return { id: String(id), severity: via.severity, package: via.name, title: via.title };
+}
+
 function collectAdvisories(report) {
   if (!report || typeof report.vulnerabilities !== 'object' || report.vulnerabilities === null) {
     throw new Error('npm audit output has no vulnerabilities map; refusing to treat it as clean');
   }
   const byId = new Map();
-  for (const vulnerability of Object.values(report.vulnerabilities)) {
-    for (const via of vulnerability.via ?? []) {
-      if (typeof via === 'string') continue;
-      const id = via.url ? via.url.split('/').pop() : String(via.source);
-      if (!byId.has(id)) {
-        byId.set(id, { id, severity: via.severity, package: via.name, title: via.title });
-      }
+  for (const [name, vulnerability] of Object.entries(report.vulnerabilities)) {
+    if (!Array.isArray(vulnerability?.via)) throw malformed(name, 'via is not an array');
+    for (const via of vulnerability.via) {
+      const advisory = advisoryFrom(name, via);
+      if (advisory && !byId.has(advisory.id)) byId.set(advisory.id, advisory);
     }
   }
   return [...byId.values()];
@@ -70,8 +91,28 @@ function evaluate(report, ignores, today) {
   };
 }
 
+// npm audit exits 0 when clean and 1 when it found advisories; the JSON on
+// stdout is the result either way. Any other outcome means the audit did not
+// actually run, and a gate must not pass on a report it never received.
+function parseAuditResult({ status, signal, stdout, stderr }) {
+  if (signal) throw new Error(`npm audit was killed by ${signal}`);
+  if (status !== 0 && status !== 1) {
+    throw new Error(`npm audit exited with status ${status}\n${stderr}`);
+  }
+  let report;
+  try {
+    report = JSON.parse(stdout);
+  } catch (error) {
+    throw new Error(`npm audit did not return JSON: ${error.message}\n${stderr}`);
+  }
+  if (report && typeof report === 'object' && report.error) {
+    const { code, summary } = report.error;
+    throw new Error(`npm audit reported an error: ${code ?? ''} ${summary ?? ''}`.trim());
+  }
+  return report;
+}
+
 function runNpmAudit() {
-  // npm exits non-zero whenever it finds anything, so the JSON is the result.
   const result = spawnSync('npm', ['audit', '--json'], {
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
@@ -79,11 +120,7 @@ function runNpmAudit() {
   if (result.error) {
     throw new Error(`could not run npm audit: ${result.error.message}`);
   }
-  try {
-    return JSON.parse(result.stdout);
-  } catch (error) {
-    throw new Error(`npm audit did not return JSON: ${error.message}\n${result.stderr}`);
-  }
+  return parseAuditResult(result);
 }
 
 function describe(entry) {
@@ -121,4 +158,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { collectAdvisories, evaluate, parseIgnores };
+module.exports = { collectAdvisories, evaluate, parseAuditResult, parseIgnores };

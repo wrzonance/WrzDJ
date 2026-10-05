@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 
-const { evaluate, parseIgnores } = require('./npm-audit-gate.cjs');
+const { evaluate, parseAuditResult, parseIgnores } = require('./npm-audit-gate.cjs');
 
 const TODAY = '2026-10-05';
 
@@ -103,4 +103,56 @@ test('ignore entries need an id, an ISO expiry and a justification', () => {
 test('valid ignore entries parse unchanged', () => {
   const entries = [ignore('GHSA-aaaa')];
   assert.deepEqual(parseIgnores(JSON.stringify(entries)), entries);
+});
+
+test('impossible calendar dates are rejected as expiries', () => {
+  for (const bad of ['2026-13-01', '2026-02-30', '2025-02-29', '2026-00-10']) {
+    assert.throws(() => parseIgnores(JSON.stringify([ignore('GHSA-aaaa', bad)])), /expires/, bad);
+  }
+  assert.doesNotThrow(() => parseIgnores(JSON.stringify([ignore('GHSA-aaaa', '2028-02-29')])));
+});
+
+test('a malformed vulnerability record fails closed instead of passing', () => {
+  const malformed = [
+    { pkg: { name: 'pkg', severity: 'critical', via: 'dependency' } },
+    { pkg: { name: 'pkg', severity: 'critical' } },
+    { pkg: { name: 'pkg', severity: 'critical', via: [42] } },
+    { pkg: { name: 'pkg', severity: 'critical', via: [{ name: 'pkg', title: 't' }] } },
+    { pkg: { name: 'pkg', severity: 'critical', via: [{ severity: 'critical' }] } },
+  ];
+  for (const vulnerabilities of malformed) {
+    assert.throws(() => evaluate({ vulnerabilities }, [], TODAY), /malformed/);
+  }
+});
+
+test('an advisory without a url is keyed by its source id', () => {
+  const via = { source: 777, name: 'pkg', title: 't', severity: 'high' };
+  const result = evaluate({ vulnerabilities: { pkg: { name: 'pkg', severity: 'high', via: [via] } } }, [], TODAY);
+  assert.deepEqual(result.blocking.map((entry) => entry.id), ['777']);
+});
+
+const CLEAN = JSON.stringify({ vulnerabilities: {} });
+
+test('npm exit 0 and exit 1 (advisories found) both yield the parsed report', () => {
+  assert.deepEqual(parseAuditResult({ status: 0, signal: null, stdout: CLEAN, stderr: '' }), {
+    vulnerabilities: {},
+  });
+  assert.deepEqual(parseAuditResult({ status: 1, signal: null, stdout: CLEAN, stderr: '' }), {
+    vulnerabilities: {},
+  });
+});
+
+test('any other npm exit status or a signal fails closed', () => {
+  assert.throws(() => parseAuditResult({ status: 2, signal: null, stdout: CLEAN, stderr: '' }), /exit/);
+  assert.throws(() => parseAuditResult({ status: 137, signal: null, stdout: CLEAN, stderr: '' }), /exit/);
+  assert.throws(() => parseAuditResult({ status: null, signal: 'SIGKILL', stdout: CLEAN, stderr: '' }), /SIGKILL/);
+});
+
+test('a structured npm error fails closed even beside a vulnerabilities map', () => {
+  const stdout = JSON.stringify({ error: { code: 'ENOLOCK', summary: 'no lockfile' }, vulnerabilities: {} });
+  assert.throws(() => parseAuditResult({ status: 1, signal: null, stdout, stderr: '' }), /ENOLOCK/);
+});
+
+test('non-JSON npm output fails closed', () => {
+  assert.throws(() => parseAuditResult({ status: 0, signal: null, stdout: 'npm WARN', stderr: '' }), /JSON/);
 });

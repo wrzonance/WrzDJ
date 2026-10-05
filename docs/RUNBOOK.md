@@ -169,9 +169,10 @@ cat backup.sql | docker compose -f deploy/docker-compose.yml exec -T db \
 
 ### PostgreSQL Major-Version Upgrade
 
-A volume holding an older PostgreSQL major version is refused before any teardown
-(`deploy/scripts/check-postgres-volume.sh`). Follow "Upgrading PostgreSQL (16 -> 18)"
-in `deploy/DEPLOYMENT.md` for the dump/restore and rollback procedure.
+The deploy scripts upgrade an older PostgreSQL data volume automatically
+(`deploy/scripts/upgrade-postgres-volume.sh`: dump, backup volume, restore, rollback
+on failure). Details and manual rollback: "Upgrading PostgreSQL (16 -> 18)" in
+`deploy/DEPLOYMENT.md`.
 
 ### Run Migrations
 

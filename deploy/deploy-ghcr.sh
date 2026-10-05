@@ -22,10 +22,11 @@ fi
 
 PORT_API="${PORT_API:-8000}"
 
-# Must run before anything is stopped: an incompatible volume aborts the deploy
-# while the current stack keeps serving.
-echo "==> Checking PostgreSQL data volume compatibility..."
-WRZDJ_VERSION="$VERSION" "$SCRIPT_DIR/scripts/check-postgres-volume.sh" "$COMPOSE_FILE"
+# Must run before anything else touches the stack. A compatible volume is a
+# no-op; an older PostgreSQL major is upgraded (old data kept in a backup
+# volume); anything unrecognised aborts while the current stack keeps serving.
+echo "==> Checking PostgreSQL data volume..."
+WRZDJ_VERSION="$VERSION" "$SCRIPT_DIR/scripts/upgrade-postgres-volume.sh" "$COMPOSE_FILE"
 
 echo "==> Pulling WrzDJ $VERSION images..."
 WRZDJ_VERSION="$VERSION" docker compose -f "$COMPOSE_FILE" pull api web

@@ -5,10 +5,11 @@ set -euo pipefail
 # Usage: ./deploy/deploy.sh
 #
 # Safely rebuilds the Docker stack by:
-# 1. Stopping existing containers
-# 2. Killing any process holding service ports (configurable via PORT_API / PORT_FRONTEND)
-# 3. Rebuilding and starting fresh
-# 4. Waiting for API health check to pass
+# 1. Checking the PostgreSQL data volume is compatible (aborts before any teardown)
+# 2. Stopping existing containers
+# 3. Killing any process holding service ports (configurable via PORT_API / PORT_FRONTEND)
+# 4. Rebuilding and starting fresh
+# 5. Waiting for API health check to pass
 #
 # Reads deploy/.env if present for PORT_API (default 8000) and PORT_FRONTEND (default 3000)
 
@@ -25,6 +26,11 @@ fi
 
 PORT_API="${PORT_API:-8000}"
 PORT_FRONTEND="${PORT_FRONTEND:-3000}"
+
+# Must run before anything is stopped: an incompatible volume aborts the deploy
+# while the current stack keeps serving.
+echo "==> Checking PostgreSQL data volume compatibility..."
+"$SCRIPT_DIR/scripts/check-postgres-volume.sh" "$COMPOSE_FILE"
 
 echo "==> Stopping existing containers..."
 docker compose -f "$COMPOSE_FILE" down --remove-orphans 2>/dev/null || true

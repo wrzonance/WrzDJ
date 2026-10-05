@@ -78,7 +78,7 @@ PY
 network=$(docker network create --internal "wrzdj-api-smoke-$(basename "$scratch")")
 database=$(docker run --detach --network "$network" --network-alias database \
   --env POSTGRES_USER=wrzdj --env POSTGRES_PASSWORD=wrzdj --env POSTGRES_DB=wrzdj_test \
-  postgres:16@sha256:71e27bf60b70bded003791b5573f8b808365613f341df20ffcf0c1ed7bc13ddf)
+  postgres:18@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722)
 container=$(docker run --detach --network "$network" \
   --env DATABASE_URL=postgresql+psycopg://wrzdj:wrzdj@database:5432/wrzdj_test \
   --env JWT_SECRET=test-secret-key --env ENV=development "$image")

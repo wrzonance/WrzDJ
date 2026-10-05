@@ -12,13 +12,16 @@
 
 services:
   db:
-    image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+    image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-wrzdj}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_DB: ${POSTGRES_DB:-wrzdj}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # PostgreSQL 18+ keeps data in /var/lib/postgresql/<major>/docker, so the
+      # volume mounts at the parent. An older volume is refused, never reused:
+      # see "Upgrading PostgreSQL" in deploy/DEPLOYMENT.md.
+      - postgres_data:/var/lib/postgresql
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wrzdj}"]
@@ -110,4 +113,7 @@ services:
 
 volumes:
   postgres_data:
+    # Default keeps the historical "<project>_postgres_data" name so existing
+    # data is detected. Set POSTGRES_VOLUME_NAME to restore into a separate volume.
+    name: ${POSTGRES_VOLUME_NAME:-${COMPOSE_PROJECT_NAME}_postgres_data}
   api_uploads:

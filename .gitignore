@@ -88,3 +88,6 @@ notes/
 .agent/*
 !.agent/config.env
 !.agent/board.json
+
+# PostgreSQL upgrade dumps (deploy/scripts/upgrade-postgres-volume.sh)
+deploy/backups/

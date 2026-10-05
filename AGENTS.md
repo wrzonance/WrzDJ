@@ -42,8 +42,8 @@ prompt-injection hygiene.
 ## Local Development
 
 ### Prerequisites
-- PostgreSQL 18 via Docker: `docker compose up -d db` (an existing PostgreSQL 16 dev volume is
-  refused — see "Upgrading PostgreSQL" in `deploy/DEPLOYMENT.md`)
+- PostgreSQL 18 via Docker: `docker compose up -d db`. An existing PostgreSQL 16 dev volume is
+  upgraded with `deploy/scripts/upgrade-postgres-volume.sh docker-compose.yml`.
 - Python 3.11+ with venv at `server/.venv/`
 - Node.js 24.15+ on the 24.x LTS line, or Node.js 26+
 
@@ -100,7 +100,9 @@ npm run types:generate && git diff --exit-code -- lib/api-types.generated.ts   #
 The dashboard compiles with TypeScript 7 (`@typescript/native` → `tsc`). TypeScript 7 has no
 JavaScript compiler API, so the `typescript` package name is aliased to Microsoft's
 `@typescript/typescript6`, which ESLint, `openapi-typescript` and `next build` import. Bump the
-compiler via `@typescript/native`; drop the alias once those tools support TypeScript 7 natively.
+compiler via `@typescript/native`; drop the alias once those tools support TypeScript 7 natively. The
+`openapi-typescript` override only points its `^5.x` peer at that same API package; it is a no-op
+once the generator accepts it, and the generated-types check fails if its output ever changes.
 
 ### Bridge / Bridge App (from `bridge/` and `bridge-app/`)
 ```bash

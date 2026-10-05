@@ -357,67 +357,57 @@ cat backup.sql | docker compose -f deploy/docker-compose.yml exec -T db \
 
 ### Upgrading PostgreSQL (16 -> 18)
 
-The stack now runs PostgreSQL 18. PostgreSQL cannot open another major version's
-data directory, and the PostgreSQL 18 image stores data under
-`/var/lib/postgresql/18/docker` (the volume mounts at `/var/lib/postgresql`, not
-`/var/lib/postgresql/data`). A fresh install needs nothing. An existing
-PostgreSQL 16 deployment must be migrated with a dump/restore:
+The stack runs PostgreSQL 18. PostgreSQL cannot open another major version's data
+directory, and the PostgreSQL 18 image stores data under
+`/var/lib/postgresql/18/docker` (the volume mounts at `/var/lib/postgresql`).
 
-- `deploy.sh` / `deploy-ghcr.sh` check the data volume **before stopping
-  anything**. If it still holds PostgreSQL 16 data the deploy aborts and the
-  running stack keeps serving.
-- With plain `docker compose up`, the PostgreSQL 18 container refuses to start on
-  PostgreSQL 16 data instead of creating an empty database. It leaves an empty
-  `18/docker` directory in the old volume; PostgreSQL 16 ignores it.
+**The deploy scripts handle this.** `deploy.sh` and `deploy-ghcr.sh` run
+`deploy/scripts/upgrade-postgres-volume.sh` before touching the stack:
 
-Plan a maintenance window. The old volume is kept until you delete it, so every
-step before the last is reversible. Commands assume the default project (`deploy`)
-and the build-from-source Compose file; substitute `docker-compose.ghcr.yml` and
-`deploy-ghcr.sh` for GHCR installs.
+- A fresh or already-upgraded volume is a no-op.
+- A volume still holding PostgreSQL 16 is migrated with a dump/restore: the stack
+  is stopped, the whole cluster is dumped with PostgreSQL 16 (`pg_dumpall`, so
+  roles, ownership and every database come along), the old data files are copied
+  to the Docker volume `<volume>_pg16_backup`, and the dump is restored into
+  PostgreSQL 18 on the original volume. Every database's relation and row counts
+  and the role list must match before it is declared done. The dump is kept,
+  owner-readable only, in `deploy/backups/`. The deploy then continues as usual;
+  downtime is the dump + restore time.
+- It refuses, with the running stack untouched, if the volume holds anything it
+  does not recognise, a backup volume from an earlier upgrade exists, or free
+  disk space is too low (twice the database size next to the volume, once in
+  `deploy/backups/`).
+- If anything fails, the PostgreSQL 16 files are copied back, the volume is
+  exactly as it was, and the services that were running are started again.
+- If the script is killed mid-upgrade (reboot, lost SSH session), the next deploy
+  detects the interrupted state, restores the PostgreSQL 16 files and retries.
+
+For a stack started without the deploy scripts (including local development),
+run the same script against its Compose file:
 
 ```bash
-cd deploy && set -a && . ./.env && set +a
-
-# 1. Still on the OLD release (PostgreSQL 16 running): stop writers, then dump.
-docker compose -f docker-compose.yml stop api web
-docker compose -f docker-compose.yml exec -T db \
-  pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB" > wrzdj-pg16.dump
-ls -l wrzdj-pg16.dump          # must be non-empty; copy it off the host too
-
-# 2. Stop the old stack. Do NOT pass --volumes: the PostgreSQL 16 volume stays.
-docker compose -f docker-compose.yml down
-
-# 3. Check out the new release, then point it at a NEW, separate volume.
-echo 'POSTGRES_VOLUME_NAME=deploy_postgres18_data' >> .env
-export POSTGRES_VOLUME_NAME=deploy_postgres18_data
-
-# 4. Start only PostgreSQL 18 (empty) and restore into it.
-docker compose -f docker-compose.yml up -d --wait db
-docker compose -f docker-compose.yml exec -T db \
-  pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error \
-  < wrzdj-pg16.dump
-
-# 5. Deploy. The volume check passes and the API applies any pending migrations.
-./deploy.sh
+deploy/scripts/upgrade-postgres-volume.sh docker-compose.yml          # local dev
+deploy/scripts/upgrade-postgres-volume.sh deploy/docker-compose.yml   # production
 ```
 
-Verify logins, events and requests before reopening to guests.
+With plain `docker compose up` and no upgrade, the PostgreSQL 18 container refuses
+to start on PostgreSQL 16 data rather than creating an empty database.
 
-**Rollback** (any time before the old volume is deleted): `docker compose -f
-docker-compose.yml down`, remove the `POSTGRES_VOLUME_NAME` line from `.env`,
-check out the previous release and deploy it. It mounts the untouched
-`deploy_postgres_data` volume with PostgreSQL 16 again. Anything written to
-PostgreSQL 18 in the meantime is not carried back.
+**Rollback to the previous release** after a completed upgrade: stop the stack,
+copy the backup volume's contents back over the data volume, then deploy the old
+release. Anything written to PostgreSQL 18 in the meantime is not carried back.
 
-**Cleanup**: once the upgrade has proven itself, remove the old volume with
-`docker volume rm deploy_postgres_data`. Keep `POSTGRES_VOLUME_NAME` set: it is
-now where your data lives.
+```bash
+docker compose -f deploy/docker-compose.yml down
+docker run --rm -v deploy_postgres_data_pg16_backup:/from:ro -v deploy_postgres_data:/to \
+  alpine sh -c 'find /to -mindepth 1 -delete && cp -a /from/. /to/'
+```
 
-Local development databases follow the same rule. To keep dev data, dump and
-restore as above against the root `docker-compose.yml`; to discard it, remove the
-old volume (`docker volume ls | grep postgres_data`, then `docker volume rm`).
+**Cleanup**: once the upgrade has proven itself,
+`docker volume rm deploy_postgres_data_pg16_backup`.
 
-This path is exercised in CI by `scripts/test-postgres-upgrade.sh`.
+To restore into a differently named volume instead, set `POSTGRES_VOLUME_NAME` in
+`deploy/.env`. This path is exercised in CI by `scripts/test-postgres-upgrade.sh`.
 
 ### SSL certificate renewal
 

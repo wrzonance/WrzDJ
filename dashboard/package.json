@@ -44,7 +44,7 @@
   "overrides": {
     "postcss": "^8.5.10",
     "vite": "^8.3.2",
-    "@redocly/openapi-core": "^1.34.20",
+    "@redocly/openapi-core": "^2.0.0",
     "undici": "^8.11.2",
     "brace-expansion@1": "1.1.21",
     "brace-expansion@2": "2.1.7",

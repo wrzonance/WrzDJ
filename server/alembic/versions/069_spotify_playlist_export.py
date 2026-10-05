@@ -1,7 +1,7 @@
 """Add encrypted Spotify OAuth tokens and SetBuilder playlist export ids.
 
-Revision ID: 067
-Revises: 066
+Revision ID: 069
+Revises: 068
 """
 
 import sqlalchemy as sa
@@ -9,8 +9,8 @@ import sqlalchemy as sa
 from alembic import op
 from app.core.encryption import EncryptedText
 
-revision = "067"
-down_revision = "066"
+revision = "069"
+down_revision = "068"
 branch_labels = None
 depends_on = None
 

@@ -7,6 +7,7 @@ the ``db`` fixture uses, so the seeded rows are the ones swept.
 """
 
 import importlib.util
+from datetime import timedelta
 from pathlib import Path
 from types import ModuleType
 
@@ -14,6 +15,7 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy.orm import Session
 
+from app.core.time import utcnow
 from app.models.event import Event
 from app.models.set import Set
 from app.models.user import User
@@ -43,10 +45,22 @@ def _make_dj(db: Session, username: str) -> User:
 
 def test_sweep_detaches_only_sets_bound_to_foreign_events(db: Session, test_user, test_event):
     other = _make_dj(db, "otherdj")
+    # A second event by the same owner: the sweep must compare owners, not keep
+    # a binding only because one event happens to line up with the set.
+    second_event = Event(
+        code="SECOND",
+        join_code="SECJN1",
+        name="Second",
+        created_by_user_id=test_user.id,
+        expires_at=utcnow() + timedelta(hours=6),
+    )
+    db.add(second_event)
+    db.flush()
     own_binding = Set(owner_id=test_user.id, name="own", event_id=test_event.id)
+    own_second_binding = Set(owner_id=test_user.id, name="own-2", event_id=second_event.id)
     foreign_binding = Set(owner_id=other.id, name="foreign", event_id=test_event.id)
     unbound = Set(owner_id=other.id, name="unbound", event_id=None)
-    db.add_all([own_binding, foreign_binding, unbound])
+    db.add_all([own_binding, own_second_binding, foreign_binding, unbound])
     db.commit()
 
     connection = db.connection()
@@ -55,6 +69,7 @@ def test_sweep_detaches_only_sets_bound_to_foreign_events(db: Session, test_user
     db.expire_all()
 
     assert db.get(Set, own_binding.id).event_id == test_event.id
+    assert db.get(Set, own_second_binding.id).event_id == second_event.id
     assert db.get(Set, foreign_binding.id).event_id is None
     assert db.get(Set, unbound.id).event_id is None
     assert db.get(Event, test_event.id).created_by_user_id == test_user.id

@@ -87,8 +87,8 @@ server {
         # individually). Every guest page, kiosk display and dashboard tab holds
         # one stream, and a whole venue, DJ included, can sit behind a single
         # NAT address: past the cap a new tab gets 429 and the dashboard retries
-        # every 30s, so size SSE_CONN_LIMIT (setup-nginx.sh) for the largest
-        # room on venue wifi. The cap only bounds what one address can pin open
+        # with backoff capped at 30s, so size SSE_CONN_LIMIT (setup-nginx.sh)
+        # for the largest room on venue wifi. The cap only bounds what one address can pin open
         # on the single API process; it is not a per-event capacity.
         limit_conn wrzdj_sse ${SSE_CONN_LIMIT};
         limit_conn_status 429;

@@ -19,6 +19,6 @@
       "@bridge/*": ["../bridge/src/*"]
     }
   },
-  "include": ["src/**/*", "../bridge/src/**/*"],
+  "include": ["src/**/*", "../bridge/src/**/*", "*.config.ts"],
   "exclude": ["node_modules", "dist", "out"]
 }

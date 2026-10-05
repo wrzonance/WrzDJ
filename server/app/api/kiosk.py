@@ -3,6 +3,7 @@
 import hmac
 import secrets
 import time
+from threading import Lock
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -36,10 +37,13 @@ from app.services.kiosk import (
     update_kiosk_last_seen,
 )
 
-# In-memory nonce cache for kiosk pairing. Safe under single-worker uvicorn.
-# {client_ip: (nonce_str, expires_at_unix_timestamp)}
+# Single-process nonce cache. Sync FastAPI routes run in worker threads, so the
+# lock protects pruning/issuance and the whole validate-and-consume transaction.
+# {nonce_str: (client_ip, expires_at_unix_timestamp)}. Keyed by nonce so kiosks
+# behind one IP get independent challenges (#713).
 # If deploy ever moves to multi-worker, replace with KioskPairChallenge DB model.
 _pair_nonces: dict[str, tuple[str, float]] = {}
+_pair_nonce_lock = Lock()
 _NONCE_TTL_SECONDS = 10
 
 
@@ -109,14 +113,15 @@ def _assert_caller_owns_event(event: Event, user: User) -> None:
 def get_pair_challenge(request: Request) -> KioskPairChallengeResponse:
     """Issue a one-time IP-bound nonce required for kiosk pairing."""
     client_ip = get_client_ip(request)
-    now = time.time()
-    # Opportunistic prune of expired entries
-    expired = [ip for ip, (_, exp) in _pair_nonces.items() if exp < now]
-    for ip in expired:
-        _pair_nonces.pop(ip, None)
+    with _pair_nonce_lock:
+        now = time.time()
+        # Opportunistic prune of expired entries
+        expired = [n for n, (_, exp) in _pair_nonces.items() if exp < now]
+        for n in expired:
+            _pair_nonces.pop(n, None)
 
-    nonce = secrets.token_urlsafe(16)
-    _pair_nonces[client_ip] = (nonce, now + _NONCE_TTL_SECONDS)
+        nonce = secrets.token_urlsafe(16)
+        _pair_nonces[nonce] = (client_ip, now + _NONCE_TTL_SECONDS)
     return KioskPairChallengeResponse(nonce=nonce, expires_in=_NONCE_TTL_SECONDS)
 
 
@@ -130,16 +135,21 @@ def create_pairing(request: Request, db: Session = Depends(get_db)):
     """
     client_ip = get_client_ip(request)
     nonce_header = request.headers.get("X-Pair-Nonce")
-    entry = _pair_nonces.pop(client_ip, None)
+    with _pair_nonce_lock:
+        entry = _pair_nonces.get(nonce_header) if nonce_header else None
 
-    if not nonce_header or entry is None:
-        raise HTTPException(400, "Missing or unknown pairing nonce")
+        if not nonce_header or entry is None:
+            raise HTTPException(400, "Missing or unknown pairing nonce")
 
-    nonce, expires_at = entry
-    if not hmac.compare_digest(nonce_header, nonce):
-        raise HTTPException(400, "Invalid pairing nonce")
-    if time.time() > expires_at:
-        raise HTTPException(400, "Pairing nonce expired")
+        issued_ip, expires_at = entry
+        if not hmac.compare_digest(issued_ip, client_ip):
+            raise HTTPException(400, "Invalid pairing nonce")
+        if time.time() > expires_at:
+            _pair_nonces.pop(nonce_header, None)
+            raise HTTPException(400, "Pairing nonce expired")
+        # Invalid attempts preserve the challenge; concurrent valid requests
+        # cannot both consume it. Database work starts only after releasing the lock.
+        _pair_nonces.pop(nonce_header, None)
 
     kiosk = create_kiosk(db)
     return KioskPairResponse(

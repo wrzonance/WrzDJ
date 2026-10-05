@@ -3,6 +3,18 @@
   "extends": ["config:recommended"],
   "minimumReleaseAge": "7 days",
   "automerge": false,
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Keep the privileged QEMU image input pinned and updated",
+      "managerFilePatterns": ["/^\\.github/workflows/docker-publish\\.yml$/"],
+      "matchStrings": [
+        "image: (?<depName>docker\\.io/tonistiigi/binfmt):(?<currentValue>qemu-v\\d+\\.\\d+\\.\\d+-\\d+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "regex:^qemu-v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<build>\\d+)$"
+    }
+  ],
   "packageRules": [
     {
       "description": "DJ protocol libs - manual review only",

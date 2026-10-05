@@ -204,6 +204,28 @@ jobs:
             "out/WrzDJ Bridge-linux-x64/wrzdj-bridge.real" \
             "out/WrzDJ Bridge-linux-x64/resources"
 
+      - name: Test packaged renderer and preload
+        run: |
+          xvfb-run --auto-servernum node ../scripts/test-bridge-app-ui.cjs \
+            "out/WrzDJ Bridge-linux-x64/wrzdj-bridge"
+
+      - name: Make and test AppImage
+        run: |
+          if ! command -v mksquashfs >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends squashfs-tools
+          fi
+          npm run make -- --platform=linux --arch=x64 --from-package
+          appimage=$(realpath out/make/AppImage/x64/WrzDJ-Bridge.AppImage)
+          artifact_dir=$(mktemp -d)
+          trap 'rm -rf "$artifact_dir"' EXIT
+          (cd "$artifact_dir" && "$appimage" --appimage-extract >/dev/null)
+          app_dir="$artifact_dir/squashfs-root/usr/lib/wrzdj-bridge"
+          node ../scripts/test-bridge-app-package.cjs \
+            "$app_dir/wrzdj-bridge.real" "$app_dir/resources"
+          xvfb-run --auto-servernum node ../scripts/test-bridge-app-ui.cjs \
+            "$app_dir/wrzdj-bridge"
+
       - name: Security audit
         run: npm audit --audit-level=high
         continue-on-error: true
@@ -240,14 +262,14 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # amd64-only, no push: verifies both images build on every PR/push without
       # paying for the multi-arch (arm64-under-QEMU) publish, which now runs only
       # on main/tag pushes in docker-publish.yml. The job NAME must stay exactly
       # "Docker Build Smoke Test" — main's branch protection requires that check.
       - name: Build backend image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./server
           platforms: linux/amd64
@@ -261,7 +283,7 @@ jobs:
         run: bash scripts/test-api-image.sh wrzdj-api:smoke
 
       - name: Build frontend image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./dashboard
           build-args: |
@@ -275,3 +297,31 @@ jobs:
 
       - name: Test standalone web runtime
         run: bash scripts/test-web-image.sh wrzdj-web:smoke
+
+      - name: Build bridge image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./bridge
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: wrzdj-bridge:smoke
+          cache-from: type=gha,scope=ci-bridge
+          cache-to: type=gha,mode=max,scope=ci-bridge
+
+      - name: Test bridge runtime
+        run: bash scripts/test-bridge-image.sh wrzdj-bridge:smoke
+
+      - name: Build development proxy image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./deploy/dev-proxy
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: wrzdj-proxy:smoke
+          cache-from: type=gha,scope=ci-proxy
+          cache-to: type=gha,mode=max,scope=ci-proxy
+
+      - name: Test development proxy runtime
+        run: bash scripts/test-proxy-image.sh wrzdj-proxy:smoke

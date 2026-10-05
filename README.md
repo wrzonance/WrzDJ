@@ -293,6 +293,9 @@ The bridge connects to DJ equipment and reports "Now Playing" data to the server
 
 **Desktop app (recommended):** Download from [Releases](https://github.com/thewrz/WrzDJ/releases) (Windows `.exe`, macOS `.dmg`, Linux `.AppImage`). Also available via `winget install WrzDJ.WrzDJ-Bridge` on Windows.
 
+The desktop app requires macOS 13 (Ventura) or later. Release builds support
+Windows/Linux x64 and macOS x64/arm64.
+
 **CLI bridge:**
 
 ```bash

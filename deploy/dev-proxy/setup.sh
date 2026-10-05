@@ -39,7 +39,7 @@ echo "[nginx] Generating configs from templates..."
 for tmpl in "$NGINX_DIR"/*.conf.template; do
     conf="${tmpl%.template}"
     # Only substitute $LAN_IP — preserve nginx variables like $server_name, $host, etc.
-    envsubst '${LAN_IP}' < "$tmpl" > "$conf"
+    envsubst "\${LAN_IP}" < "$tmpl" > "$conf"
     echo "  $(basename "$conf")"
 done
 
@@ -90,7 +90,7 @@ fi
 # ── 5. Start the proxy ───────────────────────────────────────────────────────
 
 echo "[proxy] Starting nginx reverse proxy..."
-docker compose -f "$COMPOSE_FILE" up -d
+docker compose -f "$COMPOSE_FILE" up -d --build
 
 echo ""
 echo "=========================================="

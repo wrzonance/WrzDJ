@@ -19,8 +19,11 @@ if (process.argv[2] !== '--electron') {
   assert.equal(result.status, 0, `Packaged runtime failed (signal: ${result.signal})`);
 } else {
   assert.ok(process.versions.electron, 'Smoke test must run in the packaged Electron runtime');
-  const appRoot = path.join(process.argv[3], 'app.asar');
+  // Regression at 9046d6eb: Node resolves real paths when an extraction directory
+  // is reached through a symlink. Compare canonical paths for package confinement.
+  const appRoot = fs.realpathSync(path.join(process.argv[3], 'app.asar'));
   const manifest = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8'));
+  assert.ok(fs.statSync(path.join(appRoot, manifest.main)).isFile(), 'Packaged main entry is missing');
   const appRequire = createRequire(path.join(appRoot, manifest.main));
   const expected = JSON.parse(fs.readFileSync(
     path.join(__dirname, '../bridge-app/package.json'), 'utf8',

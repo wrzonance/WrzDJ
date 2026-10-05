@@ -48,8 +48,11 @@ ships as a dated release (see `release.yml`) once verified.
 - Never use `eval()`, `exec()`, or dynamic code execution on user-supplied data.
 - **Long-lived streams are capped by concurrency, not rate.** The public SSE stream is exempt
   from the nginx `limit_req` zone (a stream is one request), so `api.conf.template` applies a
-  per-address `limit_conn` to it instead. The cap is sized for a venue behind one NAT address;
-  lower it only with real connection counts in hand.
+  per-address `limit_conn` to it instead (`SSE_CONN_LIMIT` in `setup-nginx.sh`, default 500).
+  A whole venue, DJ dashboard included, can share one NAT address and every open tab holds a
+  stream; past the cap new tabs get 429 and retry every 30 s, and the DJ request queue has no
+  polling fallback. Size it for the largest room on venue wifi, and lower it only with real
+  connection counts in hand.
 
 ### Single API process
 

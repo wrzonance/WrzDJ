@@ -11,6 +11,8 @@ set -euo pipefail
 # Exit status: 0 = empty or matching volume
 #              3 = an older major version in the pre-18 layout, which
 #                  upgrade-postgres-volume.sh can migrate automatically
+#              4 = an upgrade was interrupted part-way; upgrade-postgres-volume.sh
+#                  restores the old data files and retries
 #              1 = anything else (fails closed)
 #
 # Usage: check-postgres-volume.sh COMPOSE_FILE [COMPOSE_FILE...]
@@ -24,6 +26,12 @@ for file in "$@"; do COMPOSE_ARGS+=(-f "$file"); done
 # shellcheck disable=SC2016 # expanded by the container's shell, not this one
 INSPECT='
 root=/var/lib/postgresql
+# Written before an upgrade empties the volume and removed only after the
+# restored cluster is verified (keep in sync with upgrade-postgres-volume.sh).
+if [ -e "$root/.wrzdj-postgres-upgrade" ]; then
+  echo "an interrupted upgrade from PostgreSQL $(cat "$root/.wrzdj-postgres-upgrade")"
+  exit 4
+fi
 current="$root/$PG_MAJOR/docker"
 if [ -s "$current/PG_VERSION" ] && [ "$(cat "$current/PG_VERSION")" = "$PG_MAJOR" ]; then
   exit 0
@@ -57,8 +65,8 @@ case "$STATUS" in
   0)
     echo "    PostgreSQL data volume is compatible"
     ;;
-  3)
-    echo "    $FOUND" >&2
+  3 | 4)
+    echo "    Found $FOUND" >&2
     ;;
   *)
     STATUS=1

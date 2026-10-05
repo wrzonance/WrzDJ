@@ -6,8 +6,10 @@
 #   2. Legacy PostgreSQL 16 data is rejected before teardown and left untouched.
 #   3. PostgreSQL 16 can still read that volume afterwards (rollback path).
 #   4. A failed automatic upgrade puts the PostgreSQL 16 files back.
-#   5. The automatic upgrade the deploy scripts run preserves application data,
-#      keeps the old files in a backup volume, and the API starts on the result.
+#   5. An upgrade killed mid-way is recovered by the next run.
+#   6. The automatic upgrade the deploy scripts run preserves the whole cluster
+#      (databases, roles, ownership), keeps the old files in a backup volume,
+#      and the API starts on the result.
 # shellcheck disable=SC2016 # snippets below are expanded inside containers
 set -euo pipefail
 
@@ -49,7 +51,7 @@ cleanup() {
   docker rm --force "$legacy_api" "$restored_api" "$legacy_db" >/dev/null 2>&1 || true
   compose down --volumes --remove-orphans >/dev/null 2>&1 || true
   POSTGRES_VOLUME_NAME="$probe_volume" compose down --remove-orphans >/dev/null 2>&1 || true
-  docker rm --force "${legacy_volume}-pg16-upgrade" >/dev/null 2>&1 || true
+  docker rm --force "${legacy_volume}-pg16-upgrade-old" "${legacy_volume}-pg16-upgrade-new" >/dev/null 2>&1 || true
   docker volume rm "$legacy_volume" "$backup_volume" "$probe_volume" >/dev/null 2>&1 || true
   docker network rm "$legacy_network" >/dev/null 2>&1 || true
   rm -rf "$scratch"
@@ -92,9 +94,9 @@ echo 'Compose volume names and mount targets are correct.'
 # Both deploy scripts must run the volume check/upgrade before their first Compose command
 # (pull/down), or an incompatible volume would be discovered after teardown.
 for script in "$root/deploy/deploy.sh" "$root/deploy/deploy-ghcr.sh"; do
-  first=$(grep -n -m1 -E 'upgrade-postgres-volume\.sh|docker compose' "$script")
+  first=$(grep -v '^[[:space:]]*#' "$script" | grep -m1 -E 'upgrade-postgres-volume\.sh|docker compose')
   grep -q 'upgrade-postgres-volume\.sh' <<<"$first" ||
-    fail "$script touches the stack before the volume preflight: $first"
+    fail "$script touches the stack before the volume upgrade: $first"
 done
 
 # --- helpers ------------------------------------------------------------------
@@ -136,23 +138,33 @@ legacy_volume_holds() { # SHELL_TEST DESCRIPTION
 }
 
 # --- 1b. The preflight fails closed on anything it cannot vouch for -------------
-preflight_on() { # SETUP_SNIPPET -> runs the preflight against a scratch volume
+preflight_status() { # SETUP_SNIPPET -> the preflight's exit status on a scratch volume
+  local status=0
   docker volume rm "$probe_volume" >/dev/null 2>&1 || true
   docker volume create "$probe_volume" >/dev/null
   docker run --rm --network none --volume "$probe_volume:/v" --entrypoint sh "$legacy_image" -c "$1"
-  POSTGRES_VOLUME_NAME="$probe_volume" bash "$check" "$compose_file" >/dev/null 2>&1
+  POSTGRES_VOLUME_NAME="$probe_volume" bash "$check" "$compose_file" >/dev/null 2>&1 || status=$?
+  echo "$status"
 }
-preflight_on 'mkdir -p /v/18/docker' ||
-  fail 'the preflight rejected a volume holding only an empty 18/docker directory'
-if preflight_on 'mkdir -p /v/18/docker && echo 16 > /v/18/docker/PG_VERSION'; then
-  fail 'the preflight accepted PostgreSQL 16 data placed under 18/docker'
-fi
-if preflight_on 'mkdir -p /v/base && echo data > /v/base/1'; then
-  fail 'the preflight accepted a non-empty volume with no PG_VERSION marker'
-fi
-if preflight_on 'mkdir -p /v/18/docker/base && echo data > /v/18/docker/base/1'; then
-  fail 'the preflight accepted a half-initialised PostgreSQL 18 directory'
-fi
+expect_preflight() { # EXPECTED_STATUS SETUP_SNIPPET DESCRIPTION
+  local status
+  status=$(preflight_status "$2")
+  [ "$status" = "$1" ] || fail "the preflight returned $status, not $1, for $3"
+}
+expect_preflight 0 'mkdir -p /v/18/docker' 'a volume holding only an empty 18/docker directory'
+expect_preflight 1 'mkdir -p /v/18/docker && echo 16 > /v/18/docker/PG_VERSION' \
+  'PostgreSQL 16 data placed under 18/docker'
+expect_preflight 1 'mkdir -p /v/base && echo data > /v/base/1' \
+  'a non-empty volume with no PG_VERSION marker'
+expect_preflight 1 'mkdir -p /v/18/docker/base && echo data > /v/18/docker/base/1' \
+  'a half-initialised PostgreSQL 18 directory'
+expect_preflight 1 'echo 16 > /v/PG_VERSION && mkdir -p /v/17/docker && echo 17 > /v/17/docker/PG_VERSION' \
+  'two clusters in one volume'
+# Regression: an upgrade killed after it emptied the volume left a state the
+# preflight accepted (empty, or a partially restored PostgreSQL 18 cluster).
+expect_preflight 4 'echo 16 > /v/.wrzdj-postgres-upgrade' 'an interrupted upgrade (emptied volume)'
+expect_preflight 4 'echo 16 > /v/.wrzdj-postgres-upgrade && mkdir -p /v/18/docker && echo 18 > /v/18/docker/PG_VERSION' \
+  'an interrupted upgrade (partially restored cluster)'
 docker volume rm "$probe_volume" >/dev/null
 echo 'The preflight fails closed on unrecognised volume contents.'
 
@@ -172,6 +184,15 @@ docker rm --force "$legacy_api" >/dev/null
 docker exec "$legacy_db" createdb -U wrzdj side_database
 docker exec "$legacy_db" psql -U wrzdj -d side_database -q -c \
   "CREATE TABLE notes (body text); INSERT INTO notes VALUES ('kept')"
+# Cluster-level state a per-database dump would lose: a second role that owns
+# a database and a table (regression: roles, ownership and grants were dropped).
+docker exec "$legacy_db" psql -U wrzdj -d postgres -q -c \
+  "CREATE ROLE reporter LOGIN PASSWORD 'reporter-secret'" -c "CREATE DATABASE reports OWNER reporter"
+docker exec "$legacy_db" psql -U wrzdj -d reports -q -c \
+  "SET ROLE reporter; CREATE TABLE figures (n int); INSERT INTO figures VALUES (42)"
+# Data in the default database must come along too.
+docker exec "$legacy_db" psql -U wrzdj -d postgres -q -c \
+  "CREATE TABLE in_default_db (n int); INSERT INTO in_default_db VALUES (7)"
 before=$(docker exec "$legacy_db" psql -U wrzdj -d wrzdj -At -c "$fingerprint_sql")
 grep -q '^user|upgradeadmin:' <<<"$before" || fail 'no application data was seeded'
 
@@ -223,34 +244,55 @@ docker stop "$legacy_db" >/dev/null
 docker rm "$legacy_db" >/dev/null
 echo 'A failed upgrade restores the PostgreSQL 16 data files.'
 
-# --- 5. The automatic upgrade preserves application data -----------------------
+# --- 5. An upgrade killed mid-way is recovered by the next run -----------------
+# Reproduce the state a kill leaves behind: old files copied to the backup
+# volume, marker written, data volume emptied, a stray new cluster started.
+docker volume create "$backup_volume" >/dev/null
+docker run --rm --network none --volume "$legacy_volume:/from" --volume "$backup_volume:/to" \
+  --entrypoint sh "$legacy_image" -c 'cp -a /from/. /to/ && echo 16 > /from/.wrzdj-postgres-upgrade &&
+    find /from -mindepth 1 ! -name .wrzdj-postgres-upgrade -delete &&
+    mkdir -p /from/18/docker && echo 18 > /from/18/docker/PG_VERSION'
+
+# --- 6. The automatic upgrade preserves the whole cluster ----------------------
 bash "$upgrade" "$compose_file" >"$scratch/upgrade.log" 2>&1 ||
   fail "the automatic upgrade failed: $(cat "$scratch/upgrade.log")"
-after=$(compose exec -T db psql -U wrzdj -d wrzdj -At -c "$fingerprint_sql")
+grep -q 'Recovering from an interrupted' "$scratch/upgrade.log" ||
+  fail 'the upgrade did not recover the interrupted state first'
+compose up --detach --wait db >/dev/null 2>&1 || fail 'PostgreSQL 18 did not start on the upgraded volume'
+query() { compose exec -T db psql -U wrzdj -d "$1" -At -c "$2"; } # DATABASE SQL
+after=$(query wrzdj "$fingerprint_sql")
 [ "$after" = "$before" ] || fail "upgraded data differs:
 --- PostgreSQL 16
 $before
 --- PostgreSQL 18
 $after"
-[ "$(compose exec -T db psql -U wrzdj -d wrzdj -At -c 'SHOW server_version_num' | cut -c1-2)" = 18 ] ||
-  fail 'the upgraded database is not PostgreSQL 18'
-[ "$(compose exec -T db psql -U wrzdj -d side_database -At -c 'SELECT body FROM notes')" = kept ] ||
+[ "$(query wrzdj 'SHOW server_version_num' | cut -c1-2)" = 18 ] || fail 'the upgraded database is not PostgreSQL 18'
+[ "$(query side_database 'SELECT body FROM notes')" = kept ] ||
   fail 'the upgrade lost a database other than the application database'
-[ -s "$(find "$scratch/backups" -name 'postgres16-*-wrzdj.dump' | head -n 1)" ] ||
-  fail 'the upgrade did not keep a dump of the application database'
+[ "$(query postgres 'SELECT n FROM in_default_db')" = 7 ] || fail 'the upgrade lost data in the default database'
+[ "$(query reports "SELECT tableowner || ':' || (SELECT n FROM figures) FROM pg_tables WHERE tablename = 'figures'")" = reporter:42 ] ||
+  fail 'the upgrade lost table ownership'
+[ "$(query postgres "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = 'reports'")" = reporter ] ||
+  fail 'the upgrade lost database ownership'
+[ "$(query postgres "SELECT rolcanlogin AND rolpassword IS NOT NULL FROM pg_authid WHERE rolname = 'reporter'")" = t ] ||
+  fail 'the upgrade lost a role or its password'
+dump=$(find "$scratch/backups" -name 'postgres16-*-cluster.sql' | sort | tail -n 1)
+[ -s "$dump" ] || fail 'the upgrade did not keep a dump of the cluster'
+# Regression for d20a6403: dumps (password hashes, guest data) were world-readable.
+[ -z "$(find "$scratch/backups" -perm /077)" ] ||
+  fail "upgrade dumps are readable by other users: $(find "$scratch/backups" -perm /077 | head -n 3)"
 
 docker run --detach --name "$restored_api" --network "${project}_default" \
   --env DATABASE_URL=postgresql+psycopg://wrzdj:wrzdj@db:5432/wrzdj \
   --env JWT_SECRET=test-secret-key --env ENV=development "$image" >/dev/null
 wait_api "$restored_api"
-[ "$(compose exec -T db psql -U wrzdj -d wrzdj -At -c "$fingerprint_sql")" = "$before" ] ||
-  fail 'API startup changed the upgraded data'
+[ "$(query wrzdj "$fingerprint_sql")" = "$before" ] || fail 'API startup changed the upgraded data'
 
-# Redeploys are a no-op, and the kept backup is a working PostgreSQL 16 cluster.
+# Redeploys are a no-op (with the database running, as in a real deploy), and
+# the kept backup is a working PostgreSQL 16 cluster.
 bash "$upgrade" "$compose_file" >/dev/null 2>&1 || fail 'a second run on the upgraded volume failed'
-[ "$(compose exec -T db psql -U wrzdj -d wrzdj -At -c "$fingerprint_sql")" = "$before" ] ||
-  fail 'a second run changed the upgraded data'
+[ "$(query wrzdj "$fingerprint_sql")" = "$before" ] || fail 'a second run changed the upgraded data'
 start_legacy_db "$backup_volume"
 [ "$(docker exec "$legacy_db" psql -U wrzdj -d wrzdj -At -c "$fingerprint_sql")" = "$before" ] ||
   fail 'the backup volume is not a readable copy of the PostgreSQL 16 data'
-echo 'The automatic upgrade preserves application data and keeps a working backup.'
+echo 'The automatic upgrade recovers an interrupted run, preserves the cluster and keeps a working backup.'

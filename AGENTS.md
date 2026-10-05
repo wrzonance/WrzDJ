@@ -100,7 +100,9 @@ npm run types:generate && git diff --exit-code -- lib/api-types.generated.ts   #
 The dashboard compiles with TypeScript 7 (`@typescript/native` → `tsc`). TypeScript 7 has no
 JavaScript compiler API, so the `typescript` package name is aliased to Microsoft's
 `@typescript/typescript6`, which ESLint, `openapi-typescript` and `next build` import. Bump the
-compiler via `@typescript/native`; drop the alias once those tools support TypeScript 7 natively.
+compiler via `@typescript/native`; drop the alias once those tools support TypeScript 7 natively. The
+`openapi-typescript` override only points its `^5.x` peer at that same API package; it is a no-op
+once the generator accepts it, and the generated-types check fails if its output ever changes.
 
 ### Bridge / Bridge App (from `bridge/` and `bridge-app/`)
 ```bash

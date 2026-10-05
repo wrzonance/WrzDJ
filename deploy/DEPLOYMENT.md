@@ -366,15 +366,21 @@ directory, and the PostgreSQL 18 image stores data under
 
 - A fresh or already-upgraded volume is a no-op.
 - A volume still holding PostgreSQL 16 is migrated with a dump/restore: the stack
-  is stopped, every database is dumped with PostgreSQL 16, the old data files are
-  copied to the Docker volume `<volume>_pg16_backup`, and the dumps are restored
-  into PostgreSQL 18 on the original volume. Dumps are kept in `deploy/backups/`.
-  The deploy then continues as usual; downtime is the dump + restore time.
+  is stopped, the whole cluster is dumped with PostgreSQL 16 (`pg_dumpall`, so
+  roles, ownership and every database come along), the old data files are copied
+  to the Docker volume `<volume>_pg16_backup`, and the dump is restored into
+  PostgreSQL 18 on the original volume. Every database's relation and row counts
+  and the role list must match before it is declared done. The dump is kept,
+  owner-readable only, in `deploy/backups/`. The deploy then continues as usual;
+  downtime is the dump + restore time.
 - It refuses, with the running stack untouched, if the volume holds anything it
-  does not recognise, a backup volume from an earlier attempt exists, or free
-  disk space is below twice the database size.
-- If the restore fails, the PostgreSQL 16 files are copied back and the volume is
-  exactly as it was.
+  does not recognise, a backup volume from an earlier upgrade exists, or free
+  disk space is too low (twice the database size next to the volume, once in
+  `deploy/backups/`).
+- If anything fails, the PostgreSQL 16 files are copied back, the volume is
+  exactly as it was, and the services that were running are started again.
+- If the script is killed mid-upgrade (reboot, lost SSH session), the next deploy
+  detects the interrupted state, restores the PostgreSQL 16 files and retries.
 
 For a stack started without the deploy scripts (including local development),
 run the same script against its Compose file:

@@ -46,6 +46,25 @@ ships as a dated release (see `release.yml`) once verified.
 - Use parameterized queries exclusively — never construct SQL via string concatenation or
   f-strings.
 - Never use `eval()`, `exec()`, or dynamic code execution on user-supplied data.
+- **Long-lived streams are capped by concurrency, not rate.** The public SSE stream is exempt
+  from the nginx `limit_req` zone (a stream is one request), so `api.conf.template` applies a
+  per-address `limit_conn` to it instead. The cap is sized for a venue behind one NAT address;
+  lower it only with real connection counts in hand.
+
+### Single API process
+
+The API runs as **exactly one uvicorn worker** (`server/scripts/start.sh` passes `--workers 1`,
+which also overrides a host-supplied `WEB_CONCURRENCY`). Three pieces of state live in that
+process's memory and are only correct while there is one of it:
+
+- login lockout counters (`core/lockout.py`),
+- kiosk pairing nonces (`api/kiosk.py`),
+- the SSE event bus (`services/event_bus.py`).
+
+With a second worker, failed logins are counted per worker (lockout bypass), a pairing nonce is
+unknown to the worker that did not issue it, and guests miss live updates published on the other
+worker. Move all three to a shared store before raising the worker count. Lockout counters and
+nonces are also lost on restart; the edge and slowapi rate limits still apply.
 
 ## Authentication & Authorization
 
@@ -156,6 +175,10 @@ graph TD
   packages with unpatched critical/high vulnerabilities.
 - Never ignore `pip-audit`, `npm audit`, or Dependabot alerts without documenting the
   specific justification and a remediation timeline.
+- `npm audit` is a blocking CI gate (`scripts/npm-audit-gate.cjs`): a high or critical advisory
+  fails the job unless `.npm-audit-ignore.json` lists it with a `reason` and an `expires` date.
+  An expired entry stops suppressing, so the finding returns on its own. Never add an ID there
+  just to go green.
 - Prefer well-maintained packages with active security response; pin production versions to
   avoid supply-chain attacks via compromised releases; review changelogs for security-relevant
   changes when updating.

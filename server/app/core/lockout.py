@@ -1,10 +1,11 @@
 """Login lockout logic with escalating cooldowns.
 
 NOTE: LockoutManager uses an in-memory dict protected by threading.Lock.
-In a multi-worker deployment (e.g. gunicorn with multiple workers) each
-process holds its own independent lockout state, so an attacker can
-theoretically bypass lockouts by hitting different workers.  A shared
-store (Redis / DB) would be needed for strict cross-worker enforcement.
+In a multi-worker deployment each process would hold its own independent
+lockout state, so an attacker could bypass lockouts by hitting different
+workers. The API therefore runs as exactly one worker (pinned in
+``scripts/start.sh``); a shared store (Redis / DB) must replace this dict
+before that pin is raised. State is also lost on restart.
 """
 
 import time

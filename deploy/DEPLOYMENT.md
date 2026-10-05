@@ -339,7 +339,8 @@ Verify after reload:
 # response larger than gzip_min_length (1024B); /health is far too small to gzip
 curl -sH 'Accept-Encoding: gzip' -D - -o /dev/null https://api.yourdomain.com/openapi.json | grep -i content-encoding
 # edge rate limit returns 429 past the burst on a non-SSE endpoint
-# SSE stream still connects and is NOT throttled (long-lived, exempt from limit_req)
+# SSE stream still connects and is NOT throttled (long-lived, exempt from limit_req);
+# it is capped per address by limit_conn instead (429 past the cap in api.conf.template)
 # only TLS 1.2/1.3 negotiated; security headers unchanged on all vhosts
 ```
 

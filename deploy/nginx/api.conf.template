@@ -83,6 +83,13 @@ server {
     # server level, so we must repeat all headers here.
     location ~ ^/api/public/events/.+/stream$ {
         # No limit_req here: long-lived event streams must never be throttled.
+        # They are capped by concurrency instead. Every guest page, kiosk display
+        # and dashboard tab holds one stream, and a whole venue can sit behind a
+        # single NAT address, so the cap is far above any real room while still
+        # bounding what one address can pin open on the single API process.
+        limit_conn wrzdj_sse 300;
+        limit_conn_status 429;
+        limit_conn_log_level warn;
         proxy_pass http://127.0.0.1:${PORT_API};
         proxy_http_version 1.1;
         proxy_set_header Host $host;

@@ -138,6 +138,22 @@ def get_owned_event_by_id(
     return event
 
 
+def require_owned_event_id(db: Session, event_id: int | None, user: User) -> None:
+    """Reject a body-supplied ``event_id`` the caller does not own (404, like above).
+
+    Same contract as ``get_owned_event_by_id`` for ids that arrive in a request
+    body rather than the path. Rows that carry an ``event_id`` (sets, templates)
+    read event-scoped data through it later, so it must be validated at write time.
+    """
+    if event_id is None:
+        return
+    owned = (
+        db.query(Event.id).filter(Event.id == event_id, Event.created_by_user_id == user.id).first()
+    )
+    if owned is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+
 def get_owned_request(
     request_id: int,
     current_user: User = Depends(get_current_active_user),

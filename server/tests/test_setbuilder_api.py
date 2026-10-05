@@ -258,3 +258,52 @@ def test_transport_status_reads_attached_event_bridge_state(client, auth_headers
     assert resp.json()["connected"] is True
     assert resp.json()["active_source"] == "setbuilder:tidal"
     assert resp.json()["device_name"] == "Bridge App"
+
+
+def test_create_set_attaches_own_event(client, auth_headers, test_event):
+    resp = client.post(
+        "/api/setbuilder/sets",
+        json={"name": "Attached", "event_id": test_event.id},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201, resp.json()
+    assert resp.json()["event_id"] == test_event.id
+
+
+def test_create_set_rejects_event_owned_by_another_dj(client, db, test_event):
+    """Regression: event_id was accepted unchecked, so a set could be bound to
+    any event and its event-scoped routes (playback report) read that event's
+    play history. Same 404 contract as the template-instantiation route."""
+    _make_second_dj(db)
+    other = _login(client, "otherdj", "x" * 12)
+    resp = client.post(
+        "/api/setbuilder/sets",
+        json={"name": "Not mine", "event_id": test_event.id},
+        headers=other,
+    )
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Event not found"
+    listed = client.get("/api/setbuilder/sets", headers=other)
+    assert listed.json() == []
+
+
+def test_create_set_rejects_unknown_event(client, auth_headers):
+    resp = client.post(
+        "/api/setbuilder/sets",
+        json={"name": "Ghost", "event_id": 999_999},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 404
+
+
+def test_playback_report_unreachable_for_another_djs_event(client, db, test_event):
+    _make_second_dj(db)
+    other = _login(client, "otherdj", "x" * 12)
+    created = client.post(
+        "/api/setbuilder/sets", json={"name": "Probe", "event_id": test_event.id}, headers=other
+    )
+    assert created.status_code == 404
+    own = client.post("/api/setbuilder/sets", json={"name": "Own"}, headers=other)
+    assert own.status_code == 201
+    report = client.get(f"/api/setbuilder/sets/{own.json()['id']}/playback-report", headers=other)
+    assert report.status_code == 400  # no event attached; never another DJ's

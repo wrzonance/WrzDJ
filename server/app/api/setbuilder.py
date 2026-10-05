@@ -20,7 +20,7 @@ from fastapi import (
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_active_user, get_db
+from app.api.deps import get_current_active_user, get_db, require_owned_event_id
 from app.core.rate_limit import limiter
 from app.models.set import Set
 from app.models.set_pool import SetPoolTrack
@@ -315,6 +315,7 @@ def create_set(
     current_user: User = Depends(get_current_active_user),
 ) -> SetDetail:
     """Create a new empty set owned by the current DJ."""
+    require_owned_event_id(db, payload.event_id, current_user)
     set_obj = set_service.create_set(
         db, owner_id=current_user.id, name=payload.name, event_id=payload.event_id
     )

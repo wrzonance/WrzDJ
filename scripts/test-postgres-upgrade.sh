@@ -20,6 +20,7 @@ scratch=$(mktemp -d)
 project="wrzdj-pgup-$(basename "$scratch" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9\n' '-')"
 legacy_volume="${project}_postgres_data"
 new_volume="${project}_postgres18_data"
+probe_volume="${project}_probe"
 legacy_network="${project}-legacy"
 legacy_db="${project}-legacy-db"
 legacy_api="${project}-legacy-api"
@@ -46,7 +47,8 @@ cleanup() {
   docker rm --force "$legacy_api" "$restored_api" "$legacy_db" >/dev/null 2>&1 || true
   compose down --volumes --remove-orphans >/dev/null 2>&1 || true
   POSTGRES_VOLUME_NAME="$new_volume" compose down --volumes --remove-orphans >/dev/null 2>&1 || true
-  docker volume rm "$legacy_volume" "$new_volume" >/dev/null 2>&1 || true
+  POSTGRES_VOLUME_NAME="$probe_volume" compose down --remove-orphans >/dev/null 2>&1 || true
+  docker volume rm "$legacy_volume" "$new_volume" "$probe_volume" >/dev/null 2>&1 || true
   docker network rm "$legacy_network" >/dev/null 2>&1 || true
   rm -rf "$scratch"
   exit "$status"
@@ -130,6 +132,27 @@ legacy_volume_holds() { # SHELL_TEST DESCRIPTION
   docker run --rm --network none --volume "$legacy_volume:/v:ro" --entrypoint sh "$legacy_image" \
     -c "$1" || fail "$2"
 }
+
+# --- 1b. The preflight fails closed on anything it cannot vouch for -------------
+preflight_on() { # SETUP_SNIPPET -> runs the preflight against a scratch volume
+  docker volume rm "$probe_volume" >/dev/null 2>&1 || true
+  docker volume create "$probe_volume" >/dev/null
+  docker run --rm --network none --volume "$probe_volume:/v" --entrypoint sh "$legacy_image" -c "$1"
+  POSTGRES_VOLUME_NAME="$probe_volume" bash "$check" "$compose_file" >/dev/null 2>&1
+}
+preflight_on 'mkdir -p /v/18/docker' ||
+  fail 'the preflight rejected a volume holding only an empty 18/docker directory'
+if preflight_on 'mkdir -p /v/18/docker && echo 16 > /v/18/docker/PG_VERSION'; then
+  fail 'the preflight accepted PostgreSQL 16 data placed under 18/docker'
+fi
+if preflight_on 'mkdir -p /v/base && echo data > /v/base/1'; then
+  fail 'the preflight accepted a non-empty volume with no PG_VERSION marker'
+fi
+if preflight_on 'mkdir -p /v/18/docker/base && echo data > /v/18/docker/base/1'; then
+  fail 'the preflight accepted a half-initialised PostgreSQL 18 directory'
+fi
+docker volume rm "$probe_volume" >/dev/null
+echo 'The preflight fails closed on unrecognised volume contents.'
 
 # --- 2. Build a real PostgreSQL 16 deployment volume --------------------------
 docker network create --internal "$legacy_network" >/dev/null

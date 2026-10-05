@@ -10,7 +10,7 @@ set -euo pipefail
 # holds an older major version aborts the deploy while the current stack keeps
 # serving. It only reads the volume; it never modifies or removes data.
 #
-# Exit status: 0 = empty or matching volume, 1 = incompatible data found.
+# Exit status: 0 = empty or matching volume, 1 = anything else (fails closed).
 
 COMPOSE_FILE="${1:?Usage: check-postgres-volume.sh COMPOSE_FILE}"
 
@@ -19,16 +19,23 @@ COMPOSE_FILE="${1:?Usage: check-postgres-volume.sh COMPOSE_FILE}"
 # shellcheck disable=SC2016 # expanded by the container's shell, not this one
 INSPECT='
 root=/var/lib/postgresql
-if [ -s "$root/$PG_MAJOR/docker/PG_VERSION" ]; then
+current="$root/$PG_MAJOR/docker"
+if [ -s "$current/PG_VERSION" ] && [ "$(cat "$current/PG_VERSION")" = "$PG_MAJOR" ]; then
   exit 0
 fi
 found=0
 for dir in "$root" "$root/data" "$root"/*/docker; do
   if [ -s "$dir/PG_VERSION" ]; then
-    echo "PostgreSQL $(cat "$dir/PG_VERSION") data (this release needs PostgreSQL $PG_MAJOR)"
+    echo "PostgreSQL $(cat "$dir/PG_VERSION") data in $dir (this release needs PostgreSQL $PG_MAJOR)"
     found=1
   fi
 done
+# Fail closed: without a matching cluster, anything but empty directories is
+# data this check cannot vouch for (damaged marker, partial init, foreign files).
+if [ "$found" = 0 ] && [ -n "$(find "$root" -mindepth 1 ! -type d | head -n 1)" ]; then
+  echo "unrecognised files and no valid PostgreSQL $PG_MAJOR data directory"
+  found=1
+fi
 exit "$found"
 '
 
@@ -43,7 +50,7 @@ if [ -z "$FOUND" ]; then
 fi
 
 cat >&2 <<EOF
-ERROR: the PostgreSQL data volume holds an older major version:
+ERROR: the PostgreSQL data volume is not usable by this release:
          $FOUND
 
        Nothing was stopped or changed. This release cannot open that data

@@ -144,7 +144,13 @@ replace_cluster() {
     docker exec "$NEW_CONTAINER" dropdb -U "$DB_USER" "$DB_NAME"
   fi
   echo "    Restoring into PostgreSQL $NEW_MAJOR..."
-  grep --invert-match --line-regexp --fixed-strings "CREATE ROLE ${DB_USER};" "$DUMP_FILE" |
+  # The entrypoint already created this role, so drop the dump's CREATE ROLE for
+  # it. Only its first occurrence in the roles section (before any \connect)
+  # is removed: table data that happens to contain the same text is untouched.
+  awk -v statement="CREATE ROLE ${DB_USER};" '
+      !past && $0 == statement { past = 1; next }
+      /^\\connect / { past = 1 }
+      { print }' "$DUMP_FILE" |
     docker exec --interactive "$NEW_CONTAINER" \
       psql -U "$DB_USER" -d postgres --quiet --set ON_ERROR_STOP=1 >/dev/null
   restored=$(cluster_state "$NEW_CONTAINER")
@@ -168,7 +174,7 @@ roll_back() {
     echo "ERROR: backup volume '$BACKUP_VOLUME' does not exist; nothing was deleted." >&2
     return 1
   fi
-  on_volumes "[ -s /from/PG_VERSION ] &&
+  on_volumes "[ \"\$(cat /from/PG_VERSION 2>/dev/null)\" = $OLD_MAJOR ] &&
       find /to -mindepth 1 ! -name $MARKER -delete && cp -a /from/. /to/ &&
       [ \"\$(find /from | wc -l)\" = \"\$(find /to ! -name $MARKER | wc -l)\" ] &&
       rm -f /to/$MARKER" "$BACKUP_VOLUME:/from:ro" "$VOLUME:/to" || {
@@ -211,6 +217,17 @@ if [ "$STATUS" -eq 4 ]; then
   echo "==> Recovering from an interrupted PostgreSQL upgrade..."
   set_names "$(compose run --rm --no-deps -T --entrypoint cat db "/var/lib/postgresql/$MARKER")"
   compose stop db >/dev/null 2>&1 || true
+  # Whatever is in the volume now may include data written after the
+  # interruption (a database started by hand). Set it aside; never delete it.
+  if [ -n "$(on_volumes "find /v -mindepth 1 ! -name $MARKER ! -type d | head -n 1" "$VOLUME:/v:ro")" ]; then
+    INTERRUPTED_VOLUME="${VOLUME}_interrupted_$(date +%Y%m%d-%H%M%S)"
+    docker volume create "$INTERRUPTED_VOLUME" >/dev/null
+    # shellcheck disable=SC2016 # expanded by the container's shell
+    on_volumes 'cp -a /from/. /to/ && [ "$(find /from | wc -l)" = "$(find /to | wc -l)" ]' \
+      "$VOLUME:/from:ro" "$INTERRUPTED_VOLUME:/to" ||
+      die "could not set aside the interrupted volume contents. Nothing was changed."
+    echo "    The interrupted volume contents were kept in the Docker volume $INTERRUPTED_VOLUME"
+  fi
   roll_back || exit 1
   STATUS=0
   "$SCRIPT_DIR/check-postgres-volume.sh" "${COMPOSE_FILES[@]}" || STATUS=$?

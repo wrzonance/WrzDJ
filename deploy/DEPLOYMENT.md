@@ -381,6 +381,8 @@ directory, and the PostgreSQL 18 image stores data under
   exactly as it was, and the services that were running are started again.
 - If the script is killed mid-upgrade (reboot, lost SSH session), the next deploy
   detects the interrupted state, restores the PostgreSQL 16 files and retries.
+  Anything found in the volume at that point is first copied to a
+  `<volume>_interrupted_<timestamp>` volume, never deleted.
 
 For a stack started without the deploy scripts (including local development),
 run the same script against its Compose file:

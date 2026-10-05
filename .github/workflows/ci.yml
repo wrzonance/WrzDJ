@@ -130,6 +130,13 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit
 
+      # Runs the real generator, so a dependency bump that breaks it (or a
+      # server/openapi.json change without regenerated types) fails here.
+      - name: Check generated API types are current
+        run: |
+          npm run types:generate
+          git diff --exit-code -- lib/api-types.generated.ts
+
       - name: Run tests with coverage
         run: npm test -- --run --coverage
 

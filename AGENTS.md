@@ -94,6 +94,7 @@ Auto-fix: `.venv/bin/ruff format .` and `.venv/bin/ruff check --fix .`.
 npm run lint              # ESLint
 npx tsc --noEmit          # TypeScript (strict)
 npm test -- --run         # Vitest
+npm run types:generate && git diff --exit-code -- lib/api-types.generated.ts   # generated types current
 ```
 
 ### Bridge / Bridge App (from `bridge/` and `bridge-app/`)

@@ -78,6 +78,7 @@ class SetDetail(SetSummary):
     bpm_ceiling: int | None
     key_strictness: float
     tidal_playlist_id: str | None
+    spotify_playlist_id: str | None = None
     exported_at: datetime | None
 
 
@@ -966,7 +967,7 @@ class VibeEnrichmentResult(BaseModel):
 # Engine DJ and Lexicon have no proprietary import format — both ingest the
 # Rekordbox DJ_PLAYLISTS XML — so they are distinct format keys that render the
 # same XML (kept distinct, not aliased, so the UI lists them separately).
-ExportTarget = Literal["tidal", "rekordbox", "m3u", "txt", "enginedj", "lexicon"]
+ExportTarget = Literal["tidal", "spotify", "rekordbox", "m3u", "txt", "enginedj", "lexicon"]
 ExportFileFormat = Literal["rekordbox", "m3u", "txt", "enginedj", "lexicon"]
 
 
@@ -983,7 +984,7 @@ class UnresolvedTrackOut(BaseModel):
     title: str
     artist: str
     track_id: str | None
-    reason: Literal["no_tidal_match", "missing_metadata"]
+    reason: Literal["no_tidal_match", "no_spotify_match", "missing_metadata"]
 
 
 class ExportPreflightOut(BaseModel):
@@ -996,6 +997,7 @@ class ExportPreflightOut(BaseModel):
     unresolved: list[UnresolvedTrackOut]
     # Only set for target="tidal"; None for file targets.
     tidal_connected: bool | None = None
+    spotify_connected: bool | None = None
 
 
 class ExportTidalIn(BaseModel):
@@ -1006,6 +1008,23 @@ class ExportTidalIn(BaseModel):
 
 class ExportTidalOut(BaseModel):
     """Successful Tidal export result."""
+
+    playlist_id: str
+    playlist_url: str
+    added: int
+    skipped: int
+    exported_at: datetime
+    status: Literal["draft", "locked", "exported"]
+
+
+class ExportSpotifyIn(BaseModel):
+    """Body for Spotify export; skip_unresolved requires explicit DJ choice."""
+
+    skip_unresolved: bool = False
+
+
+class ExportSpotifyOut(BaseModel):
+    """Successful Spotify playlist export."""
 
     playlist_id: str
     playlist_url: str

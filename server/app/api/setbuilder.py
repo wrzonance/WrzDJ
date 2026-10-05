@@ -56,6 +56,8 @@ from app.schemas.setbuilder import (
     ExportFileIn,
     ExportPreflightIn,
     ExportPreflightOut,
+    ExportSpotifyIn,
+    ExportSpotifyOut,
     ExportTidalIn,
     ExportTidalOut,
     LlmVibeOut,
@@ -120,6 +122,7 @@ from app.services.setbuilder import (
     document_snapshot,
     export_common,
     export_files,
+    export_spotify,
     export_tidal,
     pairings,
     pass1_deterministic,
@@ -136,6 +139,7 @@ from app.services.setbuilder import (
     coverage as pool_coverage_service,
 )
 from app.services.setbuilder.playlist_url import InvalidPlaylistUrl, parse_public_playlist_url
+from app.services.spotify_oauth import refresh_access_token
 
 router = APIRouter()
 
@@ -1694,7 +1698,7 @@ async def enrich_pool_vibes(
 
 def _unresolved_out(
     tracks: list[export_common.ExportTrack],
-    reason: Literal["no_tidal_match", "missing_metadata"],
+    reason: Literal["no_tidal_match", "no_spotify_match", "missing_metadata"],
 ) -> list[UnresolvedTrackOut]:
     return [
         UnresolvedTrackOut(
@@ -1757,6 +1761,26 @@ def export_preflight(
             tidal_connected=True,
         )
 
+    if payload.target == "spotify":
+        if not refresh_access_token(db, current_user):
+            return ExportPreflightOut(
+                target=payload.target,
+                source=source,
+                total=len(tracks),
+                resolved_count=0,
+                unresolved=[],
+                spotify_connected=False,
+            )
+        resolved, unresolved = export_spotify.resolve_for_spotify(db, current_user, tracks)
+        return ExportPreflightOut(
+            target=payload.target,
+            source=source,
+            total=len(tracks),
+            resolved_count=len(resolved),
+            unresolved=_unresolved_out(unresolved, "no_spotify_match"),
+            spotify_connected=True,
+        )
+
     unresolved = export_files.file_unresolved(tracks)
     return ExportPreflightOut(
         target=payload.target,
@@ -1806,6 +1830,54 @@ def export_set_tidal(
         raise HTTPException(status_code=502, detail="Tidal export failed") from None
 
     return ExportTidalOut(
+        playlist_id=outcome.playlist_id,
+        playlist_url=outcome.playlist_url,
+        added=outcome.added,
+        skipped=len(unresolved),
+        exported_at=set_obj.exported_at,
+        status=set_obj.status,
+    )
+
+
+@router.post(
+    "/sets/{set_id}/export/spotify",
+    response_model=ExportSpotifyOut,
+    responses={
+        400: {"description": "Spotify account not connected, or no exportable tracks."},
+        409: _UNRESOLVED_409_RESPONSE,
+        502: {"description": "Upstream Spotify export failed."},
+    },
+)
+@limiter.limit("5/minute")
+def export_set_spotify(
+    set_id: int,
+    payload: ExportSpotifyIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> ExportSpotifyOut:
+    """Export the ordered setlist to a new private Spotify playlist."""
+    set_obj = _get_owned_or_404(db, set_id, current_user)
+    if not refresh_access_token(db, current_user):
+        raise HTTPException(status_code=400, detail="Spotify account not connected")
+    _, tracks = export_common.collect_export_tracks(set_obj)
+    if not tracks:
+        raise HTTPException(status_code=400, detail="Set has no tracks to export")
+
+    resolved, unresolved = export_spotify.resolve_for_spotify(db, current_user, tracks)
+    if unresolved and not payload.skip_unresolved:
+        raise _unresolved_409(_unresolved_out(unresolved, "no_spotify_match"))
+    if not resolved:
+        raise HTTPException(status_code=400, detail="No resolvable tracks to export")
+
+    try:
+        outcome = export_spotify.export_to_spotify(db, current_user, set_obj, resolved)
+    except export_spotify.SpotifyNotConnected:
+        raise HTTPException(status_code=400, detail="Spotify account not connected") from None
+    except export_spotify.SpotifyExportError:
+        raise HTTPException(status_code=502, detail="Spotify export failed") from None
+
+    return ExportSpotifyOut(
         playlist_id=outcome.playlist_id,
         playlist_url=outcome.playlist_url,
         added=outcome.added,

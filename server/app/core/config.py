@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     # Spotify API
     spotify_client_id: str = ""
     spotify_client_secret: str = ""
+    spotify_redirect_uri: str = ""
 
     # Tidal API (for playlist sync to SC6000)
     tidal_client_id: str = ""

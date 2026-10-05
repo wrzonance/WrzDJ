@@ -4185,6 +4185,7 @@
           "target": {
             "enum": [
               "tidal",
+              "spotify",
               "rekordbox",
               "m3u",
               "txt",
@@ -4216,9 +4217,21 @@
             "title": "Source",
             "type": "string"
           },
+          "spotify_connected": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spotify Connected"
+          },
           "target": {
             "enum": [
               "tidal",
+              "spotify",
               "rekordbox",
               "m3u",
               "txt",
@@ -4254,12 +4267,70 @@
         "required": [
           "resolved_count",
           "source",
+          "spotify_connected",
           "target",
           "tidal_connected",
           "total",
           "unresolved"
         ],
         "title": "ExportPreflightOut",
+        "type": "object"
+      },
+      "ExportSpotifyIn": {
+        "description": "Body for Spotify export; skip_unresolved requires explicit DJ choice.",
+        "properties": {
+          "skip_unresolved": {
+            "default": false,
+            "title": "Skip Unresolved",
+            "type": "boolean"
+          }
+        },
+        "title": "ExportSpotifyIn",
+        "type": "object"
+      },
+      "ExportSpotifyOut": {
+        "description": "Successful Spotify playlist export.",
+        "properties": {
+          "added": {
+            "title": "Added",
+            "type": "integer"
+          },
+          "exported_at": {
+            "format": "date-time",
+            "title": "Exported At",
+            "type": "string"
+          },
+          "playlist_id": {
+            "title": "Playlist Id",
+            "type": "string"
+          },
+          "playlist_url": {
+            "title": "Playlist Url",
+            "type": "string"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "locked",
+              "exported"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "added",
+          "exported_at",
+          "playlist_id",
+          "playlist_url",
+          "skipped",
+          "status"
+        ],
+        "title": "ExportSpotifyOut",
         "type": "object"
       },
       "ExportTidalIn": {
@@ -8407,6 +8478,17 @@
             "title": "Sharing Mode",
             "type": "string"
           },
+          "spotify_playlist_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spotify Playlist Id"
+          },
           "status": {
             "enum": [
               "draft",
@@ -8467,6 +8549,7 @@
           "name",
           "share_token",
           "sharing_mode",
+          "spotify_playlist_id",
           "status",
           "target_duration_sec",
           "tidal_playlist_id",
@@ -9775,6 +9858,49 @@
         "title": "SortDirection",
         "type": "string"
       },
+      "SpotifyAuthorizationOut": {
+        "properties": {
+          "authorization_url": {
+            "title": "Authorization Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorization_url"
+        ],
+        "title": "SpotifyAuthorizationOut",
+        "type": "object"
+      },
+      "SpotifyStatusOut": {
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "linked": {
+            "title": "Linked",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "configured",
+          "expires_at",
+          "linked"
+        ],
+        "title": "SpotifyStatusOut",
+        "type": "object"
+      },
       "StatusMessageResponse": {
         "properties": {
           "message": {
@@ -10897,6 +11023,7 @@
           "reason": {
             "enum": [
               "no_tidal_match",
+              "no_spotify_match",
               "missing_metadata"
             ],
             "title": "Reason",
@@ -19624,6 +19751,80 @@
         ]
       }
     },
+    "/api/setbuilder/sets/{set_id}/export/spotify": {
+      "post": {
+        "description": "Export the ordered setlist to a new private Spotify playlist.",
+        "operationId": "export_set_spotify_api_setbuilder_sets__set_id__export_spotify_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportSpotifyIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportSpotifyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Spotify account not connected, or no exportable tracks."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnresolvedTracksError"
+                }
+              }
+            },
+            "description": "Unresolved tracks \u2014 retry with skip_unresolved=true to proceed."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "Upstream Spotify export failed."
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Export Set Spotify",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
     "/api/setbuilder/sets/{set_id}/export/tidal": {
       "post": {
         "description": "Export the setlist to a fresh Tidal playlist (DJ's existing OAuth).",
@@ -21431,6 +21632,181 @@
         "summary": "Reset Taste Profile",
         "tags": [
           "setbuilder"
+        ]
+      }
+    },
+    "/api/spotify/auth/callback": {
+      "get": {
+        "operationId": "authorization_callback_api_spotify_auth_callback_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "state",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 5,
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Code"
+            }
+          },
+          {
+            "in": "query",
+            "name": "error",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "wrzdj_spotify_oauth_state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Wrzdj Spotify Oauth State"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Authorization Callback",
+        "tags": [
+          "spotify"
+        ]
+      }
+    },
+    "/api/spotify/auth/start": {
+      "post": {
+        "operationId": "start_authorization_api_spotify_auth_start_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpotifyAuthorizationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Start Authorization",
+        "tags": [
+          "spotify"
+        ]
+      }
+    },
+    "/api/spotify/disconnect": {
+      "post": {
+        "operationId": "disconnect_account_api_spotify_disconnect_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Disconnect Account Api Spotify Disconnect Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Disconnect Account",
+        "tags": [
+          "spotify"
+        ]
+      }
+    },
+    "/api/spotify/status": {
+      "get": {
+        "operationId": "status_for_user_api_spotify_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpotifyStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Status For User",
+        "tags": [
+          "spotify"
         ]
       }
     },

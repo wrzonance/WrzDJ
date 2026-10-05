@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 import pytest
 from sqlalchemy import text
 
@@ -92,18 +93,19 @@ def test_finish_authorization_rejects_malformed_state_without_database_errors(
         spotify_oauth.finish_authorization(db, state, "code")
 
 
-def test_failed_refresh_clears_stale_credentials(db, test_user, monkeypatch):
-    import httpx
-
-    _settings(monkeypatch)
-    test_user.spotify_access_token = "stale-access"
-    test_user.spotify_refresh_token = "revoked-refresh"
+def _expire_linked_tokens(db, user):
     from datetime import UTC, datetime, timedelta
 
-    test_user.spotify_token_expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    user.spotify_access_token = "stale-access"
+    user.spotify_refresh_token = "stored-refresh"
+    user.spotify_token_expires_at = datetime.now(UTC) - timedelta(seconds=1)
     db.commit()
 
-    class FailedClient:
+
+def _refresh_client(outcome):
+    """Fake httpx.Client whose token POST raises or returns ``outcome``."""
+
+    class RefreshClient:
         def __init__(self, *args, **kwargs):
             pass
 
@@ -113,14 +115,47 @@ def test_failed_refresh_clears_stale_credentials(db, test_user, monkeypatch):
         def __exit__(self, *args):
             return False
 
-        def post(self, *args, **kwargs):
-            raise httpx.ConnectError("offline")
+        def post(self, url, *args, **kwargs):
+            if isinstance(outcome, Exception):
+                raise outcome
+            status_code, payload = outcome
+            return httpx.Response(status_code, json=payload, request=httpx.Request("POST", url))
 
-    monkeypatch.setattr(spotify_oauth.httpx, "Client", FailedClient)
+    return RefreshClient
+
+
+def test_revoked_refresh_grant_clears_stale_credentials(db, test_user, monkeypatch):
+    _settings(monkeypatch)
+    _expire_linked_tokens(db, test_user)
+    monkeypatch.setattr(
+        spotify_oauth.httpx, "Client", _refresh_client((400, {"error": "invalid_grant"}))
+    )
 
     assert not spotify_oauth.refresh_access_token(db, test_user)
     assert test_user.spotify_access_token is None
     assert test_user.spotify_refresh_token is None
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        httpx.ConnectError("offline"),
+        httpx.ReadTimeout("slow"),
+        (503, {"error": "server_error"}),
+        (429, {"error": "rate_limited"}),
+        (401, {"error": "invalid_client"}),
+        (400, {"error": "invalid_client"}),
+    ],
+)
+def test_transient_refresh_failure_keeps_stored_credentials(db, test_user, monkeypatch, outcome):
+    """Regression for the 1d258e04 review: an outage must not unlink the DJ's account."""
+    _settings(monkeypatch)
+    _expire_linked_tokens(db, test_user)
+    monkeypatch.setattr(spotify_oauth.httpx, "Client", _refresh_client(outcome))
+
+    assert not spotify_oauth.refresh_access_token(db, test_user)
+    assert test_user.spotify_access_token == "stale-access"
+    assert test_user.spotify_refresh_token == "stored-refresh"
 
 
 def test_finish_authorization_saves_encrypted_tokens_and_clears_state(db, test_user, monkeypatch):

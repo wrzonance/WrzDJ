@@ -166,6 +166,20 @@ def _clear_credentials(db: Session, user: User) -> None:
     db.commit()
 
 
+def _grant_rejected(response: httpx.Response) -> bool:
+    """Whether Spotify permanently rejected this user's refresh token (RFC 6749 §5.2).
+
+    Only ``invalid_grant`` condemns the stored token. Outages (5xx/429) and
+    ``invalid_client`` (our own app credentials) share the 400/401 statuses but
+    must not unlink the user.
+    """
+    try:
+        payload = response.json()
+    except ValueError:
+        return False
+    return isinstance(payload, dict) and payload.get("error") == "invalid_grant"
+
+
 def refresh_access_token(db: Session, user: User) -> bool:
     """Refresh an expired access token; return whether a valid token is available."""
     if not user.spotify_access_token:
@@ -207,9 +221,14 @@ def refresh_access_token(db: Session, user: User) -> bool:
         logger.warning("Spotify token refresh failed: %s", type(exc).__name__)
         _clear_credentials(db, user)
         return False
-    except (httpx.HTTPError, KeyError, ValueError, TypeError) as exc:
+    except httpx.HTTPStatusError as exc:
         logger.warning("Spotify token refresh failed: %s", type(exc).__name__)
-        _clear_credentials(db, user)
+        if _grant_rejected(exc.response):
+            _clear_credentials(db, user)
+        return False
+    except (httpx.HTTPError, KeyError, ValueError, TypeError) as exc:
+        # Transient (network, timeout, malformed body): keep the tokens so the next call retries.
+        logger.warning("Spotify token refresh failed: %s", type(exc).__name__)
         return False
 
 

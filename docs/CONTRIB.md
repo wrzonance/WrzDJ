@@ -29,7 +29,7 @@ Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`
 
 ### Prerequisites
 
-- Docker + Docker Compose (for PostgreSQL 16)
+- Docker + Docker Compose (for PostgreSQL 18)
 - Python 3.11+ with venv
 - Node.js 24.15+ on the 24.x LTS line, or Node.js 26+ with npm
 

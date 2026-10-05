@@ -282,6 +282,9 @@ jobs:
       - name: Test locked API runtime
         run: bash scripts/test-api-image.sh wrzdj-api:smoke
 
+      - name: Test PostgreSQL 16 to 18 upgrade path
+        run: bash scripts/test-postgres-upgrade.sh wrzdj-api:smoke
+
       - name: Build frontend image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:

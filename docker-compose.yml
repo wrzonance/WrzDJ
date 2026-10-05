@@ -13,7 +13,10 @@ services:
       # on public WiFi with hardcoded dev credentials.
       - "127.0.0.1:5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # PostgreSQL 18+ keeps data in /var/lib/postgresql/<major>/docker, so the
+      # volume mounts at the parent. An older volume is refused, never reused:
+      # see "Upgrading PostgreSQL" in deploy/DEPLOYMENT.md.
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U wrzdj"]
       interval: 5s
@@ -57,4 +60,7 @@ services:
 
 volumes:
   postgres_data:
+    # Default keeps the historical "<project>_postgres_data" name so existing
+    # data is detected. Set POSTGRES_VOLUME_NAME to restore into a separate volume.
+    name: ${POSTGRES_VOLUME_NAME:-${COMPOSE_PROJECT_NAME}_postgres_data}
   api_uploads:

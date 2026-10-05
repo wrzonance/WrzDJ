@@ -42,7 +42,8 @@ prompt-injection hygiene.
 ## Local Development
 
 ### Prerequisites
-- PostgreSQL 16 via Docker: `docker compose up -d db`
+- PostgreSQL 18 via Docker: `docker compose up -d db` (an existing PostgreSQL 16 dev volume is
+  refused — see "Upgrading PostgreSQL" in `deploy/DEPLOYMENT.md`)
 - Python 3.11+ with venv at `server/.venv/`
 - Node.js 24.15+ on the 24.x LTS line, or Node.js 26+
 

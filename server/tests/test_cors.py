@@ -66,3 +66,40 @@ class TestCorsConfiguration:
         assert "x-pair-nonce" in allowed, (
             f"X-Pair-Nonce not allowed by prod CORS; allow-headers={allowed!r}"
         )
+
+    def test_cors_allows_csrf_header_preflight_in_production(self, monkeypatch):
+        """Prod CORS must allow X-Requested-With: the cookie-auth CSRF header (#754)."""
+        monkeypatch.setattr(main.settings, "cors_origins", "https://app.wrzdj.com")
+        client = TestClient(main.create_app())
+        resp = client.options(
+            "/api/auth/me",
+            headers={
+                "Origin": "https://app.wrzdj.com",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "x-requested-with",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        allowed = resp.headers.get("access-control-allow-headers", "").lower()
+        assert "x-requested-with" in allowed, allowed
+        assert resp.headers.get("access-control-allow-credentials") == "true"
+
+    def test_wildcard_dev_cors_allows_credentials(self, monkeypatch):
+        """CORS_ORIGINS=* (dev/LAN testing) must still let the session cookie flow (#754).
+
+        Starlette echoes the request Origin when allow_origins is "*" and
+        allow_credentials is True, which is what browsers require for cookies.
+        """
+        monkeypatch.setattr(main.settings, "cors_origins", "*")
+        client = TestClient(main.create_app())
+        resp = client.options(
+            "/api/auth/me",
+            headers={
+                "Origin": "http://192.168.20.5:3000",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "x-requested-with",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.headers.get("access-control-allow-origin") == "http://192.168.20.5:3000"
+        assert resp.headers.get("access-control-allow-credentials") == "true"

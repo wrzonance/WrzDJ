@@ -1,4 +1,4 @@
-import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 // ─── Environment ──────────────────────────────────────────────────────────────
 
@@ -108,15 +108,42 @@ export async function createTestApi(playwright: { request: { newContext: (opts: 
 
 // ─── Auth Setup ───────────────────────────────────────────────────────────────
 
-export function setupAuth(
+/** Mirrors `SESSION_HINT_KEY` in `lib/auth.tsx`: tells the dashboard a login happened here. */
+export const SESSION_HINT_KEY = 'wrzdj_session_hint';
+/** Mirrors `SESSION_COOKIE_NAME` in `server/app/core/session_cookie.py`. */
+export const SESSION_COOKIE_NAME = 'wrzdj_session';
+
+/**
+ * Sign the browser context in as the given JWT.
+ *
+ * Since #754 the dashboard never reads a token from localStorage: the API
+ * authenticates the HttpOnly `wrzdj_session` cookie (plus the CSRF header the
+ * client always sends), and a non-secret hint tells the provider to probe
+ * /api/auth/me on load. So install the cookie on the API origin and set the hint.
+ * Must be called inside a test or hook (uses the project's baseURL).
+ */
+export async function setupAuth(
   page: Page,
   jwt: string,
-  options: { clearSortPrefs?: boolean } = {},
+  options: { clearSortPrefs?: boolean; apiOrigin?: string } = {},
 ) {
   const { clearSortPrefs = true } = options;
-  return page.addInitScript(
-    ({ token, clear }: { token: string; clear: boolean }) => {
-      localStorage.setItem('token', token);
+  const baseURL = test.info().project.use.baseURL ?? 'https://app.local';
+  const apiOrigin = options.apiOrigin ?? getApiOrigin(baseURL);
+  await page.context().addCookies([
+    {
+      name: SESSION_COOKIE_NAME,
+      value: jwt,
+      url: `${apiOrigin}/api/`,
+      httpOnly: true,
+      sameSite: 'Lax',
+      secure: apiOrigin.startsWith('https://'),
+    },
+  ]);
+  await page.addInitScript(
+    ({ hintKey, clear }: { hintKey: string; clear: boolean }) => {
+      localStorage.removeItem('token'); // pre-#754 location of the JWT
+      localStorage.setItem(hintKey, 'e2e');
       localStorage.setItem('wrzdj-help-disabled', '1');
       if (clear) {
         Object.keys(localStorage)
@@ -124,7 +151,7 @@ export function setupAuth(
           .forEach((k) => localStorage.removeItem(k));
       }
     },
-    { token: jwt, clear: clearSortPrefs },
+    { hintKey: SESSION_HINT_KEY, clear: clearSortPrefs },
   );
 }
 

@@ -4,6 +4,7 @@ from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
+from app.core.session_cookie import session_token_from_cookie
 from app.db.session import SessionLocal
 from app.models.event import Event
 from app.models.request import Request as SongRequest
@@ -11,7 +12,6 @@ from app.models.user import User, UserRole
 from app.services.auth import decode_token, get_user_by_username
 from app.services.event import get_event_by_code_for_owner
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
@@ -23,12 +23,30 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
-def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)) -> User:
+def resolve_auth_token(request: Request, bearer: str | None) -> str | None:
+    """Pick the credential for this request: bearer header first, else session cookie.
+
+    The bearer path serves the bridge-app and any API client; the cookie path
+    serves the dashboard and is only honoured with the CSRF header (#754).
+    """
+    if bearer:
+        return bearer
+    return session_token_from_cookie(request)
+
+
+def get_current_user(
+    request: Request,
+    db: Session = Depends(get_db),
+    bearer: str | None = Depends(oauth2_scheme_optional),
+) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    token = resolve_auth_token(request, bearer)
+    if token is None:
+        raise credentials_exception
     token_data = decode_token(token)
     if token_data is None or token_data.username is None:
         raise credentials_exception
@@ -44,10 +62,11 @@ def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_
 
 
 def get_current_user_optional(
+    request: Request,
     db: Session = Depends(get_db),
-    token: str | None = Depends(oauth2_scheme_optional),
+    bearer: str | None = Depends(oauth2_scheme_optional),
 ) -> User | None:
-    """Resolve the authenticated user if a valid bearer token is present, else None.
+    """Resolve the authenticated user if a valid bearer token or session cookie is present.
 
     Unlike get_current_user, this NEVER raises — it is for endpoints that serve
     both authenticated owners and anonymous guests (e.g. the public event search,
@@ -55,6 +74,7 @@ def get_current_user_optional(
     anonymous guest still goes through it). An absent, malformed, expired, or
     version-stale token all resolve to None rather than 401.
     """
+    token = resolve_auth_token(request, bearer)
     if not token:
         return None
     token_data = decode_token(token)

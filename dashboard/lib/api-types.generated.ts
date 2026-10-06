@@ -521,7 +521,13 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Login */
+        /**
+         * Login
+         * @description Issue the DJ JWT.
+         *
+         *     The token is returned in the body for bearer clients (bridge-app) AND set as
+         *     an HttpOnly session cookie for the dashboard (#754), which never stores it.
+         */
         post: operations["login_api_auth_login_post"];
         delete?: never;
         options?: never;
@@ -635,6 +641,30 @@ export interface paths {
          */
         post: operations["register_api_auth_register_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * End Session
+         * @description Drop the dashboard session cookie without revoking bearer tokens (#754).
+         *
+         *     This is the dashboard's logout: it ends only this browser's session, so a
+         *     bridge-app signed in as the same DJ keeps working. Needs no authentication
+         *     because clearing your own cookie is harmless.
+         */
+        delete: operations["end_session_api_auth_session_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -9065,6 +9095,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    end_session_api_auth_session_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusMessageResponse"];
                 };
             };
         };

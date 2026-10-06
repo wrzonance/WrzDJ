@@ -167,10 +167,14 @@ def create_app(*, lifespan_context=lifespan) -> FastAPI:
     application.add_middleware(SecurityHeadersMiddleware)
 
     if settings.cors_origins.strip() == "*":
+        # Dev / LAN testing. allow_credentials lets the dashboard session cookie
+        # (#754) flow; Starlette echoes the request Origin instead of "*" when both
+        # are set, which is what browsers require. validate_settings refuses "*"
+        # in production, so this branch never runs there.
         application.add_middleware(
             CORSMiddleware,
             allow_origins=["*"],
-            allow_credentials=False,
+            allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],
         )
@@ -181,7 +185,13 @@ def create_app(*, lifespan_context=lifespan) -> FastAPI:
             allow_origins=origins,
             allow_credentials=True,
             allow_methods=CORS_ALLOW_METHODS,
-            allow_headers=["Authorization", "Content-Type", "X-Kiosk-Session", "X-Pair-Nonce"],
+            allow_headers=[
+                "Authorization",
+                "Content-Type",
+                "X-Kiosk-Session",
+                "X-Pair-Nonce",
+                "X-Requested-With",  # cookie-auth CSRF header (#754)
+            ],
             expose_headers=["Content-Disposition"],
         )
 

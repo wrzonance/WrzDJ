@@ -424,6 +424,16 @@ function getApiUrl(): string {
   return 'http://localhost:8000';
 }
 
+/**
+ * CSRF header for cookie-authenticated requests (issue #754). The DJ session now
+ * lives in an HttpOnly cookie the browser attaches on its own, so the server only
+ * honours that cookie when this custom header is present too: a cross-site page
+ * cannot add custom headers without passing a CORS preflight our origin list
+ * rejects. Harmless on bearer and anonymous requests.
+ */
+export const CSRF_HEADER_NAME = 'X-Requested-With';
+export const CSRF_HEADER_VALUE = 'WrzDJ';
+
 class ApiClient {
   private token: string | null = null;
   private kioskSession: string | null = null;
@@ -466,8 +476,10 @@ class ApiClient {
     if (this.token) {
       headers.set('Authorization', `Bearer ${this.token}`);
     }
+    headers.set(CSRF_HEADER_NAME, CSRF_HEADER_VALUE);
 
     const response = await fetch(`${getApiUrl()}${path}`, {
+      credentials: 'include',
       ...options,
       headers,
     });
@@ -496,9 +508,10 @@ class ApiClient {
     if (this.token) {
       headers.set('Authorization', `Bearer ${this.token}`);
     }
+    headers.set(CSRF_HEADER_NAME, CSRF_HEADER_VALUE);
 
     const url = path.startsWith('http') ? path : `${getApiUrl()}${path}`;
-    const response = await fetch(url, { ...init, headers });
+    const response = await fetch(url, { credentials: 'include', ...init, headers });
 
     if (!response.ok) {
       if (response.status === 401 && this.onUnauthorized) {
@@ -546,12 +559,18 @@ class ApiClient {
     formData.append('username', username);
     formData.append('password', password);
 
+    // credentials: 'include' lets the browser store the HttpOnly session cookie
+    // the API sets on success (#754); the body token is for bearer clients only.
+    // The CSRF header is what makes the API issue that cookie at all: a cross-site
+    // form POST cannot add it, so it cannot plant a session (login CSRF).
     const response = await fetch(`${getApiUrl()}/api/auth/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
+        [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
       },
       body: formData,
+      credentials: 'include',
     });
 
     if (!response.ok) {
@@ -564,6 +583,11 @@ class ApiClient {
     }
 
     return response.json();
+  }
+
+  /** End this browser's dashboard session (clears the cookie; bearer tokens stay valid). */
+  async endSession(): Promise<void> {
+    await this.fetch<{ status: string }>('/api/auth/session', { method: 'DELETE' });
   }
 
   async getMe(): Promise<{
@@ -1183,7 +1207,10 @@ class ApiClient {
     nickname?: string,
     reverify?: () => Promise<void>,
   ): Promise<SongRequest> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
+    };
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
     if (this.kioskSession) headers['X-Kiosk-Session'] = this.kioskSession;
     const doFetch = () =>
@@ -1233,7 +1260,7 @@ class ApiClient {
       // Send the JWT when present: the authenticated event owner (DJ dashboard
       // "Search for Song") bypasses the guest human-verification gate. Guests
       // have no token and fall through to the cookie-based gate + reverify retry.
-      const headers: Record<string, string> = {};
+      const headers: Record<string, string> = { [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE };
       if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
       if (this.kioskSession) headers['X-Kiosk-Session'] = this.kioskSession;
       return fetch(`${getApiUrl()}/api/events/${code}/search?q=${encodeURIComponent(query)}`, {
@@ -1777,11 +1804,13 @@ class ApiClient {
   ): Promise<void> {
     const headers = new Headers({ Accept: 'text/event-stream' });
     if (this.token) headers.set('Authorization', `Bearer ${this.token}`);
+    headers.set(CSRF_HEADER_NAME, CSRF_HEADER_VALUE);
 
     const response = await fetch(`${getApiUrl()}/api/llm/connectors/${id}/stream-test`, {
       method: 'POST',
       headers,
       signal,
+      credentials: 'include',
     });
     if (!response.ok || !response.body) {
       if (response.status === 401 && this.onUnauthorized) this.onUnauthorized();

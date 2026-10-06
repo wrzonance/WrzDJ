@@ -131,6 +131,9 @@ npm test -- --run
   `get_current_user`, which allows pending). Last-admin protection: `count_admins(db) > 1` before
   demoting/deleting/deactivating an admin.
 - `TOKEN_ENCRYPTION_KEY` / `HUMAN_COOKIE_SECRET` must be set in production.
+- Dashboard auth is the HttpOnly `wrzdj_session` cookie, honoured only with the
+  `X-Requested-With: WrzDJ` header (#754); bearer stays for the bridge-app. Any new browser `X-*`
+  header also goes in the prod CORS `allow_headers` list in `server/app/main.py`.
 - Request status transitions are state-machine-enforced (invalid → 400).
 
 ## Documentation Map

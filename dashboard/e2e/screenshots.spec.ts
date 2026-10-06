@@ -1,5 +1,6 @@
 import path from 'path';
 import { test, expect } from '@playwright/test';
+import { setupAuth as installSession } from './helpers';
 
 const USERNAME = process.env.SCREENSHOT_USERNAME || 'admin';
 const PASSWORD = process.env.SCREENSHOT_PASSWORD || 'admin123';
@@ -68,11 +69,8 @@ test.beforeAll(async ({ playwright }, testInfo) => {
 
 async function setupAuth(page: import('@playwright/test').Page) {
   if (!jwt) throw new Error('beforeAll did not run or login failed — jwt is empty');
-  await page.addInitScript((token: string) => {
-    localStorage.setItem('token', token);
-    // Suppress help/onboarding for clean screenshots
-    localStorage.setItem('wrzdj-help-disabled', '1');
-  }, jwt);
+  // Cookie session + hint (#754); also suppresses help/onboarding for clean screenshots.
+  await installSession(page, jwt, { clearSortPrefs: false });
 }
 
 async function ensureCleanUI(page: import('@playwright/test').Page) {

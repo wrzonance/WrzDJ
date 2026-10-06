@@ -37,6 +37,7 @@
     "alphatheta-connect": {
       "metadata-connect": "$metadata-connect",
       "onelibrary-connect": "$onelibrary-connect"
-    }
+    },
+    "source-map-js": "^1.2.2"
   }
 }

@@ -33,6 +33,12 @@ function Probe() {
 
 const me = { id: 1, username: 'dj', role: 'dj', help_pages_seen: [] };
 
+/** Simulate another tab writing localStorage (jsdom never fires `storage` on its own). */
+function fireStorage(key: string, oldValue: string | null, newValue: string | null) {
+  const event = Object.assign(new Event('storage'), { key, oldValue, newValue });
+  window.dispatchEvent(event);
+}
+
 describe('AuthProvider (cookie session)', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -135,15 +141,13 @@ describe('AuthProvider (cookie session)', () => {
       render(<AuthProvider><Probe /></AuthProvider>);
       await waitFor(() => expect(screen.getByTestId('state').textContent).toBe('out'));
       act(() => {
-        window.dispatchEvent(new StorageEvent('storage', {
-          key: SESSION_HINT_KEY, oldValue: null, newValue: 'abc-123',
-        }));
+        fireStorage(SESSION_HINT_KEY, null, 'abc-123');
       });
       expect(reload).toHaveBeenCalledTimes(1);
       // Unrelated keys and no-op writes are ignored.
       act(() => {
-        window.dispatchEvent(new StorageEvent('storage', { key: 'wrzdj-theme', oldValue: 'a', newValue: 'b' }));
-        window.dispatchEvent(new StorageEvent('storage', { key: SESSION_HINT_KEY, oldValue: 'x', newValue: 'x' }));
+        fireStorage('wrzdj-theme', 'a', 'b');
+        fireStorage(SESSION_HINT_KEY, 'x', 'x');
       });
       expect(reload).toHaveBeenCalledTimes(1);
     } finally {

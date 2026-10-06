@@ -81,7 +81,8 @@ class TestLoginSetsCookie:
         assert response.status_code == 200
         assert response.json()["access_token"]
         assert not any(SESSION_COOKIE_NAME in h for h in _set_cookie_headers(response))
-        assert client.get("/api/auth/me", headers=CSRF).status_code == 401
+        probe = client.get("/api/auth/me", headers=CSRF)
+        assert probe.status_code == 401
 
     def test_failed_login_sets_no_cookie(self, client: TestClient, test_user: User):
         response = client.post(
@@ -155,10 +156,12 @@ class TestOptionalDependency:
 
     def test_cookie_without_header_resolves_none(self, db: Session, test_user: User):
         request = self._request({"cookie": f"{SESSION_COOKIE_NAME}={_token_for(test_user)}"})
-        assert get_current_user_optional(request, db=db, bearer=None) is None
+        resolved = get_current_user_optional(request, db=db, bearer=None)
+        assert resolved is None
 
     def test_no_credentials_resolves_none(self, db: Session):
-        assert get_current_user_optional(self._request({}), db=db, bearer=None) is None
+        resolved = get_current_user_optional(self._request({}), db=db, bearer=None)
+        assert resolved is None
 
 
 class TestEndingTheSession:
@@ -173,10 +176,12 @@ class TestEndingTheSession:
         assert "max-age=0" in header or "expires=" in header
         db.refresh(test_user)
         assert test_user.token_version == before  # bridge-app sessions survive
-        assert client.get("/api/auth/me", headers=CSRF).status_code == 401
+        probe = client.get("/api/auth/me", headers=CSRF)
+        assert probe.status_code == 401
 
     def test_delete_session_is_fine_when_not_logged_in(self, client: TestClient):
-        assert client.delete("/api/auth/session").status_code == 200
+        response = client.delete("/api/auth/session")
+        assert response.status_code == 200
 
     def test_logout_also_clears_cookie(self, client: TestClient, test_user: User):
         _login(client)

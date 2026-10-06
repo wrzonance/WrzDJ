@@ -200,6 +200,11 @@ APP_DOMAIN=app.yourdomain.com API_DOMAIN=api.yourdomain.com ./deploy/setup-nginx
 # Optional: customize ports (default 8000/3000)
 # APP_DOMAIN=app.yourdomain.com API_DOMAIN=api.yourdomain.com \
 #   PORT_API=9000 PORT_FRONTEND=4000 ./deploy/setup-nginx.sh
+#
+# Optional: concurrent SSE streams allowed per client address (default 500).
+# A venue on shared wifi is one address and every open event page holds a
+# stream, so size this for your largest room; see SECURITY.md.
+# SSE_CONN_LIMIT=1000 APP_DOMAIN=... API_DOMAIN=... ./deploy/setup-nginx.sh
 
 # Remove default site (optional)
 sudo rm -f /etc/nginx/sites-enabled/default
@@ -339,7 +344,8 @@ Verify after reload:
 # response larger than gzip_min_length (1024B); /health is far too small to gzip
 curl -sH 'Accept-Encoding: gzip' -D - -o /dev/null https://api.yourdomain.com/openapi.json | grep -i content-encoding
 # edge rate limit returns 429 past the burst on a non-SSE endpoint
-# SSE stream still connects and is NOT throttled (long-lived, exempt from limit_req)
+# SSE stream still connects and is NOT throttled (long-lived, exempt from limit_req);
+# it is capped per address by limit_conn instead (SSE_CONN_LIMIT, default 500; 429 past it)
 # only TLS 1.2/1.3 negotiated; security headers unchanged on all vhosts
 ```
 

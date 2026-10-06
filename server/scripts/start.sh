@@ -42,4 +42,9 @@ mkdir -p "$UPLOADS_DIR/banners"
 # Start the server
 PORT=${PORT:-8000}
 echo "Starting server on port $PORT..."
-exec uvicorn app.main:app --host 0.0.0.0 --port "$PORT"
+# One worker, stated explicitly: login lockout, kiosk pairing nonces and the SSE
+# event bus are in-process state, so a second worker would split them (lockouts
+# bypassed, pairings and live updates lost depending on which worker answers).
+# The flag overrides WEB_CONCURRENCY, which uvicorn otherwise honors and some
+# hosts set by default. See "Single API process" in SECURITY.md before raising it.
+exec uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --workers 1

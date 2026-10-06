@@ -1,0 +1,12 @@
+[
+  {
+    "id": "GHSA-2p57-rm9w-gvfp",
+    "expires": "2027-01-05",
+    "reason": "ip <=2.0.1 isPublic()/isPrivate() misclassify some addresses (SSRF when used as an allow/deny check). No patched release exists. It reaches bridge and bridge-app only through stagelinq, which calls ip.subnet() alone (dist/network/announce.js, dist/eaas/discoverer.js) to compute the LAN broadcast address; neither stagelinq nor our code calls isPublic/isPrivate. Revisit at expiry: drop once ip ships a fix or stagelinq stops depending on it."
+  },
+  {
+    "id": "GHSA-w3rx-r6r6-pgpr",
+    "expires": "2027-01-05",
+    "reason": "image-size <=2.0.2 ICNS parser can loop forever on a crafted image (DoS). In bridge-app it is an optional, macOS-only dev dependency of appdmg (via @electron-forge/maker-dmg) that runs once at DMG build time against the installer's own background and icon assets, never against untrusted input and never in the shipped app. appdmg pins ^0.7.4; the fix is in 2.0.3, a major API change that cannot be verified from Linux PR CI. Revisit at expiry: drop once appdmg/maker-dmg move to image-size >=2.0.3."
+  }
+]

@@ -10,6 +10,7 @@ set -euo pipefail
 # Optional:
 #   PORT_API=8000         (default: 8000)
 #   PORT_FRONTEND=3000    (default: 3000)
+#   SSE_CONN_LIMIT=500    (default: 500) concurrent SSE streams per client address
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TEMPLATE_DIR="$SCRIPT_DIR/nginx"
@@ -38,6 +39,7 @@ validate_domain "$API_DOMAIN"
 # Optional with defaults
 export PORT_API="${PORT_API:-8000}"
 export PORT_FRONTEND="${PORT_FRONTEND:-3000}"
+export SSE_CONN_LIMIT="${SSE_CONN_LIMIT:-500}"
 export APP_DOMAIN
 export API_DOMAIN
 
@@ -52,15 +54,21 @@ validate_port() {
 validate_port "$PORT_API" "PORT_API"
 validate_port "$PORT_FRONTEND" "PORT_FRONTEND"
 
+if [[ ! "$SSE_CONN_LIMIT" =~ ^[0-9]+$ ]] || [ "$SSE_CONN_LIMIT" -lt 1 ]; then
+  echo "ERROR: Invalid SSE_CONN_LIMIT: $SSE_CONN_LIMIT (must be a positive integer)" >&2
+  exit 1
+fi
+
 echo "==> Generating nginx configs"
 echo "    APP_DOMAIN:    $APP_DOMAIN"
 echo "    API_DOMAIN:    $API_DOMAIN"
 echo "    PORT_API:      $PORT_API"
 echo "    PORT_FRONTEND: $PORT_FRONTEND"
+echo "    SSE_CONN_LIMIT: $SSE_CONN_LIMIT"
 
 # envsubst only replaces the variables we specify, leaving nginx $vars untouched
 # shellcheck disable=SC2016
-VARS='${APP_DOMAIN} ${API_DOMAIN} ${PORT_API} ${PORT_FRONTEND}'
+VARS='${APP_DOMAIN} ${API_DOMAIN} ${PORT_API} ${PORT_FRONTEND} ${SSE_CONN_LIMIT}'
 
 # Generate API config
 envsubst "$VARS" < "$TEMPLATE_DIR/api.conf.template" \

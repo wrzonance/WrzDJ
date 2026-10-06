@@ -144,9 +144,13 @@ jobs:
       - name: Run tests with coverage
         run: npm test -- --run --coverage
 
+      - name: Test the npm audit gate
+        run: node --test ../scripts/npm-audit-gate.test.cjs
+
       - name: Security audit
-        run: npm audit --audit-level=high
-        continue-on-error: true
+        # Blocking: high/critical advisories fail unless .npm-audit-ignore.json
+        # lists them with a justification and an unexpired date.
+        run: node ../scripts/npm-audit-gate.cjs
 
   bridge:
     name: Bridge Tests
@@ -175,8 +179,9 @@ jobs:
         run: npm test -- --run --coverage
 
       - name: Security audit
-        run: npm audit --audit-level=high
-        continue-on-error: true
+        # Blocking: high/critical advisories fail unless .npm-audit-ignore.json
+        # lists them with a justification and an unexpired date.
+        run: node ../scripts/npm-audit-gate.cjs
 
   bridge-app:
     name: Bridge App Tests
@@ -238,8 +243,9 @@ jobs:
             "$app_dir/wrzdj-bridge"
 
       - name: Security audit
-        run: npm audit --audit-level=high
-        continue-on-error: true
+        # Blocking: high/critical advisories fail unless .npm-audit-ignore.json
+        # lists them with a justification and an unexpired date.
+        run: node ../scripts/npm-audit-gate.cjs
 
   kiosk:
     name: Kiosk WiFi Portal Tests

@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { api, ApiError, withHumanRetry, HumanVerificationRequiredError } from '../api';
+import {
+  api,
+  ApiError,
+  withHumanRetry,
+  HumanVerificationRequiredError,
+  CSRF_HEADER_NAME,
+  CSRF_HEADER_VALUE,
+} from '../api';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -3099,6 +3106,47 @@ describe('ApiClient', () => {
 
       await expect(withHumanRetry(doFetch, reverify)).rejects.toThrow('human_verification_failed');
       expect(doFetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('cookie session (#754)', () => {
+    it('login sends credentials so the HttpOnly session cookie is stored', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ access_token: 'ignored', token_type: 'bearer' }),
+      });
+      await api.login('dj', 'pw');
+      const [, options] = mockFetch.mock.calls[0];
+      expect(options.credentials).toBe('include');
+    });
+
+    it('authenticated requests carry the CSRF header and credentials', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 1, username: 'dj', role: 'dj', help_pages_seen: [] }),
+      });
+      await api.getMe();
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/auth/me');
+      expect(options.credentials).toBe('include');
+      expect(options.headers.get(CSRF_HEADER_NAME)).toBe(CSRF_HEADER_VALUE);
+      expect(options.headers.get('Authorization')).toBeNull();
+    });
+
+    it('endSession DELETEs /api/auth/session with credentials', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ status: 'ok', message: 'Session ended' }),
+      });
+      await api.endSession();
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/auth/session');
+      expect(options.method).toBe('DELETE');
+      expect(options.credentials).toBe('include');
+      expect(options.headers.get(CSRF_HEADER_NAME)).toBe(CSRF_HEADER_VALUE);
     });
   });
 });

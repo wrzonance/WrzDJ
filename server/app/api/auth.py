@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -7,6 +7,7 @@ from app.api.deps import get_current_active_user, get_current_user, get_db
 from app.core.config import get_settings
 from app.core.lockout import lockout_manager
 from app.core.rate_limit import get_client_ip, limiter
+from app.core.session_cookie import clear_session_cookie, set_session_cookie
 from app.models.user import User, UserRole
 from app.schemas.auth import Token
 from app.schemas.common import StatusMessageResponse
@@ -47,9 +48,15 @@ class MePreferencesUpdate(BaseModel):
 @limiter.limit(lambda: f"{settings.login_rate_limit_per_minute}/minute")
 def login(
     request: Request,
+    response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ) -> Token:
+    """Issue the DJ JWT.
+
+    The token is returned in the body for bearer clients (bridge-app) AND set as
+    an HttpOnly session cookie for the dashboard (#754), which never stores it.
+    """
     client_ip = get_client_ip(request)
     username = form_data.username
 
@@ -87,6 +94,7 @@ def login(
         lockout_manager.record_success(client_ip, username)
 
     access_token = create_access_token(data={"sub": user.username, "tv": user.token_version})
+    set_session_cookie(response, access_token)
     return Token(access_token=access_token)
 
 
@@ -94,6 +102,7 @@ def login(
 @limiter.limit("30/minute")
 def logout(
     request: Request,
+    response: Response,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> StatusMessageResponse:
@@ -104,7 +113,21 @@ def logout(
     """
     current_user.token_version += 1
     db.commit()
+    clear_session_cookie(response)
     return StatusMessageResponse(status="ok", message="Logged out")
+
+
+@router.delete("/session", response_model=StatusMessageResponse)
+@limiter.limit("30/minute")
+def end_session(request: Request, response: Response) -> StatusMessageResponse:
+    """Drop the dashboard session cookie without revoking bearer tokens (#754).
+
+    This is the dashboard's logout: it ends only this browser's session, so a
+    bridge-app signed in as the same DJ keeps working. Needs no authentication
+    because clearing your own cookie is harmless.
+    """
+    clear_session_cookie(response)
+    return StatusMessageResponse(status="ok", message="Session ended")
 
 
 @router.get("/me", response_model=UserOut)

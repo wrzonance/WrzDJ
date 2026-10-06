@@ -13175,6 +13175,7 @@
     },
     "/api/auth/login": {
       "post": {
+        "description": "Issue the DJ JWT.\n\nThe token is returned in the body for bearer clients (bridge-app) AND set as\nan HttpOnly session cookie for the dashboard (#754), which never stores it.",
         "operationId": "login_api_auth_login_post",
         "requestBody": {
           "content": {
@@ -13442,6 +13443,28 @@
           }
         },
         "summary": "Register",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/session": {
+      "delete": {
+        "description": "Drop the dashboard session cookie without revoking bearer tokens (#754).\n\nThis is the dashboard's logout: it ends only this browser's session, so a\nbridge-app signed in as the same DJ keeps working. Needs no authentication\nbecause clearing your own cookie is harmless.",
+        "operationId": "end_session_api_auth_session_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusMessageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "End Session",
         "tags": [
           "auth"
         ]

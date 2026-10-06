@@ -81,7 +81,7 @@ graph TD
         DJ[DJ / Admin] -->|username + password| Login["POST /api/auth/login"]
         Login -->|bcrypt verify, timing-safe| Users[(users table)]
         Login -->|sign HS256| JWT["JWT access token"]
-        JWT -->|Authorization: Bearer| DJEP["DJ / admin endpoints<br/>get_current_user → active → admin"]
+        JWT -->|"dashboard: HttpOnly cookie + X-Requested-With<br/>bridge-app: Authorization: Bearer"| DJEP["DJ / admin endpoints<br/>get_current_user → active → admin"]
     end
 
     subgraph guestflow["Guest — Turnstile + signed cookie"]
@@ -107,11 +107,19 @@ graph TD
     style TS fill:#f6821f,stroke:#ffb366,color:#ffffff
 ```
 
-- **DJ / admin — JWT.** `services/auth.py` signs an HS256 token with **PyJWT** (`JWT_SECRET`); the
-  frontend sends it as `Authorization: Bearer` (FastAPI `OAuth2PasswordBearer`). `decode_token` pins
-  `algorithms=["HS256"]` — blocks the `alg=none` / algorithm-confusion forgery class. Authorization
-  layers via DI: `get_current_user` → `get_current_active_user` (rejects pending) →
-  `get_current_admin`; last-admin protection guards demote/delete/deactivate.
+- **DJ / admin — JWT.** `services/auth.py` signs an HS256 token with **PyJWT** (`JWT_SECRET`).
+  `decode_token` pins `algorithms=["HS256"]` — blocks the `alg=none` / algorithm-confusion forgery
+  class. Two transports feed the same `get_current_user` (`api/deps.py`, #754): the **bridge-app**
+  sends `Authorization: Bearer`; the **dashboard** holds the token only in the HttpOnly,
+  `SameSite=Lax`, `Path=/api/` `wrzdj_session` cookie set by `/api/auth/login`
+  (`core/session_cookie.py`), so page scripts cannot read it. The cookie is honoured **only** with
+  the `X-Requested-With: WrzDJ` header — a custom header a cross-site page cannot add without passing
+  a CORS preflight our origin list rejects — which is the CSRF defence; bearer requests need none.
+  `DELETE /api/auth/session` clears the cookie without revoking bearer tokens; `POST /api/auth/logout`
+  bumps `token_version` (revokes everything) and clears it. Any new browser-facing `X-*` header must
+  be added to the production CORS `allow_headers` list in `main.py`. Authorization layers via DI:
+  `get_current_user` → `get_current_active_user` (rejects pending) → `get_current_admin`; last-admin
+  protection guards demote/delete/deactivate.
 - **Passwords** are bcrypt-hashed directly (no `passlib`), never `EncryptedText` (see *Sensitive Data
   at Rest*). `authenticate_user` runs a dummy bcrypt check on the user-not-found path to equalize
   timing — no username enumeration.

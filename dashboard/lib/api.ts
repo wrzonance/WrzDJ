@@ -561,10 +561,13 @@ class ApiClient {
 
     // credentials: 'include' lets the browser store the HttpOnly session cookie
     // the API sets on success (#754); the body token is for bearer clients only.
+    // The CSRF header is what makes the API issue that cookie at all: a cross-site
+    // form POST cannot add it, so it cannot plant a session (login CSRF).
     const response = await fetch(`${getApiUrl()}/api/auth/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
+        [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
       },
       body: formData,
       credentials: 'include',

@@ -111,12 +111,15 @@ graph TD
   `decode_token` pins `algorithms=["HS256"]` — blocks the `alg=none` / algorithm-confusion forgery
   class. Two transports feed the same `get_current_user` (`api/deps.py`, #754): the **bridge-app**
   sends `Authorization: Bearer`; the **dashboard** holds the token only in the HttpOnly,
-  `SameSite=Lax`, `Path=/api/` `wrzdj_session` cookie set by `/api/auth/login`
-  (`core/session_cookie.py`), so page scripts cannot read it. The cookie is honoured **only** with
+  `SameSite=Lax`, `Path=/api/` `wrzdj_session` cookie that `/api/auth/login` issues only to requests carrying the
+  CSRF header below (so a cross-site form POST cannot plant a session: login CSRF)
+  (`core/session_cookie.py`); page scripts cannot read it. The cookie is honoured **only** with
   the `X-Requested-With: WrzDJ` header — a custom header a cross-site page cannot add without passing
   a CORS preflight our origin list rejects — which is the CSRF defence; bearer requests need none.
-  `DELETE /api/auth/session` clears the cookie without revoking bearer tokens; `POST /api/auth/logout`
-  bumps `token_version` (revokes everything) and clears it. Any new browser-facing `X-*` header must
+  `DELETE /api/auth/session` clears the cookie without revoking bearer tokens (a copied JWT stays valid
+  until expiry or a `token_version` bump); `POST /api/auth/logout` bumps `token_version` (revokes
+  everything) and clears it. Dev-only caveat: `CORS_ORIGINS=*` echoes any Origin with credentials, so
+  another local port could pass the header check there; production refuses `*` at startup. Any new browser-facing `X-*` header must
   be added to the production CORS `allow_headers` list in `main.py`. Authorization layers via DI:
   `get_current_user` → `get_current_active_user` (rejects pending) → `get_current_admin`; last-admin
   protection guards demote/delete/deactivate.

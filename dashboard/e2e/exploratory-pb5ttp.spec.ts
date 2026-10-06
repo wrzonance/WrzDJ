@@ -5,6 +5,7 @@
  */
 
 import { test, expect, Page, ConsoleMessage } from '@playwright/test';
+import { setupAuth as installSession } from './helpers';
 
 const USERNAME = process.env.SCREENSHOT_USERNAME || 'admin';
 const PASSWORD = process.env.SCREENSHOT_PASSWORD || 'admin123';
@@ -68,10 +69,8 @@ function attachProbes(page: Page): PageProbes {
 }
 
 async function setupAuth(page: Page) {
-  await page.addInitScript((token: string) => {
-    localStorage.setItem('token', token);
-    localStorage.setItem('wrzdj-help-disabled', '1');
-  }, jwt);
+  // Cookie session + hint (#754); also suppresses help/onboarding.
+  await installSession(page, jwt, { clearSortPrefs: false });
 }
 
 function summarise(name: string, probes: PageProbes): void {

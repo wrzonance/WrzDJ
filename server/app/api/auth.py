@@ -7,7 +7,7 @@ from app.api.deps import get_current_active_user, get_current_user, get_db
 from app.core.config import get_settings
 from app.core.lockout import lockout_manager
 from app.core.rate_limit import get_client_ip, limiter
-from app.core.session_cookie import clear_session_cookie, set_session_cookie
+from app.core.session_cookie import clear_session_cookie, has_csrf_header, set_session_cookie
 from app.models.user import User, UserRole
 from app.schemas.auth import Token
 from app.schemas.common import StatusMessageResponse
@@ -54,8 +54,11 @@ def login(
 ) -> Token:
     """Issue the DJ JWT.
 
-    The token is returned in the body for bearer clients (bridge-app) AND set as
-    an HttpOnly session cookie for the dashboard (#754), which never stores it.
+    The token is returned in the body for bearer clients (bridge-app). For the
+    dashboard (#754) it is ALSO set as an HttpOnly session cookie, but only when
+    the request carries the CSRF header: a cross-site form POST cannot add that
+    header, so it cannot plant a session cookie for an attacker's account in a
+    victim's browser (login CSRF).
     """
     client_ip = get_client_ip(request)
     username = form_data.username
@@ -94,7 +97,8 @@ def login(
         lockout_manager.record_success(client_ip, username)
 
     access_token = create_access_token(data={"sub": user.username, "tv": user.token_version})
-    set_session_cookie(response, access_token)
+    if has_csrf_header(request):
+        set_session_cookie(response, access_token)
     return Token(access_token=access_token)
 
 

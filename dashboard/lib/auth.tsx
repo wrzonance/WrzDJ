@@ -11,32 +11,40 @@ interface AuthContextType {
   isLoading: boolean;
   role: UserRole | null;
   login: (username: string, password: string) => Promise<void>;
-  logout: () => void;
+  /** Resolves once the server has been asked to end the session (see logout notes). */
+  logout: () => Promise<void>;
 }
 
 /**
  * The DJ session lives in an HttpOnly cookie set by the API (issue #754), so
  * this code never sees or stores the JWT. Because the cookie is invisible to
- * scripts, a non-secret marker records that a login happened on this browser;
- * it only decides whether to probe /api/auth/me on load, so guests and
- * logged-out visitors never make that request.
+ * scripts, a non-secret marker records that a login happened on this browser.
+ * It decides whether to probe /api/auth/me on load, so guests and logged-out
+ * visitors never make that request, and its value changes on every login and
+ * logout so other tabs notice (cookies are shared across tabs, React state is
+ * not) and reload instead of silently acting as a different account.
  */
 export const SESSION_HINT_KEY = 'wrzdj_session_hint';
 /** Pre-#754 builds persisted the raw JWT here; remove it wherever it still lingers. */
 const LEGACY_TOKEN_KEY = 'token';
 
-function readSessionHint(): boolean {
+function readSessionHint(): string | null {
   try {
-    return localStorage.getItem(SESSION_HINT_KEY) === '1';
+    return localStorage.getItem(SESSION_HINT_KEY);
   } catch {
-    return false;
+    return null;
   }
 }
 
-function writeSessionHint(present: boolean): void {
+/** A fresh, non-secret generation marker; distinct per login so cross-tab change is visible. */
+function newSessionGeneration(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function writeSessionHint(value: string | null): void {
   try {
-    if (present) {
-      localStorage.setItem(SESSION_HINT_KEY, '1');
+    if (value) {
+      localStorage.setItem(SESSION_HINT_KEY, value);
     } else {
       localStorage.removeItem(SESSION_HINT_KEY);
     }
@@ -61,23 +69,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [role, setRole] = useState<UserRole | null>(null);
 
-  const logout = useCallback(() => {
-    writeSessionHint(false);
+  const logout = useCallback(async () => {
+    writeSessionHint(null);
     api.setUnauthorizedHandler(null);
+    try {
+      // Ask the server to delete the cookie BEFORE reporting logged-out, so a
+      // navigation that follows cannot cancel the request.
+      await api.endSession();
+    } catch {
+      // The server could not be reached. The cookie then stays in the browser
+      // until it expires; nothing in this app will send it again because the
+      // hint is gone, but a shared machine is not fully signed out until expiry.
+    }
     setIsAuthenticated(false);
     setRole(null);
-    // Best effort: clear the cookie server-side. Failure leaves an unusable cookie
-    // behind at worst, which the next login overwrites.
-    void api.endSession().catch(() => undefined);
   }, []);
 
   const redirectToLoginOnUnauthorized = useCallback(() => {
     api.setUnauthorizedHandler(() => {
-      logout();
-      window.location.href = '/login';
+      void logout().finally(() => {
+        window.location.href = '/login';
+      });
     });
   }, [logout]);
 
+  // Initial restore: probe /me only when this browser recorded a login.
   useEffect(() => {
     dropLegacyToken();
     if (!readSessionHint()) {
@@ -94,16 +110,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setRole(user.role as UserRole);
       })
       .catch(() => {
-        writeSessionHint(false);
+        writeSessionHint(null);
       })
       .finally(() => setIsLoading(false));
   }, [redirectToLoginOnUnauthorized]);
+
+  // Cross-tab sync: another tab logged in or out, so the shared cookie now
+  // belongs to a different (or no) account. Reload rather than keep showing
+  // this tab's stale principal and account-specific state.
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === SESSION_HINT_KEY && event.newValue !== event.oldValue) {
+        window.location.reload();
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
 
   const login = async (username: string, password: string) => {
     // The response body also carries the token for bearer clients; it is
     // deliberately discarded here so it never touches script-readable storage.
     await api.login(username, password);
-    writeSessionHint(true);
+    writeSessionHint(newSessionGeneration());
     redirectToLoginOnUnauthorized();
     const user = await api.getMe();
     initSeenPages(user.help_pages_seen ?? []);

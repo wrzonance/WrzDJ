@@ -22,9 +22,12 @@ from tests.conftest import TEST_USER_PASSWORD
 CSRF = {CSRF_HEADER_NAME: CSRF_HEADER_VALUE}
 
 
-def _login(client: TestClient, username: str = "testuser"):
+def _login(client: TestClient, username: str = "testuser", headers: dict | None = None):
+    """Log in the way the dashboard does: with the CSRF header, so a cookie is issued."""
     return client.post(
-        "/api/auth/login", data={"username": username, "password": TEST_USER_PASSWORD}
+        "/api/auth/login",
+        data={"username": username, "password": TEST_USER_PASSWORD},
+        headers=CSRF if headers is None else headers,
     )
 
 
@@ -67,6 +70,18 @@ class TestLoginSetsCookie:
         response = Response()
         session_cookie.set_session_cookie(response, "tok")
         assert "secure" in _session_cookie_header(response)
+
+    def test_login_without_csrf_header_returns_token_but_no_cookie(
+        self, client: TestClient, test_user: User
+    ):
+        """Login CSRF defence: a cross-site form POST cannot carry the header, so it
+        must not be able to plant a session cookie. Bearer clients (bridge-app) do
+        not send the header either and simply get the body token."""
+        response = _login(client, headers={})
+        assert response.status_code == 200
+        assert response.json()["access_token"]
+        assert not any(SESSION_COOKIE_NAME in h for h in _set_cookie_headers(response))
+        assert client.get("/api/auth/me", headers=CSRF).status_code == 401
 
     def test_failed_login_sets_no_cookie(self, client: TestClient, test_user: User):
         response = client.post(

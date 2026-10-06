@@ -26,7 +26,7 @@ function Probe() {
         {isLoading ? 'loading' : isAuthenticated ? `in:${role}` : 'out'}
       </span>
       <button onClick={() => void login('dj', 'pw')}>login</button>
-      <button onClick={() => logout()}>logout</button>
+      <button onClick={() => void logout()}>logout</button>
     </div>
   );
 }
@@ -72,23 +72,83 @@ describe('AuthProvider (cookie session)', () => {
       screen.getByText('login').click();
     });
     await waitFor(() => expect(screen.getByTestId('state').textContent).toBe('in:dj'));
-    expect(localStorage.getItem(SESSION_HINT_KEY)).toBe('1');
+    expect(localStorage.getItem(SESSION_HINT_KEY)).toBeTruthy();
     expect(localStorage.getItem('token')).toBeNull();
     expect(Object.values({ ...localStorage })).not.toContain('secret-jwt');
     expect(mocks.setUnauthorizedHandler).toHaveBeenCalledWith(expect.any(Function));
   });
 
-  it('logout drops the hint and ends the server session', async () => {
+  it('logout asks the server to end the session before reporting logged-out', async () => {
     localStorage.setItem(SESSION_HINT_KEY, '1');
+    let finishDelete: () => void = () => undefined;
+    mocks.endSession.mockReturnValue(new Promise<void>((resolve) => { finishDelete = resolve; }));
     render(<AuthProvider><Probe /></AuthProvider>);
     await waitFor(() => expect(screen.getByTestId('state').textContent).toBe('in:dj'));
     await act(async () => {
       screen.getByText('logout').click();
     });
-    expect(screen.getByTestId('state').textContent).toBe('out');
-    expect(localStorage.getItem(SESSION_HINT_KEY)).toBeNull();
+    // DELETE still in flight: hint already dropped, UI still signed in.
     expect(mocks.endSession).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(SESSION_HINT_KEY)).toBeNull();
+    expect(screen.getByTestId('state').textContent).toBe('in:dj');
+    await act(async () => {
+      finishDelete();
+    });
+    expect(screen.getByTestId('state').textContent).toBe('out');
     expect(mocks.setUnauthorizedHandler).toHaveBeenLastCalledWith(null);
+  });
+
+  it('logout still clears local state when the server cannot be reached', async () => {
+    localStorage.setItem(SESSION_HINT_KEY, '1');
+    mocks.endSession.mockRejectedValue(new Error('network'));
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await waitFor(() => expect(screen.getByTestId('state').textContent).toBe('in:dj'));
+    await act(async () => {
+      screen.getByText('logout').click();
+    });
+    await waitFor(() => expect(screen.getByTestId('state').textContent).toBe('out'));
+    expect(localStorage.getItem(SESSION_HINT_KEY)).toBeNull();
+  });
+
+  it('each login writes a new session generation so other tabs can tell logins apart', async () => {
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await waitFor(() => expect(screen.getByTestId('state').textContent).toBe('out'));
+    await act(async () => { screen.getByText('login').click(); });
+    await waitFor(() => expect(screen.getByTestId('state').textContent).toBe('in:dj'));
+    const first = localStorage.getItem(SESSION_HINT_KEY);
+    await act(async () => { screen.getByText('login').click(); });
+    await waitFor(() => expect(mocks.login).toHaveBeenCalledTimes(2));
+    const second = localStorage.getItem(SESSION_HINT_KEY);
+    expect(first).toBeTruthy();
+    expect(second).toBeTruthy();
+    expect(second).not.toBe(first);
+  });
+
+  it('reloads when another tab changes the session', async () => {
+    const reload = vi.fn();
+    const original = window.location;
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...original, reload },
+    });
+    try {
+      render(<AuthProvider><Probe /></AuthProvider>);
+      await waitFor(() => expect(screen.getByTestId('state').textContent).toBe('out'));
+      act(() => {
+        window.dispatchEvent(new StorageEvent('storage', {
+          key: SESSION_HINT_KEY, oldValue: null, newValue: 'abc-123',
+        }));
+      });
+      expect(reload).toHaveBeenCalledTimes(1);
+      // Unrelated keys and no-op writes are ignored.
+      act(() => {
+        window.dispatchEvent(new StorageEvent('storage', { key: 'wrzdj-theme', oldValue: 'a', newValue: 'b' }));
+        window.dispatchEvent(new StorageEvent('storage', { key: SESSION_HINT_KEY, oldValue: 'x', newValue: 'x' }));
+      });
+      expect(reload).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: original });
+    }
   });
 
   it('removes a JWT persisted by a pre-#754 build', async () => {

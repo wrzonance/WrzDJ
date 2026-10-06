@@ -3119,6 +3119,8 @@ describe('ApiClient', () => {
       await api.login('dj', 'pw');
       const [, options] = mockFetch.mock.calls[0];
       expect(options.credentials).toBe('include');
+      // Without this header the API returns the token but issues no cookie (login CSRF).
+      expect(options.headers[CSRF_HEADER_NAME]).toBe(CSRF_HEADER_VALUE);
     });
 
     it('authenticated requests carry the CSRF header and credentials', async () => {

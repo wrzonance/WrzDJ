@@ -4,7 +4,7 @@
  * Tidal export, file downloads, M3U/txt dual-button, pool notice.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import type { ExportPreflight, ExportSpotifyResult, ExportTidalResult, SetDetail } from '@/lib/api-types';
 import { ApiError } from '@/lib/api';
@@ -143,6 +143,10 @@ beforeEach(() => {
   createObjectURLSpy.mockReturnValue('blob:mock-url');
 });
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 // ============================================================
 // 1. Platform picker — Apple Music export is available
 // ============================================================
@@ -249,11 +253,12 @@ describe('ExportModal — platform picker', () => {
   ])('prevents retrying an unconfirmed Apple Music export with %s', async (_label, playlistId) => {
     mockApi.exportPreflight.mockResolvedValue(makePreflightClean('apple_music'));
     const message = 'Apple Music export could not be confirmed. Do not retry; check your library.';
-    mockApi.exportSetToAppleMusic.mockRejectedValue(
-      Object.assign(new ApiError(message, 502), {
-        code: 'apple_music_write_uncertain',
-        detail: { code: 'apple_music_write_uncertain', message, playlist_id: playlistId },
-      }),
+    const actualApi = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      detail: { code: 'apple_music_write_uncertain', message, playlist_id: playlistId },
+    }), { status: 502 })));
+    mockApi.exportSetToAppleMusic.mockImplementation((setId, skipUnresolved) =>
+      actualApi.api.exportSetToAppleMusic(setId, skipUnresolved),
     );
 
     render(<ExportModal {...baseProps} />);

@@ -3127,6 +3127,32 @@ describe('ApiClient', () => {
     });
   });
 
+  describe('Apple Music set export', () => {
+    it('preserves the uncertain write code, message, and known playlist ID from HTTP errors', async () => {
+      api.setToken('test-token');
+      const detail = {
+        code: 'apple_music_write_uncertain',
+        message: 'Do not retry; check your library.',
+        playlist_id: 'p.playlist123',
+      };
+      mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({ detail }), { status: 502 }));
+
+      const error = await api.exportSetToAppleMusic(42, false).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({
+        status: 502,
+        message: detail.message,
+        code: detail.code,
+        detail,
+      });
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/setbuilder/sets/42/export/apple-music'),
+        expect.objectContaining({ method: 'POST' }),
+      );
+    });
+  });
+
   describe('cookie session (#754)', () => {
     it('login sends credentials so the HttpOnly session cookie is stored', async () => {
       mockFetch.mockResolvedValueOnce({

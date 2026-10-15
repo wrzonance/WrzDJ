@@ -343,6 +343,23 @@ export class ApiError extends Error {
   }
 }
 
+function apiErrorFromBody(body: unknown, status: number): ApiError {
+  const errorObject = body && typeof body === 'object'
+    ? body as { detail?: unknown }
+    : null;
+  const detail = errorObject?.detail;
+  const detailObject = detail && typeof detail === 'object'
+    ? detail as { code?: unknown; message?: unknown }
+    : null;
+  const message = typeof detail === 'string'
+    ? detail
+    : typeof detailObject?.message === 'string'
+      ? detailObject.message
+      : 'Request failed';
+  const code = typeof detailObject?.code === 'string' ? detailObject.code : undefined;
+  return new ApiError(message, status, code, detail);
+}
+
 export class NicknameConflictError extends Error {
   claimed: boolean;
   constructor(claimed: boolean) {
@@ -410,23 +427,13 @@ export async function withHumanRetry<T>(
   }
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: 'Request failed' }));
-    const detail = error?.detail;
-    const detailObject = detail && typeof detail === 'object'
-      ? detail as { code?: unknown; message?: unknown }
-      : null;
-    if (detailObject?.code === 'human_verification_required') {
+    if (apiErrorFromBody(error, res.status).code === 'human_verification_required') {
       // Still unverified after the one retry — surface a typed error so pages
       // can distinguish "bot check pending/failed" from feature-level 403s
       // (e.g. frictionless_disabled). See issue #419.
       throw new HumanVerificationRequiredError();
     }
-    const message = typeof detail === 'string'
-      ? detail
-      : typeof detailObject?.message === 'string'
-        ? detailObject.message
-        : 'Request failed';
-    const code = typeof detailObject?.code === 'string' ? detailObject.code : undefined;
-    throw new ApiError(message, res.status, code, detail);
+    throw apiErrorFromBody(error, res.status);
   }
   return res.json();
 }
@@ -509,7 +516,7 @@ class ApiClient {
         this.onUnauthorized();
       }
       const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-      throw new ApiError(typeof error.detail === 'string' ? error.detail : 'Request failed', response.status);
+      throw apiErrorFromBody(error, response.status);
     }
 
     if (response.status === 204) {
@@ -538,7 +545,7 @@ class ApiClient {
         this.onUnauthorized();
       }
       const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-      throw new ApiError(typeof error.detail === 'string' ? error.detail : 'Request failed', response.status);
+      throw apiErrorFromBody(error, response.status);
     }
 
     return response;
@@ -552,7 +559,7 @@ class ApiClient {
     const response = await fetch(url);
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-      throw new ApiError(typeof error.detail === 'string' ? error.detail : 'Request failed', response.status);
+      throw apiErrorFromBody(error, response.status);
     }
     return response.json();
   }

@@ -332,10 +332,14 @@ export interface BulkReviewResponse {
 
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  code?: string;
+  detail?: unknown;
+  constructor(message: string, status: number, code?: string, detail?: unknown) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = code;
+    this.detail = detail;
   }
 }
 
@@ -406,13 +410,23 @@ export async function withHumanRetry<T>(
   }
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: 'Request failed' }));
-    if (error?.detail?.code === 'human_verification_required') {
+    const detail = error?.detail;
+    const detailObject = detail && typeof detail === 'object'
+      ? detail as { code?: unknown; message?: unknown }
+      : null;
+    if (detailObject?.code === 'human_verification_required') {
       // Still unverified after the one retry — surface a typed error so pages
       // can distinguish "bot check pending/failed" from feature-level 403s
       // (e.g. frictionless_disabled). See issue #419.
       throw new HumanVerificationRequiredError();
     }
-    throw new ApiError(error.detail || 'Request failed', res.status);
+    const message = typeof detail === 'string'
+      ? detail
+      : typeof detailObject?.message === 'string'
+        ? detailObject.message
+        : 'Request failed';
+    const code = typeof detailObject?.code === 'string' ? detailObject.code : undefined;
+    throw new ApiError(message, res.status, code, detail);
   }
   return res.json();
 }

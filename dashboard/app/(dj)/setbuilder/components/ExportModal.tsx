@@ -106,7 +106,8 @@ function errMessage(e: unknown): string {
 // Main component
 // ---------------------------------------------------------------------------
 
-type Stage = 'pick' | 'checking' | 'confirm' | 'exporting' | 'done';
+type Stage = 'pick' | 'checking' | 'confirm' | 'exporting' | 'unconfirmed' | 'done';
+type AppleMusicUnconfirmed = { message: string; playlistId: string | null };
 
 export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalProps) {
   const [stage, setStage] = useState<Stage>('pick');
@@ -116,6 +117,7 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
   const [tidalResult, setTidalResult] = useState<ExportTidalResult | null>(null);
   const [spotifyResult, setSpotifyResult] = useState<ExportSpotifyResult | null>(null);
   const [appleMusicResult, setAppleMusicResult] = useState<ExportAppleMusicResult | null>(null);
+  const [appleMusicUnconfirmed, setAppleMusicUnconfirmed] = useState<AppleMusicUnconfirmed | null>(null);
   const [fileDownloaded, setFileDownloaded] = useState<string | null>(null); // filename
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
@@ -129,6 +131,7 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
     setError(null);
     setSkipUnresolved(false);
     setPreflight(null);
+    setAppleMusicUnconfirmed(null);
     setFileDownloaded(null);
     setStage('checking');
 
@@ -222,6 +225,17 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
       });
       setStage('done');
     } catch (e) {
+      if (e instanceof ApiError && e.code === 'apple_music_write_uncertain') {
+        const detail = e.detail && typeof e.detail === 'object'
+          ? e.detail as { playlist_id?: unknown }
+          : null;
+        setAppleMusicUnconfirmed({
+          message: e.message,
+          playlistId: typeof detail?.playlist_id === 'string' ? detail.playlist_id : null,
+        });
+        setStage('unconfirmed');
+        return;
+      }
       setError(errMessage(e));
       if (
         e instanceof ApiError &&
@@ -287,6 +301,7 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
     setTidalResult(null);
     setSpotifyResult(null);
     setAppleMusicResult(null);
+    setAppleMusicUnconfirmed(null);
     setDownloading(false);
   };
 
@@ -308,6 +323,7 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
               {stage === 'confirm' && `Export to ${activePlatform?.label ?? ''}`}
               {stage === 'exporting' && 'Exporting…'}
               {stage === 'done' && 'Export complete'}
+              {stage === 'unconfirmed' && 'Export not confirmed'}
             </div>
             {stage === 'pick' && (
               <div className={styles.imSubtitle}>Choose a platform or format</div>
@@ -393,6 +409,14 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
           )}
           {stage === 'done' && spotifyResult && <SpotifyDonePanel result={spotifyResult} />}
           {stage === 'done' && appleMusicResult && <AppleMusicDonePanel result={appleMusicResult} />}
+          {stage === 'unconfirmed' && appleMusicUnconfirmed && (
+            <div role="status">
+              <p>{appleMusicUnconfirmed.message}</p>
+              {appleMusicUnconfirmed.playlistId && (
+                <p>Playlist ID: {appleMusicUnconfirmed.playlistId}</p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -402,7 +426,7 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
               Close
             </button>
           )}
-          {(stage === 'confirm' || stage === 'exporting') && (
+          {(stage === 'confirm' || stage === 'exporting' || stage === 'unconfirmed') && (
             <button className="btn btn-sm" onClick={handleBack} disabled={stage === 'exporting'}>
               ← Back
             </button>

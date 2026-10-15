@@ -243,6 +243,46 @@ describe('ExportModal — platform picker', () => {
     });
   });
 
+  it.each([
+    ['known playlist ID', 'p.playlist123'],
+    ['unknown playlist ID', null],
+  ])('prevents retrying an unconfirmed Apple Music export with %s', async (_label, playlistId) => {
+    mockApi.exportPreflight.mockResolvedValue(makePreflightClean('apple_music'));
+    const message = 'Apple Music export could not be confirmed. Do not retry; check your library.';
+    mockApi.exportSetToAppleMusic.mockRejectedValue(
+      Object.assign(new ApiError(message, 502), {
+        code: 'apple_music_write_uncertain',
+        detail: { code: 'apple_music_write_uncertain', message, playlist_id: playlistId },
+      }),
+    );
+
+    render(<ExportModal {...baseProps} />);
+    fireEvent.click(screen.getByText('Apple Music'));
+    fireEvent.click(await screen.findByRole('button', { name: /export to apple music/i }));
+
+    expect(await screen.findByText(message)).toBeTruthy();
+    if (playlistId) {
+      expect(screen.getByText(/p\.playlist123/)).toBeTruthy();
+    } else {
+      expect(screen.queryByText(/p\.playlist123/)).toBeNull();
+    }
+    expect(screen.queryByRole('button', { name: /export to apple music/i })).toBeNull();
+    expect(screen.getByRole('button', { name: /back/i })).toBeTruthy();
+    expect(mockApi.exportSetToAppleMusic).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an ordinary Apple Music provider failure retryable', async () => {
+    mockApi.exportPreflight.mockResolvedValue(makePreflightClean('apple_music'));
+    mockApi.exportSetToAppleMusic.mockRejectedValue(new ApiError('Provider unavailable', 502));
+
+    render(<ExportModal {...baseProps} />);
+    fireEvent.click(screen.getByText('Apple Music'));
+    fireEvent.click(await screen.findByRole('button', { name: /export to apple music/i }));
+
+    expect(await screen.findByRole('button', { name: /export to apple music/i })).toBeTruthy();
+    expect(screen.getByText('Provider unavailable')).toBeTruthy();
+  });
+
   it('disables Apple Music connect while MusicKit authorization is pending', async () => {
     mockApi.exportPreflight
       .mockResolvedValueOnce({

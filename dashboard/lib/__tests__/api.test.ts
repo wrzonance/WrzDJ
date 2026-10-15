@@ -3107,6 +3107,24 @@ describe('ApiClient', () => {
       await expect(withHumanRetry(doFetch, reverify)).rejects.toThrow('human_verification_failed');
       expect(doFetch).toHaveBeenCalledTimes(1);
     });
+
+    it('preserves a structured provider error code and detail for recovery handling', async () => {
+      const detail = {
+        code: 'apple_music_write_uncertain',
+        message: 'Do not retry; check your library.',
+        playlist_id: 'p.playlist123',
+      };
+      const doFetch = vi.fn(async () => new Response(JSON.stringify({ detail }), { status: 502 }));
+
+      const error = await withHumanRetry(doFetch, vi.fn()).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({
+        message: detail.message,
+        code: detail.code,
+        detail,
+      });
+    });
   });
 
   describe('cookie session (#754)', () => {

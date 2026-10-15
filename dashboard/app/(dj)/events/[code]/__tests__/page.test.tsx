@@ -795,6 +795,45 @@ describe('EventQueuePage', () => {
         'The download did not include a truncation status. Verify it is complete before relying on it.'
       );
     });
+
+    it('keeps a history warning when a concurrent request export completes without truncation', async () => {
+      setupDefaultMocks();
+      vi.mocked(api.getEvent).mockRejectedValue(new ApiError('Expired', 410));
+      vi.mocked(api.getArchivedEvents).mockResolvedValue([{
+        ...mockEvent(), status: 'expired' as const, request_count: 0, archived_at: null,
+      }]);
+
+      let resolveRequest!: (truncated: boolean | null) => void;
+      let resolveHistory!: (truncated: boolean | null) => void;
+      vi.mocked(api.exportEventCsv).mockImplementation(() => new Promise((resolve) => {
+        resolveRequest = resolve;
+      }));
+      vi.mocked(api.exportPlayHistoryCsv).mockImplementation(() => new Promise((resolve) => {
+        resolveHistory = resolve;
+      }));
+
+      render(<EventQueuePage />);
+      await screen.findByText('Test Event');
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Export Play History' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+      });
+
+      await act(async () => {
+        resolveHistory(true);
+        await Promise.resolve();
+      });
+      const warning = 'This CSV contains the first 10,000 play history entries only.';
+      expect(screen.getByRole('status')).toHaveTextContent(warning);
+
+      await act(async () => {
+        resolveRequest(false);
+        await Promise.resolve();
+      });
+
+      expect(screen.getByRole('status')).toHaveTextContent(warning);
+    });
   });
 
   describe('Display settings via ManageTab', () => {

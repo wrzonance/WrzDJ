@@ -131,7 +131,8 @@ export default function EventQueuePage() {
 
   // Inline action error (auto-dismissing)
   const [actionError, setActionError] = useState<string | null>(null);
-  const [exportWarning, setExportWarning] = useState<string | null>(null);
+  const [requestExportWarning, setRequestExportWarning] = useState<string | null>(null);
+  const [playHistoryExportWarning, setPlayHistoryExportWarning] = useState<string | null>(null);
 
   // Tab state
   const [activeTab, setActiveTab] = useState<'songs' | 'manage' | 'pre-event'>('songs');
@@ -494,10 +495,10 @@ export default function EventQueuePage() {
 
   const handleExportCsv = async () => {
     setExporting(true);
-    setExportWarning(null);
+    setRequestExportWarning(null);
     try {
       const truncated = await api.exportEventCsv(code);
-      setExportWarning(
+      setRequestExportWarning(
         truncated === true
           ? 'This CSV contains the first 10,000 requests only.'
           : truncated === null
@@ -513,10 +514,10 @@ export default function EventQueuePage() {
 
   const handleExportPlayHistoryCsv = async () => {
     setExportingHistory(true);
-    setExportWarning(null);
+    setPlayHistoryExportWarning(null);
     try {
       const truncated = await api.exportPlayHistoryCsv(code);
-      setExportWarning(
+      setPlayHistoryExportWarning(
         truncated === true
           ? 'This CSV contains the first 10,000 play history entries only.'
           : truncated === null
@@ -959,15 +960,16 @@ export default function EventQueuePage() {
           {actionError}
         </div>
       )}
-      {exportWarning && (
+      {[requestExportWarning, playHistoryExportWarning].map((warning, index) => warning && (
         <div
+          key={`${index}-${warning}`}
           role="status"
           aria-live="polite"
           style={{ background: 'var(--color-warning-subtle)', color: 'var(--color-warning)', padding: '0.75rem 1rem', borderRadius: '0.5rem', marginBottom: '1rem', fontSize: '0.875rem' }}
         >
-          {exportWarning}
+          {warning}
         </div>
-      )}
+      ))}
 
       {/* 1. Header */}
       <div className="header">

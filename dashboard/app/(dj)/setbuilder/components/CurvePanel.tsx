@@ -133,6 +133,11 @@ export default function CurvePanel({
   const [templates, setTemplates] = useState<CurveTemplatesResponse | null>(null);
   const [activeTemplateName, setActiveTemplateName] = useState<string | null>(null);
   const [windows, setWindows] = useState<VibeWindowView[]>([]);
+  const windowsRef = useRef(windows);
+  const windowEditVersion = useRef(0);
+  const initialSnapshotLoadedFor = useRef<number | null>(null);
+  const editedBeforeSnapshotFor = useRef<number | null>(null);
+  const nextWindowId = useRef(0);
   const [overlay, setOverlay] = useState<OverlayState>(OVERLAY_CLOSED);
   const [prompt, setPrompt] = useState<ReplacePrompt | null>(null);
   const [suggestReplacements, setSuggestReplacements] = useState(true);
@@ -142,6 +147,15 @@ export default function CurvePanel({
   const [curveFitMode, setCurveFitMode] = useState(true);
 
   const totalSec = slots.reduce((acc, s) => acc + s.track.durationSec, 0);
+  const replaceWindows = useCallback((next: VibeWindowView[]) => {
+    windowsRef.current = next;
+    setWindows(next);
+  }, []);
+  const markWindowsEdited = useCallback(() => {
+    windowEditVersion.current += 1;
+    if (!snapshot) editedBeforeSnapshotFor.current = setId;
+  }, [setId, snapshot]);
+
   const rawTargetSec = rawTargetSecForSlots(
     targetDurationSec,
     slots.length,
@@ -217,26 +231,34 @@ export default function CurvePanel({
   }, [refreshTemplates]);
 
   // Load stored vibe windows once per set, after slots (the time domain)
-  // first arrive — a later refetch must never wipe in-session edits.
+  // first arrive. A stale initial response must not wipe edits made meanwhile.
   const windowsLoadedFor = useRef<number | null>(null);
   useEffect(() => {
     const restored = windowsFromSnapshot(snapshot, totalSec);
     if (restored == null) return;
     windowsLoadedFor.current = setId;
-    setWindows(restored);
-  }, [setId, snapshot, snapshotVersion, totalSec]);
+    if (initialSnapshotLoadedFor.current !== setId) {
+      initialSnapshotLoadedFor.current = setId;
+      if (editedBeforeSnapshotFor.current === setId) {
+        editedBeforeSnapshotFor.current = null;
+        return;
+      }
+    }
+    replaceWindows(restored);
+  }, [replaceWindows, setId, snapshot, snapshotVersion, totalSec]);
 
   useEffect(() => {
     if (snapshot || totalSec <= 0 || windowsLoadedFor.current === setId) return;
     let cancelled = false;
+    const editVersionAtLoad = windowEditVersion.current;
     // Mark eagerly so in-flight fetches dedupe; roll back on failure so a
     // transient error doesn't block the load for the rest of the session.
     windowsLoadedFor.current = setId;
     api
       .getVibeWindows(setId)
       .then((resp) => {
-        if (cancelled) return;
-        setWindows(
+        if (cancelled || windowEditVersion.current !== editVersionAtLoad) return;
+        replaceWindows(
           resp.windows.map((w, i) => ({
             id: `w-${i}-${w.t0_sec}`,
             t0: Math.min(1, w.t0_sec / totalSec),
@@ -246,14 +268,14 @@ export default function CurvePanel({
         );
       })
       .catch(() => {
-        if (cancelled) return;
+        if (cancelled || windowEditVersion.current !== editVersionAtLoad) return;
         if (windowsLoadedFor.current === setId) windowsLoadedFor.current = null;
-        setWindows([]);
+        replaceWindows([]);
       });
     return () => {
       cancelled = true;
     };
-  }, [setId, snapshot, totalSec]);
+  }, [replaceWindows, setId, snapshot, totalSec]);
 
   const persistWindows = useCallback(
     (next: VibeWindowView[], label: string) => {
@@ -360,7 +382,8 @@ export default function CurvePanel({
           t1: w.t1,
           label: 'Slow set',
         }));
-        setWindows(next);
+        markWindowsEdited();
+        replaceWindows(next);
         setActiveTemplateName(name);
         setPrompt(null);
       })
@@ -411,40 +434,43 @@ export default function CurvePanel({
   // --- Vibe windows ---------------------------------------------------------
 
   const addVibeWindow = (preset: VibePreset) => {
-    setWindows((prev) => {
-      const span = 0.08;
-      let t0 = 0.42;
-      const sorted = [...prev].sort((a, b) => a.t0 - b.t0);
-      for (const s of sorted) {
-        if (t0 + span < s.t0) break;
-        if (t0 >= s.t0 && t0 < s.t1) t0 = Math.min(1 - span, s.t1 + 0.01);
-      }
-      const next = [
-        ...prev,
-        { id: `w-${Date.now()}`, t0, t1: Math.min(1, t0 + span), label: preset.label },
-      ];
-      persistWindows(next, `Add ${preset.label} window`);
-      return next;
-    });
+    const span = 0.08;
+    let t0 = 0.42;
+    const current = windowsRef.current;
+    const sorted = [...current].sort((a, b) => a.t0 - b.t0);
+    for (const s of sorted) {
+      if (t0 + span < s.t0) break;
+      if (t0 >= s.t0 && t0 < s.t1) t0 = Math.min(1 - span, s.t1 + 0.01);
+    }
+    const next = [
+      ...current,
+      {
+        id: `w-${Date.now()}-${nextWindowId.current++}`,
+        t0,
+        t1: Math.min(1, t0 + span),
+        label: preset.label,
+      },
+    ];
+    markWindowsEdited();
+    replaceWindows(next);
+    persistWindows(next, `Add ${preset.label} window`);
   };
 
   const changeWindow = (id: string, patch: Partial<VibeWindowView>) => {
-    setWindows((prev) => prev.map((w) => (w.id === id ? { ...w, ...patch } : w)));
+    markWindowsEdited();
+    replaceWindows(windowsRef.current.map((w) => (w.id === id ? { ...w, ...patch } : w)));
   };
 
   const commitWindow = () => {
-    setWindows((prev) => {
-      persistWindows(prev, 'Move vibe window');
-      return prev;
-    });
+    markWindowsEdited();
+    persistWindows(windowsRef.current, 'Move vibe window');
   };
 
   const deleteWindow = (id: string) => {
-    setWindows((prev) => {
-      const next = prev.filter((w) => w.id !== id);
-      persistWindows(next, 'Remove vibe window');
-      return next;
-    });
+    markWindowsEdited();
+    const next = windowsRef.current.filter((w) => w.id !== id);
+    replaceWindows(next);
+    persistWindows(next, 'Remove vibe window');
   };
 
   // --- Replacement popover --------------------------------------------------

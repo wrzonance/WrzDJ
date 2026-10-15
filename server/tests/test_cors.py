@@ -66,6 +66,9 @@ class TestCorsConfiguration:
         assert "x-pair-nonce" in allowed, (
             f"X-Pair-Nonce not allowed by prod CORS; allow-headers={allowed!r}"
         )
+        response = client.get("/health", headers={"Origin": "https://app.wrzdj.com"})
+        exposed = response.headers.get("access-control-expose-headers", "").lower()
+        assert "x-export-truncated" in exposed, exposed
 
     def test_cors_allows_csrf_header_preflight_in_production(self, monkeypatch):
         """Prod CORS must allow X-Requested-With: the cookie-auth CSRF header (#754)."""
@@ -103,3 +106,6 @@ class TestCorsConfiguration:
         assert resp.status_code == 200, resp.text
         assert resp.headers.get("access-control-allow-origin") == "http://192.168.20.5:3000"
         assert resp.headers.get("access-control-allow-credentials") == "true"
+        response = client.get("/health", headers={"Origin": "http://192.168.20.5:3000"})
+        exposed = response.headers.get("access-control-expose-headers", "").lower()
+        assert "x-export-truncated" in exposed, exposed

@@ -13175,7 +13175,7 @@
     },
     "/api/auth/login": {
       "post": {
-        "description": "Issue the DJ JWT.\n\nThe token is returned in the body for bearer clients (bridge-app) AND set as\nan HttpOnly session cookie for the dashboard (#754), which never stores it.",
+        "description": "Issue the DJ JWT.\n\nThe token is returned in the body for bearer clients (bridge-app). For the\ndashboard (#754) it is ALSO set as an HttpOnly session cookie, but only when\nthe request carries the CSRF header: a cross-site form POST cannot add that\nheader, so it cannot plant a session cookie for an attacker's account in a\nvictim's browser (login CSRF).",
         "operationId": "login_api_auth_login_post",
         "requestBody": {
           "content": {
@@ -15015,11 +15015,25 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
               }
             },
-            "description": "Successful Response"
+            "description": "CSV download; the header reports whether rows were omitted.",
+            "headers": {
+              "X-Export-Truncated": {
+                "description": "Whether additional rows were omitted after the export limit.",
+                "schema": {
+                  "enum": [
+                    "true",
+                    "false"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -15061,11 +15075,25 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
               }
             },
-            "description": "Successful Response"
+            "description": "CSV download; the header reports whether rows were omitted.",
+            "headers": {
+              "X-Export-Truncated": {
+                "description": "Whether additional rows were omitted after the export limit.",
+                "schema": {
+                  "enum": [
+                    "true",
+                    "false"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {

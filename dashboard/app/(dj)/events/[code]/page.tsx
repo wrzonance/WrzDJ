@@ -131,6 +131,7 @@ export default function EventQueuePage() {
 
   // Inline action error (auto-dismissing)
   const [actionError, setActionError] = useState<string | null>(null);
+  const [exportWarning, setExportWarning] = useState<string | null>(null);
 
   // Tab state
   const [activeTab, setActiveTab] = useState<'songs' | 'manage' | 'pre-event'>('songs');
@@ -493,8 +494,12 @@ export default function EventQueuePage() {
 
   const handleExportCsv = async () => {
     setExporting(true);
+    setExportWarning(null);
     try {
-      await api.exportEventCsv(code);
+      const truncated = await api.exportEventCsv(code);
+      setExportWarning(
+        truncated ? 'This CSV contains the first 10,000 requests only.' : null
+      );
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Failed to export');
     } finally {
@@ -504,8 +509,12 @@ export default function EventQueuePage() {
 
   const handleExportPlayHistoryCsv = async () => {
     setExportingHistory(true);
+    setExportWarning(null);
     try {
-      await api.exportPlayHistoryCsv(code);
+      const truncated = await api.exportPlayHistoryCsv(code);
+      setExportWarning(
+        truncated ? 'This CSV contains the first 10,000 play history entries only.' : null
+      );
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Failed to export play history');
     } finally {
@@ -940,6 +949,15 @@ export default function EventQueuePage() {
       {actionError && (
         <div style={{ background: 'var(--color-danger-subtle)', color: 'var(--color-danger)', padding: '0.75rem 1rem', borderRadius: '0.5rem', marginBottom: '1rem', fontSize: '0.875rem' }}>
           {actionError}
+        </div>
+      )}
+      {exportWarning && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{ background: 'var(--color-warning-subtle)', color: 'var(--color-warning)', padding: '0.75rem 1rem', borderRadius: '0.5rem', marginBottom: '1rem', fontSize: '0.875rem' }}
+        >
+          {exportWarning}
         </div>
       )}
 

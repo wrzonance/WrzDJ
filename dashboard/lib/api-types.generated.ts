@@ -525,8 +525,11 @@ export interface paths {
          * Login
          * @description Issue the DJ JWT.
          *
-         *     The token is returned in the body for bearer clients (bridge-app) AND set as
-         *     an HttpOnly session cookie for the dashboard (#754), which never stores it.
+         *     The token is returned in the body for bearer clients (bridge-app). For the
+         *     dashboard (#754) it is ALSO set as an HttpOnly session cookie, but only when
+         *     the request carries the CSRF header: a cross-site form POST cannot add that
+         *     header, so it cannot plant a session cookie for an attacker's account in a
+         *     victim's browser (login CSRF).
          */
         post: operations["login_api_auth_login_post"];
         delete?: never;
@@ -10110,13 +10113,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description CSV download; the header reports whether rows were omitted. */
             200: {
                 headers: {
+                    /** @description Whether additional rows were omitted after the export limit. */
+                    "X-Export-Truncated"?: "true" | "false";
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "text/csv": string;
                 };
             };
             /** @description Validation Error */
@@ -10141,13 +10146,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description CSV download; the header reports whether rows were omitted. */
             200: {
                 headers: {
+                    /** @description Whether additional rows were omitted after the export limit. */
+                    "X-Export-Truncated"?: "true" | "false";
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "text/csv": string;
                 };
             };
             /** @description Validation Error */

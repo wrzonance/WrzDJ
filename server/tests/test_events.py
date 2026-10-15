@@ -522,6 +522,72 @@ class TestArchiveEvents:
 class TestCsvExport:
     """Tests for CSV export functionality."""
 
+    def test_export_csv_reports_truncation_at_the_request_limit(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+        test_event: Event,
+        test_request: Request,
+    ):
+        from app.api.events_exports import MAX_EXPORT_REQUESTS
+
+        for row_count, expected_truncated in (
+            (MAX_EXPORT_REQUESTS, "false"),
+            (MAX_EXPORT_REQUESTS + 1, "true"),
+        ):
+            rows = [test_request] * row_count
+            with (
+                patch("app.api.events_exports.get_requests_for_event", return_value=rows),
+                patch(
+                    "app.api.events_exports.export_requests_to_csv", return_value="csv\n"
+                ) as export_csv,
+            ):
+                response = client.get(
+                    f"/api/events/{test_event.code}/export/csv",
+                    headers=auth_headers,
+                )
+
+            assert response.status_code == 200
+            assert response.headers["x-export-truncated"] == expected_truncated
+            export_csv.assert_called_once_with(test_event, rows[:MAX_EXPORT_REQUESTS])
+
+    def test_export_play_history_reports_truncation_at_the_history_limit(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+        test_event: Event,
+        db: Session,
+    ):
+        from app.api.events_exports import MAX_EXPORT_PLAY_HISTORY
+        from app.models.play_history import PlayHistory
+
+        row = PlayHistory(
+            event_id=test_event.id,
+            title="Export row",
+            artist="Artist",
+            source="manual",
+            play_order=1,
+        )
+        for total, expected_truncated in (
+            (MAX_EXPORT_PLAY_HISTORY, "false"),
+            (MAX_EXPORT_PLAY_HISTORY + 1, "true"),
+        ):
+            rows = [row] * min(total, MAX_EXPORT_PLAY_HISTORY)
+            with (
+                patch("app.api.events_exports.get_play_history", return_value=(rows, total)),
+                patch(
+                    "app.api.events_exports.export_play_history_to_csv", return_value="csv\n"
+                ) as export_csv,
+            ):
+                response = client.get(
+                    f"/api/events/{test_event.code}/export/play-history/csv",
+                    headers=auth_headers,
+                )
+
+            assert response.status_code == 200
+            assert response.headers["x-export-truncated"] == expected_truncated
+            export_csv.assert_called_once_with(test_event, rows)
+
     def test_export_csv_success(
         self, client: TestClient, auth_headers: dict, test_event: Event, db: Session
     ):

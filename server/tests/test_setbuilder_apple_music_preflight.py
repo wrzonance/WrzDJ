@@ -255,5 +255,8 @@ def test_uncertain_export_response_includes_recovery_id_and_never_claims_success
     )
 
     assert response.status_code == 502
-    assert "p.created123" in response.json()["detail"]
-    assert "could not be confirmed" in response.json()["detail"]
+    assert response.json()["detail"] == {
+        "code": "apple_music_write_uncertain",
+        "message": "Apple Music export could not be confirmed. Do not retry; check your library.",
+        "playlist_id": "p.created123",
+    }

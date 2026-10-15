@@ -1977,9 +1977,13 @@ def export_set_apple_music(
     except apple_music_tokens.AppleMusicNotConnected:
         raise HTTPException(status_code=400, detail="Apple Music account not connected") from None
     except export_apple_music.AppleMusicWriteUncertain as exc:
-        detail = "Apple Music export could not be confirmed. Do not retry; check your library."
-        if exc.playlist_id:
-            detail += f" Created playlist ID: {exc.playlist_id}."
+        detail = {
+            "code": "apple_music_write_uncertain",
+            "message": (
+                "Apple Music export could not be confirmed. Do not retry; check your library."
+            ),
+            "playlist_id": exc.playlist_id,
+        }
         raise HTTPException(status_code=502, detail=detail) from None
     except apple_music_tokens.AppleMusicUserAuthorizationError:
         raise HTTPException(

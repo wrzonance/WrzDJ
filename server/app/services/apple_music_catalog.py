@@ -16,7 +16,7 @@ MIN_TITLE_SIMILARITY = 0.85
 MIN_ARTIST_SIMILARITY = 0.85
 MATCH_THRESHOLD = 0.88
 _STOREFRONT_RE = re.compile(r"^[a-z]{2}$")
-_PLAYLIST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+_PLAYLIST_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _MAX_PLAYLIST_PAGES = 100
 
 
@@ -86,7 +86,18 @@ def _public_playlist_resource(storefront: str, playlist_id: str) -> tuple[str, d
 
 def preview_public_playlist(storefront: str, playlist_id: str) -> dict[str, object]:
     """Fetch public playlist metadata using only the Apple catalog developer token."""
-    _, attributes = _public_playlist_resource(storefront, playlist_id)
+    developer_token, attributes = _public_playlist_resource(storefront, playlist_id)
+    track_payload = apple_music_tokens.apple_get(
+        f"/catalog/{storefront}/playlists/{playlist_id}/tracks",
+        developer_token,
+        params={"limit": "1"},
+    )
+    track_meta = track_payload.get("meta")
+    track_count = track_meta.get("total") if isinstance(track_meta, dict) else None
+    if not isinstance(track_count, int) or isinstance(track_count, bool) or track_count < 0:
+        track_count = attributes.get("trackCount")
+    if not isinstance(track_count, int) or isinstance(track_count, bool) or track_count < 0:
+        track_count = None
     return {
         "name": attributes.get("name") if isinstance(attributes.get("name"), str) else None,
         "owner": (
@@ -94,9 +105,7 @@ def preview_public_playlist(storefront: str, playlist_id: str) -> dict[str, obje
             if isinstance(attributes.get("curatorName"), str)
             else None
         ),
-        "track_count": (
-            attributes.get("trackCount") if isinstance(attributes.get("trackCount"), int) else None
-        ),
+        "track_count": track_count,
     }
 
 
@@ -133,15 +142,29 @@ def fetch_public_playlist(
     developer_token, attributes = _public_playlist_resource(storefront, playlist_id)
     path = f"/catalog/{storefront}/playlists/{playlist_id}/tracks"
     songs: list[AppleCatalogSong] = []
+    resource_count = 0
+    provider_total: int | None = None
     params = None
     for page_number in range(_MAX_PLAYLIST_PAGES):
         payload = apple_music_tokens.apple_get(path, developer_token, params=params)
-        songs.extend(_parse_songs(payload))
+        page_songs, page_total = _parse_public_playlist_tracks(payload)
+        songs.extend(page_songs)
+        resource_count += len(page_songs)
+        if provider_total is None:
+            provider_total = page_total
+        elif page_total is not None and page_total != provider_total:
+            raise apple_music_tokens.AppleMusicError("Apple Music playlist changed during import")
         params = _next_page(payload.get("next"), storefront=storefront, playlist_id=playlist_id)
         if params is None:
             break
+        if not page_songs:
+            raise apple_music_tokens.AppleMusicError(
+                "Apple Music returned incomplete playlist tracks"
+            )
     else:
         raise apple_music_tokens.AppleMusicError("Apple Music playlist has too many pages")
+    if provider_total is not None and resource_count != provider_total:
+        raise apple_music_tokens.AppleMusicError("Apple Music returned incomplete playlist tracks")
     metadata = {
         "name": attributes.get("name") if isinstance(attributes.get("name"), str) else None,
         "owner": (
@@ -149,9 +172,40 @@ def fetch_public_playlist(
             if isinstance(attributes.get("curatorName"), str)
             else None
         ),
-        "track_count": len(songs),
+        "track_count": provider_total if provider_total is not None else resource_count,
     }
     return metadata, songs
+
+
+def _parse_public_playlist_tracks(
+    payload: dict[str, object],
+) -> tuple[list[AppleCatalogSong], int | None]:
+    data = payload.get("data")
+    if not isinstance(data, list):
+        raise apple_music_tokens.AppleMusicError("Apple Music returned invalid playlist tracks")
+    for item in data:
+        if not isinstance(item, dict):
+            raise apple_music_tokens.AppleMusicError(
+                "Apple Music returned an invalid playlist track"
+            )
+        if item.get("type") != "songs":
+            raise apple_music_tokens.AppleMusicError(
+                "Apple Music playlist contains an unsupported track type"
+            )
+    songs = _parse_songs(payload)
+    if len(songs) != len(data):
+        raise apple_music_tokens.AppleMusicError("Apple Music returned an invalid playlist track")
+    meta = payload.get("meta")
+    if meta is None:
+        return songs, None
+    if not isinstance(meta, dict):
+        raise apple_music_tokens.AppleMusicError("Apple Music returned invalid playlist metadata")
+    total = meta.get("total")
+    if total is None:
+        return songs, None
+    if not isinstance(total, int) or isinstance(total, bool) or total < 0:
+        raise apple_music_tokens.AppleMusicError("Apple Music returned invalid playlist metadata")
+    return songs, total
 
 
 def search_catalog(

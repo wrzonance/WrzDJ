@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from app.models.provider_connection import UserProviderConnection
 from app.services import apple_music_catalog, apple_music_tokens
 from app.services.setbuilder.export_common import ExportTrack
@@ -201,11 +203,6 @@ def test_public_playlist_reads_catalog_metadata_and_all_track_pages(monkeypatch)
                             "artistName": "The Example",
                         },
                     },
-                    {
-                        "id": "video-1",
-                        "type": "music-videos",
-                        "attributes": {"name": "Ignore video", "artistName": "The Example"},
-                    },
                 ]
             }
         return {
@@ -246,6 +243,103 @@ def test_public_playlist_reads_catalog_metadata_and_all_track_pages(monkeypatch)
             "dev-token",
             {"offset": "100"},
         ),
+    ]
+
+
+def _mock_public_playlist(monkeypatch, tracks_payload):
+    monkeypatch.setattr(apple_music_tokens, "create_developer_token", lambda: ("dev-token", 100))
+
+    def apple_get(path, _developer_token, *, params=None, **_kwargs):
+        if path.endswith("/tracks"):
+            return tracks_payload
+        return {"data": [{"id": "pl.abc123", "attributes": {"name": "Mix"}}]}
+
+    monkeypatch.setattr(apple_music_tokens, "apple_get", apple_get)
+
+
+@pytest.mark.parametrize("tracks_payload", [{}, {"data": None}, {"data": "not-a-list"}])
+def test_public_playlist_rejects_missing_or_non_list_track_data(monkeypatch, tracks_payload):
+    _mock_public_playlist(monkeypatch, tracks_payload)
+
+    with pytest.raises(apple_music_tokens.AppleMusicError, match="playlist tracks"):
+        apple_music_catalog.fetch_public_playlist("us", "pl.abc123")
+
+
+def test_public_playlist_rejects_malformed_song_instead_of_dropping_it(monkeypatch):
+    _mock_public_playlist(
+        monkeypatch,
+        {
+            "data": [
+                {
+                    "id": "song-1",
+                    "type": "songs",
+                    "attributes": {"name": "Night Drive"},
+                }
+            ],
+            "meta": {"total": 1},
+        },
+    )
+
+    with pytest.raises(apple_music_tokens.AppleMusicError, match="playlist track"):
+        apple_music_catalog.fetch_public_playlist("us", "pl.abc123")
+
+
+def test_public_playlist_rejects_unsupported_video_instead_of_dropping_it(monkeypatch):
+    _mock_public_playlist(
+        monkeypatch,
+        {
+            "data": [
+                {
+                    "id": "video-1",
+                    "type": "music-videos",
+                    "attributes": {"name": "Music video", "artistName": "The Example"},
+                }
+            ],
+            "meta": {"total": 1},
+        },
+    )
+
+    with pytest.raises(apple_music_tokens.AppleMusicError, match="unsupported track type"):
+        apple_music_catalog.fetch_public_playlist("us", "pl.abc123")
+
+
+def test_public_playlist_rejects_incomplete_pagination_count(monkeypatch):
+    _mock_public_playlist(
+        monkeypatch,
+        {
+            "data": [
+                {
+                    "id": "song-1",
+                    "type": "songs",
+                    "attributes": {"name": "Night Drive", "artistName": "The Example"},
+                }
+            ],
+            "meta": {"total": 2},
+        },
+    )
+
+    with pytest.raises(apple_music_tokens.AppleMusicError, match="incomplete"):
+        apple_music_catalog.fetch_public_playlist("us", "pl.abc123")
+
+
+def test_preview_uses_apple_playlist_track_count(monkeypatch):
+    monkeypatch.setattr(apple_music_tokens, "create_developer_token", lambda: ("dev-token", 100))
+    requests = []
+
+    def apple_get(path, _developer_token, *, params=None, **_kwargs):
+        requests.append((path, params))
+        if path.endswith("/tracks"):
+            return {"data": [], "meta": {"total": 12}}
+        return {"data": [{"id": "pl.abc123", "attributes": {"name": "Mix"}}]}
+
+    monkeypatch.setattr(apple_music_tokens, "apple_get", apple_get)
+
+    preview = apple_music_catalog.preview_public_playlist("us", "pl.abc123")
+
+    assert preview["track_count"] == 12
+    assert requests == [
+        ("/catalog/us/playlists/pl.abc123", None),
+        ("/catalog/us/playlists/pl.abc123/tracks", {"limit": "1"}),
     ]
 
 

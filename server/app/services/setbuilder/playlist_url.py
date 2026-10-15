@@ -18,7 +18,7 @@ from urllib.parse import urlsplit
 
 _SPOTIFY_PLAYLIST_RE = re.compile(r"^/playlist/([A-Za-z0-9]{16,40})/?$")
 _APPLE_MUSIC_PLAYLIST_RE = re.compile(
-    r"^/([a-z]{2})/playlist/(?:[^/]+/)?([A-Za-z0-9._-]{1,128})/?$"
+    r"^/([a-z]{2})/playlist/(?:[^/]+/)?([A-Za-z0-9][A-Za-z0-9._-]{0,127})/?$"
 )
 _TIDAL_UUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 _TIDAL_PLAYLIST_RE = re.compile(rf"^/(?:browse/)?playlist/({_TIDAL_UUID})/?$")

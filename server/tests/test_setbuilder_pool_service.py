@@ -395,6 +395,7 @@ class TestUrlParser:
         [
             "https://music.apple.com/playlist/name/pl.abc123",
             "https://music.apple.com/us/playlist/name/not-valid!",
+            "https://music.apple.com/us/playlist/name/..",
             "https://music.apple.com/us/playlist/name/pl.abc123/extra",
         ],
     )

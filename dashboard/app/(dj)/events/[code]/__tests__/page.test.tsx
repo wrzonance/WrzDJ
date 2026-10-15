@@ -775,6 +775,26 @@ describe('EventQueuePage', () => {
         'This CSV contains the first 10,000 play history entries only.'
       );
     });
+
+    it('warns when export truncation status cannot be read', async () => {
+      setupDefaultMocks();
+      vi.mocked(api.getEvent).mockRejectedValue(new ApiError('Expired', 410));
+      vi.mocked(api.getArchivedEvents).mockResolvedValue([{
+        ...mockEvent(), status: 'expired' as const, request_count: 0, archived_at: null,
+      }]);
+      vi.mocked(api.exportEventCsv).mockResolvedValue(null);
+
+      render(<EventQueuePage />);
+      await screen.findByText('Test Event');
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+      });
+
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'The download did not include a truncation status. Verify it is complete before relying on it.'
+      );
+    });
   });
 
   describe('Display settings via ManageTab', () => {

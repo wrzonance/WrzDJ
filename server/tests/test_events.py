@@ -528,6 +528,7 @@ class TestCsvExport:
         auth_headers: dict,
         test_event: Event,
         test_request: Request,
+        db: Session,
     ):
         from app.api.events_exports import MAX_EXPORT_REQUESTS
 
@@ -537,7 +538,9 @@ class TestCsvExport:
         ):
             rows = [test_request] * row_count
             with (
-                patch("app.api.events_exports.get_requests_for_event", return_value=rows),
+                patch(
+                    "app.api.events_exports.get_requests_for_event", return_value=rows
+                ) as get_requests,
                 patch(
                     "app.api.events_exports.export_requests_to_csv", return_value="csv\n"
                 ) as export_csv,
@@ -549,6 +552,13 @@ class TestCsvExport:
 
             assert response.status_code == 200
             assert response.headers["x-export-truncated"] == expected_truncated
+            get_requests.assert_called_once_with(
+                db,
+                test_event,
+                status=None,
+                since=None,
+                limit=MAX_EXPORT_REQUESTS + 1,
+            )
             export_csv.assert_called_once_with(test_event, rows[:MAX_EXPORT_REQUESTS])
 
     def test_export_play_history_reports_truncation_at_the_history_limit(

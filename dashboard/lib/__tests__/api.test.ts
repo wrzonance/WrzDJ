@@ -1321,6 +1321,27 @@ describe('ApiClient', () => {
 
       await expect(api.exportEventCsv('ABC123')).rejects.toThrow('Forbidden');
     });
+
+    it('returns unknown when the truncation header is missing', async () => {
+      api.setToken('test-token');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        blob: async () => new Blob(['csv,content'], { type: 'text/csv' }),
+        headers: new Headers({
+          'Content-Disposition': 'attachment; filename="ABC123.csv"',
+        }),
+      });
+
+      vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test');
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+      vi.spyOn(document, 'createElement').mockReturnValue({
+        href: '',
+        download: '',
+        click: vi.fn(),
+      } as unknown as HTMLElement);
+
+      await expect(api.exportEventCsv('ABC123')).resolves.toBeNull();
+    });
   });
 
   describe('Kiosk Pairing API', () => {

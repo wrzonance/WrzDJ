@@ -541,9 +541,14 @@ class ApiClient {
    * Download a CSV blob from an authenticated endpoint and trigger browser download.
    * Parses filename from Content-Disposition header, falling back to the provided default.
    */
-  private async downloadCsvBlob(url: string, defaultFilename: string): Promise<boolean> {
+  private async downloadCsvBlob(url: string, defaultFilename: string): Promise<boolean | null> {
     const response = await this.rawFetch(url);
-    const truncated = response.headers.get('X-Export-Truncated') === 'true';
+    const truncationHeader = response.headers.get('X-Export-Truncated');
+    const truncated = truncationHeader === 'true'
+      ? true
+      : truncationHeader === 'false'
+        ? false
+        : null;
     const blob = await response.blob();
     const blobUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1313,14 +1318,14 @@ class ApiClient {
     return this.fetch('/api/events/archived');
   }
 
-  async exportEventCsv(code: string): Promise<boolean> {
+  async exportEventCsv(code: string): Promise<boolean | null> {
     return this.downloadCsvBlob(
       `${getApiUrl()}/api/events/${code}/export/csv`,
       `${code}.csv`
     );
   }
 
-  async exportPlayHistoryCsv(code: string): Promise<boolean> {
+  async exportPlayHistoryCsv(code: string): Promise<boolean | null> {
     return this.downloadCsvBlob(
       `${getApiUrl()}/api/events/${code}/export/play-history/csv`,
       `${code}_play_history.csv`

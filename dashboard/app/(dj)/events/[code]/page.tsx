@@ -498,7 +498,11 @@ export default function EventQueuePage() {
     try {
       const truncated = await api.exportEventCsv(code);
       setExportWarning(
-        truncated ? 'This CSV contains the first 10,000 requests only.' : null
+        truncated === true
+          ? 'This CSV contains the first 10,000 requests only.'
+          : truncated === null
+            ? 'The download did not include a truncation status. Verify it is complete before relying on it.'
+            : null
       );
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Failed to export');
@@ -513,7 +517,11 @@ export default function EventQueuePage() {
     try {
       const truncated = await api.exportPlayHistoryCsv(code);
       setExportWarning(
-        truncated ? 'This CSV contains the first 10,000 play history entries only.' : null
+        truncated === true
+          ? 'This CSV contains the first 10,000 play history entries only.'
+          : truncated === null
+            ? 'The download did not include a truncation status. Verify it is complete before relying on it.'
+            : null
       );
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Failed to export play history');

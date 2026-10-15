@@ -924,6 +924,72 @@ describe('BuilderWorkspace', () => {
     await waitFor(() => expect(screen.queryByText('FIRST DANCE')).not.toBeInTheDocument());
   });
 
+  it('restores the saved windows when returning to a set edited before its first snapshot', async () => {
+    const { rerender } = render(<BuilderWorkspace setId={5} />);
+    await waitFor(() => expect(screen.getByTestId('slot-block-0')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('vibe-dropdown-trigger'));
+    fireEvent.click(screen.getByTestId('vibe-preset-first-dance'));
+    expect(await screen.findByText('FIRST DANCE')).toBeInTheDocument();
+
+    rerender(
+      <BuilderWorkspace setId={6} snapshot={documentWithVibeWindow('Set Six')} snapshotVersion={1} />,
+    );
+    expect(await screen.findByText('SET SIX')).toBeInTheDocument();
+
+    rerender(
+      <BuilderWorkspace setId={5} snapshot={documentWithVibeWindow('Set Five Saved')} snapshotVersion={2} />,
+    );
+
+    expect(await screen.findByText('SET FIVE SAVED')).toBeInTheDocument();
+    expect(screen.queryByText('SET SIX')).not.toBeInTheDocument();
+  });
+
+  it('keeps another set initial load when a pending template finishes after navigation', async () => {
+    let resolveTemplate!: (response: {
+      targets: { slot_id: number; target_energy: number }[];
+      windows: { t0: number; t1: number }[];
+    }) => void;
+    let resolveSetSixWindows!: (response: {
+      windows: { t0_sec: number; t1_sec: number; label: string }[];
+    }) => void;
+    mockApplyCurveTemplate.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveTemplate = resolve;
+      }),
+    );
+    mockGetVibeWindows.mockImplementation((requestedSetId: number) =>
+      requestedSetId === 6
+        ? new Promise((resolve) => {
+            resolveSetSixWindows = resolve;
+          })
+        : Promise.resolve({ windows: [] }),
+    );
+
+    const { rerender } = render(<BuilderWorkspace setId={5} />);
+    await waitFor(() => expect(screen.getByTestId('curve-toolbar')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('template-dropdown-trigger'));
+    await waitFor(() => expect(screen.getByTestId('apply-builtin-Club Peak')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('apply-builtin-Club Peak'));
+    await waitFor(() => expect(mockApplyCurveTemplate).toHaveBeenCalledWith(5, { builtin: 'Club Peak' }, expect.any(Array)));
+
+    rerender(<BuilderWorkspace setId={6} />);
+    await waitFor(() => expect(mockGetVibeWindows).toHaveBeenCalledWith(6));
+
+    await act(async () => {
+      resolveTemplate({ targets: [], windows: [{ t0: 0.25, t1: 0.5 }] });
+    });
+    await waitFor(() => expect(mockPutVibeWindows).toHaveBeenCalledWith(5, expect.any(Array)));
+    await act(async () => {
+      resolveSetSixWindows({
+        windows: [{ t0_sec: 60, t1_sec: 90, label: 'Set Six Saved' }],
+      });
+    });
+
+    expect(await screen.findByText('SET SIX SAVED')).toBeInTheDocument();
+    expect(screen.queryByText('SLOW SET')).not.toBeInTheDocument();
+  });
+
   it('persists both vibe presets added in one batch', async () => {
     render(<BuilderWorkspace setId={5} snapshot={documentSnapshot()} />);
     await waitFor(() => expect(screen.getByTestId('slot-block-0')).toBeInTheDocument());

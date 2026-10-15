@@ -134,9 +134,13 @@ export default function CurvePanel({
   const [activeTemplateName, setActiveTemplateName] = useState<string | null>(null);
   const [windows, setWindows] = useState<VibeWindowView[]>([]);
   const windowsRef = useRef(windows);
-  const windowEditVersion = useRef(0);
+  const windowEditVersions = useRef(new Map<number, number>());
+  const activeSetId = useRef(setId);
+  activeSetId.current = setId;
+  const windowStateSetId = useRef(setId);
   const initialSnapshotLoadedFor = useRef<number | null>(null);
   const editedBeforeSnapshotFor = useRef<number | null>(null);
+  const windowsLoadedFor = useRef<number | null>(null);
   const nextWindowId = useRef(0);
   const [overlay, setOverlay] = useState<OverlayState>(OVERLAY_CLOSED);
   const [prompt, setPrompt] = useState<ReplacePrompt | null>(null);
@@ -151,10 +155,23 @@ export default function CurvePanel({
     windowsRef.current = next;
     setWindows(next);
   }, []);
+  const windowEditVersionFor = useCallback(
+    (targetSetId: number) => windowEditVersions.current.get(targetSetId) ?? 0,
+    [],
+  );
   const markWindowsEdited = useCallback(() => {
-    windowEditVersion.current += 1;
+    windowEditVersions.current.set(setId, windowEditVersionFor(setId) + 1);
     if (!snapshot) editedBeforeSnapshotFor.current = setId;
-  }, [setId, snapshot]);
+  }, [setId, snapshot, windowEditVersionFor]);
+
+  useEffect(() => {
+    if (windowStateSetId.current === setId) return;
+    windowStateSetId.current = setId;
+    initialSnapshotLoadedFor.current = null;
+    editedBeforeSnapshotFor.current = null;
+    windowsLoadedFor.current = null;
+    replaceWindows([]);
+  }, [replaceWindows, setId]);
 
   const rawTargetSec = rawTargetSecForSlots(
     targetDurationSec,
@@ -232,7 +249,6 @@ export default function CurvePanel({
 
   // Load stored vibe windows once per set, after slots (the time domain)
   // first arrive. A stale initial response must not wipe edits made meanwhile.
-  const windowsLoadedFor = useRef<number | null>(null);
   useEffect(() => {
     const restored = windowsFromSnapshot(snapshot, totalSec);
     if (restored == null) return;
@@ -250,14 +266,14 @@ export default function CurvePanel({
   useEffect(() => {
     if (snapshot || totalSec <= 0 || windowsLoadedFor.current === setId) return;
     let cancelled = false;
-    const editVersionAtLoad = windowEditVersion.current;
+    const editVersionAtLoad = windowEditVersionFor(setId);
     // Mark eagerly so in-flight fetches dedupe; roll back on failure so a
     // transient error doesn't block the load for the rest of the session.
     windowsLoadedFor.current = setId;
     api
       .getVibeWindows(setId)
       .then((resp) => {
-        if (cancelled || windowEditVersion.current !== editVersionAtLoad) return;
+        if (cancelled || windowEditVersionFor(setId) !== editVersionAtLoad) return;
         replaceWindows(
           resp.windows.map((w, i) => ({
             id: `w-${i}-${w.t0_sec}`,
@@ -268,14 +284,14 @@ export default function CurvePanel({
         );
       })
       .catch(() => {
-        if (cancelled || windowEditVersion.current !== editVersionAtLoad) return;
+        if (cancelled || windowEditVersionFor(setId) !== editVersionAtLoad) return;
         if (windowsLoadedFor.current === setId) windowsLoadedFor.current = null;
         replaceWindows([]);
       });
     return () => {
       cancelled = true;
     };
-  }, [replaceWindows, setId, snapshot, totalSec]);
+  }, [replaceWindows, setId, snapshot, totalSec, windowEditVersionFor]);
 
   const persistWindows = useCallback(
     (next: VibeWindowView[], label: string) => {
@@ -371,6 +387,7 @@ export default function CurvePanel({
     const run = commit ? commit(`Apply curve ${name}`, save) : save();
     run
       .then((resp) => {
+        if (activeSetId.current !== setId) return;
         const bySlotId = new Map(resp.targets.map((t) => [t.slot_id, t.target_energy]));
         onSlotsChange((prev) =>
           prev.map((s) => (bySlotId.has(s.id) ? { ...s, targetEnergy: bySlotId.get(s.id) ?? null } : s)),

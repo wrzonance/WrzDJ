@@ -109,6 +109,7 @@ import type {
   ExportPreflight,
   ExportTidalResult,
   ExportSpotifyResult,
+  ExportAppleMusicResult,
 } from './api-types';
 
 export type {
@@ -224,6 +225,7 @@ export type {
   ExportPreflight,
   ExportTidalResult,
   ExportSpotifyResult,
+  ExportAppleMusicResult,
   UnresolvedTrack,
 } from './api-types';
 
@@ -1096,6 +1098,16 @@ class ApiClient {
 
   async exportSetToSpotify(setId: number, skipUnresolved: boolean): Promise<ExportSpotifyResult> {
     return this.fetch(`/api/setbuilder/sets/${setId}/export/spotify`, {
+      method: 'POST',
+      body: JSON.stringify({ skip_unresolved: skipUnresolved }),
+    });
+  }
+
+  async exportSetToAppleMusic(
+    setId: number,
+    skipUnresolved: boolean
+  ): Promise<ExportAppleMusicResult> {
+    return this.fetch(`/api/setbuilder/sets/${setId}/export/apple-music`, {
       method: 'POST',
       body: JSON.stringify({ skip_unresolved: skipUnresolved }),
     });

@@ -3,62 +3,7 @@
 import { useEffect, useState } from 'react';
 
 import { api, type AppleMusicStatus } from '@/lib/api';
-
-interface MusicKitInstance {
-  authorize(): Promise<string>;
-}
-
-interface MusicKitGlobal {
-  configure(options: {
-    developerToken: string;
-    app: { name: string; build: string };
-  }): Promise<unknown>;
-  getInstance(): MusicKitInstance;
-}
-
-declare global {
-  interface Window {
-    MusicKit?: MusicKitGlobal;
-  }
-}
-
-const MUSIC_KIT_SCRIPT = 'https://js-cdn.music.apple.com/musickit/v3/musickit.js';
-let musicKitLoad: Promise<MusicKitGlobal> | null = null;
-
-function loadMusicKit(): Promise<MusicKitGlobal> {
-  if (window.MusicKit) return Promise.resolve(window.MusicKit);
-  if (musicKitLoad) return musicKitLoad;
-
-  const pending = new Promise<MusicKitGlobal>((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = MUSIC_KIT_SCRIPT;
-    script.async = true;
-    const cleanup = () => {
-      document.removeEventListener('musickitloaded', onMusicKitLoaded);
-    };
-    const onMusicKitLoaded = () => {
-      if (window.MusicKit) {
-        cleanup();
-        resolve(window.MusicKit);
-      }
-    };
-    script.onload = () => {
-      onMusicKitLoaded();
-    };
-    script.onerror = () => {
-      cleanup();
-      reject(new Error('Could not load Apple Music authorization.'));
-    };
-    document.addEventListener('musickitloaded', onMusicKitLoaded);
-    document.head.appendChild(script);
-  });
-  const failed = pending.catch(error => {
-    musicKitLoad = null;
-    throw error;
-  });
-  musicKitLoad = failed;
-  return failed;
-}
+import { authorizeAppleMusic } from '@/lib/apple-music-auth';
 
 export default function AppleMusicAccountCard() {
   const [status, setStatus] = useState<AppleMusicStatus | null>(null);
@@ -80,12 +25,7 @@ export default function AppleMusicAccountCard() {
     setError('');
     try {
       const tokenResponse = await api.getAppleMusicDeveloperToken();
-      const musicKit = await loadMusicKit();
-      await musicKit.configure({
-        developerToken: tokenResponse.developer_token,
-        app: { name: 'WrzDJ', build: '1.0.0' },
-      });
-      const musicUserToken = await musicKit.getInstance().authorize();
+      const musicUserToken = await authorizeAppleMusic(tokenResponse.developer_token);
       setStatus(await api.linkAppleMusicAccount(musicUserToken));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not connect Apple Music.');

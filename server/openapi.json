@@ -4221,6 +4221,63 @@
         "title": "EventUpdate",
         "type": "object"
       },
+      "ExportAppleMusicIn": {
+        "description": "Body for Apple Music export; unresolved tracks require explicit DJ choice.",
+        "properties": {
+          "skip_unresolved": {
+            "default": false,
+            "title": "Skip Unresolved",
+            "type": "boolean"
+          }
+        },
+        "title": "ExportAppleMusicIn",
+        "type": "object"
+      },
+      "ExportAppleMusicOut": {
+        "description": "Successful Apple Music playlist export.",
+        "properties": {
+          "added": {
+            "title": "Added",
+            "type": "integer"
+          },
+          "exported_at": {
+            "format": "date-time",
+            "title": "Exported At",
+            "type": "string"
+          },
+          "playlist_id": {
+            "title": "Playlist Id",
+            "type": "string"
+          },
+          "playlist_url": {
+            "title": "Playlist Url",
+            "type": "string"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "locked",
+              "exported"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "added",
+          "exported_at",
+          "playlist_id",
+          "playlist_url",
+          "skipped",
+          "status"
+        ],
+        "title": "ExportAppleMusicOut",
+        "type": "object"
+      },
       "ExportFileIn": {
         "description": "Body for the file (Rekordbox XML / M3U / txt) export.",
         "properties": {
@@ -4254,6 +4311,7 @@
             "enum": [
               "tidal",
               "spotify",
+              "apple_music",
               "rekordbox",
               "m3u",
               "txt",
@@ -4273,6 +4331,17 @@
       "ExportPreflightOut": {
         "description": "Resolution summary the DJ confirms before exporting.",
         "properties": {
+          "apple_music_connected": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apple Music Connected"
+          },
           "resolved_count": {
             "title": "Resolved Count",
             "type": "integer"
@@ -4300,6 +4369,7 @@
             "enum": [
               "tidal",
               "spotify",
+              "apple_music",
               "rekordbox",
               "m3u",
               "txt",
@@ -4333,6 +4403,7 @@
           }
         },
         "required": [
+          "apple_music_connected",
           "resolved_count",
           "source",
           "spotify_connected",
@@ -8461,6 +8532,17 @@
       "SetDetail": {
         "description": "Full set record (Phase 0: no slot/curve expansion yet).",
         "properties": {
+          "apple_music_playlist_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apple Music Playlist Id"
+          },
           "avg_transition_overlap_sec": {
             "title": "Avg Transition Overlap Sec",
             "type": "integer"
@@ -8606,6 +8688,7 @@
           }
         },
         "required": [
+          "apple_music_playlist_id",
           "avg_transition_overlap_sec",
           "bpm_ceiling",
           "bpm_floor",
@@ -11092,6 +11175,7 @@
             "enum": [
               "no_tidal_match",
               "no_spotify_match",
+              "no_apple_music_match",
               "missing_metadata"
             ],
             "title": "Reason",
@@ -19823,6 +19907,83 @@
           }
         ],
         "summary": "Duplicate Set",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/export/apple-music": {
+      "post": {
+        "description": "Create one ordered Apple Music playlist from the resolved setlist.",
+        "operationId": "export_set_apple_music_api_setbuilder_sets__set_id__export_apple_music_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportAppleMusicIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportAppleMusicOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Apple Music account not connected, or no exportable tracks."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnresolvedTracksError"
+                }
+              }
+            },
+            "description": "Unresolved tracks \u2014 retry with skip_unresolved=true to proceed."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "Apple Music export failed or its outcome is uncertain."
+          },
+          "503": {
+            "description": "Apple Music is not configured."
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Export Set Apple Music",
         "tags": [
           "setbuilder"
         ]

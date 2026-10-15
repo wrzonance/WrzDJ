@@ -79,6 +79,7 @@ class SetDetail(SetSummary):
     key_strictness: float
     tidal_playlist_id: str | None
     spotify_playlist_id: str | None = None
+    apple_music_playlist_id: str | None = None
     exported_at: datetime | None
 
 
@@ -967,7 +968,9 @@ class VibeEnrichmentResult(BaseModel):
 # Engine DJ and Lexicon have no proprietary import format — both ingest the
 # Rekordbox DJ_PLAYLISTS XML — so they are distinct format keys that render the
 # same XML (kept distinct, not aliased, so the UI lists them separately).
-ExportTarget = Literal["tidal", "spotify", "rekordbox", "m3u", "txt", "enginedj", "lexicon"]
+ExportTarget = Literal[
+    "tidal", "spotify", "apple_music", "rekordbox", "m3u", "txt", "enginedj", "lexicon"
+]
 ExportFileFormat = Literal["rekordbox", "m3u", "txt", "enginedj", "lexicon"]
 
 
@@ -984,7 +987,9 @@ class UnresolvedTrackOut(BaseModel):
     title: str
     artist: str
     track_id: str | None
-    reason: Literal["no_tidal_match", "no_spotify_match", "missing_metadata"]
+    reason: Literal[
+        "no_tidal_match", "no_spotify_match", "no_apple_music_match", "missing_metadata"
+    ]
 
 
 class ExportPreflightOut(BaseModel):
@@ -998,6 +1003,7 @@ class ExportPreflightOut(BaseModel):
     # Only set for target="tidal"; None for file targets.
     tidal_connected: bool | None = None
     spotify_connected: bool | None = None
+    apple_music_connected: bool | None = None
 
 
 class ExportTidalIn(BaseModel):
@@ -1025,6 +1031,23 @@ class ExportSpotifyIn(BaseModel):
 
 class ExportSpotifyOut(BaseModel):
     """Successful Spotify playlist export."""
+
+    playlist_id: str
+    playlist_url: str
+    added: int
+    skipped: int
+    exported_at: datetime
+    status: Literal["draft", "locked", "exported"]
+
+
+class ExportAppleMusicIn(BaseModel):
+    """Body for Apple Music export; unresolved tracks require explicit DJ choice."""
+
+    skip_unresolved: bool = False
+
+
+class ExportAppleMusicOut(BaseModel):
+    """Successful Apple Music playlist export."""
 
     playlist_id: str
     playlist_url: str

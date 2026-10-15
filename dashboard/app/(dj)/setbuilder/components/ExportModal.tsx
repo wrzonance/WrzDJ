@@ -12,17 +12,19 @@
  */
 
 import { useState } from 'react';
-import { api } from '@/lib/api';
+import { ApiError, api } from '@/lib/api';
 import type {
   ExportPreflight,
   ExportTarget,
   ExportFileFormat,
   ExportTidalResult,
   ExportSpotifyResult,
+  ExportAppleMusicResult,
   SetDetail,
   UnresolvedTrack,
 } from '@/lib/api-types';
 import styles from '../setbuilder.module.css';
+import { authorizeAppleMusic } from '@/lib/apple-music-auth';
 
 // ---------------------------------------------------------------------------
 // Platform catalogue
@@ -56,7 +58,7 @@ const PLATFORMS = [
   },
   { id: 'serato' as const, label: 'Serato .crate', sub: '', available: false },
   { id: 'spotify' as const, label: 'Spotify', sub: 'Private playlist in your Spotify account', available: true },
-  { id: 'applemusic' as const, label: 'Apple Music', sub: '', available: false },
+  { id: 'applemusic' as const, label: 'Apple Music', sub: 'Playlist in your Apple Music account', available: true },
 ];
 
 // Targets that emit the Rekordbox DJ_PLAYLISTS XML. Engine DJ and Lexicon have
@@ -113,6 +115,7 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
   const [skipUnresolved, setSkipUnresolved] = useState(false);
   const [tidalResult, setTidalResult] = useState<ExportTidalResult | null>(null);
   const [spotifyResult, setSpotifyResult] = useState<ExportSpotifyResult | null>(null);
+  const [appleMusicResult, setAppleMusicResult] = useState<ExportAppleMusicResult | null>(null);
   const [fileDownloaded, setFileDownloaded] = useState<string | null>(null); // filename
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
@@ -127,9 +130,10 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
     setFileDownloaded(null);
     setStage('checking');
 
-    const targetMap: Record<'tidal' | 'spotify' | 'rekordbox' | 'm3u' | 'enginedj' | 'lexicon', ExportTarget> = {
+    const targetMap: Record<'tidal' | 'spotify' | 'applemusic' | 'rekordbox' | 'm3u' | 'enginedj' | 'lexicon', ExportTarget> = {
       tidal: 'tidal',
       spotify: 'spotify',
+      applemusic: 'apple_music',
       rekordbox: 'rekordbox',
       m3u: 'm3u',
       enginedj: 'enginedj',
@@ -199,6 +203,44 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
     }
   };
 
+  const handleAppleMusicExport = async () => {
+    setStage('exporting');
+    setError(null);
+    try {
+      const result = await api.exportSetToAppleMusic(set.id, skipUnresolved);
+      setAppleMusicResult(result);
+      onSetUpdated({
+        status: result.status,
+        apple_music_playlist_id: result.playlist_id,
+        exported_at: result.exported_at,
+      });
+      setStage('done');
+    } catch (e) {
+      setError(errMessage(e));
+      if (
+        e instanceof ApiError &&
+        e.status === 400 &&
+        /not connected|reconnect/i.test(e.message)
+      ) {
+        setPreflight(current => (current ? { ...current, apple_music_connected: false } : current));
+      }
+      setStage('confirm');
+    }
+  };
+
+  const handleConnectAppleMusic = async () => {
+    setError(null);
+    try {
+      const token = await api.getAppleMusicDeveloperToken();
+      const musicUserToken = await authorizeAppleMusic(token.developer_token);
+      const status = await api.linkAppleMusicAccount(musicUserToken);
+      if (!status.linked) throw new Error('Apple Music authorization could not be confirmed.');
+      setPreflight(await api.exportPreflight(set.id, 'apple_music'));
+    } catch (e) {
+      setError(errMessage(e));
+    }
+  };
+
   // ---- File export (rekordbox / m3u / txt) ----
   const handleFileExport = async (format: ExportFileFormat) => {
     setError(null);
@@ -232,6 +274,7 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
     setFileDownloaded(null);
     setTidalResult(null);
     setSpotifyResult(null);
+    setAppleMusicResult(null);
     setDownloading(false);
   };
 
@@ -322,7 +365,9 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
               onCancel={handleBack}
               onTidalExport={handleTidalExport}
               onSpotifyExport={handleSpotifyExport}
+              onAppleMusicExport={handleAppleMusicExport}
               onConnectSpotify={handleConnectSpotify}
+              onConnectAppleMusic={handleConnectAppleMusic}
               onFileExport={handleFileExport}
               exporting={stage === 'exporting'}
               downloading={downloading}
@@ -334,6 +379,7 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
             <TidalDonePanel result={tidalResult} />
           )}
           {stage === 'done' && spotifyResult && <SpotifyDonePanel result={spotifyResult} />}
+          {stage === 'done' && appleMusicResult && <AppleMusicDonePanel result={appleMusicResult} />}
         </div>
 
         {/* Footer */}
@@ -374,7 +420,9 @@ interface ConfirmStageProps {
   onCancel: () => void;
   onTidalExport: () => void;
   onSpotifyExport: () => void;
+  onAppleMusicExport: () => void;
   onConnectSpotify: () => void;
+  onConnectAppleMusic: () => void;
   onFileExport: (format: ExportFileFormat) => void;
   exporting: boolean;
   downloading: boolean;
@@ -390,7 +438,9 @@ function ConfirmStage({
   onCancel,
   onTidalExport,
   onSpotifyExport,
+  onAppleMusicExport,
   onConnectSpotify,
+  onConnectAppleMusic,
   onFileExport,
   exporting,
   downloading,
@@ -441,6 +491,15 @@ function ConfirmStage({
         </div>
       )}
 
+      {platformId === 'applemusic' && preflight.apple_music_connected === false && (
+        <div className={styles.imError} style={{ borderColor: 'rgba(251,191,36,0.4)', background: 'rgba(251,191,36,0.1)', color: '#fbbf24' }}>
+          Link Apple Music to create a playlist in your account.
+          <button className="btn btn-sm" onClick={onConnectAppleMusic} style={{ display: 'block', marginTop: '0.5rem' }}>
+            Connect Apple Music
+          </button>
+        </div>
+      )}
+
       {/* Unresolved interrupt */}
       {preflight.unresolved.length > 0 && !skipUnresolved && (
         <UnresolvedInterrupt
@@ -470,6 +529,17 @@ function ConfirmStage({
           style={{ marginTop: '0.5rem', width: '100%' }}
         >
           {exporting ? 'Exporting…' : 'Export to Spotify'}
+        </button>
+      )}
+
+      {canExport && platformId === 'applemusic' && preflight.apple_music_connected !== false && (
+        <button
+          className="btn btn-primary btn-sm"
+          disabled={exporting}
+          onClick={onAppleMusicExport}
+          style={{ marginTop: '0.5rem', width: '100%' }}
+        >
+          {exporting ? 'Exporting…' : 'Export to Apple Music'}
         </button>
       )}
 
@@ -642,6 +712,22 @@ function SpotifyDonePanel({ result }: { result: ExportSpotifyResult }) {
       </div>
       <a href={result.playlist_url} target="_blank" rel="noopener noreferrer" className="btn btn-primary btn-sm" style={{ display: 'inline-block', textDecoration: 'none' }}>
         Open in Spotify
+      </a>
+    </div>
+  );
+}
+
+function AppleMusicDonePanel({ result }: { result: ExportAppleMusicResult }) {
+  return (
+    <div>
+      <div style={{ padding: '0.75rem', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '8px', background: 'rgba(34,197,94,0.08)', marginBottom: '0.75rem' }}>
+        <div style={{ fontWeight: 600, fontSize: '0.875rem', marginBottom: '0.35rem' }}>Playlist created</div>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+          {result.added} tracks added{result.skipped > 0 ? `, ${result.skipped} skipped` : ''}
+        </div>
+      </div>
+      <a href={result.playlist_url} target="_blank" rel="noopener noreferrer" className="btn btn-primary btn-sm" style={{ display: 'inline-block', textDecoration: 'none' }}>
+        Open in Apple Music
       </a>
     </div>
   );

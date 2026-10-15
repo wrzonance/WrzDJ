@@ -3036,6 +3036,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setbuilder/sets/{set_id}/export/apple-music": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Set Apple Music
+         * @description Create one ordered Apple Music playlist from the resolved setlist.
+         */
+        post: operations["export_set_apple_music_api_setbuilder_sets__set_id__export_apple_music_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setbuilder/sets/{set_id}/export/file": {
         parameters: {
             query?: never;
@@ -5470,6 +5490,41 @@ export interface components {
             name?: string | null;
         };
         /**
+         * ExportAppleMusicIn
+         * @description Body for Apple Music export; unresolved tracks require explicit DJ choice.
+         */
+        ExportAppleMusicIn: {
+            /**
+             * Skip Unresolved
+             * @default false
+             */
+            skip_unresolved: boolean;
+        };
+        /**
+         * ExportAppleMusicOut
+         * @description Successful Apple Music playlist export.
+         */
+        ExportAppleMusicOut: {
+            /** Added */
+            added: number;
+            /**
+             * Exported At
+             * Format: date-time
+             */
+            exported_at: string;
+            /** Playlist Id */
+            playlist_id: string;
+            /** Playlist Url */
+            playlist_url: string;
+            /** Skipped */
+            skipped: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "locked" | "exported";
+        };
+        /**
          * ExportFileIn
          * @description Body for the file (Rekordbox XML / M3U / txt) export.
          */
@@ -5494,13 +5549,15 @@ export interface components {
              * Target
              * @enum {string}
              */
-            target: "tidal" | "spotify" | "rekordbox" | "m3u" | "txt" | "enginedj" | "lexicon";
+            target: "tidal" | "spotify" | "apple_music" | "rekordbox" | "m3u" | "txt" | "enginedj" | "lexicon";
         };
         /**
          * ExportPreflightOut
          * @description Resolution summary the DJ confirms before exporting.
          */
         ExportPreflightOut: {
+            /** Apple Music Connected */
+            apple_music_connected: boolean | null;
             /** Resolved Count */
             resolved_count: number;
             /**
@@ -5514,7 +5571,7 @@ export interface components {
              * Target
              * @enum {string}
              */
-            target: "tidal" | "spotify" | "rekordbox" | "m3u" | "txt" | "enginedj" | "lexicon";
+            target: "tidal" | "spotify" | "apple_music" | "rekordbox" | "m3u" | "txt" | "enginedj" | "lexicon";
             /** Tidal Connected */
             tidal_connected: boolean | null;
             /** Total */
@@ -6933,6 +6990,8 @@ export interface components {
          * @description Full set record (Phase 0: no slot/curve expansion yet).
          */
         SetDetail: {
+            /** Apple Music Playlist Id */
+            apple_music_playlist_id: string | null;
             /** Avg Transition Overlap Sec */
             avg_transition_overlap_sec: number;
             /** Bpm Ceiling */
@@ -7820,7 +7879,7 @@ export interface components {
              * Reason
              * @enum {string}
              */
-            reason: "no_tidal_match" | "no_spotify_match" | "missing_metadata";
+            reason: "no_tidal_match" | "no_spotify_match" | "no_apple_music_match" | "missing_metadata";
             /** Title */
             title: string;
             /** Track Id */
@@ -13339,6 +13398,71 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    export_set_apple_music_api_setbuilder_sets__set_id__export_apple_music_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                set_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportAppleMusicIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportAppleMusicOut"];
+                };
+            };
+            /** @description Apple Music account not connected, or no exportable tracks. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unresolved tracks — retry with skip_unresolved=true to proceed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnresolvedTracksError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Apple Music export failed or its outcome is uncertain. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Apple Music is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

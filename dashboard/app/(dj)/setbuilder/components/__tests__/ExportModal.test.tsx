@@ -16,6 +16,9 @@ const mockApi = vi.hoisted(() => ({
   exportSetToTidal: vi.fn(),
   exportSetToSpotify: vi.fn(),
   startSpotifyAuthorization: vi.fn(),
+  getAppleMusicDeveloperToken: vi.fn(),
+  linkAppleMusicAccount: vi.fn(),
+  exportSetToAppleMusic: vi.fn(),
   exportSetFile: vi.fn(),
 }));
 
@@ -49,6 +52,7 @@ function makeSet(overrides: Partial<SetDetail> = {}): SetDetail {
     key_strictness: 0,
     tidal_playlist_id: null,
     spotify_playlist_id: null,
+    apple_music_playlist_id: null,
     exported_at: null,
     created_at: '2026-06-10T00:00:00Z',
     updated_at: '2026-06-10T00:00:00Z',
@@ -65,6 +69,7 @@ function makePreflightClean(target: ExportPreflight['target'] = 'rekordbox'): Ex
     unresolved: [],
     tidal_connected: null,
     spotify_connected: null,
+    apple_music_connected: null,
   };
 }
 
@@ -101,6 +106,7 @@ function makePreflightWithUnresolved(
     ],
     tidal_connected: null,
     spotify_connected: null,
+    apple_music_connected: null,
   };
 }
 
@@ -134,11 +140,11 @@ beforeEach(() => {
 });
 
 // ============================================================
-// 1. Platform picker — all 8 rows, 2 disabled with "Coming soon"
+// 1. Platform picker — Apple Music export is available
 // ============================================================
 
 describe('ExportModal — platform picker', () => {
-  it('renders all 8 platform rows with 2 disabled and showing "Coming soon"', () => {
+  it('renders all 8 platform rows with only Serato showing "Coming soon"', () => {
     render(<ExportModal {...baseProps} />);
 
     // Available platforms (Engine DJ + Lexicon both ship via Rekordbox XML)
@@ -153,9 +159,9 @@ describe('ExportModal — platform picker', () => {
     expect(screen.getByText('Spotify')).toBeTruthy();
     expect(screen.getByText('Apple Music')).toBeTruthy();
 
-    // Exactly 2 "Coming soon" badges
+    // Only Serato remains unavailable.
     const comingSoonBadges = screen.getAllByText('Coming soon');
-    expect(comingSoonBadges).toHaveLength(2);
+    expect(comingSoonBadges).toHaveLength(1);
   });
 
   it('Engine DJ and Lexicon rows are enabled (not "Coming soon")', () => {
@@ -166,15 +172,56 @@ describe('ExportModal — platform picker', () => {
     expect((lexiconBtn as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('Apple Music is disabled and clicking it does not call exportPreflight', () => {
-    render(<ExportModal {...baseProps} />);
+  it('connects Apple Music, preflights again, then exports the set', async () => {
+    mockApi.exportPreflight
+      .mockResolvedValueOnce({ ...makePreflightClean('apple_music'), apple_music_connected: false })
+      .mockResolvedValueOnce({ ...makePreflightClean('apple_music'), apple_music_connected: true });
+    mockApi.getAppleMusicDeveloperToken.mockResolvedValue({
+      developer_token: 'developer-token',
+      expires_at: 100,
+    });
+    mockApi.linkAppleMusicAccount.mockResolvedValue({
+      configured: true,
+      linked: true,
+      requires_reauthorization: false,
+      storefront: 'gb',
+    });
+    mockApi.exportSetToAppleMusic.mockResolvedValue({
+      playlist_id: 'p.playlist123',
+      playlist_url: 'https://music.apple.com/gb/library/playlist/p.playlist123',
+      added: 10,
+      skipped: 0,
+      exported_at: '2026-06-10T12:00:00Z',
+      status: 'exported',
+    });
+    const authorize = vi.fn().mockResolvedValue('music-user-token-secret');
+    Object.defineProperty(window, 'MusicKit', {
+      configurable: true,
+      value: {
+        configure: vi.fn().mockResolvedValue(undefined),
+        getInstance: () => ({ authorize }),
+      },
+    });
+    const onSetUpdated = vi.fn();
 
-    const appleMusicBtn = screen.getByRole('button', { name: /apple music/i });
-    expect((appleMusicBtn as HTMLButtonElement).disabled).toBe(true);
+    render(<ExportModal {...baseProps} onSetUpdated={onSetUpdated} />);
+    fireEvent.click(screen.getByText('Apple Music'));
+    await waitFor(() => expect(screen.getByRole('button', { name: /connect apple music/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: /connect apple music/i }));
 
-    // Clicking a disabled button must not trigger the preflight call
-    fireEvent.click(appleMusicBtn);
-    expect(mockApi.exportPreflight).not.toHaveBeenCalled();
+    await waitFor(() => expect(mockApi.linkAppleMusicAccount).toHaveBeenCalledWith('music-user-token-secret'));
+    await waitFor(() => expect(screen.getByRole('button', { name: /export to apple music/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: /export to apple music/i }));
+
+    await waitFor(() => {
+      expect(mockApi.exportSetToAppleMusic).toHaveBeenCalledWith(42, false);
+      expect(screen.getByRole('link', { name: /open in apple music/i })).toBeTruthy();
+    });
+    expect(onSetUpdated).toHaveBeenCalledWith({
+      status: 'exported',
+      apple_music_playlist_id: 'p.playlist123',
+      exported_at: '2026-06-10T12:00:00Z',
+    });
   });
 });
 

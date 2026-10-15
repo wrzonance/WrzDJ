@@ -15,6 +15,15 @@ MIN_TITLE_SIMILARITY = 0.85
 MIN_ARTIST_SIMILARITY = 0.85
 MATCH_THRESHOLD = 0.88
 _STOREFRONT_RE = re.compile(r"^[a-z]{2}$")
+_APPLE_MUSIC_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+
+
+def _apple_music_id(track: ExportTrack) -> str | None:
+    """Return a validated Apple Music catalog ID from a matching namespace."""
+    if not track.track_id or not track.track_id.startswith("apple_music:"):
+        return None
+    value = track.track_id.removeprefix("apple_music:")
+    return value if _APPLE_MUSIC_ID_RE.fullmatch(value) else None
 
 
 @dataclass(frozen=True)
@@ -63,12 +72,19 @@ def search_catalog(
     term: str,
     *,
     isrc: str | None = None,
+    song_id: str | None = None,
 ) -> list[AppleCatalogSong]:
-    """Search Apple Music by ISRC or title and artist in one DJ storefront."""
+    """Search Apple Music by ID, ISRC, or title and artist in one DJ storefront."""
     if not _STOREFRONT_RE.fullmatch(storefront):
         return []
     developer_token, _ = apple_music_tokens.create_developer_token()
-    if isrc:
+    if song_id:
+        payload = apple_music_tokens.apple_get(
+            f"/catalog/{storefront}/songs",
+            developer_token,
+            params={"ids": song_id, "limit": "1"},
+        )
+    elif isrc:
         payload = apple_music_tokens.apple_get(
             f"/catalog/{storefront}/songs",
             developer_token,
@@ -113,6 +129,19 @@ def resolve_tracks(
     resolved: list[tuple[ExportTrack, str]] = []
     unresolved: list[ExportTrack] = []
     for track in tracks:
+        apple_music_id = _apple_music_id(track)
+        if apple_music_id:
+            exact_id = next(
+                (
+                    song.id
+                    for song in search_catalog(db, storefront, "", song_id=apple_music_id)
+                    if song.id == apple_music_id
+                ),
+                None,
+            )
+            if exact_id:
+                resolved.append((track, exact_id))
+                continue
         if not track.has_metadata:
             unresolved.append(track)
             continue

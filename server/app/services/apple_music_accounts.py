@@ -96,6 +96,11 @@ def _apply_status_result(
     return True
 
 
+def mark_reauthorization_if_current(db: Session, user: User, generation: int) -> bool:
+    """Invalidate a rejected grant only when no newer link or disconnect has won."""
+    return _apply_status_result(db, user, generation, reauthorize=True)
+
+
 def link_account(db: Session, user: User, music_user_token: str) -> UserProviderConnection:
     """Validate Apple authorization, then persist only if no disconnect superseded it."""
     generation = _begin_link_attempt(db, user)

@@ -37,6 +37,10 @@ class AppleMusicLinkSuperseded(AppleMusicError):
     """A newer connect or disconnect operation invalidated this link attempt."""
 
 
+class AppleMusicRequestUncertain(AppleMusicError):
+    """A request may have reached Apple, but its outcome could not be confirmed."""
+
+
 def apple_get(
     path: str,
     developer_token: str,
@@ -44,25 +48,58 @@ def apple_get(
     music_user_token: str | None = None,
     params: dict[str, str] | None = None,
 ) -> dict[str, object]:
-    """Issue an Apple Music API request with deployment and optional user credentials."""
+    """Issue an Apple Music GET request with deployment and optional user credentials."""
+    return apple_request(
+        "GET", path, developer_token, music_user_token=music_user_token, params=params
+    )
+
+
+def apple_request(
+    method: str,
+    path: str,
+    developer_token: str,
+    *,
+    music_user_token: str | None = None,
+    params: dict[str, str] | None = None,
+    json_body: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Issue a request and distinguish rejected credentials from uncertain writes."""
     headers = {"Authorization": f"Bearer {developer_token}"}
     if music_user_token:
         headers["Music-User-Token"] = music_user_token
     try:
         with httpx.Client(timeout=HTTP_TIMEOUT_SECONDS) as client:
-            response = client.get(f"{APPLE_MUSIC_API_BASE}{path}", headers=headers, params=params)
+            url = f"{APPLE_MUSIC_API_BASE}{path}"
+            if method == "GET":
+                response = client.get(url, headers=headers, params=params)
+            else:
+                response = client.request(
+                    method,
+                    url,
+                    headers=headers,
+                    params=params,
+                    json=json_body,
+                )
     except httpx.HTTPError as exc:
+        if method != "GET":
+            raise AppleMusicRequestUncertain("Apple Music write outcome is uncertain") from exc
         raise AppleMusicError("Apple Music request failed") from exc
     if response.status_code == 401:
         raise AppleMusicNotConfigured
     if response.status_code == 403 and music_user_token:
         raise AppleMusicUserAuthorizationError
+    if method != "GET" and (response.status_code == 408 or response.status_code >= 500):
+        raise AppleMusicRequestUncertain("Apple Music write outcome is uncertain")
     try:
         response.raise_for_status()
         payload = response.json()
     except (httpx.HTTPError, ValueError) as exc:
+        if method != "GET" and response.is_success:
+            raise AppleMusicRequestUncertain("Apple Music write outcome is uncertain") from exc
         raise AppleMusicError("Apple Music request failed") from exc
     if not isinstance(payload, dict):
+        if method != "GET":
+            raise AppleMusicRequestUncertain("Apple Music write outcome is uncertain")
         raise AppleMusicError("Apple Music returned an invalid response")
     return payload
 

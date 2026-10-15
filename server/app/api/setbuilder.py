@@ -1738,7 +1738,14 @@ _UNRESOLVED_409_RESPONSE = {
 }
 
 
-@router.post("/sets/{set_id}/export/preflight", response_model=ExportPreflightOut)
+@router.post(
+    "/sets/{set_id}/export/preflight",
+    response_model=ExportPreflightOut,
+    responses={
+        502: {"description": "Apple Music catalog lookup failed."},
+        503: {"description": "Apple Music is not configured."},
+    },
+)
 @limiter.limit("5/minute")
 def export_preflight(
     set_id: int,
@@ -1793,14 +1800,7 @@ def export_preflight(
 
     if payload.target == "apple_music":
         if not apple_music_tokens.is_configured():
-            return ExportPreflightOut(
-                target=payload.target,
-                source=source,
-                total=len(tracks),
-                resolved_count=0,
-                unresolved=[],
-                apple_music_connected=False,
-            )
+            raise HTTPException(status_code=503, detail="Apple Music is not configured")
         try:
             apple_music_accounts.stored_connection(db, current_user)
         except apple_music_tokens.AppleMusicNotConnected:
@@ -1812,7 +1812,14 @@ def export_preflight(
                 unresolved=[],
                 apple_music_connected=False,
             )
-        resolved, unresolved = apple_music_catalog.resolve_tracks(db, current_user, tracks)
+        try:
+            resolved, unresolved = apple_music_catalog.resolve_tracks(db, current_user, tracks)
+        except apple_music_tokens.AppleMusicNotConfigured:
+            raise HTTPException(status_code=503, detail="Apple Music is not configured") from None
+        except apple_music_tokens.AppleMusicError:
+            raise HTTPException(
+                status_code=502, detail="Apple Music catalog lookup failed"
+            ) from None
         return ExportPreflightOut(
             target=payload.target,
             source=source,
@@ -1958,6 +1965,10 @@ def export_set_apple_music(
         resolved, unresolved = apple_music_catalog.resolve_tracks(db, current_user, tracks)
     except apple_music_tokens.AppleMusicNotConnected:
         raise HTTPException(status_code=400, detail="Apple Music account not connected") from None
+    except apple_music_tokens.AppleMusicNotConfigured:
+        raise HTTPException(status_code=503, detail="Apple Music is not configured") from None
+    except apple_music_tokens.AppleMusicError:
+        raise HTTPException(status_code=502, detail="Apple Music catalog lookup failed") from None
     if unresolved and not payload.skip_unresolved:
         raise _unresolved_409(_unresolved_out(unresolved, "no_apple_music_match"))
     if not resolved:

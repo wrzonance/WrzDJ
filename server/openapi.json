@@ -4250,8 +4250,15 @@
             "type": "string"
           },
           "playlist_url": {
-            "title": "Playlist Url",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Playlist Url"
           },
           "skipped": {
             "title": "Skipped",
@@ -20118,6 +20125,12 @@
               }
             },
             "description": "Validation Error"
+          },
+          "502": {
+            "description": "Apple Music catalog lookup failed."
+          },
+          "503": {
+            "description": "Apple Music is not configured."
           }
         },
         "security": [

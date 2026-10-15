@@ -81,21 +81,91 @@ def test_apple_music_id_unavailable_in_linked_storefront_falls_back_to_isrc(
     assert queries == [("gb", "", None, "12345"), ("gb", "", "ISRC-1", None)]
 
 
+def test_apple_music_id_lookup_error_falls_back_to_isrc(db, test_user, monkeypatch):
+    _connect_dj(db, test_user)
+    calls = []
+
+    def search(_db, _storefront, _term, *, isrc=None, song_id=None):
+        calls.append((isrc, song_id))
+        if song_id:
+            raise apple_music_catalog.apple_music_tokens.AppleMusicNotFound
+        if isrc:
+            return [SimpleNamespace(id="local-song", isrc=isrc)]
+        raise AssertionError("title search should not run after an exact ISRC match")
+
+    monkeypatch.setattr(apple_music_catalog, "search_catalog", search)
+    track = ExportTrack(
+        position=0, title="Song", artist="Artist", isrc="ISRC-1", track_id="apple_music:12345"
+    )
+
+    resolved, unresolved = apple_music_catalog.resolve_tracks(db, test_user, [track])
+
+    assert calls == [(None, "12345"), ("ISRC-1", None)]
+    assert resolved == [(track, "local-song")]
+    assert unresolved == []
+
+
+def test_apple_music_id_lookup_provider_failure_does_not_trigger_fallback(
+    db, test_user, monkeypatch
+):
+    _connect_dj(db, test_user)
+    calls = []
+
+    def search(_db, _storefront, _term, *, isrc=None, song_id=None):
+        calls.append((isrc, song_id))
+        raise apple_music_catalog.apple_music_tokens.AppleMusicError("catalog unavailable")
+
+    monkeypatch.setattr(apple_music_catalog, "search_catalog", search)
+    track = ExportTrack(
+        position=0, title="Song", artist="Artist", isrc="ISRC-1", track_id="apple_music:12345"
+    )
+
+    with pytest.raises(apple_music_catalog.apple_music_tokens.AppleMusicError):
+        apple_music_catalog.resolve_tracks(db, test_user, [track])
+
+    assert calls == [(None, "12345")]
+
+
 def test_apple_music_export_creates_playlist_with_order_and_duplicates(db, test_user, monkeypatch):
     _connect_dj(db, test_user)
     set_obj = Set(owner_id=test_user.id, name="Night / Dance")
     db.add(set_obj)
     db.commit()
     requests = []
+    verification_reads = 0
 
-    def fake_request(method, path, developer_token, *, music_user_token, json_body=None):
-        requests.append((method, path, developer_token, music_user_token, json_body))
-        return {"data": [{"id": "p.playlist123", "type": "library-playlists"}]}
+    def fake_request(
+        method, path, developer_token, *, music_user_token, params=None, json_body=None
+    ):
+        nonlocal verification_reads
+        requests.append((method, path, developer_token, music_user_token, params, json_body))
+        if method == "POST":
+            return {
+                "data": [
+                    {
+                        "id": "p.playlist123",
+                        "type": "library-playlists",
+                        "attributes": {"playParams": {"globalId": "pl.shareable123"}},
+                    }
+                ]
+            }
+        verification_reads += 1
+        if verification_reads == 1:
+            return {"data": []}
+        return {
+            "data": [
+                {"type": "library-songs", "attributes": {"playParams": {"catalogId": "song-1"}}},
+                {"type": "library-songs", "attributes": {"playParams": {"catalogId": "song-2"}}},
+                {"type": "library-songs", "attributes": {"playParams": {"catalogId": "song-1"}}},
+            ]
+        }
 
     monkeypatch.setattr(
         export_apple_music.apple_music_tokens, "create_developer_token", lambda: ("dev", 100)
     )
     monkeypatch.setattr(export_apple_music.apple_music_tokens, "apple_request", fake_request)
+    monkeypatch.setattr(export_apple_music.time, "sleep", lambda _delay: None)
+    monkeypatch.setattr(export_apple_music, "_VERIFY_DELAYS_SECONDS", (0, 0))
     resolved = [
         (_track(0, "First", "Artist"), "song-1"),
         (_track(1, "Second", "Artist"), "song-2"),
@@ -104,8 +174,8 @@ def test_apple_music_export_creates_playlist_with_order_and_duplicates(db, test_
 
     outcome = export_apple_music.export_to_apple_music(db, test_user, set_obj, resolved)
 
-    assert len(requests) == 1
-    method, path, developer_token, user_token, body = requests[0]
+    assert [request[0] for request in requests] == ["POST", "GET", "GET"]
+    method, path, developer_token, user_token, _params, body = requests[0]
     assert (method, path, developer_token, user_token) == (
         "POST",
         "/me/library/playlists",
@@ -118,10 +188,82 @@ def test_apple_music_export_creates_playlist_with_order_and_duplicates(db, test_
         {"id": "song-2", "type": "songs"},
         {"id": "song-1", "type": "songs"},
     ]
+    assert requests[1][1:5] == (
+        "/me/library/playlists/p.playlist123/tracks",
+        "dev",
+        VALID_TOKEN,
+        {"include": "catalog", "limit": "100"},
+    )
     assert outcome.added == 3
-    assert outcome.playlist_url == "https://music.apple.com/gb/library/playlist/p.playlist123"
+    assert outcome.playlist_url == "https://music.apple.com/gb/playlist/pl.shareable123"
     db.refresh(set_obj)
     assert (set_obj.status, set_obj.apple_music_playlist_id) == ("exported", "p.playlist123")
+
+
+def test_apple_music_export_rejects_partial_track_relationship(db, test_user, monkeypatch):
+    _connect_dj(db, test_user)
+    set_obj = Set(owner_id=test_user.id, name="Night")
+    db.add(set_obj)
+    db.commit()
+    monkeypatch.setattr(
+        export_apple_music.apple_music_tokens, "create_developer_token", lambda: ("dev", 100)
+    )
+    monkeypatch.setattr(export_apple_music.time, "sleep", lambda _delay: None)
+    monkeypatch.setattr(export_apple_music, "_VERIFY_DELAYS_SECONDS", (0, 0, 0))
+    methods = []
+
+    def partial_response(method, *_args, **_kwargs):
+        methods.append(method)
+        if method == "POST":
+            return {"data": [{"id": "p.playlist123", "type": "library-playlists"}]}
+        return {
+            "data": [
+                {
+                    "type": "library-songs",
+                    "attributes": {"playParams": {"catalogId": "song-1"}},
+                }
+            ]
+        }
+
+    monkeypatch.setattr(export_apple_music.apple_music_tokens, "apple_request", partial_response)
+
+    with pytest.raises(export_apple_music.AppleMusicWriteUncertain):
+        export_apple_music.export_to_apple_music(
+            db,
+            test_user,
+            set_obj,
+            [(_track(0, "One", "Artist"), "song-1"), (_track(1, "Two", "Artist"), "song-2")],
+        )
+
+    db.refresh(set_obj)
+    assert set_obj.status == "draft"
+    assert set_obj.apple_music_playlist_id == "p.playlist123"
+    assert methods == ["POST", "GET", "GET", "GET"]
+
+    with pytest.raises(export_apple_music.AppleMusicWriteUncertain) as retry_error:
+        export_apple_music.export_to_apple_music(
+            db,
+            test_user,
+            set_obj,
+            [(_track(0, "One", "Artist"), "song-1"), (_track(1, "Two", "Artist"), "song-2")],
+        )
+    assert retry_error.value.playlist_id == "p.playlist123"
+    assert methods == ["POST", "GET", "GET", "GET"]
+
+
+def test_apple_music_playlist_id_is_bounded_by_storage_length():
+    assert (
+        export_apple_music._playlist_id(
+            {"data": [{"id": "p." + "a" * 98, "type": "library-playlists"}]}
+        )
+        is not None
+    )
+    assert (
+        export_apple_music._playlist_id(
+            {"data": [{"id": "p." + "a" * 99, "type": "library-playlists"}]}
+        )
+        is None
+    )
 
 
 def test_apple_music_export_does_not_mark_set_exported_after_uncertain_create(
@@ -361,3 +503,33 @@ def test_apple_music_preflight_and_export_require_explicit_skip_for_unresolved_t
     assert accepted.json()["playlist_id"] == "p.playlist123"
     assert accepted.json()["skipped"] == 1
     assert accepted.json()["status"] == "exported"
+
+    def unavailable(*_args):
+        raise apple_music_catalog.apple_music_tokens.AppleMusicError("catalog unavailable")
+
+    monkeypatch.setattr(apple_music_catalog, "resolve_tracks", unavailable)
+    failed_lookup = client.post(
+        f"/api/setbuilder/sets/{set_obj.id}/export/preflight",
+        json={"target": "apple_music"},
+        headers=auth_headers,
+    )
+    assert failed_lookup.status_code == 502
+    assert failed_lookup.json()["detail"] == "Apple Music catalog lookup failed"
+
+
+def test_apple_music_preflight_reports_missing_developer_credentials_as_unavailable(
+    client, db, test_user, auth_headers, monkeypatch
+):
+    set_obj = Set(owner_id=test_user.id, name="Night")
+    db.add(set_obj)
+    db.commit()
+    monkeypatch.setattr("app.services.apple_music_tokens.is_configured", lambda: False)
+
+    response = client.post(
+        f"/api/setbuilder/sets/{set_obj.id}/export/preflight",
+        json={"target": "apple_music"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Apple Music is not configured"

@@ -33,6 +33,10 @@ class AppleMusicNotConnected(AppleMusicError):
     """The DJ has no usable connected Apple Music account."""
 
 
+class AppleMusicNotFound(AppleMusicError):
+    """Apple could not find a requested catalog resource."""
+
+
 class AppleMusicLinkSuperseded(AppleMusicError):
     """A newer connect or disconnect operation invalidated this link attempt."""
 
@@ -88,6 +92,8 @@ def apple_request(
         raise AppleMusicNotConfigured
     if response.status_code == 403 and music_user_token:
         raise AppleMusicUserAuthorizationError
+    if method == "GET" and response.status_code == 404:
+        raise AppleMusicNotFound("Apple Music resource was not found")
     if method != "GET" and (response.status_code == 408 or response.status_code >= 500):
         raise AppleMusicRequestUncertain("Apple Music write outcome is uncertain")
     try:

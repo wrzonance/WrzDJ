@@ -131,14 +131,17 @@ def resolve_tracks(
     for track in tracks:
         apple_music_id = _apple_music_id(track)
         if apple_music_id:
-            exact_id = next(
-                (
-                    song.id
-                    for song in search_catalog(db, storefront, "", song_id=apple_music_id)
-                    if song.id == apple_music_id
-                ),
-                None,
-            )
+            try:
+                exact_id = next(
+                    (
+                        song.id
+                        for song in search_catalog(db, storefront, "", song_id=apple_music_id)
+                        if song.id == apple_music_id
+                    ),
+                    None,
+                )
+            except apple_music_tokens.AppleMusicNotFound:
+                exact_id = None
             if exact_id:
                 resolved.append((track, exact_id))
                 continue

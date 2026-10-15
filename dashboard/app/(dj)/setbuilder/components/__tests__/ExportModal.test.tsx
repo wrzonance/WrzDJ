@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import type { ExportPreflight, ExportSpotifyResult, ExportTidalResult, SetDetail } from '@/lib/api-types';
+import { ApiError } from '@/lib/api';
 import ExportModal from '../ExportModal';
 
 // ---- Mock the API singleton ----
@@ -22,7 +23,10 @@ const mockApi = vi.hoisted(() => ({
   exportSetFile: vi.fn(),
 }));
 
-vi.mock('@/lib/api', () => ({ api: mockApi }));
+vi.mock('@/lib/api', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/lib/api')>()),
+  api: mockApi,
+}));
 
 // ---- DOM helpers for download ----
 // We stub URL.createObjectURL / revokeObjectURL + HTMLAnchorElement.prototype.click
@@ -172,6 +176,21 @@ describe('ExportModal — platform picker', () => {
     expect((lexiconBtn as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it('explains when Apple Music is unavailable because deployment credentials are missing', async () => {
+    mockApi.exportPreflight.mockRejectedValue(
+      new ApiError('Apple Music is not configured', 503),
+    );
+
+    render(<ExportModal {...baseProps} />);
+    fireEvent.click(screen.getByText('Apple Music'));
+
+    expect(
+      await screen.findByText(
+        "Apple Music export is unavailable because this deployment is not configured.",
+      ),
+    ).toBeTruthy();
+  });
+
   it('connects Apple Music, preflights again, then exports the set', async () => {
     mockApi.exportPreflight
       .mockResolvedValueOnce({ ...makePreflightClean('apple_music'), apple_music_connected: false })
@@ -222,6 +241,55 @@ describe('ExportModal — platform picker', () => {
       apple_music_playlist_id: 'p.playlist123',
       exported_at: '2026-06-10T12:00:00Z',
     });
+  });
+
+  it('disables Apple Music connect while MusicKit authorization is pending', async () => {
+    mockApi.exportPreflight
+      .mockResolvedValueOnce({
+        ...makePreflightClean('apple_music'),
+        apple_music_connected: false,
+      })
+      .mockResolvedValueOnce({
+        ...makePreflightClean('apple_music'),
+        apple_music_connected: true,
+      });
+    mockApi.getAppleMusicDeveloperToken.mockResolvedValue({
+      developer_token: 'developer-token',
+      expires_at: 100,
+    });
+    let resolveAuthorization: (token: string) => void = () => {};
+    const authorization = new Promise<string>(resolve => {
+      resolveAuthorization = resolve;
+    });
+    const authorize = vi.fn().mockReturnValue(authorization);
+    Object.defineProperty(window, 'MusicKit', {
+      configurable: true,
+      value: {
+        configure: vi.fn().mockResolvedValue(undefined),
+        getInstance: () => ({ authorize }),
+      },
+    });
+    mockApi.linkAppleMusicAccount.mockResolvedValue({
+      configured: true,
+      linked: true,
+      requires_reauthorization: false,
+      storefront: 'gb',
+    });
+
+    render(<ExportModal {...baseProps} />);
+    fireEvent.click(screen.getByText('Apple Music'));
+    await waitFor(() => expect(screen.getByRole('button', { name: /connect apple music/i })).toBeTruthy());
+    const connectButton = screen.getByRole('button', { name: /connect apple music/i });
+    fireEvent.click(connectButton);
+
+    const pendingButton = await screen.findByRole('button', { name: /connecting apple music/i });
+    expect((pendingButton as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(pendingButton);
+    expect(authorize).toHaveBeenCalledTimes(1);
+
+    resolveAuthorization('music-user-token-secret');
+    await waitFor(() => expect(mockApi.linkAppleMusicAccount).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole('button', { name: /export to apple music/i })).toBeTruthy());
   });
 });
 

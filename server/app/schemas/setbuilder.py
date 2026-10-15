@@ -1050,7 +1050,7 @@ class ExportAppleMusicOut(BaseModel):
     """Successful Apple Music playlist export."""
 
     playlist_id: str
-    playlist_url: str
+    playlist_url: str | None
     added: int
     skipped: int
     exported_at: datetime

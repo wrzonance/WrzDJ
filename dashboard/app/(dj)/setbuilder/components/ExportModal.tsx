@@ -11,7 +11,7 @@
  *   'done' → success (Tidal only; file downloads dismiss inline)
  */
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ApiError, api } from '@/lib/api';
 import type {
   ExportPreflight,
@@ -119,6 +119,8 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
   const [fileDownloaded, setFileDownloaded] = useState<string | null>(null); // filename
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [appleMusicConnecting, setAppleMusicConnecting] = useState(false);
+  const appleMusicConnectInFlight = useRef(false);
 
   // ---- pick a platform ----
   const handlePick = async (platform: (typeof PLATFORMS)[number]) => {
@@ -146,7 +148,11 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
       setPreflight(result);
       setStage('confirm');
     } catch (e) {
-      setError(errMessage(e));
+      setError(
+        target === 'apple_music' && e instanceof ApiError && e.status === 503
+          ? 'Apple Music export is unavailable because this deployment is not configured.'
+          : errMessage(e),
+      );
       setStage('pick');
     }
   };
@@ -229,6 +235,9 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
   };
 
   const handleConnectAppleMusic = async () => {
+    if (appleMusicConnectInFlight.current) return;
+    appleMusicConnectInFlight.current = true;
+    setAppleMusicConnecting(true);
     setError(null);
     try {
       const token = await api.getAppleMusicDeveloperToken();
@@ -238,6 +247,9 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
       setPreflight(await api.exportPreflight(set.id, 'apple_music'));
     } catch (e) {
       setError(errMessage(e));
+    } finally {
+      appleMusicConnectInFlight.current = false;
+      setAppleMusicConnecting(false);
     }
   };
 
@@ -368,6 +380,7 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
               onAppleMusicExport={handleAppleMusicExport}
               onConnectSpotify={handleConnectSpotify}
               onConnectAppleMusic={handleConnectAppleMusic}
+              appleMusicConnecting={appleMusicConnecting}
               onFileExport={handleFileExport}
               exporting={stage === 'exporting'}
               downloading={downloading}
@@ -423,6 +436,7 @@ interface ConfirmStageProps {
   onAppleMusicExport: () => void;
   onConnectSpotify: () => void;
   onConnectAppleMusic: () => void;
+  appleMusicConnecting: boolean;
   onFileExport: (format: ExportFileFormat) => void;
   exporting: boolean;
   downloading: boolean;
@@ -441,6 +455,7 @@ function ConfirmStage({
   onAppleMusicExport,
   onConnectSpotify,
   onConnectAppleMusic,
+  appleMusicConnecting,
   onFileExport,
   exporting,
   downloading,
@@ -494,8 +509,8 @@ function ConfirmStage({
       {platformId === 'applemusic' && preflight.apple_music_connected === false && (
         <div className={styles.imError} style={{ borderColor: 'rgba(251,191,36,0.4)', background: 'rgba(251,191,36,0.1)', color: '#fbbf24' }}>
           Link Apple Music to create a playlist in your account.
-          <button className="btn btn-sm" onClick={onConnectAppleMusic} style={{ display: 'block', marginTop: '0.5rem' }}>
-            Connect Apple Music
+          <button className="btn btn-sm" onClick={onConnectAppleMusic} disabled={appleMusicConnecting} style={{ display: 'block', marginTop: '0.5rem' }}>
+            {appleMusicConnecting ? 'Connecting Apple Music…' : 'Connect Apple Music'}
           </button>
         </div>
       )}
@@ -726,9 +741,11 @@ function AppleMusicDonePanel({ result }: { result: ExportAppleMusicResult }) {
           {result.added} tracks added{result.skipped > 0 ? `, ${result.skipped} skipped` : ''}
         </div>
       </div>
-      <a href={result.playlist_url} target="_blank" rel="noopener noreferrer" className="btn btn-primary btn-sm" style={{ display: 'inline-block', textDecoration: 'none' }}>
-        Open in Apple Music
-      </a>
+      {result.playlist_url && (
+        <a href={result.playlist_url} target="_blank" rel="noopener noreferrer" className="btn btn-primary btn-sm" style={{ display: 'inline-block', textDecoration: 'none' }}>
+          Open in Apple Music
+        </a>
+      )}
     </div>
   );
 }

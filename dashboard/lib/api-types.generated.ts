@@ -5515,7 +5515,7 @@ export interface components {
             /** Playlist Id */
             playlist_id: string;
             /** Playlist Url */
-            playlist_url: string;
+            playlist_url: string | null;
             /** Skipped */
             skipped: number;
             /**
@@ -13551,6 +13551,20 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+            /** @description Apple Music catalog lookup failed. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Apple Music is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

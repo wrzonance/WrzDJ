@@ -1,5 +1,6 @@
 """Apple Music developer-token configuration and endpoint tests."""
 
+import httpx
 import jwt
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -48,6 +49,61 @@ def test_developer_token_rejects_malformed_private_key(apple_settings):
 def test_developer_token_requires_apple_credentials():
     with pytest.raises(apple_music.AppleMusicNotConfigured):
         apple_music.create_developer_token(Settings(), now=1_800_000_000)
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "expected"),
+    [
+        (500, {"data": []}, apple_music.AppleMusicRequestUncertain),
+        (200, ValueError("invalid json"), apple_music.AppleMusicRequestUncertain),
+        (401, {"errors": []}, apple_music.AppleMusicNotConfigured),
+        (403, {"errors": []}, apple_music.AppleMusicUserAuthorizationError),
+        (400, {"errors": []}, apple_music.AppleMusicError),
+    ],
+)
+def test_playlist_post_distinguishes_uncertain_writes_from_definite_rejections(
+    monkeypatch, status, body, expected
+):
+    class Response:
+        status_code = status
+        is_success = 200 <= status < 300
+
+        def raise_for_status(self):
+            if status >= 400:
+                request = httpx.Request(
+                    "POST", "https://api.music.apple.com/v1/me/library/playlists"
+                )
+                response = httpx.Response(status, request=request)
+                raise httpx.HTTPStatusError(
+                    "Apple rejected the request", request=request, response=response
+                )
+
+        def json(self):
+            if isinstance(body, Exception):
+                raise body
+            return body
+
+    class Client:
+        def __init__(self, *, timeout):
+            assert timeout == apple_music.HTTP_TIMEOUT_SECONDS
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, *_args, **_kwargs):
+            return Response()
+
+    monkeypatch.setattr(apple_music.httpx, "Client", Client)
+    with pytest.raises(expected):
+        apple_music.apple_post(
+            "/me/library/playlists",
+            "developer-token",
+            music_user_token="music-user-token",
+            json_body={"attributes": {"name": "Set"}},
+        )
 
 
 def test_api_developer_token_reports_clear_not_configured(client, auth_headers, monkeypatch):

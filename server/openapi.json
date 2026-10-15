@@ -4222,7 +4222,7 @@
         "type": "object"
       },
       "ExportAppleMusicIn": {
-        "description": "Body for Apple Music export; unresolved tracks require explicit DJ choice.",
+        "description": "Apple Music export requires an explicit choice before skipping unresolved tracks.",
         "properties": {
           "skip_unresolved": {
             "default": false,
@@ -4234,7 +4234,7 @@
         "type": "object"
       },
       "ExportAppleMusicOut": {
-        "description": "Successful Apple Music playlist export.",
+        "description": "A playlist confirmed by read-back from the Apple Music library.",
         "properties": {
           "added": {
             "title": "Added",
@@ -8539,17 +8539,6 @@
       "SetDetail": {
         "description": "Full set record (Phase 0: no slot/curve expansion yet).",
         "properties": {
-          "apple_music_playlist_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Apple Music Playlist Id"
-          },
           "avg_transition_overlap_sec": {
             "title": "Avg Transition Overlap Sec",
             "type": "integer"
@@ -8695,7 +8684,6 @@
           }
         },
         "required": [
-          "apple_music_playlist_id",
           "avg_transition_overlap_sec",
           "bpm_ceiling",
           "bpm_floor",
@@ -19921,7 +19909,7 @@
     },
     "/api/setbuilder/sets/{set_id}/export/apple-music": {
       "post": {
-        "description": "Create one ordered Apple Music playlist from the resolved setlist.",
+        "description": "Create and verify one ordered Apple Music library playlist.",
         "operationId": "export_set_apple_music_api_setbuilder_sets__set_id__export_apple_music_post",
         "parameters": [
           {

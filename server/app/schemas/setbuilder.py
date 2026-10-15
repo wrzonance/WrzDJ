@@ -79,7 +79,6 @@ class SetDetail(SetSummary):
     key_strictness: float
     tidal_playlist_id: str | None
     spotify_playlist_id: str | None = None
-    apple_music_playlist_id: str | None = None
     exported_at: datetime | None
 
 
@@ -1041,13 +1040,13 @@ class ExportSpotifyOut(BaseModel):
 
 
 class ExportAppleMusicIn(BaseModel):
-    """Body for Apple Music export; unresolved tracks require explicit DJ choice."""
+    """Apple Music export requires an explicit choice before skipping unresolved tracks."""
 
     skip_unresolved: bool = False
 
 
 class ExportAppleMusicOut(BaseModel):
-    """Successful Apple Music playlist export."""
+    """A playlist confirmed by read-back from the Apple Music library."""
 
     playlist_id: str
     playlist_url: str | None

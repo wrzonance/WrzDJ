@@ -1953,14 +1953,13 @@ def export_set_apple_music(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> ExportAppleMusicOut:
-    """Create one ordered Apple Music playlist from the resolved setlist."""
+    """Create and verify one ordered Apple Music library playlist."""
     set_obj = _get_owned_or_404(db, set_id, current_user)
     if not apple_music_tokens.is_configured():
         raise HTTPException(status_code=503, detail="Apple Music is not configured")
     _, tracks = export_common.collect_export_tracks(set_obj)
     if not tracks:
         raise HTTPException(status_code=400, detail="Set has no tracks to export")
-
     try:
         resolved, unresolved = apple_music_catalog.resolve_tracks(db, current_user, tracks)
     except apple_music_tokens.AppleMusicNotConnected:
@@ -1973,16 +1972,15 @@ def export_set_apple_music(
         raise _unresolved_409(_unresolved_out(unresolved, "no_apple_music_match"))
     if not resolved:
         raise HTTPException(status_code=400, detail="No resolvable tracks to export")
-
     try:
         outcome = export_apple_music.export_to_apple_music(db, current_user, set_obj, resolved)
     except apple_music_tokens.AppleMusicNotConnected:
         raise HTTPException(status_code=400, detail="Apple Music account not connected") from None
-    except export_apple_music.AppleMusicWriteUncertain:
-        raise HTTPException(
-            status_code=502,
-            detail="Apple Music export outcome is uncertain. Check your library before retrying.",
-        ) from None
+    except export_apple_music.AppleMusicWriteUncertain as exc:
+        detail = "Apple Music export could not be confirmed. Do not retry; check your library."
+        if exc.playlist_id:
+            detail += f" Created playlist ID: {exc.playlist_id}."
+        raise HTTPException(status_code=502, detail=detail) from None
     except apple_music_tokens.AppleMusicUserAuthorizationError:
         raise HTTPException(
             status_code=400,
@@ -1990,7 +1988,6 @@ def export_set_apple_music(
         ) from None
     except apple_music_tokens.AppleMusicError:
         raise HTTPException(status_code=502, detail="Apple Music export failed") from None
-
     return ExportAppleMusicOut(
         playlist_id=outcome.playlist_id,
         playlist_url=outcome.playlist_url,

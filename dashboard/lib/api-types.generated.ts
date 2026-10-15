@@ -3047,7 +3047,7 @@ export interface paths {
         put?: never;
         /**
          * Export Set Apple Music
-         * @description Create one ordered Apple Music playlist from the resolved setlist.
+         * @description Create and verify one ordered Apple Music library playlist.
          */
         post: operations["export_set_apple_music_api_setbuilder_sets__set_id__export_apple_music_post"];
         delete?: never;
@@ -5491,7 +5491,7 @@ export interface components {
         };
         /**
          * ExportAppleMusicIn
-         * @description Body for Apple Music export; unresolved tracks require explicit DJ choice.
+         * @description Apple Music export requires an explicit choice before skipping unresolved tracks.
          */
         ExportAppleMusicIn: {
             /**
@@ -5502,7 +5502,7 @@ export interface components {
         };
         /**
          * ExportAppleMusicOut
-         * @description Successful Apple Music playlist export.
+         * @description A playlist confirmed by read-back from the Apple Music library.
          */
         ExportAppleMusicOut: {
             /** Added */
@@ -6990,8 +6990,6 @@ export interface components {
          * @description Full set record (Phase 0: no slot/curve expansion yet).
          */
         SetDetail: {
-            /** Apple Music Playlist Id */
-            apple_music_playlist_id: string | null;
             /** Avg Transition Overlap Sec */
             avg_transition_overlap_sec: number;
             /** Bpm Ceiling */

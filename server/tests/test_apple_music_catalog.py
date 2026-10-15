@@ -165,3 +165,103 @@ def test_title_search_sends_title_artist_term_to_the_dj_storefront(monkeypatch):
             {"term": "The Example Night Drive", "types": "songs", "limit": "25"},
         )
     ]
+
+
+def test_public_playlist_reads_catalog_metadata_and_all_track_pages(monkeypatch):
+    monkeypatch.setattr(apple_music_tokens, "create_developer_token", lambda: ("dev-token", 100))
+    requests = []
+
+    def apple_get(path, developer_token, *, params=None, **_kwargs):
+        requests.append((path, developer_token, params))
+        if path.endswith("/tracks") and len(requests) == 2:
+            return {
+                "data": [
+                    {
+                        "id": "song-1",
+                        "type": "songs",
+                        "attributes": {
+                            "name": "Night Drive",
+                            "artistName": "The Example",
+                            "albumName": "After Hours",
+                            "isrc": "USRC17607839",
+                            "durationInMillis": 201000,
+                        },
+                    }
+                ],
+                "next": "/v1/catalog/us/playlists/pl.abc123/tracks?offset=100",
+            }
+        if path.endswith("/tracks"):
+            return {
+                "data": [
+                    {
+                        "id": "song-2",
+                        "type": "songs",
+                        "attributes": {
+                            "name": "Blue Hour",
+                            "artistName": "The Example",
+                        },
+                    },
+                    {
+                        "id": "video-1",
+                        "type": "music-videos",
+                        "attributes": {"name": "Ignore video", "artistName": "The Example"},
+                    },
+                ]
+            }
+        return {
+            "data": [
+                {
+                    "id": "pl.abc123",
+                    "attributes": {
+                        "name": "Night Drive Mix",
+                        "curatorName": "The Example",
+                    },
+                }
+            ]
+        }
+
+    monkeypatch.setattr(apple_music_tokens, "apple_get", apple_get)
+
+    metadata, songs = apple_music_catalog.fetch_public_playlist("us", "pl.abc123")
+
+    assert metadata == {"name": "Night Drive Mix", "owner": "The Example", "track_count": 2}
+    assert songs == [
+        apple_music_catalog.AppleCatalogSong(
+            id="song-1",
+            title="Night Drive",
+            artist="The Example",
+            isrc="USRC17607839",
+            album="After Hours",
+            duration_ms=201000,
+        ),
+        apple_music_catalog.AppleCatalogSong(
+            id="song-2", title="Blue Hour", artist="The Example", isrc=None
+        ),
+    ]
+    assert requests == [
+        ("/catalog/us/playlists/pl.abc123", "dev-token", None),
+        ("/catalog/us/playlists/pl.abc123/tracks", "dev-token", None),
+        (
+            "/catalog/us/playlists/pl.abc123/tracks",
+            "dev-token",
+            {"offset": "100"},
+        ),
+    ]
+
+
+def test_public_playlist_rejects_non_catalog_pagination_links(monkeypatch):
+    monkeypatch.setattr(apple_music_tokens, "create_developer_token", lambda: ("dev-token", 100))
+
+    def apple_get(path, developer_token, **_kwargs):
+        if path.endswith("/tracks"):
+            return {"data": [], "next": "https://attacker.example/steal-token"}
+        return {"data": [{"id": "pl.abc123", "attributes": {"name": "Mix"}}]}
+
+    monkeypatch.setattr(apple_music_tokens, "apple_get", apple_get)
+
+    try:
+        apple_music_catalog.fetch_public_playlist("us", "pl.abc123")
+    except apple_music_tokens.AppleMusicError as exc:
+        assert "pagination" in str(exc).lower()
+    else:
+        raise AssertionError("malicious pagination URL was accepted")

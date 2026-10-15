@@ -321,7 +321,7 @@ def test_import_from_tidal_no_playlists_errors(db: Session, test_user: User, mon
         apply_tool_call(db, set_obj, "import_from_tidal", {"playlist": "x", "rationale": "r"})
 
 
-# --- import_from_url (public Spotify/Tidal playlist URLs, #442 Family 4b) -----
+# --- import_from_url (public Spotify/Tidal/Apple Music URLs, #442/#743) ------
 
 # A real, well-formed Spotify playlist URL — exercised through the real
 # parse_public_playlist_url so the parse->fetch wiring (provider + id) is pinned;
@@ -365,15 +365,27 @@ def test_import_from_url_invalid_url_errors(db: Session, test_user: User):
         )
 
 
-def test_import_from_url_unsupported_provider_errors(db: Session, test_user: User):
+def test_import_from_url_imports_apple_music_catalog_playlist(
+    db: Session, test_user: User, monkeypatch
+):
     set_obj = _mk_set(db, test_user)
-    with pytest.raises(AgentToolError, match="Apple Music"):
-        apply_tool_call(
-            db,
-            set_obj,
-            "import_from_url",
-            {"url": "https://music.apple.com/us/playlist/foo/pl.u-123", "rationale": "r"},
-        )
+    calls = []
+
+    def fake_candidates(d, user, provider, pid, *, storefront=None):
+        calls.append((provider, pid, storefront))
+        return "Apple Playlist", [pool.PoolCandidate(title="A1", artist="Artist")]
+
+    monkeypatch.setattr("app.services.setbuilder.pool.candidates_from_public_url", fake_candidates)
+    result, _ = apply_tool_call(
+        db,
+        set_obj,
+        "import_from_url",
+        {"url": "https://music.apple.com/us/playlist/foo/pl.u-123", "rationale": "r"},
+    )
+
+    assert calls == [("apple_music", "pl.u-123", "us")]
+    assert result["source_label"] == "Apple Playlist"
+    assert result["added"] == 1
 
 
 def test_import_from_url_fetch_error_maps_to_tool_error(db: Session, test_user: User, monkeypatch):

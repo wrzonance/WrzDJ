@@ -243,10 +243,11 @@ def _agent_tools() -> list[ToolSpec]:
         ToolSpec(
             name="import_from_url",
             description=(
-                "Import a public Spotify or Tidal playlist URL into the set's track pool. "
-                "'url' is the full https playlist link. Tidal URLs require a connected Tidal "
-                "account; unsupported hosts (Apple Music / YouTube / SoundCloud / Beatport) "
-                "return a clear message — use import_from_beatport for Beatport."
+                "Import a public Spotify, Tidal, or Apple Music catalog playlist URL into the "
+                "set's track pool. 'url' is the full https playlist link. Tidal URLs require a "
+                "connected Tidal account; Apple Music imports public catalog playlists and does "
+                "not import private library playlists. Unsupported hosts (YouTube / SoundCloud / "
+                "Beatport) return a clear message — use import_from_beatport for Beatport."
             ),
             input_schema={
                 "type": "object",

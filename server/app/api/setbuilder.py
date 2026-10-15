@@ -1352,7 +1352,18 @@ def preview_pool_url(
     if not parsed.supported:
         return PoolUrlPreview(provider=parsed.provider, supported=False, message=parsed.message)
     try:
-        meta = pool.preview_public_playlist(db, current_user, parsed.provider, parsed.playlist_id)
+        if parsed.provider == "apple_music":
+            meta = pool.preview_public_playlist(
+                db,
+                current_user,
+                parsed.provider,
+                parsed.playlist_id,
+                storefront=parsed.storefront,
+            )
+        else:
+            meta = pool.preview_public_playlist(
+                db, current_user, parsed.provider, parsed.playlist_id
+            )
     except pool.PoolImportError as e:
         raise HTTPException(status_code=502, detail=str(e)) from None
     return PoolUrlPreview(provider=parsed.provider, supported=True, **meta)
@@ -1377,9 +1388,18 @@ def import_pool_url(
     if not parsed.supported:
         raise HTTPException(status_code=422, detail=parsed.message)
     try:
-        name, candidates = pool.candidates_from_public_url(
-            db, current_user, parsed.provider, parsed.playlist_id
-        )
+        if parsed.provider == "apple_music":
+            name, candidates = pool.candidates_from_public_url(
+                db,
+                current_user,
+                parsed.provider,
+                parsed.playlist_id,
+                storefront=parsed.storefront,
+            )
+        else:
+            name, candidates = pool.candidates_from_public_url(
+                db, current_user, parsed.provider, parsed.playlist_id
+            )
     except pool.PoolImportError as e:
         raise HTTPException(status_code=502, detail=str(e)) from None
     source = pool.get_or_create_source(

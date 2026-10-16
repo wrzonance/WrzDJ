@@ -63,9 +63,17 @@ def test_catalog_id_is_checked_in_the_dj_storefront(db, test_user, monkeypatch):
     _connect_dj(db, test_user)
     queries = []
 
-    def search(_db, storefront, term, *, isrc=None, song_id=None):
-        queries.append((storefront, term, isrc, song_id))
-        return [SimpleNamespace(id="12345")] if song_id == "12345" else []
+    def search(_db, storefront, term, *, isrc=None, song_id=None, song_ids=None):
+        queries.append((storefront, term, isrc, song_id, song_ids))
+        return (
+            [
+                apple_music_catalog.AppleCatalogSong(
+                    id="12345", title="Song", artist="Artist", isrc=None
+                )
+            ]
+            if song_ids == ["12345"]
+            else []
+        )
 
     monkeypatch.setattr(apple_music_catalog, "search_catalog", search)
     track = ExportTrack(position=0, title="Song", artist="Artist", track_id="apple_music:12345")
@@ -74,16 +82,96 @@ def test_catalog_id_is_checked_in_the_dj_storefront(db, test_user, monkeypatch):
 
     assert resolved == [(track, "12345")]
     assert unresolved == []
-    assert queries == [("gb", "", None, "12345")]
+    assert queries == [("gb", "", None, None, ["12345"])]
+
+
+def test_catalog_id_with_different_track_metadata_falls_back_to_exact_isrc(
+    db, test_user, monkeypatch
+):
+    _connect_dj(db, test_user)
+    queries = []
+
+    def search(_db, storefront, term, *, isrc=None, song_id=None, song_ids=None):
+        queries.append((storefront, term, isrc, song_id, song_ids))
+        if song_ids:
+            return [
+                apple_music_catalog.AppleCatalogSong(
+                    id="12345", title="Different Song", artist="Another Artist", isrc="OTHER"
+                )
+            ]
+        if isrc:
+            return [
+                apple_music_catalog.AppleCatalogSong(
+                    id="confirmed-song",
+                    title="Night Drive",
+                    artist="The Example",
+                    isrc="ISRC-1",
+                )
+            ]
+        raise AssertionError("an exact ISRC match should avoid title search")
+
+    monkeypatch.setattr(apple_music_catalog, "search_catalog", search)
+    track = ExportTrack(
+        position=0,
+        title="Night Drive",
+        artist="The Example",
+        isrc="ISRC-1",
+        track_id="apple_music:12345",
+    )
+
+    resolved, unresolved = apple_music_catalog.resolve_tracks(db, test_user, [track])
+
+    assert resolved == [(track, "confirmed-song")]
+    assert unresolved == []
+    assert queries == [
+        ("gb", "", None, None, ["12345"]),
+        ("gb", "", "ISRC-1", None, None),
+    ]
+
+
+def test_catalog_id_resolution_batches_requests_at_apple_limit(db, test_user, monkeypatch):
+    _connect_dj(db, test_user)
+    monkeypatch.setattr(apple_music_tokens, "create_developer_token", lambda: ("dev-token", 100))
+    requests = []
+
+    def apple_get(path, developer_token, *, params=None, **_kwargs):
+        requests.append((path, developer_token, params))
+        return {
+            "data": [
+                {
+                    "id": song_id,
+                    "attributes": {"name": f"Song {song_id}", "artistName": "Artist"},
+                }
+                for song_id in params["ids"].split(",")
+            ]
+        }
+
+    monkeypatch.setattr(apple_music_tokens, "apple_get", apple_get)
+    tracks = [
+        ExportTrack(
+            position=position,
+            title=f"Song {position}",
+            artist="Artist",
+            track_id=f"apple_music:{position}",
+        )
+        for position in range(301)
+    ]
+
+    resolved, unresolved = apple_music_catalog.resolve_tracks(db, test_user, tracks)
+
+    assert resolved == [(track, str(position)) for position, track in enumerate(tracks)]
+    assert unresolved == []
+    assert [len(params["ids"].split(",")) for _, _, params in requests] == [300, 1]
+    assert all(path == "/catalog/gb/songs" for path, _, _ in requests)
 
 
 def test_missing_catalog_id_falls_back_to_isrc(db, test_user, monkeypatch):
     _connect_dj(db, test_user)
     calls = []
 
-    def search(_db, _storefront, _term, *, isrc=None, song_id=None):
-        calls.append((isrc, song_id))
-        if song_id:
+    def search(_db, _storefront, _term, *, isrc=None, song_id=None, song_ids=None):
+        calls.append((isrc, song_id, song_ids))
+        if song_ids:
             raise apple_music_tokens.AppleMusicNotFound
         if isrc:
             return [SimpleNamespace(id="local-song", isrc=isrc)]
@@ -98,15 +186,15 @@ def test_missing_catalog_id_falls_back_to_isrc(db, test_user, monkeypatch):
 
     assert resolved == [(track, "local-song")]
     assert unresolved == []
-    assert calls == [(None, "12345"), ("ISRC-1", None)]
+    assert calls == [(None, None, ["12345"]), ("ISRC-1", None, None)]
 
 
 def test_catalog_provider_error_does_not_turn_into_a_missing_match(db, test_user, monkeypatch):
     _connect_dj(db, test_user)
     calls = []
 
-    def search(_db, _storefront, _term, *, isrc=None, song_id=None):
-        calls.append((isrc, song_id))
+    def search(_db, _storefront, _term, *, isrc=None, song_id=None, song_ids=None):
+        calls.append((isrc, song_id, song_ids))
         raise apple_music_tokens.AppleMusicError("catalog unavailable")
 
     monkeypatch.setattr(apple_music_catalog, "search_catalog", search)
@@ -117,7 +205,7 @@ def test_catalog_provider_error_does_not_turn_into_a_missing_match(db, test_user
     with pytest.raises(apple_music_tokens.AppleMusicError):
         apple_music_catalog.resolve_tracks(db, test_user, [track])
 
-    assert calls == [(None, "12345")]
+    assert calls == [(None, None, ["12345"])]
 
 
 def test_preflight_returns_unlinked_state_without_creating_a_playlist(

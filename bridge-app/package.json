@@ -11,7 +11,7 @@
     "lint": "eslint src/",
     "test": "vitest",
     "test:run": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "node node_modules/@typescript/native/bin/tsc --noEmit"
   },
   "dependencies": {
     "alphatheta-connect": "0.28.5",
@@ -28,20 +28,25 @@
     "@electron-forge/maker-zip": "^8.0.1",
     "@electron-forge/plugin-auto-unpack-natives": "^8.0.1",
     "@electron-forge/plugin-vite": "^8.0.1",
+    "@eslint/js": "^10.0.1",
     "@reforged/maker-appimage": "^5.2.0",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@typescript-eslint/eslint-plugin": "^8.71.0",
+    "@typescript-eslint/parser": "^8.71.0",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "@vitejs/plugin-react": "^6.0.1",
     "@vitest/coverage-v8": "^5.0.3",
     "electron": "^44.5.1",
     "eslint": "^10.12.0",
+    "globals": "^17.13.0",
     "jsdom": "^30.1.2",
     "playwright-core": "^1.63.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "typescript": "^7.0.2",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "^5.0.3"
   },
   "engines": {

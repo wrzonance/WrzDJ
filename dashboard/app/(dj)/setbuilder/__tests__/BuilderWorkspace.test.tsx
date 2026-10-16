@@ -322,7 +322,7 @@ describe('BuilderWorkspace', () => {
       Promise.resolve(cloneDocument(snapshot)),
     );
     mockGetCurveTemplates.mockResolvedValue(TEMPLATES);
-    mockGetVibeWindows.mockResolvedValue({ windows: [] });
+    mockGetVibeWindows.mockReset().mockResolvedValue({ windows: [] });
     mockUpdateSlotTarget.mockResolvedValue({ slot_id: 1, target_energy: 9 });
     mockPutVibeWindows.mockResolvedValue({ windows: [] });
     mockSavePairing.mockResolvedValue({ id: 44 });
@@ -856,8 +856,20 @@ describe('BuilderWorkspace', () => {
   });
 
   it('adding a vibe preset window persists via PUT', async () => {
+    let resolveInitialWindows!: (response: {
+      windows: { t0_sec: number; t1_sec: number; label: string }[];
+    }) => void;
+    mockGetVibeWindows.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveInitialWindows = resolve;
+      }),
+    );
     render(<BuilderWorkspace setId={5} />);
     await waitFor(() => expect(screen.getByTestId('slot-block-0')).toBeInTheDocument());
+    await waitFor(() => expect(mockGetVibeWindows).toHaveBeenCalledWith(5));
+    await act(async () => {
+      resolveInitialWindows({ windows: [] });
+    });
 
     fireEvent.click(screen.getByTestId('vibe-dropdown-trigger'));
     fireEvent.click(screen.getByTestId('vibe-preset-first-dance'));

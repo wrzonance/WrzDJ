@@ -149,6 +149,9 @@ case "${1:-}" in
   --nginx)
     shift
     domains=()
+    domain_values=()
+    certbot_args=()
+    cert_name=""
     while [ $# -gt 0 ]; do
       if [ "$1" = "-d" ] && [ $# -gt 1 ]; then
         domain="$2"
@@ -157,6 +160,37 @@ case "${1:-}" in
           exit 1
         fi
         domains+=("-d" "$domain")
+        domain_values+=("$domain")
+        shift 2
+      elif [ "$1" = "--cert-name" ] && [ $# -gt 1 ]; then
+        cert_name="$2"
+        if [[ ! "$cert_name" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]; then
+          echo "ERROR: Invalid certificate name: $cert_name" >&2
+          exit 1
+        fi
+        certbot_args+=("--cert-name" "$cert_name")
+        shift 2
+      elif [ "$1" = "--agree-tos" ]; then
+        certbot_args+=("--agree-tos")
+        shift
+      elif [ "$1" = "--email" ] && [ $# -gt 1 ]; then
+        email="$2"
+        if [[ ! "$email" =~ ^[^[:space:]@]+@[^[:space:]@]+$ ]]; then
+          echo "ERROR: Invalid email address: $email" >&2
+          exit 1
+        fi
+        certbot_args+=("--email" "$email")
+        shift 2
+      elif [ "$1" = "--register-unsafely-without-email" ]; then
+        certbot_args+=("--register-unsafely-without-email")
+        shift
+      elif [ "$1" = "--key-type" ] && [ $# -gt 1 ]; then
+        key_type="$2"
+        if [ "$key_type" != "ecdsa" ] && [ "$key_type" != "rsa" ]; then
+          echo "ERROR: Invalid key type: $key_type" >&2
+          exit 1
+        fi
+        certbot_args+=("--key-type" "$key_type")
         shift 2
       else
         echo "ERROR: Unexpected argument: $1" >&2
@@ -167,7 +201,15 @@ case "${1:-}" in
       echo "Usage: wrzdj-certbot --nginx -d domain1 [-d domain2 ...]" >&2
       exit 1
     fi
-    exec /usr/bin/certbot --nginx --non-interactive "${domains[@]}"
+    if [ -n "$cert_name" ]; then
+      for domain in "${domain_values[@]}"; do
+        if [ "$cert_name" != "$domain" ] && [ "$cert_name" != "$domain-rsa" ]; then
+          echo "ERROR: Certificate name must match its domain or domain-rsa: $cert_name" >&2
+          exit 1
+        fi
+      done
+    fi
+    exec /usr/bin/certbot --nginx --non-interactive "${certbot_args[@]}" "${domains[@]}"
     ;;
   renew)
     if [ "${2:-}" = "--dry-run" ]; then
@@ -183,6 +225,37 @@ esac
 WRAPPER
 chmod 750 /usr/local/bin/wrzdj-certbot
 chown root:wrzdj /usr/local/bin/wrzdj-certbot
+
+cat > /usr/local/bin/wrzdj-certificates-ready << 'WRAPPER'
+#!/bin/bash
+set -euo pipefail
+domain="${1:-}"
+if [ $# -ne 1 ] || [[ ! "$domain" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]; then
+  echo "Usage: wrzdj-certificates-ready domain" >&2
+  exit 1
+fi
+live_dir="/etc/letsencrypt/live/$domain"
+if [ ! -d "$live_dir" ]; then
+  exit 1
+fi
+if [ ! -r "$live_dir" ]; then
+  exit 2
+fi
+for filename in fullchain.pem privkey.pem; do
+  path="$live_dir/$filename"
+  if [ -L "$path" ] && [ ! -e "$path" ]; then
+    exit 2
+  fi
+  if [ ! -e "$path" ]; then
+    exit 1
+  fi
+  if [ ! -r "$path" ] || [ ! -s "$path" ]; then
+    exit 2
+  fi
+done
+WRAPPER
+chmod 750 /usr/local/bin/wrzdj-certificates-ready
+chown root:wrzdj /usr/local/bin/wrzdj-certificates-ready
 
 cat > /usr/local/bin/wrzdj-nginx-confd-install << 'WRAPPER'
 #!/bin/bash
@@ -211,7 +284,7 @@ WRAPPER
 chmod 750 /usr/local/bin/wrzdj-nginx-confd-install
 chown root:wrzdj /usr/local/bin/wrzdj-nginx-confd-install
 
-echo "    Installed wrzdj-nginx-install, wrzdj-nginx-confd-install, and wrzdj-certbot"
+echo "    Installed nginx, certificate, and certbot wrapper scripts"
 
 # 4. Install limited sudoers
 echo "    Installing sudoers to $SUDOERS_FILE"
@@ -239,6 +312,7 @@ wrzdj ALL=(root) NOPASSWD: /usr/bin/systemctl status wrzdj
 
 # SSL certificate management (via wrapper — no hooks allowed)
 wrzdj ALL=(root) NOPASSWD: /usr/local/bin/wrzdj-certbot
+wrzdj ALL=(root) NOPASSWD: /usr/local/bin/wrzdj-certificates-ready
 SUDOERS
 chmod 0440 "$SUDOERS_FILE"
 

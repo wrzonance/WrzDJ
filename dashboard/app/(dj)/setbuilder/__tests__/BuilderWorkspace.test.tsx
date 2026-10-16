@@ -896,14 +896,41 @@ describe('BuilderWorkspace', () => {
     fireEvent.click(screen.getByTestId('vibe-dropdown-trigger'));
     fireEvent.click(screen.getByTestId('vibe-preset-first-dance'));
 
-    await waitFor(() => expect(mockPutVibeWindows).toHaveBeenCalledTimes(1));
-    const [, windows] = mockPutVibeWindows.mock.calls[0];
-    expect(windows).toHaveLength(1);
-    expect(windows[0].label).toBe('First Dance');
+    expect(mockPutVibeWindows).not.toHaveBeenCalled();
     await act(async () => {
-      resolveInitialWindows({ windows: [] });
+      resolveInitialWindows({ windows: [{ t0_sec: 15, t1_sec: 30, label: 'Saved window' }] });
     });
     expect(await screen.findByText('FIRST DANCE')).toBeInTheDocument();
+    expect(await screen.findByText('SAVED WINDOW')).toBeInTheDocument();
+    await waitFor(() => expect(mockPutVibeWindows).toHaveBeenCalledTimes(1));
+    const [, windows] = mockPutVibeWindows.mock.calls[0];
+    expect(windows.map((window: { label: string }) => window.label)).toEqual([
+      'Saved window',
+      'First Dance',
+    ]);
+  });
+
+  it('merges a pending preset with a snapshot that arrives during the initial load', async () => {
+    mockGetVibeWindows.mockReturnValueOnce(new Promise(() => {}));
+    const { rerender } = render(<BuilderWorkspace setId={5} />);
+    await waitFor(() => expect(mockGetVibeWindows).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByTestId('vibe-dropdown-trigger'));
+    fireEvent.click(screen.getByTestId('vibe-preset-first-dance'));
+    expect(mockPutVibeWindows).not.toHaveBeenCalled();
+
+    rerender(
+      <BuilderWorkspace setId={5} snapshot={documentWithVibeWindow('Saved window')} snapshotVersion={1} />,
+    );
+
+    expect(await screen.findByText('FIRST DANCE')).toBeInTheDocument();
+    expect(await screen.findByText('SAVED WINDOW')).toBeInTheDocument();
+    await waitFor(() => expect(mockPutVibeWindows).toHaveBeenCalledTimes(1));
+    const [, windows] = mockPutVibeWindows.mock.calls[0];
+    expect(windows.map((window: { label: string }) => window.label)).toEqual([
+      'Saved window',
+      'First Dance',
+    ]);
   });
 
   it('restores vibe windows from a later document snapshot', async () => {
@@ -915,13 +942,46 @@ describe('BuilderWorkspace', () => {
     fireEvent.click(screen.getByTestId('vibe-dropdown-trigger'));
     fireEvent.click(screen.getByTestId('vibe-preset-first-dance'));
     expect(await screen.findByText('FIRST DANCE')).toBeInTheDocument();
-
     rerender(
       <BuilderWorkspace setId={5} snapshot={documentWithVibeWindow('Restored')} snapshotVersion={2} />,
     );
 
     expect(await screen.findByText('RESTORED')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText('FIRST DANCE')).not.toBeInTheDocument());
+  });
+
+  it('does not restore an old snapshot when slot duration changes', async () => {
+    const snapshot = documentWithVibeWindow('Original');
+    const { rerender } = render(<BuilderWorkspace setId={5} snapshot={snapshot} snapshotVersion={1} />);
+    expect(await screen.findByText('ORIGINAL')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('vibe-dropdown-trigger'));
+    fireEvent.click(screen.getByTestId('vibe-preset-first-dance'));
+    expect(await screen.findByText('FIRST DANCE')).toBeInTheDocument();
+    const initialScale = screen.getByTestId('curve-canvas').getAttribute('data-px-per-second');
+
+    mockGetPool.mockResolvedValueOnce({
+      sources: [],
+      tracks: POOL_TRACKS.map((track) => ({
+        ...track,
+        duration_sec: (track.duration_sec ?? 210) + 30,
+      })),
+    });
+    rerender(
+      <BuilderWorkspace
+        setId={5}
+        refreshToken={1}
+        snapshot={snapshot}
+        snapshotVersion={1}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId('curve-canvas').getAttribute('data-px-per-second')).not.toBe(
+        initialScale,
+      ),
+    );
+    expect(await screen.findByText('FIRST DANCE')).toBeInTheDocument();
   });
 
   it('restores the saved windows when returning to a set edited before its first snapshot', async () => {
@@ -988,6 +1048,24 @@ describe('BuilderWorkspace', () => {
 
     expect(await screen.findByText('SET SIX SAVED')).toBeInTheDocument();
     expect(screen.queryByText('SLOW SET')).not.toBeInTheDocument();
+  });
+
+  it('clears the active template label when switching sets', async () => {
+    mockApplyCurveTemplate.mockResolvedValue({ targets: [], windows: [] });
+    const { rerender } = render(<BuilderWorkspace setId={5} />);
+    await waitFor(() => expect(screen.getByTestId('curve-toolbar')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('template-dropdown-trigger'));
+    await waitFor(() => expect(screen.getByTestId('apply-builtin-Club Peak')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('apply-builtin-Club Peak'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('template-dropdown-trigger')).toHaveTextContent('Club Peak'),
+    );
+    rerender(<BuilderWorkspace setId={6} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('template-dropdown-trigger')).toHaveTextContent('Pick curve'),
+    );
   });
 
   it('persists both vibe presets added in one batch', async () => {

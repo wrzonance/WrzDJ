@@ -125,6 +125,43 @@ def test_retries_only_the_timed_out_page_without_duplicates(db: Session, spotify
     assert [c["offset"] for c in calls] == [0, 10, 10]
 
 
+@pytest.mark.parametrize("slow_page", [0, 1])
+def test_slow_pages_share_the_original_search_time_budget(
+    db: Session, spotify_http, monkeypatch, slow_page
+):
+    responses, calls = spotify_http
+    elapsed = 0.0
+    attempts = 0
+
+    def slow_response():
+        nonlocal elapsed, attempts
+        elapsed += 15  # A full connect + read timeout allowance.
+        attempts += 1
+        if attempts < 3:
+            raise ReadTimeout("timeout")
+        return page(slow_page * 10, 10, not slow_page)
+
+    def next_response():
+        nonlocal elapsed
+        if slow_page == 1 and len(calls) == 1:
+            elapsed += 15
+            return page(0, 10, True)
+        return slow_response()
+
+    def advance_time(seconds):
+        nonlocal elapsed
+        elapsed += seconds
+
+    monkeypatch.setattr("app.services.spotify.time.monotonic", lambda: elapsed)
+    monkeypatch.setattr("app.services.spotify.time.sleep", advance_time)
+    responses.side_effect = next_response
+
+    assert search_songs(db, "artist") == []
+    assert elapsed <= 46.5  # Previous three 15s attempts plus 0.5s + 1s backoff.
+    assert [c["offset"] for c in calls] == ([0, 0, 0] if slow_page == 0 else [0, 10, 10])
+    assert db.query(SearchCache).count() == 0
+
+
 @pytest.mark.parametrize("failed_page", [0, 1])
 @pytest.mark.parametrize("failure", ["http", "timeout"])
 def test_failed_search_is_not_cached_and_next_search_can_recover(

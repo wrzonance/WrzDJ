@@ -23,6 +23,10 @@ MAX_RETRIES = 2
 INITIAL_BACKOFF = 0.5  # seconds
 SEARCH_PAGE_SIZE = 10  # Spotify Development Mode limit since February 2026
 SEARCH_RESULT_LIMIT = 20
+# Share the former single-page connect/read and backoff allowance across both pages.
+SEARCH_TIME_BUDGET = (MAX_RETRIES + 1) * sum(SPOTIFY_TIMEOUT) + INITIAL_BACKOFF * (
+    2**MAX_RETRIES - 1
+)
 
 # Initialize Spotify client with client credentials flow (thread-safe)
 _sp: spotipy.Spotify | None = None
@@ -107,9 +111,10 @@ def search_songs(db: Session, query: str) -> list[SearchResult]:
 def _call_spotify_api(query: str) -> list[SearchResult]:
     """Fetch up to 20 candidates using Spotify's 10-result search pages."""
     sp = _get_spotify_client()
+    deadline = time.monotonic() + SEARCH_TIME_BUDGET
     tracks = []
     for offset in range(0, SEARCH_RESULT_LIMIT, SEARCH_PAGE_SIZE):
-        response = _fetch_spotify_page(sp, query, offset)
+        response = _fetch_spotify_page(sp, query, offset, deadline)
         if response is None:
             # Do not cache an incomplete search as the full result set.
             return []
@@ -121,12 +126,18 @@ def _call_spotify_api(query: str) -> list[SearchResult]:
     return _parse_spotify_tracks(tracks)
 
 
-def _fetch_spotify_page(sp: spotipy.Spotify, query: str, offset: int) -> dict | None:
+def _fetch_spotify_page(
+    sp: spotipy.Spotify, query: str, offset: int, deadline: float
+) -> dict | None:
     """Retry only the current page so earlier results are not requested again."""
     response = None
     last_exception = None
 
     for attempt in range(MAX_RETRIES + 1):
+        # Reserve a full connect/read allowance before starting another request.
+        if time.monotonic() + sum(SPOTIFY_TIMEOUT) > deadline:
+            logger.warning("Spotify search time budget exhausted")
+            return None
         try:
             response = sp.search(q=query, type="track", limit=SEARCH_PAGE_SIZE, offset=offset)
             break

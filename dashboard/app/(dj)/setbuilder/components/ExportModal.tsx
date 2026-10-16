@@ -480,11 +480,12 @@ export default function ExportModal({ set, onClose, onSetUpdated }: ExportModalP
               <label style={{ display: 'block', marginBottom: '0.5rem' }}>
                 Playlist ID
                 <input
+                  className="input"
                   aria-label="Playlist ID"
                   value={recoveryPlaylistId}
                   onChange={event => setRecoveryPlaylistId(event.target.value)}
                   disabled={reconcilingAppleMusic}
-                  style={{ display: 'block', width: '100%', marginTop: '0.25rem' }}
+                  style={{ display: 'block', marginTop: '0.25rem' }}
                 />
               </label>
               <p style={{ fontSize: '0.6875rem', color: 'var(--text-secondary)' }}>

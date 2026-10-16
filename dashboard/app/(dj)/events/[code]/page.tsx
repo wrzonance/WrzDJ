@@ -131,6 +131,8 @@ export default function EventQueuePage() {
 
   // Inline action error (auto-dismissing)
   const [actionError, setActionError] = useState<string | null>(null);
+  const [requestExportWarning, setRequestExportWarning] = useState<string | null>(null);
+  const [playHistoryExportWarning, setPlayHistoryExportWarning] = useState<string | null>(null);
 
   // Tab state
   const [activeTab, setActiveTab] = useState<'songs' | 'manage' | 'pre-event'>('songs');
@@ -493,8 +495,16 @@ export default function EventQueuePage() {
 
   const handleExportCsv = async () => {
     setExporting(true);
+    setRequestExportWarning(null);
     try {
-      await api.exportEventCsv(code);
+      const truncated = await api.exportEventCsv(code);
+      setRequestExportWarning(
+        truncated === true
+          ? 'This CSV contains the first 10,000 requests only.'
+          : truncated === null
+            ? 'The download did not include a truncation status. Verify it is complete before relying on it.'
+            : null
+      );
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Failed to export');
     } finally {
@@ -504,8 +514,16 @@ export default function EventQueuePage() {
 
   const handleExportPlayHistoryCsv = async () => {
     setExportingHistory(true);
+    setPlayHistoryExportWarning(null);
     try {
-      await api.exportPlayHistoryCsv(code);
+      const truncated = await api.exportPlayHistoryCsv(code);
+      setPlayHistoryExportWarning(
+        truncated === true
+          ? 'This CSV contains the first 10,000 play history entries only.'
+          : truncated === null
+            ? 'The download did not include a truncation status. Verify it is complete before relying on it.'
+            : null
+      );
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Failed to export play history');
     } finally {
@@ -942,6 +960,16 @@ export default function EventQueuePage() {
           {actionError}
         </div>
       )}
+      {[requestExportWarning, playHistoryExportWarning].map((warning, index) => warning && (
+        <div
+          key={`${index}-${warning}`}
+          role="status"
+          aria-live="polite"
+          style={{ background: 'var(--color-warning-subtle)', color: 'var(--color-warning)', padding: '0.75rem 1rem', borderRadius: '0.5rem', marginBottom: '1rem', fontSize: '0.875rem' }}
+        >
+          {warning}
+        </div>
+      ))}
 
       {/* 1. Header */}
       <div className="header">

@@ -518,6 +518,7 @@ describe('ApiClient', () => {
         blob: async () => mockBlob,
         headers: new Headers({
           'Content-Disposition': 'attachment; filename="ABC123_play_history_20260205.csv"',
+          'X-Export-Truncated': 'true',
         }),
       });
 
@@ -533,7 +534,8 @@ describe('ApiClient', () => {
       };
       const createElementSpy = vi.spyOn(document, 'createElement').mockReturnValue(mockAnchor as unknown as HTMLElement);
 
-      await api.exportPlayHistoryCsv('ABC123');
+      const truncated = await api.exportPlayHistoryCsv('ABC123');
+      expect(truncated).toBe(true);
 
       // Correct endpoint was fetched
       const [url] = mockFetch.mock.calls[0];
@@ -1296,6 +1298,7 @@ describe('ApiClient', () => {
         blob: async () => mockBlob,
         headers: new Headers({
           'Content-Disposition': 'attachment; filename="ABC123.csv"',
+          'X-Export-Truncated': 'false',
         }),
       });
 
@@ -1307,7 +1310,8 @@ describe('ApiClient', () => {
         click: vi.fn(),
       } as unknown as HTMLElement);
 
-      await api.exportEventCsv('ABC123');
+      const truncated = await api.exportEventCsv('ABC123');
+      expect(truncated).toBe(false);
 
       const [url] = mockFetch.mock.calls[0];
       expect(url).toContain('/api/events/ABC123/export/csv');
@@ -1322,6 +1326,27 @@ describe('ApiClient', () => {
       });
 
       await expect(api.exportEventCsv('ABC123')).rejects.toThrow('Forbidden');
+    });
+
+    it('returns unknown when the truncation header is missing', async () => {
+      api.setToken('test-token');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        blob: async () => new Blob(['csv,content'], { type: 'text/csv' }),
+        headers: new Headers({
+          'Content-Disposition': 'attachment; filename="ABC123.csv"',
+        }),
+      });
+
+      vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test');
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+      vi.spyOn(document, 'createElement').mockReturnValue({
+        href: '',
+        download: '',
+        click: vi.fn(),
+      } as unknown as HTMLElement);
+
+      await expect(api.exportEventCsv('ABC123')).resolves.toBeNull();
     });
   });
 

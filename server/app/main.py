@@ -177,6 +177,7 @@ def create_app(*, lifespan_context=lifespan) -> FastAPI:
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],
+            expose_headers=["Content-Disposition", "X-Export-Truncated"],
         )
     else:
         origins = [origin.strip() for origin in settings.cors_origins.split(",")]
@@ -192,7 +193,7 @@ def create_app(*, lifespan_context=lifespan) -> FastAPI:
                 "X-Pair-Nonce",
                 "X-Requested-With",  # cookie-auth CSRF header (#754)
             ],
-            expose_headers=["Content-Disposition"],
+            expose_headers=["Content-Disposition", "X-Export-Truncated"],
         )
 
     application.include_router(api_router, prefix="/api")

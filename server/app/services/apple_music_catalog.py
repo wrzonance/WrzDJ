@@ -31,6 +31,8 @@ class AppleCatalogSong:
 
 
 def _parse_songs(payload: dict[str, object]) -> list[AppleCatalogSong]:
+    if not isinstance(payload, dict):
+        return []
     data = payload.get("data", [])
     if not isinstance(data, list):
         return []
@@ -217,7 +219,7 @@ def search_catalog(
 ) -> list[AppleCatalogSong]:
     """Search Apple Music by ISRC or title and artist in one DJ storefront."""
     if not _STOREFRONT_RE.fullmatch(storefront):
-        return []
+        raise apple_music_tokens.AppleMusicError("Apple Music storefront is invalid")
     developer_token, _ = apple_music_tokens.create_developer_token()
     if isrc:
         payload = apple_music_tokens.apple_get(
@@ -232,7 +234,8 @@ def search_catalog(
             params={"term": term, "types": "songs", "limit": "25"},
         )
         results = payload.get("results")
-        payload = results.get("songs", {}) if isinstance(results, dict) else {}
+        songs = results.get("songs") if isinstance(results, dict) else None
+        payload = songs if isinstance(songs, dict) else {}
     return _parse_songs(payload)
 
 
@@ -267,17 +270,21 @@ def resolve_tracks(
         if not track.has_metadata:
             unresolved.append(track)
             continue
-        exact = None
-        if track.isrc:
-            exact = next(
-                (
-                    song
-                    for song in search_catalog(db, storefront, "", isrc=track.isrc)
-                    if song.isrc and song.isrc.casefold() == track.isrc.casefold()
-                ),
-                None,
-            )
-        song_id = exact.id if exact else _search_match(db, track, storefront)
+        try:
+            exact = None
+            if track.isrc:
+                exact = next(
+                    (
+                        song
+                        for song in search_catalog(db, storefront, "", isrc=track.isrc)
+                        if song.isrc and song.isrc.casefold() == track.isrc.casefold()
+                    ),
+                    None,
+                )
+            song_id = exact.id if exact else _search_match(db, track, storefront)
+        except apple_music_tokens.AppleMusicError:
+            unresolved.append(track)
+            continue
         if song_id:
             resolved.append((track, song_id))
         else:

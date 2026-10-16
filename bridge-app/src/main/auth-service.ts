@@ -25,17 +25,29 @@ export async function login(
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Login failed' }));
-    throw new Error(error.detail || 'Login failed');
+    const error: unknown = await response.json().catch(() => null);
+    const detail = error !== null && typeof error === 'object' && 'detail' in error
+      ? error.detail
+      : undefined;
+    throw new Error(typeof detail === 'string' && detail.trim() ? detail : 'Login failed');
   }
 
-  const data = await response.json();
-  return { accessToken: data.access_token, username };
+  const data: unknown = await response.json().catch(() => null);
+  const accessToken =
+    data !== null && typeof data === 'object' && 'access_token' in data
+      ? data.access_token
+      : undefined;
+  if (typeof accessToken !== 'string' || accessToken.trim().length === 0) {
+    throw new Error('Login response did not include a valid access token');
+  }
+  return { accessToken, username };
 }
 
 /**
  * Verify a stored token is still valid by calling /api/auth/me.
- * Returns the username if valid, null if expired/invalid.
+ * Returns the username if valid, null for definitive authorization failures.
+ * Transport, server, and malformed-response failures are thrown so callers
+ * can retain credentials during a transient outage.
  */
 export async function verifyToken(
   apiUrl: string,
@@ -46,14 +58,29 @@ export async function verifyToken(
       headers: { Authorization: `Bearer ${token}` },
     });
 
-    if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
       return null;
     }
-
-    const data = await response.json();
-    return data.username || null;
-  } catch {
-    return null;
+    if (!response.ok) {
+      throw new Error(`Token verification failed (${response.status})`);
+    }
+    const data: unknown = await response.json().catch((error: unknown) => {
+      if (error instanceof SyntaxError) return null;
+      throw error;
+    });
+    const username =
+      data !== null && typeof data === 'object' && !Array.isArray(data) && 'username' in data
+        ? data.username
+        : undefined;
+    if (typeof username !== 'string' || username.trim().length === 0) {
+      throw new Error('Token verification returned an invalid username');
+    }
+    return username;
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Token verification')) {
+      throw error;
+    }
+    throw new Error('Token verification unavailable', { cause: error });
   }
 }
 

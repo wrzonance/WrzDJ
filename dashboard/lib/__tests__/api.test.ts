@@ -8,17 +8,20 @@ import {
   CSRF_HEADER_VALUE,
 } from '../api';
 
-// Mock fetch globally
+// Each test owns its fetch stub and restores the original during cleanup.
 const mockFetch = vi.fn();
-global.fetch = mockFetch;
 
 describe('ApiClient', () => {
   beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetch);
     mockFetch.mockReset();
     api.setToken(null);
+    api.setUnauthorizedHandler(null);
   });
 
   afterEach(() => {
+    api.setUnauthorizedHandler(null);
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -432,9 +435,11 @@ describe('ApiClient', () => {
       expect(result.total).toBe(1);
 
       const [url] = mockFetch.mock.calls[0];
-      expect(url).toContain('/api/public/e/ABC123/history');
-      expect(url).toContain('limit=10');
-      expect(url).toContain('offset=0');
+      // Regression for 43bd5021 (#800): limit=10 also matches limit=100.
+      const requestUrl = new URL(url, 'http://test.local');
+      expect(requestUrl.pathname).toMatch(/\/api\/public\/e\/ABC123\/history$/);
+      expect(requestUrl.searchParams.get('limit')).toBe('100');
+      expect(requestUrl.searchParams.get('offset')).toBe('0');
     });
 
     it('fetches play history with custom limit and offset', async () => {
@@ -446,8 +451,9 @@ describe('ApiClient', () => {
       await api.getPlayHistory('ABC123', 5, 10);
 
       const [url] = mockFetch.mock.calls[0];
-      expect(url).toContain('limit=5');
-      expect(url).toContain('offset=10');
+      const requestUrl = new URL(url, 'http://test.local');
+      expect(requestUrl.searchParams.get('limit')).toBe('5');
+      expect(requestUrl.searchParams.get('offset')).toBe('10');
     });
 
     it('returns items with matched_request_id when request was fulfilled', async () => {
@@ -512,6 +518,7 @@ describe('ApiClient', () => {
         blob: async () => mockBlob,
         headers: new Headers({
           'Content-Disposition': 'attachment; filename="ABC123_play_history_20260205.csv"',
+          'X-Export-Truncated': 'true',
         }),
       });
 
@@ -527,7 +534,8 @@ describe('ApiClient', () => {
       };
       const createElementSpy = vi.spyOn(document, 'createElement').mockReturnValue(mockAnchor as unknown as HTMLElement);
 
-      await api.exportPlayHistoryCsv('ABC123');
+      const truncated = await api.exportPlayHistoryCsv('ABC123');
+      expect(truncated).toBe(true);
 
       // Correct endpoint was fetched
       const [url] = mockFetch.mock.calls[0];
@@ -1290,6 +1298,7 @@ describe('ApiClient', () => {
         blob: async () => mockBlob,
         headers: new Headers({
           'Content-Disposition': 'attachment; filename="ABC123.csv"',
+          'X-Export-Truncated': 'false',
         }),
       });
 
@@ -1301,7 +1310,8 @@ describe('ApiClient', () => {
         click: vi.fn(),
       } as unknown as HTMLElement);
 
-      await api.exportEventCsv('ABC123');
+      const truncated = await api.exportEventCsv('ABC123');
+      expect(truncated).toBe(false);
 
       const [url] = mockFetch.mock.calls[0];
       expect(url).toContain('/api/events/ABC123/export/csv');
@@ -1316,6 +1326,27 @@ describe('ApiClient', () => {
       });
 
       await expect(api.exportEventCsv('ABC123')).rejects.toThrow('Forbidden');
+    });
+
+    it('returns unknown when the truncation header is missing', async () => {
+      api.setToken('test-token');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        blob: async () => new Blob(['csv,content'], { type: 'text/csv' }),
+        headers: new Headers({
+          'Content-Disposition': 'attachment; filename="ABC123.csv"',
+        }),
+      });
+
+      vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test');
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+      vi.spyOn(document, 'createElement').mockReturnValue({
+        href: '',
+        download: '',
+        click: vi.fn(),
+      } as unknown as HTMLElement);
+
+      await expect(api.exportEventCsv('ABC123')).resolves.toBeNull();
     });
   });
 

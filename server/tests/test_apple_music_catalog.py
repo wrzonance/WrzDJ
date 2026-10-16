@@ -359,3 +359,51 @@ def test_public_playlist_rejects_non_catalog_pagination_links(monkeypatch):
         assert "pagination" in str(exc).lower()
     else:
         raise AssertionError("malicious pagination URL was accepted")
+
+
+def test_search_rejects_invalid_storefront(monkeypatch):
+    monkeypatch.setattr(apple_music_tokens, "create_developer_token", lambda: ("dev-token", 100))
+
+    with pytest.raises(apple_music_tokens.AppleMusicError):
+        apple_music_catalog.search_catalog(None, "GB", "The Example Night Drive")
+
+
+def test_title_search_ignores_malformed_songs_response(monkeypatch):
+    monkeypatch.setattr(apple_music_tokens, "create_developer_token", lambda: ("dev-token", 100))
+    monkeypatch.setattr(
+        apple_music_tokens, "apple_get", lambda *_args, **_kwargs: {"results": {"songs": []}}
+    )
+
+    assert apple_music_catalog.search_catalog(None, "gb", "The Example Night Drive") == []
+
+
+def test_resolution_preserves_tracks_resolved_before_apple_failure(db, test_user, monkeypatch):
+    _connect_dj(db, test_user)
+    calls = 0
+
+    def search(_db, _storefront, _term, *, isrc=None):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return [
+                apple_music_catalog.AppleCatalogSong(
+                    id="song-17", title="Night Drive", artist="The Example", isrc=None
+                )
+            ]
+        raise apple_music_tokens.AppleMusicError("Apple Music request failed")
+
+    monkeypatch.setattr(apple_music_catalog, "search_catalog", search)
+    tracks = [_track(), _track()]
+    tracks[1] = ExportTrack(
+        position=3,
+        title=tracks[1].title,
+        artist=tracks[1].artist,
+        album=tracks[1].album,
+        isrc=tracks[1].isrc,
+        duration_sec=tracks[1].duration_sec,
+    )
+
+    resolved, unresolved = apple_music_catalog.resolve_tracks(db, test_user, tracks)
+
+    assert [(track.position, song_id) for track, song_id in resolved] == [(2, "song-17")]
+    assert unresolved == [tracks[1]]

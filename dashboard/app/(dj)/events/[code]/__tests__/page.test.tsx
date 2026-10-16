@@ -88,7 +88,12 @@ vi.mock('../components/RequestQueueSection', () => ({
   },
 }));
 vi.mock('../components/PlayHistorySection', () => ({
-  PlayHistorySection: () => <div data-testid="play-history">History</div>,
+  PlayHistorySection: (props: { onExport: () => void }) => (
+    <div data-testid="play-history">
+      History
+      <button onClick={props.onExport}>Export Play History</button>
+    </div>
+  ),
 }));
 vi.mock('../components/DeleteEventModal', () => ({
   DeleteEventModal: (props: { onConfirm: () => void; onCancel: () => void }) => (
@@ -736,7 +741,7 @@ describe('EventQueuePage', () => {
         ...mockEvent(), status: 'expired' as const, request_count: 1, archived_at: null,
       }]);
       vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
-      vi.mocked(api.exportEventCsv).mockResolvedValue(undefined);
+      vi.mocked(api.exportEventCsv).mockResolvedValue(true);
 
       render(<EventQueuePage />);
       await screen.findByText('Test Event');
@@ -746,6 +751,88 @@ describe('EventQueuePage', () => {
       });
 
       expect(api.exportEventCsv).toHaveBeenCalledWith('TEST');
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'This CSV contains the first 10,000 requests only.'
+      );
+    });
+
+    it('shows when play history export is truncated', async () => {
+      setupDefaultMocks();
+      vi.mocked(api.getEvent).mockRejectedValue(new ApiError('Expired', 410));
+      vi.mocked(api.getArchivedEvents).mockResolvedValue([{
+        ...mockEvent(), status: 'expired' as const, request_count: 0, archived_at: null,
+      }]);
+      vi.mocked(api.exportPlayHistoryCsv).mockResolvedValue(true);
+
+      render(<EventQueuePage />);
+      await screen.findByText('Test Event');
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Export Play History' }));
+      });
+
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'This CSV contains the first 10,000 play history entries only.'
+      );
+    });
+
+    it('warns when export truncation status cannot be read', async () => {
+      setupDefaultMocks();
+      vi.mocked(api.getEvent).mockRejectedValue(new ApiError('Expired', 410));
+      vi.mocked(api.getArchivedEvents).mockResolvedValue([{
+        ...mockEvent(), status: 'expired' as const, request_count: 0, archived_at: null,
+      }]);
+      vi.mocked(api.exportEventCsv).mockResolvedValue(null);
+
+      render(<EventQueuePage />);
+      await screen.findByText('Test Event');
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+      });
+
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'The download did not include a truncation status. Verify it is complete before relying on it.'
+      );
+    });
+
+    it('keeps a history warning when a concurrent request export completes without truncation', async () => {
+      setupDefaultMocks();
+      vi.mocked(api.getEvent).mockRejectedValue(new ApiError('Expired', 410));
+      vi.mocked(api.getArchivedEvents).mockResolvedValue([{
+        ...mockEvent(), status: 'expired' as const, request_count: 0, archived_at: null,
+      }]);
+
+      let resolveRequest!: (truncated: boolean | null) => void;
+      let resolveHistory!: (truncated: boolean | null) => void;
+      vi.mocked(api.exportEventCsv).mockImplementation(() => new Promise((resolve) => {
+        resolveRequest = resolve;
+      }));
+      vi.mocked(api.exportPlayHistoryCsv).mockImplementation(() => new Promise((resolve) => {
+        resolveHistory = resolve;
+      }));
+
+      render(<EventQueuePage />);
+      await screen.findByText('Test Event');
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Export Play History' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+      });
+
+      await act(async () => {
+        resolveHistory(true);
+        await Promise.resolve();
+      });
+      const warning = 'This CSV contains the first 10,000 play history entries only.';
+      expect(screen.getByRole('status')).toHaveTextContent(warning);
+
+      await act(async () => {
+        resolveRequest(false);
+        await Promise.resolve();
+      });
+
+      expect(screen.getByRole('status')).toHaveTextContent(warning);
     });
   });
 

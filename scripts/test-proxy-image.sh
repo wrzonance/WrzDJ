@@ -3,6 +3,7 @@
 set -euo pipefail
 image=${1:?Usage: test-proxy-image.sh IMAGE}
 root=$(cd "$(dirname "$0")/.." && pwd)
+source "$root/scripts/lib/wait-for-container-http.sh"
 scratch=$(mktemp -d)
 network=
 upstream=
@@ -38,12 +39,8 @@ proxy=$(docker run --detach --network "$network" \
   --volume "$scratch/conf:/etc/nginx/conf.d:ro" \
   --volume "$scratch/certs:/etc/nginx/certs:ro" "$image")
 docker exec "$proxy" nginx -t
-for ((attempt = 0; attempt < 30; attempt++)); do
-  if docker exec "$proxy" curl --fail --silent --max-time 1 \
-    http://host.docker.internal:3000/ >/dev/null; then break; fi
-  sleep 1
-done
-if [ "$attempt" = 30 ]; then echo 'Upstream did not become ready.' >&2; exit 1; fi
+wait_for_container_http "$proxy" http://host.docker.internal:3000/ 'Upstream HTTP service'
+wait_for_container_http "$proxy" http://127.0.0.1/ 'Proxy HTTP service'
 
 request() {
   docker exec "$proxy" curl --insecure --silent --show-error --max-time 5 \
@@ -52,6 +49,13 @@ request() {
 expect() {
   if ! grep -Fqi -- "$1" <<< "$response"; then
     echo "Missing expected response: $1" >&2
+    echo "$response" >&2
+    exit 1
+  fi
+}
+expect_header() {
+  if ! grep -Fixq -- "$1" <<< "$response"; then
+    echo "Missing expected exact header: $1" >&2
     echo "$response" >&2
     exit 1
   fi
@@ -65,7 +69,7 @@ response=$(request app.local https://127.0.0.1/check)
 expect 'upstream:3000:/check'
 expect 'X-Frame-Options: SAMEORIGIN'
 expect "frame-ancestors 'none'"
-expect 'Strict-Transport-Security:'
+expect_header 'Strict-Transport-Security: max-age=31536000; includeSubDomains'
 expect 'X-Content-Type-Options: nosniff'
 response=$(request app.local https://127.0.0.1/e/test/overlay)
 expect 'upstream:3000:/e/test/overlay'
@@ -79,11 +83,11 @@ expect 'X-Frame-Options: DENY'
 expect "default-src 'none'"
 response=$(request api.local https://127.0.0.1:8443/uploads/test.png)
 expect 'upstream:8000:/uploads/test.png'
-expect 'Access-Control-Allow-Origin: *'
+expect_header 'Access-Control-Allow-Origin: *'
 response=$(request api.local https://127.0.0.1:8443/unavailable)
 expect '502'
 expect '{"error":"Service temporarily unavailable"}'
-expect 'Access-Control-Allow-Origin: https://127.0.0.1'
+expect_header 'Access-Control-Allow-Origin: https://127.0.0.1'
 if grep -Fqi 'private upstream detail' <<< "$response"; then
   echo 'Upstream details leaked.' >&2; exit 1
 fi

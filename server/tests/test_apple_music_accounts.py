@@ -66,6 +66,59 @@ def test_disconnect_during_validation_invalidates_the_in_flight_link(db, test_us
     assert connection.authorization_generation == 2
 
 
+def test_disconnect_with_unexpired_identity_map_invalidates_the_in_flight_link(
+    db, test_user, monkeypatch
+):
+    db.expire_on_commit = False
+    connection = UserProviderConnection(
+        user_id=test_user.id,
+        provider_id="apple_music",
+        connection_state="disconnected",
+        credential_type="music_user_token",
+    )
+    db.add(connection)
+    db.commit()
+    monkeypatch.setattr(apple_music_tokens, "create_developer_token", lambda: ("dev", 100))
+
+    def disconnect_while_apple_is_validating(*_args):
+        connection = db.query(UserProviderConnection).filter_by(user_id=test_user.id).one()
+        db.connection().execute(
+            update(UserProviderConnection)
+            .where(UserProviderConnection.id == connection.id)
+            .values(
+                authorization_generation=connection.authorization_generation + 1,
+                connection_state="disconnected",
+                credential_payload=None,
+                metadata_json=None,
+            )
+        )
+        db.commit()
+        assert connection.authorization_generation == 1
+        assert (
+            db.connection()
+            .execute(
+                select(UserProviderConnection.__table__.c.authorization_generation).where(
+                    UserProviderConnection.__table__.c.id == connection.id
+                )
+            )
+            .scalar_one()
+            == 2
+        )
+        return "us"
+
+    monkeypatch.setattr(
+        apple_music_accounts, "fetch_user_storefront", disconnect_while_apple_is_validating
+    )
+
+    with pytest.raises(apple_music_tokens.AppleMusicLinkSuperseded):
+        apple_music_accounts.link_account(db, test_user, VALID_TOKEN)
+
+    connection = db.query(UserProviderConnection).filter_by(user_id=test_user.id).one()
+    assert connection.connection_state == "disconnected"
+    assert connection.credential_payload is None
+    assert connection.authorization_generation == 2
+
+
 def test_invalid_user_token_leaves_a_disconnected_tombstone(db, test_user, monkeypatch):
     monkeypatch.setattr(apple_music_tokens, "create_developer_token", lambda: ("dev", 100))
 
@@ -94,6 +147,34 @@ def test_account_status_rechecks_the_saved_user_token(db, test_user, monkeypatch
         "requires_reauthorization": False,
         "storefront": "gb",
     }
+
+
+def test_account_status_commits_reauthorization_from_storage(db, test_user, monkeypatch):
+    connection = _connected_connection(db, test_user)
+    monkeypatch.setattr(apple_music_tokens, "is_configured", lambda: False)
+
+    def mark_reauthorization_without_committing(session, user):
+        stored = session.query(UserProviderConnection).filter_by(user_id=user.id).one()
+        stored.connection_state = "reauthorize"
+        raise apple_music_tokens.AppleMusicNotConnected
+
+    monkeypatch.setattr(
+        apple_music_accounts.apple_music_storage,
+        "read_stored_connection",
+        mark_reauthorization_without_committing,
+    )
+
+    status = apple_music_accounts.account_status(db, test_user)
+
+    assert status == {
+        "configured": False,
+        "linked": False,
+        "requires_reauthorization": True,
+        "storefront": None,
+    }
+    assert db.query(UserProviderConnection).filter_by(id=connection.id).one().connection_state == (
+        "reauthorize"
+    )
 
 
 def test_stale_apple_403_does_not_revoke_a_newer_reconnection(db, test_user, monkeypatch):
@@ -223,7 +304,10 @@ def test_apple_status_codes_separate_deployment_and_user_authorization(monkeypat
 
     monkeypatch.setattr(apple_music_tokens.httpx, "Client", lambda **kw: Client(401, **kw))
     with pytest.raises(apple_music_tokens.AppleMusicNotConfigured):
-        apple_music_tokens.apple_get("/me/storefront", "bad-dev", music_user_token=VALID_TOKEN)
+        apple_music_tokens.apple_get("/me/storefront", "bad-dev")
+
+    with pytest.raises(apple_music_tokens.AppleMusicUserAuthorizationError):
+        apple_music_tokens.apple_get("/me/storefront", "dev", music_user_token=VALID_TOKEN)
 
     monkeypatch.setattr(apple_music_tokens.httpx, "Client", lambda **kw: Client(403, **kw))
     with pytest.raises(apple_music_tokens.AppleMusicUserAuthorizationError):
@@ -322,3 +406,15 @@ def test_api_link_reports_when_disconnect_supersedes_the_attempt(client, auth_he
     assert response.status_code == 409
     assert "canceled" in response.json()["detail"]
     assert VALID_TOKEN not in response.text
+
+
+def test_api_link_rejects_non_latin1_token_characters(client, auth_headers, monkeypatch):
+    monkeypatch.setattr(apple_music_tokens, "create_developer_token", lambda: ("dev", 100))
+    monkeypatch.setattr(apple_music_accounts, "fetch_user_storefront", lambda *_args: "us")
+    response = client.post(
+        "/api/apple-music/link",
+        headers=auth_headers,
+        json={"music_user_token": f"{VALID_TOKEN}\u0100"},
+    )
+
+    assert response.status_code == 422

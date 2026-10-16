@@ -10,7 +10,7 @@
  * (empty until #388 lands).
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import type { CurveTemplatesResponse, SetDocumentSnapshot } from '@/lib/api-types';
 import CurveEditor, { type CurveViewMode } from './CurveEditor';
@@ -133,6 +133,17 @@ export default function CurvePanel({
   const [templates, setTemplates] = useState<CurveTemplatesResponse | null>(null);
   const [activeTemplateName, setActiveTemplateName] = useState<string | null>(null);
   const [windows, setWindows] = useState<VibeWindowView[]>([]);
+  const windowsRef = useRef(windows);
+  const windowEditVersions = useRef(new Map<number, number>());
+  const windowLoadsInFlight = useRef(new Set<number>());
+  const pendingWindowWrites = useRef(new Map<number, { label: string; windows: VibeWindowView[] }>());
+  const activeSetId = useRef(setId);
+  const windowStateSetId = useRef(setId);
+  const initialSnapshotLoadedFor = useRef<number | null>(null);
+  const snapshotVersionAppliedFor = useRef(new Map<number, number>());
+  const editedBeforeSnapshotFor = useRef<number | null>(null);
+  const windowsLoadedFor = useRef<number | null>(null);
+  const nextWindowId = useRef(0);
   const [overlay, setOverlay] = useState<OverlayState>(OVERLAY_CLOSED);
   const [prompt, setPrompt] = useState<ReplacePrompt | null>(null);
   const [suggestReplacements, setSuggestReplacements] = useState(true);
@@ -142,6 +153,59 @@ export default function CurvePanel({
   const [curveFitMode, setCurveFitMode] = useState(true);
 
   const totalSec = slots.reduce((acc, s) => acc + s.track.durationSec, 0);
+  const replaceWindows = useCallback((next: VibeWindowView[]) => {
+    windowsRef.current = next;
+    setWindows(next);
+  }, []);
+  const windowEditVersionFor = useCallback(
+    (targetSetId: number) => windowEditVersions.current.get(targetSetId) ?? 0,
+    [],
+  );
+  const markWindowsEdited = useCallback(() => {
+    windowEditVersions.current.set(setId, windowEditVersionFor(setId) + 1);
+    if (!snapshot) editedBeforeSnapshotFor.current = setId;
+  }, [setId, snapshot, windowEditVersionFor]);
+
+  useLayoutEffect(() => {
+    activeSetId.current = setId;
+  }, [setId]);
+
+  const persistWindows = useCallback(
+    (next: VibeWindowView[], label: string) => {
+      if (totalSec <= 0) return;
+      if (windowLoadsInFlight.current.has(setId)) {
+        pendingWindowWrites.current.set(setId, { label, windows: next });
+        return;
+      }
+      const save = () =>
+        api.putVibeWindows(
+          setId,
+          next.map((w) => ({
+            t0_sec: Math.round(w.t0 * totalSec),
+            t1_sec: Math.max(Math.round(w.t0 * totalSec) + 1, Math.round(w.t1 * totalSec)),
+            label: w.label,
+          })),
+        );
+      const run = commit ? commit(label, save) : save();
+      run.catch(() => {
+        /* keep optimistic local state; next successful PUT reconciles */
+      });
+    },
+    [commit, setId, totalSec],
+  );
+
+  useEffect(() => {
+    if (windowStateSetId.current === setId) return;
+    windowStateSetId.current = setId;
+    initialSnapshotLoadedFor.current = null;
+    editedBeforeSnapshotFor.current = null;
+    windowsLoadedFor.current = null;
+    replaceWindows([]);
+    setActiveTemplateName(null);
+    setPrompt(null);
+    setOverlay(OVERLAY_CLOSED);
+  }, [replaceWindows, setId]);
+
   const rawTargetSec = rawTargetSecForSlots(
     targetDurationSec,
     slots.length,
@@ -217,63 +281,83 @@ export default function CurvePanel({
   }, [refreshTemplates]);
 
   // Load stored vibe windows once per set, after slots (the time domain)
-  // first arrive — a later refetch must never wipe in-session edits.
-  const windowsLoadedFor = useRef<number | null>(null);
+  // first arrive. A stale initial response must not wipe edits made meanwhile.
   useEffect(() => {
     const restored = windowsFromSnapshot(snapshot, totalSec);
     if (restored == null) return;
+    if (
+      initialSnapshotLoadedFor.current === setId &&
+      snapshotVersionAppliedFor.current.get(setId) === snapshotVersion
+    ) {
+      return;
+    }
     windowsLoadedFor.current = setId;
-    setWindows(restored);
-  }, [setId, snapshot, snapshotVersion, totalSec]);
+    snapshotVersionAppliedFor.current.set(setId, snapshotVersion);
+    if (initialSnapshotLoadedFor.current !== setId) {
+      initialSnapshotLoadedFor.current = setId;
+      if (editedBeforeSnapshotFor.current === setId) {
+        editedBeforeSnapshotFor.current = null;
+        windowLoadsInFlight.current.delete(setId);
+        const pending = pendingWindowWrites.current.get(setId);
+        pendingWindowWrites.current.delete(setId);
+        const next = [...restored, ...windowsRef.current];
+        replaceWindows(next);
+        persistWindows(next, pending?.label ?? 'Add vibe window');
+        return;
+      }
+    }
+    replaceWindows(restored);
+  }, [replaceWindows, setId, snapshot, snapshotVersion, totalSec]);
 
   useEffect(() => {
     if (snapshot || totalSec <= 0 || windowsLoadedFor.current === setId) return;
     let cancelled = false;
+    const editVersionAtLoad = windowEditVersionFor(setId);
     // Mark eagerly so in-flight fetches dedupe; roll back on failure so a
     // transient error doesn't block the load for the rest of the session.
     windowsLoadedFor.current = setId;
+    windowLoadsInFlight.current.add(setId);
     api
       .getVibeWindows(setId)
       .then((resp) => {
         if (cancelled) return;
-        setWindows(
-          resp.windows.map((w, i) => ({
-            id: `w-${i}-${w.t0_sec}`,
-            t0: Math.min(1, w.t0_sec / totalSec),
-            t1: Math.min(1, w.t1_sec / totalSec),
-            label: w.label,
-          })),
-        );
+        windowLoadsInFlight.current.delete(setId);
+        const loaded = resp.windows.map((w, i) => ({
+          id: `w-${i}-${w.t0_sec}`,
+          t0: Math.min(1, w.t0_sec / totalSec),
+          t1: Math.min(1, w.t1_sec / totalSec),
+          label: w.label,
+        }));
+        const pending = pendingWindowWrites.current.get(setId);
+        if (windowEditVersionFor(setId) !== editVersionAtLoad) {
+          if (!pending) return;
+          pendingWindowWrites.current.delete(setId);
+          const next = [...loaded, ...pending.windows];
+          replaceWindows(next);
+          persistWindows(next, pending.label);
+          return;
+        }
+        replaceWindows(loaded);
       })
       .catch(() => {
         if (cancelled) return;
+        windowLoadsInFlight.current.delete(setId);
         if (windowsLoadedFor.current === setId) windowsLoadedFor.current = null;
-        setWindows([]);
+        if (windowEditVersionFor(setId) === editVersionAtLoad) {
+          replaceWindows([]);
+          return;
+        }
+        const pending = pendingWindowWrites.current.get(setId);
+        if (pending) {
+          pendingWindowWrites.current.delete(setId);
+          persistWindows(pending.windows, pending.label);
+        }
       });
     return () => {
       cancelled = true;
+      windowLoadsInFlight.current.delete(setId);
     };
-  }, [setId, snapshot, totalSec]);
-
-  const persistWindows = useCallback(
-    (next: VibeWindowView[], label: string) => {
-      if (totalSec <= 0) return;
-      const save = () =>
-        api.putVibeWindows(
-          setId,
-          next.map((w) => ({
-            t0_sec: Math.round(w.t0 * totalSec),
-            t1_sec: Math.max(Math.round(w.t0 * totalSec) + 1, Math.round(w.t1 * totalSec)),
-            label: w.label,
-          })),
-        );
-      const run = commit ? commit(label, save) : save();
-      run.catch(() => {
-        /* keep optimistic local state; next successful PUT reconciles */
-      });
-    },
-    [commit, setId, totalSec],
-  );
+  }, [persistWindows, replaceWindows, setId, snapshot, totalSec, windowEditVersionFor]);
 
   // --- Target drag ---------------------------------------------------------
 
@@ -349,6 +433,7 @@ export default function CurvePanel({
     const run = commit ? commit(`Apply curve ${name}`, save) : save();
     run
       .then((resp) => {
+        if (activeSetId.current !== setId) return;
         const bySlotId = new Map(resp.targets.map((t) => [t.slot_id, t.target_energy]));
         onSlotsChange((prev) =>
           prev.map((s) => (bySlotId.has(s.id) ? { ...s, targetEnergy: bySlotId.get(s.id) ?? null } : s)),
@@ -360,7 +445,8 @@ export default function CurvePanel({
           t1: w.t1,
           label: 'Slow set',
         }));
-        setWindows(next);
+        markWindowsEdited();
+        replaceWindows(next);
         setActiveTemplateName(name);
         setPrompt(null);
       })
@@ -411,40 +497,43 @@ export default function CurvePanel({
   // --- Vibe windows ---------------------------------------------------------
 
   const addVibeWindow = (preset: VibePreset) => {
-    setWindows((prev) => {
-      const span = 0.08;
-      let t0 = 0.42;
-      const sorted = [...prev].sort((a, b) => a.t0 - b.t0);
-      for (const s of sorted) {
-        if (t0 + span < s.t0) break;
-        if (t0 >= s.t0 && t0 < s.t1) t0 = Math.min(1 - span, s.t1 + 0.01);
-      }
-      const next = [
-        ...prev,
-        { id: `w-${Date.now()}`, t0, t1: Math.min(1, t0 + span), label: preset.label },
-      ];
-      persistWindows(next, `Add ${preset.label} window`);
-      return next;
-    });
+    const span = 0.08;
+    let t0 = 0.42;
+    const current = windowsRef.current;
+    const sorted = [...current].sort((a, b) => a.t0 - b.t0);
+    for (const s of sorted) {
+      if (t0 + span < s.t0) break;
+      if (t0 >= s.t0 && t0 < s.t1) t0 = Math.min(1 - span, s.t1 + 0.01);
+    }
+    const next = [
+      ...current,
+      {
+        id: `w-${Date.now()}-${nextWindowId.current++}`,
+        t0,
+        t1: Math.min(1, t0 + span),
+        label: preset.label,
+      },
+    ];
+    markWindowsEdited();
+    replaceWindows(next);
+    persistWindows(next, `Add ${preset.label} window`);
   };
 
   const changeWindow = (id: string, patch: Partial<VibeWindowView>) => {
-    setWindows((prev) => prev.map((w) => (w.id === id ? { ...w, ...patch } : w)));
+    markWindowsEdited();
+    replaceWindows(windowsRef.current.map((w) => (w.id === id ? { ...w, ...patch } : w)));
   };
 
   const commitWindow = () => {
-    setWindows((prev) => {
-      persistWindows(prev, 'Move vibe window');
-      return prev;
-    });
+    markWindowsEdited();
+    persistWindows(windowsRef.current, 'Move vibe window');
   };
 
   const deleteWindow = (id: string) => {
-    setWindows((prev) => {
-      const next = prev.filter((w) => w.id !== id);
-      persistWindows(next, 'Remove vibe window');
-      return next;
-    });
+    markWindowsEdited();
+    const next = windowsRef.current.filter((w) => w.id !== id);
+    replaceWindows(next);
+    persistWindows(next, 'Remove vibe window');
   };
 
   // --- Replacement popover --------------------------------------------------

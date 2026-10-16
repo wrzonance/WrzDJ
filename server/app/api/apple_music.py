@@ -23,8 +23,8 @@ class AppleMusicLinkIn(BaseModel):
 
     @field_validator("music_user_token")
     @classmethod
-    def reject_control_characters(cls, value: str) -> str:
-        if any(ord(char) < 32 or ord(char) == 127 for char in value):
+    def reject_invalid_header_characters(cls, value: str) -> str:
+        if any(ord(char) < 32 or ord(char) == 127 or ord(char) > 255 for char in value):
             raise ValueError("Invalid Music User Token")
         return value
 

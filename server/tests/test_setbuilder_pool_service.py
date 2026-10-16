@@ -8,6 +8,7 @@ from app.models.request import Request, RequestStatus
 from app.models.set import Set
 from app.models.set_pool import SetPoolTrack
 from app.models.user import User
+from app.services import apple_music_catalog
 from app.services.setbuilder import pool
 from app.services.setbuilder.playlist_url import (
     InvalidPlaylistUrl,
@@ -378,10 +379,29 @@ class TestUrlParser:
         )
         assert (p.provider, p.supported) == ("tidal", True)
 
-    def test_apple_music_recognized_unsupported(self):
+    def test_apple_music_catalog_playlist_url(self):
         p = parse_public_playlist_url("https://music.apple.com/us/playlist/top-hits/pl.abc123DEF")
-        assert (p.provider, p.supported) == ("apple_music", False)
-        assert p.message
+        assert (p.provider, p.supported) == ("apple_music", True)
+        assert p.storefront == "us"
+        assert p.playlist_id == "pl.abc123DEF"
+
+    def test_apple_music_playlist_without_name_segment(self):
+        p = parse_public_playlist_url("https://music.apple.com/gb/playlist/pl.u-123_abc?l=en")
+        assert (p.provider, p.supported) == ("apple_music", True)
+        assert (p.storefront, p.playlist_id) == ("gb", "pl.u-123_abc")
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://music.apple.com/playlist/name/pl.abc123",
+            "https://music.apple.com/us/playlist/name/not-valid!",
+            "https://music.apple.com/us/playlist/name/..",
+            "https://music.apple.com/us/playlist/name/pl.abc123/extra",
+        ],
+    )
+    def test_rejects_malformed_apple_music_playlist_urls(self, url):
+        with pytest.raises(InvalidPlaylistUrl):
+            parse_public_playlist_url(url)
 
     def test_youtube_recognized_unsupported(self):
         p = parse_public_playlist_url("https://www.youtube.com/playlist?list=PLabc_123-xyz")
@@ -416,6 +436,40 @@ class TestUrlParser:
 
 
 class TestPlaylistCandidates:
+    def test_apple_music_candidates_preserve_identity_and_metadata(self, test_user, monkeypatch):
+        monkeypatch.setattr(
+            "app.services.apple_music_catalog.fetch_public_playlist",
+            lambda storefront, playlist_id: (
+                {"name": "Mix"},
+                [
+                    apple_music_catalog.AppleCatalogSong(
+                        id="song-17",
+                        title="Night Drive",
+                        artist="The Example",
+                        isrc="USRC17607839",
+                        album="After Hours",
+                        duration_ms=201_999,
+                    )
+                ],
+            ),
+        )
+
+        name, candidates = pool.candidates_from_public_url(
+            None, test_user, "apple_music", "pl.abc123", storefront="us"
+        )
+
+        assert name == "Mix"
+        assert candidates == [
+            pool.PoolCandidate(
+                track_id="apple_music:song-17",
+                title="Night Drive",
+                artist="The Example",
+                album="After Hours",
+                isrc="USRC17607839",
+                duration_sec=201,
+            )
+        ]
+
     def test_tidal_candidates_mapped(self, db, test_user, monkeypatch):
         from app.schemas.tidal import TidalSearchResult
 

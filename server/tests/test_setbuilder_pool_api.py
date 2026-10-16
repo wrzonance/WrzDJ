@@ -430,14 +430,33 @@ class TestUrlImport:
     def test_preview_unsupported_provider(self, client, auth_headers, set_id):
         resp = client.post(
             f"/api/setbuilder/sets/{set_id}/pool/url-preview",
-            json={"url": "https://music.apple.com/us/playlist/hits/pl.abc123"},
+            json={"url": "https://www.youtube.com/playlist?list=PLabc123"},
             headers=auth_headers,
         )
         assert resp.status_code == 200
         body = resp.json()
         assert body["supported"] is False
-        assert body["provider"] == "apple_music"
+        assert body["provider"] == "youtube"
         assert body["message"]
+
+    def test_preview_apple_music_catalog_playlist(self, client, auth_headers, set_id, monkeypatch):
+        calls = []
+
+        def preview(db, user, provider, pid, *, storefront=None):
+            calls.append((provider, pid, storefront))
+            return {"name": "Apple Hits", "owner": "Apple Music", "track_count": 12}
+
+        monkeypatch.setattr("app.services.setbuilder.pool.preview_public_playlist", preview)
+        resp = client.post(
+            f"/api/setbuilder/sets/{set_id}/pool/url-preview",
+            json={"url": "https://music.apple.com/gb/playlist/hits/pl.abc123"},
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["supported"] is True
+        assert resp.json()["track_count"] == 12
+        assert calls == [("apple_music", "pl.abc123", "gb")]
 
     def test_preview_spotify(self, client, auth_headers, set_id, monkeypatch):
         monkeypatch.setattr(
@@ -482,6 +501,29 @@ class TestUrlImport:
         assert body["added"] == 2
         assert body["source"]["kind"] == "public_url"
         assert body["source"]["label"] == "Wedding Bangers 2026"
+
+    def test_import_apple_music_catalog_playlist(self, client, auth_headers, set_id, monkeypatch):
+        from app.services.setbuilder.pool import PoolCandidate
+
+        calls = []
+
+        def candidates(db, user, provider, pid, *, storefront=None):
+            calls.append((provider, pid, storefront))
+            return "Apple Hits", [
+                PoolCandidate(track_id="apple_music:song-1", title="A Song", artist="A Singer")
+            ]
+
+        monkeypatch.setattr("app.services.setbuilder.pool.candidates_from_public_url", candidates)
+        resp = client.post(
+            f"/api/setbuilder/sets/{set_id}/pool/import/url",
+            json={"url": "https://music.apple.com/us/playlist/hits/pl.abc123"},
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["added"] == 1
+        assert resp.json()["source"]["label"] == "Apple Hits"
+        assert calls == [("apple_music", "pl.abc123", "us")]
 
     def test_import_url_provider_failure_502(self, client, auth_headers, set_id, monkeypatch):
         from app.services.setbuilder.pool import PoolImportError

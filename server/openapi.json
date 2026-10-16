@@ -15368,11 +15368,25 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
               }
             },
-            "description": "Successful Response"
+            "description": "CSV download; the header reports whether rows were omitted.",
+            "headers": {
+              "X-Export-Truncated": {
+                "description": "Whether additional rows were omitted after the export limit.",
+                "schema": {
+                  "enum": [
+                    "true",
+                    "false"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -15414,11 +15428,25 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
               }
             },
-            "description": "Successful Response"
+            "description": "CSV download; the header reports whether rows were omitted.",
+            "headers": {
+              "X-Export-Truncated": {
+                "description": "Whether additional rows were omitted after the export limit.",
+                "schema": {
+                  "enum": [
+                    "true",
+                    "false"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {

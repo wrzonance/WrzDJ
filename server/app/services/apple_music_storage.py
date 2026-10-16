@@ -5,6 +5,7 @@ import re
 
 from sqlalchemy.orm import Session
 
+from app.core.time import utcnow
 from app.models.provider_connection import UserProviderConnection
 from app.models.user import User
 from app.services.apple_music_tokens import AppleMusicNotConnected
@@ -59,8 +60,8 @@ def read_stored_connection(db: Session, user: User) -> tuple[str, str]:
         raise AppleMusicNotConnected
     token = stored_user_token(connection)
     storefront = stored_storefront(connection)
-    if token is None or storefront is None:
+    expired = connection.expires_at is not None and connection.expires_at <= utcnow()
+    if token is None or storefront is None or expired:
         connection.connection_state = "reauthorize"
-        db.commit()
         raise AppleMusicNotConnected
     return token, storefront

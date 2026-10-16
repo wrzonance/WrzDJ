@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     apple_music_team_id: str = ""
     apple_music_key_id: str = ""
     apple_music_private_key: str = ""
+    apple_music_origins: str = ""
 
     # Tidal API (for playlist sync to SC6000)
     tidal_client_id: str = ""

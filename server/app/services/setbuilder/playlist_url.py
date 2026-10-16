@@ -6,9 +6,10 @@ allowlist, no userinfo/port tricks, playlist IDs constrained to strict
 charsets — and importers then call official APIs (spotipy / tidalapi)
 with the extracted ID.
 
-Recognized-but-unsupported providers (Apple Music, YouTube, SoundCloud,
-Beatport) parse successfully with ``supported=False`` so the UI can show
-a precise message instead of a generic "invalid URL" error.
+Recognized-but-unsupported providers (YouTube, SoundCloud, Beatport) parse
+successfully with ``supported=False`` so the UI can show a precise message
+instead of a generic "invalid URL" error. Apple Music catalog URLs are supported;
+private library playlists are outside this public-URL flow.
 """
 
 import re
@@ -16,14 +17,13 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 _SPOTIFY_PLAYLIST_RE = re.compile(r"^/playlist/([A-Za-z0-9]{16,40})/?$")
+_APPLE_MUSIC_PLAYLIST_RE = re.compile(
+    r"^/([a-z]{2})/playlist/(?:[^/]+/)?([A-Za-z0-9][A-Za-z0-9._-]{0,127})/?$"
+)
 _TIDAL_UUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 _TIDAL_PLAYLIST_RE = re.compile(rf"^/(?:browse/)?playlist/({_TIDAL_UUID})/?$")
 
 _UNSUPPORTED_HOSTS: dict[str, tuple[str, str]] = {
-    "music.apple.com": (
-        "apple_music",
-        "Apple Music playlists aren't supported yet — no public API access is configured.",
-    ),
     "www.youtube.com": (
         "youtube",
         "YouTube playlists aren't supported yet — no public API access is configured.",
@@ -61,6 +61,7 @@ class ParsedPlaylistUrl:
     playlist_id: str | None
     supported: bool
     message: str | None = None
+    storefront: str | None = None
 
 
 def parse_public_playlist_url(url: str) -> ParsedPlaylistUrl:
@@ -96,6 +97,19 @@ def parse_public_playlist_url(url: str) -> ParsedPlaylistUrl:
             raise InvalidPlaylistUrl("Not a Spotify playlist URL (expected /playlist/<id>)")
         return ParsedPlaylistUrl(provider="spotify", playlist_id=m.group(1), supported=True)
 
+    if host == "music.apple.com":
+        m = _APPLE_MUSIC_PLAYLIST_RE.match(path)
+        if not m:
+            raise InvalidPlaylistUrl(
+                "Not an Apple Music playlist URL (expected /<storefront>/playlist/<id>)"
+            )
+        return ParsedPlaylistUrl(
+            provider="apple_music",
+            playlist_id=m.group(2),
+            supported=True,
+            storefront=m.group(1),
+        )
+
     if host in ("tidal.com", "listen.tidal.com", "www.tidal.com"):
         m = _TIDAL_PLAYLIST_RE.match(path)
         if not m:
@@ -110,5 +124,5 @@ def parse_public_playlist_url(url: str) -> ParsedPlaylistUrl:
 
     raise InvalidPlaylistUrl(
         "Unrecognized playlist host — supported: Spotify, Tidal "
-        "(Apple Music / YouTube / SoundCloud coming later)"
+        "and Apple Music (YouTube / SoundCloud coming later)"
     )

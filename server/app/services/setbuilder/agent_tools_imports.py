@@ -190,7 +190,7 @@ def _tool_import_from_beatport(
 def _tool_import_from_url(
     db: Session, set_obj: Set, payload: dict[str, Any]
 ) -> tuple[dict[str, Any], set[int]]:
-    """Import a public Spotify/Tidal playlist URL into the pool.
+    """Import a public Spotify/Tidal/Apple Music playlist URL into the pool.
 
     Reuses the SSRF-safe parser (parse-only, https + exact-host allowlist) and
     the existing public-URL fetch path. Invalid/unsupported URLs and fetch
@@ -206,9 +206,18 @@ def _tool_import_from_url(
     if not parsed.supported:
         raise AgentToolError(parsed.message or "That playlist provider isn't supported yet.")
     try:
-        name, candidates = pool.candidates_from_public_url(
-            db, owner, parsed.provider, parsed.playlist_id
-        )
+        if parsed.provider == "apple_music":
+            name, candidates = pool.candidates_from_public_url(
+                db,
+                owner,
+                parsed.provider,
+                parsed.playlist_id,
+                storefront=parsed.storefront,
+            )
+        else:
+            name, candidates = pool.candidates_from_public_url(
+                db, owner, parsed.provider, parsed.playlist_id
+            )
     except pool.PoolImportError as exc:
         raise AgentToolError(str(exc)) from exc
     if not candidates:

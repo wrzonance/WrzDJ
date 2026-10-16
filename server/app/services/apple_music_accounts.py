@@ -28,7 +28,7 @@ def _lock_user(db: Session, user: User) -> None:
 
 def _begin_link_attempt(db: Session, user: User) -> int:
     _lock_user(db, user)
-    connection = _connection(db, user)
+    connection = _connection(db, user, populate_existing=True)
     if connection is None:
         connection = UserProviderConnection(
             user_id=user.id,
@@ -48,7 +48,7 @@ def _complete_link_attempt(
     db: Session, user: User, generation: int, token: str, storefront: str
 ) -> UserProviderConnection:
     _lock_user(db, user)
-    connection = _connection(db, user)
+    connection = _connection(db, user, populate_existing=True)
     if connection is None or connection.authorization_generation != generation:
         db.rollback()
         raise apple_music_tokens.AppleMusicLinkSuperseded
@@ -138,7 +138,7 @@ def linked_account_status(connection: UserProviderConnection) -> dict[str, objec
 def disconnect_account(db: Session, user: User) -> None:
     """Invalidate in-flight links and clear user credentials, keeping a tombstone."""
     _lock_user(db, user)
-    connection = _connection(db, user)
+    connection = _connection(db, user, populate_existing=True)
     if connection is None:
         connection = UserProviderConnection(
             user_id=user.id,
@@ -166,6 +166,7 @@ def account_status(db: Session, user: User) -> dict[str, object]:
         try:
             token, storefront = apple_music_storage.read_stored_connection(db, user)
         except apple_music_tokens.AppleMusicNotConnected:
+            db.commit()
             connection = _connection(db, user, populate_existing=True)
     if configured and token and connection and connection.connection_state == "connected":
         generation = connection.authorization_generation

@@ -913,24 +913,70 @@ def candidates_from_beatport(db: Session, user: User, playlist_id: str) -> list[
 _SPOTIFY_PAGE_SIZE = 100
 
 
-def preview_public_playlist(db: Session, user: User, provider: str, playlist_id: str) -> dict:
+def preview_public_playlist(
+    db: Session, user: User, provider: str, playlist_id: str, storefront: str | None = None
+) -> dict:
     """Lightweight metadata for the validate→preview card. Never fetches the raw URL."""
     if provider == "spotify":
         return _spotify_playlist_preview(playlist_id)
     if provider == "tidal":
         return _tidal_playlist_preview(db, user, playlist_id)
+    if provider == "apple_music":
+        from app.services import apple_music_catalog
+        from app.services.apple_music_tokens import AppleMusicError
+
+        try:
+            if storefront is None:
+                raise PoolImportError("Apple Music playlist URL is missing its storefront")
+            return apple_music_catalog.preview_public_playlist(storefront, playlist_id)
+        except AppleMusicError as e:
+            logger.warning("Apple Music playlist preview failed: %s", type(e).__name__)
+            raise PoolImportError(
+                "Couldn't fetch that Apple Music playlist — is it public in this storefront?"
+            ) from e
     raise PoolImportError("This provider isn't supported for public playlist import yet")
 
 
 def candidates_from_public_url(
-    db: Session, user: User, provider: str, playlist_id: str
+    db: Session, user: User, provider: str, playlist_id: str, storefront: str | None = None
 ) -> tuple[str, list[PoolCandidate]]:
     """Fetch all tracks of a public playlist. Returns (playlist_name, candidates)."""
     if provider == "spotify":
         return _spotify_playlist_candidates(playlist_id)
     if provider == "tidal":
         return _tidal_playlist_candidates(db, user, playlist_id)
+    if provider == "apple_music":
+        return _apple_music_playlist_candidates(playlist_id, storefront)
     raise PoolImportError("This provider isn't supported for public playlist import yet")
+
+
+def _apple_music_playlist_candidates(
+    playlist_id: str, storefront: str | None
+) -> tuple[str, list[PoolCandidate]]:
+    from app.services import apple_music_catalog
+    from app.services.apple_music_tokens import AppleMusicError
+
+    if storefront is None:
+        raise PoolImportError("Apple Music playlist URL is missing its storefront")
+    try:
+        metadata, songs = apple_music_catalog.fetch_public_playlist(storefront, playlist_id)
+    except AppleMusicError as e:
+        logger.warning("Apple Music playlist fetch failed: %s", type(e).__name__)
+        raise PoolImportError(
+            "Couldn't fetch that Apple Music playlist — is it public in this storefront?"
+        ) from e
+    candidates = [
+        PoolCandidate(
+            track_id=f"apple_music:{song.id}",
+            title=song.title,
+            artist=song.artist,
+            album=song.album,
+            isrc=song.isrc,
+            duration_sec=song.duration_ms // 1000 if song.duration_ms else None,
+        )
+        for song in songs
+    ]
+    return metadata.get("name") or "Apple Music playlist", candidates
 
 
 def _spotify_client():

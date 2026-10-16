@@ -23,6 +23,18 @@ router = APIRouter()
 # Keep each export bounded to protect memory and response time.
 MAX_EXPORT_REQUESTS = 10000
 MAX_EXPORT_PLAY_HISTORY = 10000
+_CSV_EXPORT_RESPONSES = {
+    200: {
+        "description": "CSV download; the header reports whether rows were omitted.",
+        "content": {"text/csv": {"schema": {"type": "string"}}},
+        "headers": {
+            "X-Export-Truncated": {
+                "description": "Whether additional rows were omitted after the export limit.",
+                "schema": {"type": "string", "enum": ["true", "false"]},
+            }
+        },
+    }
+}
 
 
 def _content_disposition(filename: str) -> str:
@@ -35,7 +47,7 @@ def _content_disposition(filename: str) -> str:
     return f"attachment; filename=\"{safe_filename}\"; filename*=UTF-8''{ascii_filename}"
 
 
-@router.get("/{code}/export/csv")
+@router.get("/{code}/export/csv", response_class=StreamingResponse, responses=_CSV_EXPORT_RESPONSES)
 @limiter.limit("5/minute")
 def export_event_csv(
     request: Request,
@@ -43,18 +55,28 @@ def export_event_csv(
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
     """Export event requests as CSV. Owner can export regardless of event status."""
-    requests = get_requests_for_event(db, event, status=None, since=None, limit=MAX_EXPORT_REQUESTS)
-    csv_content = export_requests_to_csv(event, requests)
+    requests = get_requests_for_event(
+        db, event, status=None, since=None, limit=MAX_EXPORT_REQUESTS + 1
+    )
+    truncated = len(requests) > MAX_EXPORT_REQUESTS
+    csv_content = export_requests_to_csv(event, requests[:MAX_EXPORT_REQUESTS])
     filename = generate_export_filename(event)
 
     return StreamingResponse(
         iter([csv_content]),
         media_type="text/csv",
-        headers={"Content-Disposition": _content_disposition(filename)},
+        headers={
+            "Content-Disposition": _content_disposition(filename),
+            "X-Export-Truncated": str(truncated).lower(),
+        },
     )
 
 
-@router.get("/{code}/export/play-history/csv")
+@router.get(
+    "/{code}/export/play-history/csv",
+    response_class=StreamingResponse,
+    responses=_CSV_EXPORT_RESPONSES,
+)
 @limiter.limit("5/minute")
 def export_play_history_csv(
     request: Request,
@@ -62,12 +84,15 @@ def export_play_history_csv(
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
     """Export play history as CSV. Owner can export regardless of event status."""
-    history_items, _ = get_play_history(db, event.id, limit=MAX_EXPORT_PLAY_HISTORY, offset=0)
+    history_items, total = get_play_history(db, event.id, limit=MAX_EXPORT_PLAY_HISTORY, offset=0)
     csv_content = export_play_history_to_csv(event, history_items)
     filename = generate_play_history_export_filename(event)
 
     return StreamingResponse(
         iter([csv_content]),
         media_type="text/csv",
-        headers={"Content-Disposition": _content_disposition(filename)},
+        headers={
+            "Content-Disposition": _content_disposition(filename),
+            "X-Export-Truncated": str(total > MAX_EXPORT_PLAY_HISTORY).lower(),
+        },
     )

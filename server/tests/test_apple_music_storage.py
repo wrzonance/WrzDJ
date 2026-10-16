@@ -1,12 +1,14 @@
 """Stored Apple Music credentials fail closed when encrypted data is incompatible."""
 
 import json
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import create_engine, delete, event, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.time import utcnow
 from app.models.provider_connection import UserProviderConnection
 from app.models.user import User
 from app.services.apple_music_storage import read_stored_connection
@@ -44,8 +46,49 @@ def test_malformed_stored_credentials_mark_connection_for_reauthorization(
     with pytest.raises(AppleMusicNotConnected):
         read_stored_connection(db, test_user)
 
+    assert connection.connection_state == "reauthorize"
+    db.commit()
     db.refresh(connection)
     assert connection.connection_state == "reauthorize"
+
+
+def test_expired_stored_connection_marks_connection_for_reauthorization(db, test_user):
+    connection = UserProviderConnection(
+        user_id=test_user.id,
+        provider_id="apple_music",
+        connection_state="connected",
+        credential_type="music_user_token",
+        credential_payload=json.dumps({"version": 1, "music_user_token": VALID_TOKEN}),
+        expires_at=utcnow() - timedelta(seconds=1),
+        metadata_json='{"storefront":"us"}',
+    )
+    db.add(connection)
+    db.commit()
+
+    with pytest.raises(AppleMusicNotConnected):
+        read_stored_connection(db, test_user)
+
+    assert connection.connection_state == "reauthorize"
+
+
+def test_read_stored_connection_does_not_commit_callers_transaction(db, test_user):
+    connection = UserProviderConnection(
+        user_id=test_user.id,
+        provider_id="apple_music",
+        connection_state="connected",
+        credential_type="music_user_token",
+        credential_payload="{not-json",
+        metadata_json='{"storefront":"us"}',
+    )
+    db.add(connection)
+    db.commit()
+    commits = []
+    event.listen(db, "after_commit", lambda _session: commits.append(True))
+
+    with pytest.raises(AppleMusicNotConnected):
+        read_stored_connection(db, test_user)
+
+    assert commits == []
 
 
 def test_valid_stored_connection_returns_token_and_storefront(db, test_user):

@@ -26,7 +26,9 @@ server {
 
     access_log /var/log/nginx/${APP_DOMAIN}.access.log json_analytics;
 
-    # SSL certificates (managed by certbot)
+    # SSL certificates (managed by certbot). On a fresh host,
+    # setup-nginx.sh installs an HTTP bootstrap first so certbot --nginx
+    # can create all four required lineages before this block is activated.
     # ECDSA certificate (primary, best performance)
     ssl_certificate /etc/letsencrypt/live/${APP_DOMAIN}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/${APP_DOMAIN}/privkey.pem;

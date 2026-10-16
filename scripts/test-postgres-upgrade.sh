@@ -6,8 +6,9 @@
 #   2. Legacy PostgreSQL 16 data is rejected before teardown and left untouched.
 #   3. PostgreSQL 16 can still read that volume afterwards (rollback path).
 #   4. A failed automatic upgrade puts the PostgreSQL 16 files back.
-#   5. An upgrade killed mid-way is recovered by the next run.
-#   6. The automatic upgrade the deploy scripts run preserves the whole cluster
+#   5. Directory-only contents from an interrupted upgrade are preserved.
+#   6. An upgrade killed mid-way is recovered by the next run.
+#   7. The automatic upgrade the deploy scripts run preserves the whole cluster
 #      (databases, roles, ownership), keeps the old files in a backup volume,
 #      and the API starts on the result.
 # shellcheck disable=SC2016 # snippets below are expanded inside containers
@@ -24,11 +25,18 @@ scratch=$(mktemp -d)
 project="wrzdj-pgup-$(basename "$scratch" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9\n' '-')"
 legacy_volume="${project}_postgres_data"
 backup_volume="${legacy_volume}_pg16_backup"
+directory_volume="${project}_directory_recovery"
+directory_backup_volume="${directory_volume}_pg16_backup"
 probe_volume="${project}_probe"
 legacy_network="${project}-legacy"
 legacy_db="${project}-legacy-db"
 legacy_api="${project}-legacy-api"
 restored_api="${project}-restored-api"
+quoted_project="${project}-quoted"
+quoted_volume="${quoted_project}_postgres_data"
+quoted_backup_volume="${quoted_volume}_pg16_backup"
+quoted_legacy="${quoted_project}-legacy"
+quoted_override="$scratch/quoted-role.yml"
 
 # Dummy values for every required variable in the production Compose files.
 export COMPOSE_PROJECT_NAME="$project"
@@ -49,11 +57,20 @@ cleanup() {
     compose logs --tail 40 db >&2 2>/dev/null || true
   fi
   docker rm --force "$legacy_api" "$restored_api" "$legacy_db" >/dev/null 2>&1 || true
+  docker rm --force "$quoted_legacy" >/dev/null 2>&1 || true
+  env COMPOSE_PROJECT_NAME="$quoted_project" POSTGRES_USER='App-User' \
+    POSTGRES_PASSWORD=quoted-pass POSTGRES_DB=appdb POSTGRES_VOLUME_NAME="$quoted_volume" \
+    docker compose -f "$compose_file" -f "$quoted_override" down --volumes --remove-orphans \
+    >/dev/null 2>&1 || true
   compose down --volumes --remove-orphans >/dev/null 2>&1 || true
   POSTGRES_VOLUME_NAME="$probe_volume" compose down --remove-orphans >/dev/null 2>&1 || true
   docker rm --force "${legacy_volume}-pg16-upgrade-old" "${legacy_volume}-pg16-upgrade-new" >/dev/null 2>&1 || true
+  docker rm --force "${directory_volume}-pg16-upgrade-old" "${directory_volume}-pg16-upgrade-new" >/dev/null 2>&1 || true
+  docker rm --force "${quoted_volume}-pg16-upgrade-old" "${quoted_volume}-pg16-upgrade-new" >/dev/null 2>&1 || true
   docker volume ls --quiet --filter "name=${legacy_volume}_interrupted_" | xargs -r docker volume rm >/dev/null 2>&1 || true
-  docker volume rm "$legacy_volume" "$backup_volume" "$probe_volume" >/dev/null 2>&1 || true
+  docker volume ls --quiet --filter "name=${directory_volume}_interrupted_" | xargs -r docker volume rm >/dev/null 2>&1 || true
+  docker volume rm "$legacy_volume" "$backup_volume" "$directory_volume" "$directory_backup_volume" \
+    "$probe_volume" "$quoted_volume" "$quoted_backup_volume" >/dev/null 2>&1 || true
   docker network rm "$legacy_network" >/dev/null 2>&1 || true
   rm -rf "$scratch"
   exit "$status"
@@ -101,10 +118,11 @@ for script in "$root/deploy/deploy.sh" "$root/deploy/deploy-ghcr.sh"; do
 done
 
 # --- helpers ------------------------------------------------------------------
-wait_ready() { # CONTAINER
+wait_ready() { # CONTAINER [USERNAME]
+  local username=${2:-wrzdj}
   for ((attempt = 0; attempt < 60; attempt++)); do
     # TCP, not the socket: the entrypoint's temporary init server is socket-only.
-    if docker exec "$1" pg_isready --quiet --host 127.0.0.1 --username wrzdj; then return 0; fi
+    if docker exec "$1" pg_isready --quiet --host 127.0.0.1 --username "$username"; then return 0; fi
     sleep 1
   done
   fail "$1 did not accept connections"
@@ -251,9 +269,33 @@ docker stop "$legacy_db" >/dev/null
 docker rm "$legacy_db" >/dev/null
 echo 'A failed upgrade restores the PostgreSQL 16 data files.'
 
-# --- 5. An upgrade killed mid-way is recovered by the next run -----------------
+# --- 5. Directory-only interrupted contents are preserved ----------------------
+# Regression for #799 (offending fde5fdf9): recovery must keep a directory even
+# when it has no files yet, because the old guard filtered directories out.
+docker volume create "$directory_volume" >/dev/null
+docker volume create "$directory_backup_volume" >/dev/null
+docker run --rm --network none --volume "$legacy_volume:/from:ro" \
+  --volume "$directory_volume:/to" --volume "$directory_backup_volume:/backup" \
+  --entrypoint sh "$legacy_image" -c 'cp -a /from/. /to/ && cp -a /from/. /backup/ &&
+    echo 16 > /to/.wrzdj-postgres-upgrade && find /to -mindepth 1 ! -name .wrzdj-postgres-upgrade -delete &&
+    mkdir -p /to/18/docker'
+POSTGRES_UPGRADE_BACKUP_DIR="$scratch/directory-backups" POSTGRES_VOLUME_NAME="$directory_volume" \
+  bash "$upgrade" "$compose_file" >"$scratch/directory-recovery.log" 2>&1 ||
+  fail "directory-only recovery failed: $(cat "$scratch/directory-recovery.log")"
+# Recovery restores the old cluster and then deliberately continues through
+# the normal upgrade path so the retry is exercised too.
+grep -q 'Recovering from an interrupted' "$scratch/directory-recovery.log" ||
+  fail 'directory-only run did not recover the interrupted state before its upgrade retry'
+directory_interrupted_volume=$(docker volume ls --quiet --filter "name=${directory_volume}_interrupted_" | head -n 1)
+[ -n "$directory_interrupted_volume" ] || fail 'directory-only recovery did not keep the interrupted volume contents'
+docker run --rm --network none --volume "$directory_interrupted_volume:/v:ro" --entrypoint sh "$legacy_image" \
+  -c '[ -d /v/18/docker ]' || fail 'directory-only interrupted contents were deleted'
+docker volume rm "$directory_interrupted_volume" "$directory_volume" "$directory_backup_volume" >/dev/null 2>&1 || true
+echo 'Directory-only interrupted contents are preserved.'
+
+# --- 6. An upgrade killed mid-way is recovered by the next run -----------------
 # Reproduce the state a kill leaves behind: old files copied to the backup
-# volume, marker written, data volume emptied, a stray new cluster started.
+# volume, marker written, data volume emptied, and a stray new cluster started.
 docker volume create "$backup_volume" >/dev/null
 docker run --rm --network none --volume "$legacy_volume:/from" --volume "$backup_volume:/to" \
   --entrypoint sh "$legacy_image" -c 'cp -a /from/. /to/ && echo 16 > /from/.wrzdj-postgres-upgrade &&
@@ -261,13 +303,13 @@ docker run --rm --network none --volume "$legacy_volume:/from" --volume "$backup
     mkdir -p /from/18/docker && echo 18 > /from/18/docker/PG_VERSION &&
     echo written-after-the-interruption > /from/18/docker/stray-data'
 
-# --- 6. The automatic upgrade preserves the whole cluster ----------------------
+# --- 7. The automatic upgrade preserves the whole cluster ----------------------
 bash "$upgrade" "$compose_file" >"$scratch/upgrade.log" 2>&1 ||
   fail "the automatic upgrade failed: $(cat "$scratch/upgrade.log")"
 grep -q 'Recovering from an interrupted' "$scratch/upgrade.log" ||
   fail 'the upgrade did not recover the interrupted state first'
-# Regression for 931affae: recovery deleted whatever it found in the volume.
-# Anything written after the interruption must be set aside, not destroyed.
+# Regression for 931affae: recovery must preserve file contents left by a new
+# cluster startup instead of deleting them.
 interrupted_volume=$(docker volume ls --quiet --filter "name=${legacy_volume}_interrupted_" | head -n 1)
 [ -n "$interrupted_volume" ] || fail 'recovery did not keep the interrupted volume contents'
 docker run --rm --network none --volume "$interrupted_volume:/v:ro" --entrypoint sh "$legacy_image" \
@@ -313,3 +355,47 @@ start_legacy_db "$backup_volume"
 [ "$(docker exec "$legacy_db" psql -U wrzdj -d wrzdj -At -c "$fingerprint_sql")" = "$before" ] ||
   fail 'the backup volume is not a readable copy of the PostgreSQL 16 data'
 echo 'The automatic upgrade recovers an interrupted run, preserves the cluster and keeps a working backup.'
+
+# --- 8. Quoted application roles restore successfully -------------------------
+# Regression for #816 (72b86c7c): restore quoted application identifiers.
+# Also pin 2ad0ba13: json is unquoted by PG16 but
+# quoted by PG18, so deriving the dump spelling from the new server is wrong.
+compose stop >/dev/null
+for quoted_user in json App-User; do
+  cat >"$quoted_override" <<YAML
+services:
+  db:
+    environment:
+      POSTGRES_USER: '${quoted_user}'
+      POSTGRES_PASSWORD: quoted-pass
+      POSTGRES_DB: appdb
+YAML
+  docker volume create "$quoted_volume" >/dev/null
+  docker run --detach --name "$quoted_legacy" --env POSTGRES_USER="$quoted_user" \
+    --env POSTGRES_PASSWORD=quoted-pass --env POSTGRES_DB=appdb \
+    --volume "$quoted_volume:/var/lib/postgresql/data" "$legacy_image" >/dev/null
+  wait_ready "$quoted_legacy" "$quoted_user"
+  docker exec "$quoted_legacy" psql -U "$quoted_user" -d appdb -v ON_ERROR_STOP=1 -q -c \
+    "CREATE TABLE role_text (body text); INSERT INTO role_text VALUES (format('CREATE ROLE %I;', current_user))"
+  expected_role_text=$(docker exec "$quoted_legacy" psql -U "$quoted_user" -d appdb -At -c 'SELECT * FROM role_text')
+  docker stop "$quoted_legacy" >/dev/null
+  docker rm "$quoted_legacy" >/dev/null
+  env COMPOSE_PROJECT_NAME="$quoted_project" POSTGRES_USER="$quoted_user" \
+    POSTGRES_PASSWORD=quoted-pass POSTGRES_DB=appdb POSTGRES_VOLUME_NAME="$quoted_volume" \
+    POSTGRES_UPGRADE_BACKUP_DIR="$scratch/quoted-backups" \
+    bash "$upgrade" "$compose_file" "$quoted_override" >"$scratch/quoted-upgrade.log" 2>&1 ||
+    fail "application role $quoted_user upgrade failed: $(cat "$scratch/quoted-upgrade.log")"
+  quoted_compose() {
+    env COMPOSE_PROJECT_NAME="$quoted_project" POSTGRES_USER="$quoted_user" \
+      POSTGRES_PASSWORD=quoted-pass POSTGRES_DB=appdb POSTGRES_VOLUME_NAME="$quoted_volume" \
+      docker compose -f "$compose_file" -f "$quoted_override" "$@"
+  }
+  quoted_compose up --detach --wait db >/dev/null || fail 'quoted-role PostgreSQL 18 did not start'
+  [ "$(quoted_compose exec -T db psql -U "$quoted_user" -d appdb -At -c 'SELECT * FROM role_text')" = \
+    "$expected_role_text" ] || fail 'quoted-role restore altered role-like table data'
+  [ "$(quoted_compose exec -T db psql -U "$quoted_user" -d appdb -At -c 'SHOW server_version_num' | cut -c1-2)" = 18 ] ||
+    fail 'quoted-role upgrade did not produce PostgreSQL 18 data'
+  quoted_compose down --volumes --remove-orphans >/dev/null
+  docker volume rm "$quoted_backup_volume" >/dev/null
+  echo "Application role $quoted_user restores successfully and preserves role-like table data."
+done

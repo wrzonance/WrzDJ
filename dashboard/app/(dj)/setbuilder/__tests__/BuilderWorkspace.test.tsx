@@ -346,7 +346,7 @@ describe('BuilderWorkspace', () => {
       Promise.resolve(cloneDocument(snapshot)),
     );
     mockGetCurveTemplates.mockResolvedValue(TEMPLATES);
-    mockGetVibeWindows.mockResolvedValue({ windows: [] });
+    mockGetVibeWindows.mockReset().mockResolvedValue({ windows: [] });
     mockUpdateSlotTarget.mockResolvedValue({ slot_id: 1, target_energy: 9 });
     mockPutVibeWindows.mockResolvedValue({ windows: [] });
     mockSavePairing.mockResolvedValue({ id: 44 });
@@ -879,6 +879,21 @@ describe('BuilderWorkspace', () => {
     expect(snapshot.slots.map((slot) => slot.position)).toEqual([0, 1, 2, 3]);
   });
 
+  it('adding a vibe preset window persists via PUT', async () => {
+    render(<BuilderWorkspace setId={5} />);
+    await waitFor(() => expect(screen.getByTestId('slot-block-0')).toBeInTheDocument());
+    await waitFor(() => expect(mockGetVibeWindows).toHaveBeenCalledWith(5));
+
+    fireEvent.click(screen.getByTestId('vibe-dropdown-trigger'));
+    fireEvent.click(screen.getByTestId('vibe-preset-first-dance'));
+
+    await waitFor(() => expect(mockPutVibeWindows).toHaveBeenCalledTimes(1));
+    const [, windows] = mockPutVibeWindows.mock.calls[0];
+    expect(windows).toHaveLength(1);
+    expect(windows[0].label).toBe('First Dance');
+    expect(await screen.findByText('FIRST DANCE')).toBeInTheDocument();
+  });
+
   it('keeps a vibe preset when the initial windows load resolves late', async () => {
     let resolveInitialWindows!: (response: {
       windows: { t0_sec: number; t1_sec: number; label: string }[];
@@ -888,7 +903,6 @@ describe('BuilderWorkspace', () => {
         resolveInitialWindows = resolve;
       }),
     );
-
     render(<BuilderWorkspace setId={5} />);
     await waitFor(() => expect(screen.getByTestId('slot-block-0')).toBeInTheDocument());
     await waitFor(() => expect(mockGetVibeWindows).toHaveBeenCalledTimes(1));

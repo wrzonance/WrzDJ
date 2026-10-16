@@ -6,7 +6,6 @@ on:
   push:
     branches: [main, develop]
   pull_request:
-    branches: [main, develop]
 
 # Read-only default for every job; jobs that need more declare it themselves.
 permissions:
@@ -37,6 +36,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -113,9 +114,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: "npm"
@@ -147,6 +150,9 @@ jobs:
       - name: Test the npm audit gate
         run: node --test ../scripts/npm-audit-gate.test.cjs
 
+      - name: Test dependency reporting shell safety
+        run: node --test ../scripts/dependency-health.test.cjs
+
       - name: Security audit
         # Blocking: high/critical advisories fail unless .npm-audit-ignore.json
         # lists them with a justification and an unexpired date.
@@ -161,9 +167,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: "npm"
@@ -192,9 +200,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: "npm"
@@ -207,8 +217,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
       - name: Type check
-        run: npx tsc --noEmit
+        run: npm run typecheck
 
       - name: Run tests with coverage
         run: npm test -- --run --coverage
@@ -256,6 +269,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -302,6 +317,9 @@ jobs:
       - name: Test PostgreSQL 16 to 18 upgrade path
         run: bash scripts/test-postgres-upgrade.sh wrzdj-api:smoke
 
+      - name: Test PostgreSQL upgrade signal handling
+        run: bash scripts/test-postgres-upgrade-signals.sh
+
       - name: Build frontend image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -343,5 +361,14 @@ jobs:
           cache-from: type=gha,scope=ci-proxy
           cache-to: type=gha,mode=max,scope=ci-proxy
 
+      - name: Test proxy readiness helper
+        run: timeout 120 bash scripts/test-wait-for-container-http.sh
+
+      - name: Test proxy readiness boundary
+        run: timeout 120 bash scripts/test-proxy-readiness-boundary.sh
+
       - name: Test development proxy runtime
         run: bash scripts/test-proxy-image.sh wrzdj-proxy:smoke
+
+      - name: Test production nginx provisioning
+        run: bash deploy/tests/test_setup_nginx.sh

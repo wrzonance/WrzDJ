@@ -222,9 +222,20 @@ sudo systemctl start nginx
 **Important:** DNS must be pointing to your server before running certbot.
 
 ```bash
-# Get certificates (uses wrzdj-certbot wrapper for safe execution)
-sudo wrzdj-certbot --nginx -d api.yourdomain.com
-sudo wrzdj-certbot --nginx -d app.yourdomain.com
+# On a fresh host setup-nginx.sh leaves an HTTP-only bootstrap for validation.
+# Replace admin@yourdomain.com below with an address for the ACME account. The
+# first command registers that account noninteractively (--agree-tos is required).
+# Get the ECDSA certificates through the restricted nginx wrapper.
+sudo wrzdj-certbot --nginx --agree-tos --email admin@yourdomain.com --cert-name api.yourdomain.com --key-type ecdsa -d api.yourdomain.com
+sudo wrzdj-certbot --nginx --agree-tos --email admin@yourdomain.com --cert-name app.yourdomain.com --key-type ecdsa -d app.yourdomain.com
+
+# Get the RSA certificates required for corporate proxy compatibility.
+# The nginx templates load both lineages for every HTTPS vhost.
+sudo wrzdj-certbot --nginx --agree-tos --email admin@yourdomain.com --cert-name api.yourdomain.com-rsa --key-type rsa -d api.yourdomain.com
+sudo wrzdj-certbot --nginx --agree-tos --email admin@yourdomain.com --cert-name app.yourdomain.com-rsa --key-type rsa -d app.yourdomain.com
+
+# Install the HTTPS vhosts after all four lineages exist.
+APP_DOMAIN=app.yourdomain.com API_DOMAIN=api.yourdomain.com ./deploy/setup-nginx.sh
 
 # Verify auto-renewal is enabled
 sudo systemctl status certbot.timer
@@ -232,6 +243,14 @@ sudo systemctl status certbot.timer
 # Test renewal (dry run)
 sudo wrzdj-certbot renew --dry-run
 ```
+
+#### Migrating an existing Certbot installation
+
+The four commands above describe a fresh host. Before changing an existing host, inspect its
+lineages with `sudo certbot certificates` and review every SAN on any shared lineage. Keep the full
+SAN set intact while planning replacement with one lineage per WrzDJ hostname and vhost; do not
+blindly reuse or narrow a shared lineage. Complete that migration administratively, then rerun
+`setup-nginx.sh` only after all four hostname-specific lineages are available.
 
 Certificates auto-renew via systemd timer. Manual renewal if needed:
 ```bash

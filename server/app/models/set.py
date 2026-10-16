@@ -70,6 +70,9 @@ class Set(Base):
     apple_music_export_pending: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    apple_music_export_uncertain: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     apple_music_export_attempt_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     apple_music_export_recovery_playlist_id: Mapped[str | None] = mapped_column(
         String(100), nullable=True

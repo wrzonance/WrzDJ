@@ -79,6 +79,9 @@ class SetDetail(SetSummary):
     key_strictness: float
     tidal_playlist_id: str | None
     spotify_playlist_id: str | None = None
+    apple_music_playlist_id: str | None = None
+    apple_music_export_uncertain: bool = False
+    apple_music_export_recovery_playlist_id: str | None = None
     exported_at: datetime | None
 
 
@@ -1043,6 +1046,27 @@ class ExportAppleMusicIn(BaseModel):
     """Apple Music export requires an explicit choice before skipping unresolved tracks."""
 
     skip_unresolved: bool = False
+
+
+class ExportAppleMusicRecoveryIn(BaseModel):
+    """Require the DJ to explicitly reconcile an export Apple did not confirm."""
+
+    action: Literal["playlist_found", "playlist_absent"]
+    playlist_id: str | None = Field(default=None, pattern=r"^p\.[A-Za-z0-9_-]{1,98}$")
+
+    @model_validator(mode="after")
+    def validate_recovery_action(self) -> "ExportAppleMusicRecoveryIn":
+        if self.action == "playlist_found" and self.playlist_id is None:
+            raise ValueError("playlist_id is required when the playlist was found")
+        if self.action == "playlist_absent" and self.playlist_id is not None:
+            raise ValueError("playlist_id is only valid when the playlist was found")
+        return self
+
+
+class ExportAppleMusicRecoveryOut(BaseModel):
+    """Result of the DJ's explicit Apple Music reconciliation."""
+
+    status: Literal["exported", "ready_to_retry"]
 
 
 class ExportAppleMusicOut(BaseModel):

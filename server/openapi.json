@@ -4285,6 +4285,54 @@
         "title": "ExportAppleMusicOut",
         "type": "object"
       },
+      "ExportAppleMusicRecoveryIn": {
+        "description": "Require the DJ to explicitly reconcile an export Apple did not confirm.",
+        "properties": {
+          "action": {
+            "enum": [
+              "playlist_found",
+              "playlist_absent"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "playlist_id": {
+            "anyOf": [
+              {
+                "pattern": "^p\\.[A-Za-z0-9_-]{1,98}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Playlist Id"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "ExportAppleMusicRecoveryIn",
+        "type": "object"
+      },
+      "ExportAppleMusicRecoveryOut": {
+        "description": "Result of the DJ's explicit Apple Music reconciliation.",
+        "properties": {
+          "status": {
+            "enum": [
+              "exported",
+              "ready_to_retry"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "ExportAppleMusicRecoveryOut",
+        "type": "object"
+      },
       "ExportFileIn": {
         "description": "Body for the file (Rekordbox XML / M3U / txt) export.",
         "properties": {
@@ -8539,6 +8587,33 @@
       "SetDetail": {
         "description": "Full set record (Phase 0: no slot/curve expansion yet).",
         "properties": {
+          "apple_music_export_recovery_playlist_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apple Music Export Recovery Playlist Id"
+          },
+          "apple_music_export_uncertain": {
+            "default": false,
+            "title": "Apple Music Export Uncertain",
+            "type": "boolean"
+          },
+          "apple_music_playlist_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apple Music Playlist Id"
+          },
           "avg_transition_overlap_sec": {
             "title": "Avg Transition Overlap Sec",
             "type": "integer"
@@ -8684,6 +8759,9 @@
           }
         },
         "required": [
+          "apple_music_export_recovery_playlist_id",
+          "apple_music_export_uncertain",
+          "apple_music_playlist_id",
           "avg_transition_overlap_sec",
           "bpm_ceiling",
           "bpm_floor",
@@ -19954,7 +20032,7 @@
                 }
               }
             },
-            "description": "Unresolved tracks \u2014 retry with skip_unresolved=true to proceed."
+            "description": "Unresolved tracks require confirmation, or another export is in progress."
           },
           "422": {
             "content": {
@@ -19979,6 +20057,64 @@
           }
         ],
         "summary": "Export Set Apple Music",
+        "tags": [
+          "setbuilder"
+        ]
+      }
+    },
+    "/api/setbuilder/sets/{set_id}/export/apple-music/recovery": {
+      "post": {
+        "description": "Let the DJ reconcile an ambiguous export after checking their Apple library.",
+        "operationId": "reconcile_apple_music_export_api_setbuilder_sets__set_id__export_apple_music_recovery_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "set_id",
+            "required": true,
+            "schema": {
+              "title": "Set Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportAppleMusicRecoveryIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportAppleMusicRecoveryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Reconcile Apple Music Export",
         "tags": [
           "setbuilder"
         ]

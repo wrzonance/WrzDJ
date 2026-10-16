@@ -54,6 +54,8 @@ function makeSetDetail(overrides: Partial<SetDetail> = {}): SetDetail {
     tidal_playlist_id: null,
     spotify_playlist_id: null,
     apple_music_playlist_id: null,
+    apple_music_export_uncertain: false,
+    apple_music_export_recovery_playlist_id: null,
     exported_at: null,
     ...overrides,
   };

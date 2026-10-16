@@ -97,6 +97,27 @@ describe('ApiClient', () => {
       expect(mockFetch.mock.calls[0][0]).toContain('/api/setbuilder/sets/42/critique');
     });
 
+    it('records an Apple Music playlist found during export recovery', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ status: 'exported' }),
+      });
+
+      const result = await api.reconcileAppleMusicExport(42, {
+        action: 'playlist_found',
+        playlist_id: 'p.savedPlaylist',
+      });
+
+      expect(result.status).toBe('exported');
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/setbuilder/sets/42/export/apple-music/recovery');
+      expect(options.method).toBe('POST');
+      expect(JSON.parse(options.body)).toEqual({
+        action: 'playlist_found',
+        playlist_id: 'p.savedPlaylist',
+      });
+    });
+
     it('loads agent history and sends chat turns without client history', async () => {
       mockFetch
         .mockResolvedValueOnce({

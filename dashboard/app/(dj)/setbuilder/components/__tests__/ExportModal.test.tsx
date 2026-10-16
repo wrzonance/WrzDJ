@@ -20,6 +20,7 @@ const mockApi = vi.hoisted(() => ({
   getAppleMusicDeveloperToken: vi.fn(),
   linkAppleMusicAccount: vi.fn(),
   exportSetToAppleMusic: vi.fn(),
+  reconcileAppleMusicExport: vi.fn(),
   exportSetFile: vi.fn(),
 }));
 
@@ -254,6 +255,7 @@ describe('ExportModal — platform picker', () => {
     ['unknown playlist ID', null],
   ])('prevents retrying an unconfirmed Apple Music export with %s', async (_label, playlistId) => {
     mockApi.exportPreflight.mockResolvedValue(makePreflightClean('apple_music'));
+    const onSetUpdated = vi.fn();
     const message = 'Apple Music export could not be confirmed. Do not retry; check your library.';
     const actualApi = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
@@ -263,7 +265,7 @@ describe('ExportModal — platform picker', () => {
       actualApi.api.exportSetToAppleMusic(setId, skipUnresolved),
     );
 
-    render(<ExportModal {...baseProps} />);
+    render(<ExportModal {...baseProps} onSetUpdated={onSetUpdated} />);
     fireEvent.click(screen.getByText('Apple Music'));
     fireEvent.click(await screen.findByRole('button', { name: /export to apple music/i }));
 
@@ -276,6 +278,82 @@ describe('ExportModal — platform picker', () => {
     expect(screen.queryByRole('button', { name: /export to apple music/i })).toBeNull();
     expect(screen.getByRole('button', { name: /back/i })).toBeTruthy();
     expect(mockApi.exportSetToAppleMusic).toHaveBeenCalledTimes(1);
+    expect(onSetUpdated).toHaveBeenCalledWith({
+      apple_music_export_uncertain: true,
+      apple_music_export_recovery_playlist_id: playlistId,
+    });
+  });
+
+  it('recovers a saved ambiguous export when the DJ finds its playlist', async () => {
+    mockApi.reconcileAppleMusicExport.mockResolvedValue({ status: 'exported' });
+    const onSetUpdated = vi.fn();
+
+    render(
+      <ExportModal
+        {...baseProps}
+        set={makeSet({
+          apple_music_export_uncertain: true,
+          apple_music_export_recovery_playlist_id: 'p.savedPlaylist',
+        })}
+        onSetUpdated={onSetUpdated}
+      />,
+    );
+
+    expect(await screen.findByText(/check your apple music library/i)).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: /playlist id/i })).toHaveProperty(
+      'value',
+      'p.savedPlaylist',
+    );
+    expect(screen.queryByText('Choose a platform or format')).toBeNull();
+    expect(screen.queryByRole('button', { name: /export to apple music/i })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /i found the playlist/i }));
+
+    await waitFor(() => {
+      expect(mockApi.reconcileAppleMusicExport).toHaveBeenCalledWith(42, {
+        action: 'playlist_found',
+        playlist_id: 'p.savedPlaylist',
+      });
+      expect(onSetUpdated).toHaveBeenCalledWith({
+        status: 'exported',
+        apple_music_playlist_id: 'p.savedPlaylist',
+        apple_music_export_uncertain: false,
+        apple_music_export_recovery_playlist_id: null,
+      });
+      expect(screen.getByText(/playlist confirmed/i)).toBeTruthy();
+    });
+    expect(mockApi.exportSetToAppleMusic).not.toHaveBeenCalled();
+  });
+
+  it('requires a second confirmation before clearing an ambiguous export with no playlist found', async () => {
+    mockApi.reconcileAppleMusicExport.mockResolvedValue({ status: 'ready_to_retry' });
+    const onSetUpdated = vi.fn();
+
+    render(
+      <ExportModal
+        {...baseProps}
+        set={makeSet({ apple_music_export_uncertain: true })}
+        onSetUpdated={onSetUpdated}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /i couldn't find the playlist/i }));
+    expect(screen.getByText(/confirm that you checked your library/i)).toBeTruthy();
+    expect(mockApi.reconcileAppleMusicExport).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /yes, no playlist was found/i }));
+
+    await waitFor(() => {
+      expect(mockApi.reconcileAppleMusicExport).toHaveBeenCalledWith(42, {
+        action: 'playlist_absent',
+      });
+      expect(onSetUpdated).toHaveBeenCalledWith({
+        apple_music_export_uncertain: false,
+        apple_music_export_recovery_playlist_id: null,
+      });
+      expect(screen.getByText(/you can start a new export when you.re ready/i)).toBeTruthy();
+    });
+    expect(mockApi.exportSetToAppleMusic).not.toHaveBeenCalled();
   });
 
   it('keeps an ordinary Apple Music provider failure retryable', async () => {

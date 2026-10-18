@@ -91,3 +91,6 @@ notes/
 
 # PostgreSQL upgrade dumps (deploy/scripts/upgrade-postgres-volume.sh)
 deploy/backups/
+
+# Production host: last commit fully deployed by deploy/ci-deploy.sh
+deploy/.ci-last-deployed

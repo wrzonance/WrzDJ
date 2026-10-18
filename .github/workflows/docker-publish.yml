@@ -5,8 +5,10 @@ name: Docker Publish
 # multi-arch build+push to GHCR — keeping the slow arm64-under-QEMU build off PRs.
 #
 # Image tags: `latest` and `main` follow HEAD of main (unreleased trunk);
-# `stable` and `vYYYY.MM.DD` are only moved by a release tag push, so a deployer
-# on `stable` always runs the newest release.
+# `vYYYY.MM.DD` and `sha-<commit>` are built on a release tag push, and `stable`
+# is promoted to the release only after BOTH images are pushed, so a deployer on
+# `stable` always gets a matching api/web pair from the newest release. Release
+# tags are validated (format, commit on main) before anything is built.
 on:
   push:
     branches: [main]
@@ -16,14 +18,45 @@ on:
 permissions:
   contents: read
 
+# Release runs queue behind each other so two tags pushed minutes apart promote
+# `stable` (and deploy) in push order rather than in build-completion order.
+# Main pushes keep their own per-ref group and are never cancelled.
+concurrency:
+  group: ${{ github.ref_type == 'tag' && 'docker-publish-release' || format('docker-publish-{0}', github.ref) }}
+  cancel-in-progress: false
+
 env:
   REGISTRY: ghcr.io
   API_IMAGE: ghcr.io/wrzonance/wrzdj-api
   WEB_IMAGE: ghcr.io/wrzonance/wrzdj-web
 
 jobs:
+  # Release tags must be well-formed and point at a commit on main. Skipped on
+  # main pushes; on tag pushes every other job waits for it, so a stray tag on a
+  # feature branch never gets images and never moves `stable`.
+  validate-release-tag:
+    name: Validate release tag
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Require a vYYYY.MM.DD[.N] tag whose commit is on main
+        env:
+          TAG: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          chmod +x .github/scripts/winget/validate-tag.sh
+          .github/scripts/winget/validate-tag.sh "$TAG"
+          git merge-base --is-ancestor "$SHA" origin/main \
+            || { echo "::error::$TAG ($SHA) is not on main; refusing to publish"; exit 1; }
+
   publish-api:
     name: Publish API image
+    needs: [validate-release-tag]
+    if: always() && (needs.validate-release-tag.result == 'success' || needs.validate-release-tag.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -57,7 +90,10 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-,format=short
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=stable,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+          # latest=auto would also stamp `latest` on tag pushes, so re-publishing an
+          # old release could move it; only the explicit main-only entry above may.
+          flavor: |
+            latest=false
 
       - name: Build and push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -72,6 +108,8 @@ jobs:
 
   publish-web:
     name: Publish Web image
+    needs: [validate-release-tag]
+    if: always() && (needs.validate-release-tag.result == 'success' || needs.validate-release-tag.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -105,7 +143,10 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-,format=short
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=stable,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+          # latest=auto would also stamp `latest` on tag pushes, so re-publishing an
+          # old release could move it; only the explicit main-only entry above may.
+          flavor: |
+            latest=false
 
       - name: Build and push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -119,3 +160,31 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # `stable` moves only here, after both images for the release exist, by
+  # retagging the pushed manifests (digest-preserving, keeps the multi-arch
+  # index). If either publisher failed, `stable` stays on the previous release
+  # instead of pointing api and web at different versions. promote-stable.yml
+  # runs the same retag on demand to seed or roll `stable` back.
+  promote-stable:
+    name: Promote release to stable
+    needs: [validate-release-tag, publish-api, publish-web]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Retag ${{ github.ref_name }} as stable
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          for image in "$API_IMAGE" "$WEB_IMAGE"; do
+            docker buildx imagetools create -t "$image:stable" "$image:$TAG"
+          done

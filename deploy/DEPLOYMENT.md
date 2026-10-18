@@ -45,7 +45,10 @@ docker compose -f deploy/docker-compose.ghcr.yml ps  # all "Up (healthy)"
 ```
 
 Images are published automatically on every push to `main` and on every `v*` tag.
-`stable` and `vYYYY.MM.DD` move only on a release tag; `latest` / `main` follow HEAD of main:
+`vYYYY.MM.DD` is built on a release tag and `stable` is promoted to it once both the
+api and web images exist, so `stable` is always a matching pair; `latest` / `main`
+follow HEAD of main. To seed `stable` for the first time or roll it back to an
+earlier release, run the *Promote Stable* workflow from the Actions tab with the tag:
 - [ghcr.io/wrzonance/wrzdj-api](https://github.com/wrzonance/WrzDJ/pkgs/container/wrzdj-api)
 - [ghcr.io/wrzonance/wrzdj-web](https://github.com/wrzonance/WrzDJ/pkgs/container/wrzdj-web)
 

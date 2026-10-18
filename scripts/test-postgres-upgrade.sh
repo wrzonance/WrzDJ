@@ -110,9 +110,13 @@ done
 echo 'Compose volume names and mount targets are correct.'
 
 # Both deploy scripts must run the volume check/upgrade before their first Compose command
-# (pull/down), or an incompatible volume would be discovered after teardown.
+# that touches the stack (down/up/stop), or an incompatible volume would be discovered
+# after teardown. `docker compose pull` is exempt: it only fetches images, and running it
+# first means a missing version fails while the old stack still serves and before the
+# upgrade has stopped anything.
 for script in "$root/deploy/deploy.sh" "$root/deploy/deploy-ghcr.sh"; do
-  first=$(grep -v '^[[:space:]]*#' "$script" | grep -m1 -E 'upgrade-postgres-volume\.sh|docker compose')
+  first=$(grep -v '^[[:space:]]*#' "$script" | grep -vE 'docker compose .* pull( |$)' |
+    grep -m1 -E 'upgrade-postgres-volume\.sh|docker compose')
   grep -q 'upgrade-postgres-volume\.sh' <<<"$first" ||
     fail "$script touches the stack before the volume upgrade: $first"
 done

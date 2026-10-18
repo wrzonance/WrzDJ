@@ -188,3 +188,47 @@ jobs:
           for image in "$API_IMAGE" "$WEB_IMAGE"; do
             docker buildx imagetools create -t "$image:stable" "$image:$TAG"
           done
+
+  # Every release deploys itself once its images exist and `stable` has moved:
+  # SSH to the production host with a key locked (authorized_keys `command=`) to
+  # the installed copy of deploy/ci-deploy.sh. The host gets the tag and the
+  # commit it was built from, re-checks both, and pulls the `sha-<commit>`
+  # images, so what runs is exactly what this workflow built. One-time host and
+  # secret setup: deploy/DEPLOYMENT.md -> "Automated production deploy".
+  deploy-production:
+    name: Deploy release to production
+    needs: [validate-release-tag, publish-api, publish-web, promote-stable]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: https://app.wrzdj.com
+    steps:
+      - name: Install the deploy key
+        env:
+          SSH_KEY: ${{ secrets.PROD_DEPLOY_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.PROD_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+
+      - name: Deploy the tag on the host
+        env:
+          TAG: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          SSH_HOST: ${{ secrets.PROD_DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.PROD_DEPLOY_USER }}
+        run: |
+          # The remote side reads this "command" only as "<tag> <commit>": the
+          # key's forced command is wrzdj-ci-deploy, which validates both.
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes -o BatchMode=yes \
+            -o ConnectTimeout=20 "$SSH_USER@$SSH_HOST" "$TAG $SHA"
+
+      - name: Verify the public API is healthy
+        env:
+          API_URL: ${{ vars.PROD_API_URL }}
+        run: |
+          curl -sSf --retry 6 --retry-delay 5 --retry-all-errors "$API_URL/health"

@@ -309,6 +309,105 @@ sudo systemctl restart wrzdj   # Restart all containers
 sudo systemctl status wrzdj    # Check status
 ```
 
+## Automated production deploy
+
+Pushing a release tag deploys it. `docker-publish.yml` first checks that the tag is
+well-formed and that its commit is on `main` (otherwise nothing is built), builds
+the `vYYYY.MM.DD` and `sha-<commit>` images, promotes `stable` once both exist, and
+then its `deploy-production` job SSHes to the host with `<tag> <commit sha>`. On
+the host, `wrzdj-ci-deploy` (the installed copy of `deploy/ci-deploy.sh`) takes a
+host-wide lock, re-verifies that the tag still points at that commit and that the
+commit is on `origin/main`, refuses a commit older than the last successful deploy
+unless told to roll back, checks the repo out at it, runs `deploy-ghcr.sh
+sha-<commit>` (so the containers run exactly what the workflow built), regenerates
+nginx only if `deploy/nginx/` changed since the last *successful* deploy, records
+the commit in `deploy/.ci-last-deployed`, and prunes dangling images. The job then
+polls the public `/health` endpoint. Each run appears under the repo's
+**production** environment.
+
+Release flow: merge to green `main`, then `git tag v$(date +%Y.%m.%d) && git push
+origin --tags`. Same-day re-release: `v2026.10.18.2`.
+
+**Rollback**, on the host (the automated path never deploys backwards):
+
+```bash
+WRZDJ_ALLOW_ROLLBACK=1 wrzdj-ci-deploy v2026.10.05
+```
+
+To move `stable` back for self-hosters as well, run the *Promote Stable* workflow
+with the older tag.
+
+### One-time setup
+
+1. **Install the entrypoint outside the checkout.** It is deploy policy, so a
+   deploy must not be able to replace it; an older release checked out by
+   `git checkout` would otherwise overwrite or delete it. Re-run this whenever
+   `deploy/ci-deploy.sh` changes.
+
+   ```bash
+   install -m 0755 deploy/ci-deploy.sh /usr/local/bin/wrzdj-ci-deploy
+   ```
+
+2. **Create a key used for nothing else**, on your workstation:
+
+   ```bash
+   ssh-keygen -t ed25519 -N '' -C wrzdj-ci-deploy -f ./wrzdj-ci-deploy
+   ```
+
+3. **Lock the key to the entrypoint**, on the host. `restrict` turns off port
+   forwarding, agent forwarding, X11 and PTY allocation; `command=` means the key
+   can run nothing else, and sshd hands the client's requested command (the tag
+   and commit) to the script as `SSH_ORIGINAL_COMMAND`:
+
+   ```bash
+   echo 'restrict,command="WRZDJ_REPO_DIR=/root/WrzDJ /usr/local/bin/wrzdj-ci-deploy" '"$(cat wrzdj-ci-deploy.pub)" \
+     >> ~/.ssh/authorized_keys
+   ```
+
+4. **Test the lock before storing the key anywhere**, from your workstation:
+
+   ```bash
+   ssh -i wrzdj-ci-deploy -o IdentitiesOnly=yes root@203.0.113.10 bogus
+   # expect: refusing to deploy 'bogus'
+   ```
+
+5. **Protect the trigger.** Only repository admins may create, move or delete
+   `v*` tags, and the `production` environment accepts deployments only from
+   `v*` tags. Both are enforced by GitHub, outside the workflow file, so a
+   modified workflow on an unreviewed commit cannot reach the environment's
+   secrets:
+
+   ```bash
+   gh api -X POST repos/OWNER/REPO/rulesets --input - <<'JSON'
+   {"name":"Release tags: admins only","target":"tag","enforcement":"active",
+    "bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"always"}],
+    "conditions":{"ref_name":{"include":["refs/tags/v*"],"exclude":[]}},
+    "rules":[{"type":"creation"},{"type":"update"},{"type":"deletion"},{"type":"non_fast_forward"}]}
+   JSON
+   gh api -X PUT repos/OWNER/REPO/environments/production \
+     -F 'deployment_branch_policy[protected_branches]=false' \
+     -F 'deployment_branch_policy[custom_branch_policies]=true'
+   gh api -X POST repos/OWNER/REPO/environments/production/deployment-branch-policies \
+     -f name='v*' -f type=tag
+   ```
+
+   To also require a manual approval click before each deploy, add yourself as a
+   required reviewer on the environment in the repo settings.
+
+6. **Store the connection details** on the environment (scoped to it):
+
+   ```bash
+   gh secret set PROD_DEPLOY_SSH_KEY     --env production < wrzdj-ci-deploy
+   gh secret set PROD_DEPLOY_HOST        --env production --body "203.0.113.10"
+   gh secret set PROD_DEPLOY_USER        --env production --body "root"
+   gh secret set PROD_DEPLOY_KNOWN_HOSTS --env production --body "$(ssh-keyscan -t ed25519 203.0.113.10 2>/dev/null)"
+   gh variable set PROD_API_URL          --env production --body "https://api.yourdomain.com"
+   shred -u wrzdj-ci-deploy
+   ```
+
+   Compare the `ssh-keyscan` output with the host key you already trust in
+   `~/.ssh/known_hosts` before storing it.
+
 ## Maintenance
 
 ### View logs

@@ -33,7 +33,7 @@ services:
     # Not exposed externally - only accessible from other containers
 
   api:
-    image: ghcr.io/wrzonance/wrzdj-api:${WRZDJ_VERSION:-latest}
+    image: ghcr.io/wrzonance/wrzdj-api:${WRZDJ_VERSION:-stable}
     volumes:
       - api_uploads:/app/uploads
       - ./logs/api:/app/logs
@@ -89,7 +89,7 @@ services:
       retries: 3
 
   web:
-    image: ghcr.io/wrzonance/wrzdj-web:${WRZDJ_VERSION:-latest}
+    image: ghcr.io/wrzonance/wrzdj-web:${WRZDJ_VERSION:-stable}
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?NEXT_PUBLIC_API_URL is required (e.g. https://api.yourdomain.com)}
     ports:

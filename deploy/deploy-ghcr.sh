@@ -4,13 +4,14 @@ set -euo pipefail
 # WrzDJ GHCR Deploy Script
 # Usage: ./deploy/deploy-ghcr.sh [VERSION]
 #
-# VERSION can be: latest, v2026.05.16, sha-a3f8c2b (default: latest)
+# VERSION can be: stable (newest release), latest (HEAD of main), v2026.05.16,
+# sha-a3f8c2b (default: stable)
 # Pulls pre-built images from GHCR and starts the stack.
 # For build-from-source deploys, use deploy/deploy.sh instead.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.ghcr.yml"
-VERSION="${1:-latest}"
+VERSION="${1:-stable}"
 
 # Load env file if present
 if [ -f "$SCRIPT_DIR/.env" ]; then

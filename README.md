@@ -325,11 +325,11 @@ Self-hosters can run pre-built multi-arch images from GitHub Container Registry 
 - `ghcr.io/wrzonance/wrzdj-api` — FastAPI backend
 - `ghcr.io/wrzonance/wrzdj-web` — Next.js frontend (the API URL is patched in at container start, so one image works for any domain)
 
-Tags: `latest` (main), `vX.Y.Z` / `X.Y` (release tags), `sha-<short>` (every commit).
+Tags: `stable` (newest release, the default), `vYYYY.MM.DD` (a pinned release), `latest` / `main` (HEAD of main, unreleased), `sha-<short>` (every commit).
 
 ```bash
 cd /opt && git clone https://github.com/thewrz/WrzDJ.git && cd WrzDJ
-cp deploy/.env.example deploy/.env   # set WRZDJ_VERSION (default: latest) and secrets
+cp deploy/.env.example deploy/.env   # set WRZDJ_VERSION (default: stable) and secrets
 ./deploy/deploy-ghcr.sh              # pulls images, restarts the stack, polls /health
 ```
 

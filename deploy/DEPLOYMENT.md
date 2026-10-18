@@ -32,8 +32,9 @@ cp deploy/.env.example deploy/.env
 #   SPOTIFY_*, TIDAL_*, BEATPORT_*, TURNSTILE_*, RESEND_*, BRIDGE_API_KEY
 
 # 3. Deploy
-./deploy/deploy-ghcr.sh              # pulls latest, restarts stack, waits for /health
+./deploy/deploy-ghcr.sh              # pulls stable (newest release), restarts stack, waits for /health
 ./deploy/deploy-ghcr.sh v2026.05.16  # or pin a specific release
+./deploy/deploy-ghcr.sh latest       # or run HEAD of main (unreleased)
 ```
 
 ### Verify the deploy
@@ -43,7 +44,8 @@ curl -sf http://127.0.0.1:8000/health   # expect: {"status":"ok"}
 docker compose -f deploy/docker-compose.ghcr.yml ps  # all "Up (healthy)"
 ```
 
-Images are published automatically on every push to `main` and on every `v*` tag:
+Images are published automatically on every push to `main` and on every `v*` tag.
+`stable` and `vYYYY.MM.DD` move only on a release tag; `latest` / `main` follow HEAD of main:
 - [ghcr.io/wrzonance/wrzdj-api](https://github.com/wrzonance/WrzDJ/pkgs/container/wrzdj-api)
 - [ghcr.io/wrzonance/wrzdj-web](https://github.com/wrzonance/WrzDJ/pkgs/container/wrzdj-web)
 

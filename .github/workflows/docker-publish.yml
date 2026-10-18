@@ -3,6 +3,10 @@ name: Docker Publish
 # PR-time image validation lives in ci.yml's "Docker Build Smoke Test" (amd64,
 # no push). This workflow only runs on main/tag pushes, where it does the full
 # multi-arch build+push to GHCR — keeping the slow arm64-under-QEMU build off PRs.
+#
+# Image tags: `latest` and `main` follow HEAD of main (unreleased trunk);
+# `stable` and `vYYYY.MM.DD` are only moved by a release tag push, so a deployer
+# on `stable` always runs the newest release.
 on:
   push:
     branches: [main]
@@ -53,6 +57,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-,format=short
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=stable,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
 
       - name: Build and push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -100,6 +105,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-,format=short
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=stable,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
 
       - name: Build and push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0

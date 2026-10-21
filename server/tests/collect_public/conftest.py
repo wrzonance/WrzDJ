@@ -4,6 +4,7 @@ import pytest
 
 from app.core.time import utcnow
 from app.models.guest import Guest
+from tests.collect_public.helpers import _human_cookie_for
 
 
 @pytest.fixture(autouse=True)
@@ -20,10 +21,7 @@ def _default_guest_cookie(client, db):
     """
     import hashlib
 
-    from fastapi import Response
-
     from app.services.human_verification import COOKIE_NAME as HUMAN_COOKIE_NAME
-    from app.services.human_verification import issue_human_cookie
 
     email = "default-test@example.com"
     guest = Guest(
@@ -40,10 +38,7 @@ def _default_guest_cookie(client, db):
     db.refresh(guest)
 
     # Mint a valid wrzdj_human cookie tied to this guest_id.
-    helper_resp = Response()
-    issue_human_cookie(helper_resp, guest.id)
-    raw = helper_resp.headers.get("set-cookie", "")
-    human_value = raw.split("=", 1)[1].split(";", 1)[0] if "=" in raw else ""
+    human_value = _human_cookie_for(guest.id)
 
     client.cookies.clear()
     client.cookies.set("wrzdj_guest", guest.token)

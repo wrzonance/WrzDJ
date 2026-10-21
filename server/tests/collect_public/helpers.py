@@ -38,3 +38,15 @@ def _make_collection_requests(db, event: Event, count: int) -> None:
             )
         )
     db.commit()
+
+
+def _human_cookie_for(guest_id: int) -> str:
+    """Mint a wrzdj_human cookie value for the given guest_id."""
+    from fastapi import Response
+
+    from app.services.human_verification import issue_human_cookie
+
+    resp = Response()
+    issue_human_cookie(resp, guest_id)
+    raw = resp.headers.get("set-cookie", "")
+    return raw.split("=", 1)[1].split(";", 1)[0] if "=" in raw else ""

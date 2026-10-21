@@ -232,6 +232,24 @@ def get_profile(
     )
 
 
+def ensure_nickname_available(db: Session, *, event_id: int, guest_id: int, nickname: str) -> None:
+    """Raise NicknameConflictError when another guest in the event holds the
+    nickname (case-insensitive). claimed=True when that owner is email-verified."""
+    existing = (
+        db.query(GuestProfile)
+        .filter(
+            GuestProfile.event_id == event_id,
+            GuestProfile.guest_id != guest_id,
+            func.lower(GuestProfile.nickname) == nickname.lower(),
+        )
+        .first()
+    )
+    if existing:
+        owner = db.get(Guest, existing.guest_id)
+        claimed = owner is not None and owner.email_verified_at is not None
+        raise NicknameConflictError(claimed=claimed)
+
+
 def upsert_profile(
     db: Session,
     *,
@@ -249,19 +267,7 @@ def upsert_profile(
         return None
 
     if nickname is not None:
-        existing = (
-            db.query(GuestProfile)
-            .filter(
-                GuestProfile.event_id == event_id,
-                GuestProfile.guest_id != guest_id,
-                func.lower(GuestProfile.nickname) == nickname.lower(),
-            )
-            .first()
-        )
-        if existing:
-            owner = db.get(Guest, existing.guest_id)
-            claimed = owner is not None and owner.email_verified_at is not None
-            raise NicknameConflictError(claimed=claimed)
+        ensure_nickname_available(db, event_id=event_id, guest_id=guest_id, nickname=nickname)
 
     profile = get_profile(db, event_id=event_id, guest_id=guest_id)
     if profile is None:

@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.core import config as core_config
 from app.core.config import get_settings
 from app.core.rate_limit import get_client_ip, get_guest_id, is_inert_dev_token, limiter
 from app.schemas.guest import IdentifyRequest, IdentifyResponse
@@ -113,7 +114,13 @@ def verify_status(
     response.headers["Cache-Control"] = "no-store, private"
 
     remaining = get_human_cookie_remaining_ttl(request)
-    if remaining is None or verify_human_cookie(request) != get_guest_id(request, db):
+    if remaining is None:
+        return VerifyStatusResponse(verified=False, expires_in=0)
+
+    # DEV-ONLY: the gates accept any caller under the bypass, and resolving the
+    # guest here would create the dev guest row — a write this probe must not make.
+    bypass = core_config.get_settings().auth_bypass_enabled
+    if not bypass and verify_human_cookie(request) != get_guest_id(request, db):
         return VerifyStatusResponse(verified=False, expires_in=0)
 
     return VerifyStatusResponse(verified=True, expires_in=remaining)

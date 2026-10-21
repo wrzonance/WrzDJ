@@ -1,6 +1,7 @@
 @import "./styles/theme-base.css";
 @import "./styles/guest-join.css";
 @import "./styles/admin-event.css";
+@import "./styles/admin-guests.css";
 @import "./styles/help-density.css";
 @import "./styles/collect-voting.css";
 @import "./styles/guest-tower.css";

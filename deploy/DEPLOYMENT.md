@@ -536,11 +536,15 @@ The testing database starts empty; the bootstrap admin comes from the
    # expect: refusing to deploy 'bogus'
    ```
 
-5. **GitHub: branch, ruleset, environment, secrets.** The environment admits
+5. **GitHub: branch, rulesets, environment, secrets.** The environment admits
    deployments only from the `testing` branch, so a workflow edited on any other
-   branch cannot reach its secrets. The ruleset requires a PR and the same
-   checks as `main`, forbids deletion and non-fast-forward pushes, and lets
-   repository admins bypass it for the resync above.
+   branch cannot reach its secrets. The first ruleset requires a PR and the same
+   checks as `main` and forbids non-fast-forward pushes, with repository admins
+   able to bypass it for the resync above. The second ruleset forbids deleting
+   the branch and has **no bypass list at all**: `testing` is permanent, and
+   merging a `testing` -> `main` PR must never remove it even with the
+   repository's delete-branch-on-merge setting on. To delete it on purpose,
+   edit that ruleset first.
 
    ```bash
    git push origin origin/main:refs/heads/testing          # create the branch from main
@@ -550,10 +554,16 @@ The testing database starts empty; the bootstrap admin comes from the
    gh api -X POST repos/OWNER/REPO/environments/testing/deployment-branch-policies \
      -f name=testing -f type=branch
    gh api -X POST repos/OWNER/REPO/rulesets --input - <<'JSON'
+   {"name":"Testing branch: never delete","target":"branch","enforcement":"active",
+    "bypass_actors":[],
+    "conditions":{"ref_name":{"include":["refs/heads/testing"],"exclude":[]}},
+    "rules":[{"type":"deletion"}]}
+   JSON
+   gh api -X POST repos/OWNER/REPO/rulesets --input - <<'JSON'
    {"name":"Testing branch: PR only","target":"branch","enforcement":"active",
     "bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"always"}],
     "conditions":{"ref_name":{"include":["refs/heads/testing"],"exclude":[]}},
-    "rules":[{"type":"deletion"},{"type":"non_fast_forward"},
+    "rules":[{"type":"non_fast_forward"},
              {"type":"pull_request","parameters":{"required_approving_review_count":0,
               "dismiss_stale_reviews_on_push":false,"require_code_owner_review":false,
               "require_last_push_approval":false,"required_review_thread_resolution":false}},

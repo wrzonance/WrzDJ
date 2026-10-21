@@ -55,6 +55,11 @@ class TestEffectiveHumanCookieSecret:
         with pytest.raises(Exception):  # noqa: B017,PT011
             _ = s.effective_human_cookie_secret
 
+    def test_short_secret_raises(self) -> None:
+        s = _make_settings(human_cookie_secret="AA")
+        with pytest.raises(ValueError, match="at least 32 bytes"):
+            _ = s.effective_human_cookie_secret
+
     def test_stray_characters_in_secret_raise(self) -> None:
         # #856: a lenient decoder drops the "!!!!" and yields a plausible 32-byte key.
         s = _make_settings(human_cookie_secret="A" * 40 + "!!!!" + "A" * 3)
@@ -116,6 +121,43 @@ class TestFernetKeyListError:
         err = _fernet_key_list_error(keys, "TOKEN_ENCRYPTION_KEYS")
         assert err is not None
         assert "TOKEN_ENCRYPTION_KEYS entry 2" in err
+
+
+class TestValidateSettingsHumanCookieSecret:
+    """validate_settings() must refuse to boot production with a HUMAN_COOKIE_SECRET
+    the runtime cannot use as an HMAC key, rather than failing on the first
+    verify-human request (#856)."""
+
+    def _prod_settings(self, human_cookie_secret: str) -> Settings:
+        return _make_settings(
+            env="production",
+            jwt_secret="prod-secret-not-default",
+            cors_origins="https://app.example.com",
+            human_cookie_secret=human_cookie_secret,
+            token_encryption_key=Fernet.generate_key().decode(),
+        )
+
+    @pytest.mark.parametrize(
+        "secret",
+        ["A" * 40 + "!!!!" + "A" * 3, "AA", base64.b64encode(b"x" * 31).decode()],
+        ids=["stray-characters", "one-byte", "31-bytes"],
+    )
+    def test_unusable_secret_exits(self, caplog, secret: str) -> None:
+        with pytest.raises(SystemExit) as excinfo:
+            validate_settings(self._prod_settings(secret))
+        assert excinfo.value.code == 1
+        assert "HUMAN_COOKIE_SECRET is invalid" in caplog.text
+
+    @pytest.mark.parametrize(
+        "secret",
+        [
+            base64.b64encode(b"\xfb\xff" * 16).decode(),  # openssl rand -base64 32 (+/)
+            secrets.token_urlsafe(32),  # unpadded URL-safe
+        ],
+        ids=["standard-alphabet", "urlsafe-unpadded"],
+    )
+    def test_documented_secret_forms_pass(self, secret: str) -> None:
+        validate_settings(self._prod_settings(secret))
 
 
 class TestValidateSettingsFernetShape:

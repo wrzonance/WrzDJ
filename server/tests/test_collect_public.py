@@ -17,6 +17,18 @@ def _enable_collection(db, event: Event):
     db.refresh(event)
 
 
+def _human_cookie_for(guest_id: int) -> str:
+    """Mint a wrzdj_human cookie value for the given guest_id."""
+    from fastapi import Response
+
+    from app.services.human_verification import issue_human_cookie
+
+    resp = Response()
+    issue_human_cookie(resp, guest_id)
+    raw = resp.headers.get("set-cookie", "")
+    return raw.split("=", 1)[1].split(";", 1)[0] if "=" in raw else ""
+
+
 @pytest.fixture(autouse=True)
 def _default_guest_cookie(client, db):
     """Most collect endpoints require a wrzdj_guest cookie (identity is guest_id only).
@@ -31,10 +43,7 @@ def _default_guest_cookie(client, db):
     """
     import hashlib
 
-    from fastapi import Response
-
     from app.services.human_verification import COOKIE_NAME as HUMAN_COOKIE_NAME
-    from app.services.human_verification import issue_human_cookie
 
     email = "default-test@example.com"
     guest = Guest(
@@ -51,10 +60,7 @@ def _default_guest_cookie(client, db):
     db.refresh(guest)
 
     # Mint a valid wrzdj_human cookie tied to this guest_id.
-    helper_resp = Response()
-    issue_human_cookie(helper_resp, guest.id)
-    raw = helper_resp.headers.get("set-cookie", "")
-    human_value = raw.split("=", 1)[1].split(";", 1)[0] if "=" in raw else ""
+    human_value = _human_cookie_for(guest.id)
 
     client.cookies.clear()
     client.cookies.set("wrzdj_guest", guest.token)
@@ -716,15 +722,7 @@ class TestNicknameUniqueness:
         return g
 
     def _human_cookie_for(self, guest_id: int) -> str:
-        """Mint a wrzdj_human cookie value for the given guest_id."""
-        from fastapi import Response
-
-        from app.services.human_verification import issue_human_cookie
-
-        resp = Response()
-        issue_human_cookie(resp, guest_id)
-        raw = resp.headers.get("set-cookie", "")
-        return raw.split("=", 1)[1].split(";", 1)[0] if "=" in raw else ""
+        return _human_cookie_for(guest_id)
 
     def test_available_nickname_succeeds(self, client, db, test_event):
         r = client.post(
@@ -841,6 +839,60 @@ class TestNicknameUniqueness:
             json={},
         )
         assert r.status_code == 200
+
+
+class TestProfileRejectsNameBeforeEmailGate:
+    """Regression for #853: a name the server will refuse is rejected before the
+    email gate, so a guest without a verified email is never sent through the
+    email-code step only to have the name refused afterwards."""
+
+    def _unverified_cookies(self, db) -> dict[str, str]:
+        guest = Guest(
+            token="unverified" + "0" * 54,
+            fingerprint_hash="fp_unverified",
+            created_at=utcnow(),
+            last_seen_at=utcnow(),
+        )
+        db.add(guest)
+        db.commit()
+        db.refresh(guest)
+        return {"wrzdj_guest": guest.token, "wrzdj_human": _human_cookie_for(guest.id)}
+
+    def test_profane_name_rejected_before_email_gate(self, client, db, test_event):
+        r = client.post(
+            f"/api/public/collect/{test_event.code}/profile",
+            json={"nickname": "FuckYou"},
+            cookies=self._unverified_cookies(db),
+        )
+        assert r.status_code == 422
+        assert "Please choose a different name" in r.text
+
+    def test_malformed_name_rejected_before_email_gate(self, client, db, test_event):
+        r = client.post(
+            f"/api/public/collect/{test_event.code}/profile",
+            json={"nickname": "<script>"},
+            cookies=self._unverified_cookies(db),
+        )
+        assert r.status_code == 422
+
+    def test_taken_name_rejected_before_email_gate(self, client, db, test_event):
+        client.post(f"/api/public/collect/{test_event.code}/profile", json={"nickname": "Alex"})
+        r = client.post(
+            f"/api/public/collect/{test_event.code}/profile",
+            json={"nickname": "alex"},
+            cookies=self._unverified_cookies(db),
+        )
+        assert r.status_code == 409
+        assert r.json()["detail"] == {"code": "nickname_taken", "claimed": True}
+
+    def test_acceptable_name_still_requires_verified_email(self, client, db, test_event):
+        r = client.post(
+            f"/api/public/collect/{test_event.code}/profile",
+            json={"nickname": "DancingQueen"},
+            cookies=self._unverified_cookies(db),
+        )
+        assert r.status_code == 403
+        assert r.json()["detail"] == {"code": "email_verification_required"}
 
 
 def test_leaderboard_row_includes_enrichment_fields(client, db, test_event: Event):

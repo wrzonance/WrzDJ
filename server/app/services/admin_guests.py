@@ -8,15 +8,98 @@ from collections import defaultdict
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 
+from app.models.email_verification_code import EmailVerificationCode
 from app.models.event import Event
 from app.models.guest import Guest
 from app.models.guest_profile import GuestProfile
 from app.models.request import Request
+from app.models.request_vote import RequestVote
 from app.schemas.admin_guest import GuestFilter
 from app.services.guest_identity import browser_label
 
 FINGERPRINT_SHORT_LEN = 12
 _LIKE_ESCAPE = "\\"
+
+
+class ProfileNotFound(Exception):
+    """The guest has no membership on that event."""
+
+
+class NicknameTaken(Exception):
+    """Another guest already uses that nickname (case-insensitively) in the event."""
+
+
+def get_guest_by_id(db: Session, guest_id: int) -> Guest | None:
+    return db.query(Guest).filter(Guest.id == guest_id).first()
+
+
+def revoke_guest_email(db: Session, guest: Guest) -> Guest:
+    """Forget the verified email: plaintext, lookup hash, and verification time."""
+    guest.verified_email = None
+    guest.email_hash = None
+    guest.email_verified_at = None
+    db.commit()
+    db.refresh(guest)
+    return guest
+
+
+def update_guest_profile_nickname(
+    db: Session, guest: Guest, event_id: int, nickname: str | None
+) -> GuestProfile:
+    """Set or clear the guest's nickname on one event.
+
+    The case-insensitive per-event uniqueness index is Postgres-only, so the
+    conflict is checked here before writing (the test DB is SQLite).
+    """
+    profile = (
+        db.query(GuestProfile)
+        .filter(GuestProfile.guest_id == guest.id, GuestProfile.event_id == event_id)
+        .first()
+    )
+    if profile is None:
+        raise ProfileNotFound
+    cleaned = (nickname or "").strip() or None
+    if cleaned is not None and _nickname_taken(db, profile, cleaned):
+        raise NicknameTaken
+    profile.nickname = cleaned
+    db.commit()
+    db.refresh(profile)
+    return profile
+
+
+def _nickname_taken(db: Session, profile: GuestProfile, nickname: str) -> bool:
+    return (
+        db.query(GuestProfile.id)
+        .filter(
+            GuestProfile.event_id == profile.event_id,
+            GuestProfile.id != profile.id,
+            func.lower(GuestProfile.nickname) == nickname.lower(),
+        )
+        .first()
+        is not None
+    )
+
+
+def delete_guest_admin(db: Session, guest: Guest) -> None:
+    """Delete the identity; requests and votes stay, anonymised, in one transaction.
+
+    `guest_id` is nulled explicitly rather than left to the FK's ON DELETE SET
+    NULL so the outcome does not depend on the database enforcing it.
+    """
+    db.query(Request).filter(Request.guest_id == guest.id).update(
+        {"guest_id": None, "nickname": None}, synchronize_session=False
+    )
+    db.query(RequestVote).filter(RequestVote.guest_id == guest.id).update(
+        {"guest_id": None}, synchronize_session=False
+    )
+    db.query(GuestProfile).filter(GuestProfile.guest_id == guest.id).delete(
+        synchronize_session=False
+    )
+    db.query(EmailVerificationCode).filter(EmailVerificationCode.guest_id == guest.id).delete(
+        synchronize_session=False
+    )
+    db.delete(guest)
+    db.commit()
 
 
 def mask_email(email: str) -> str:

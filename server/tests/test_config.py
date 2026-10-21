@@ -147,6 +147,7 @@ class TestValidateSettingsHumanCookieSecret:
             validate_settings(self._prod_settings(secret))
         assert excinfo.value.code == 1
         assert "HUMAN_COOKIE_SECRET is invalid" in caplog.text
+        assert secret not in caplog.text
 
     @pytest.mark.parametrize(
         "secret",

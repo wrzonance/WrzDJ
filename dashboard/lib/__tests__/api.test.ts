@@ -2969,6 +2969,51 @@ describe('ApiClient', () => {
     });
   });
 
+  // Port of #852 (#851): FastAPI returns request-validation failures (422) as a
+  // list of Pydantic items, which used to collapse to "Request failed".
+  describe('422 validation messages', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    const reject422 = (detail: unknown) =>
+      vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify({ detail }), {
+          status: 422,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+
+    it('surfaces a custom validator message without its "Value error, " prefix', async () => {
+      reject422([
+        {
+          type: 'value_error',
+          loc: ['body', 'nickname'],
+          msg: 'Value error, Please choose a different name',
+          input: 'Rude',
+        },
+      ]);
+      await expect(
+        api.setCollectProfile('EVT01', { nickname: 'Rude' }, vi.fn()),
+      ).rejects.toMatchObject({ status: 422, message: 'Please choose a different name' });
+    });
+
+    it('names the field for a built-in Pydantic message', async () => {
+      reject422([
+        { type: 'string_too_short', loc: ['body', 'nickname'], msg: 'String should have at least 2 characters' },
+        { type: 'missing', loc: ['body', 'email'], msg: 'Field required' },
+      ]);
+      await expect(
+        api.setCollectProfile('EVT01', { nickname: 'x' }, vi.fn()),
+      ).rejects.toMatchObject({ message: 'nickname: String should have at least 2 characters' });
+    });
+
+    it('falls back when the list carries no usable message', async () => {
+      reject422([{ loc: ['body'] }]);
+      await expect(
+        api.setCollectProfile('EVT01', { nickname: 'x' }, vi.fn()),
+      ).rejects.toMatchObject({ message: 'Request failed' });
+    });
+  });
+
   describe('streamConnectorTest', () => {
     it('parses SSE data frames and invokes onChunk per frame', async () => {
       const sse =

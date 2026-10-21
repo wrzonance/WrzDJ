@@ -347,19 +347,37 @@ export class ApiError extends Error {
   }
 }
 
+// FastAPI reports request-validation failures (422) as a list of Pydantic
+// items. Pydantic prefixes custom validator messages with "Value error, ";
+// those are written for people and stand on their own, while its built-in
+// messages ("String should have at least 2 characters") read better with the
+// field name in front. Only the first item is shown: the forms are per-field.
+function validationMessage(items: unknown[]): string | null {
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue;
+    const { msg, loc } = item as { msg?: unknown; loc?: unknown };
+    if (typeof msg !== 'string' || !msg) continue;
+    const valueError = msg.match(/^Value error, (.+)$/);
+    if (valueError) return valueError[1];
+    const field = Array.isArray(loc) && loc[0] === 'body' && typeof loc[1] === 'string' ? loc[1] : null;
+    return field ? `${field}: ${msg}` : msg;
+  }
+  return null;
+}
+
 function apiErrorFromBody(body: unknown, status: number): ApiError {
   const errorObject = body && typeof body === 'object'
     ? body as { detail?: unknown }
     : null;
   const detail = errorObject?.detail;
-  const detailObject = detail && typeof detail === 'object'
+  const detailObject = detail && typeof detail === 'object' && !Array.isArray(detail)
     ? detail as { code?: unknown; message?: unknown }
     : null;
   const message = typeof detail === 'string'
     ? detail
     : typeof detailObject?.message === 'string'
       ? detailObject.message
-      : 'Request failed';
+      : (Array.isArray(detail) && validationMessage(detail)) || 'Request failed';
   const code = typeof detailObject?.code === 'string' ? detailObject.code : undefined;
   return new ApiError(message, status, code, detail);
 }

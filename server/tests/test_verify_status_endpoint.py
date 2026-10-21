@@ -53,6 +53,7 @@ class TestVerifyStatusEndpoint:
         cookie_value = raw.split(f"{COOKIE_NAME}=", 1)[1].split(";", 1)[0]
 
         client.cookies.clear()
+        client.cookies.set("wrzdj_guest", guest.token)
         client.cookies.set(COOKIE_NAME, cookie_value)
 
         r = client.get("/api/public/guest/verify-status")
@@ -119,3 +120,65 @@ class TestVerifyStatusEndpoint:
         r = client.get("/api/public/guest/verify-status")
         assert r.status_code == 200
         assert r.json()["verified"] is False
+
+
+def _human_cookie_for(guest_id: int) -> str:
+    from fastapi import Response
+
+    from app.services.human_verification import COOKIE_NAME, issue_human_cookie
+
+    resp = Response()
+    issue_human_cookie(resp, guest_id)
+    raw = resp.headers["set-cookie"]
+    return raw.split(f"{COOKIE_NAME}=", 1)[1].split(";", 1)[0]
+
+
+class TestVerifyStatusGuestBinding:
+    """#874: 'verified' means the cookie is bound to the caller's *current* guest."""
+
+    def test_cookie_bound_to_another_guest_returns_false(self, client: TestClient, db: Session):
+        from app.services.human_verification import COOKIE_NAME
+
+        stale = _make_guest(db, "stale")
+        current = _make_guest(db, "current")
+        client.cookies.clear()
+        client.cookies.set("wrzdj_guest", current.token)
+        client.cookies.set(COOKIE_NAME, _human_cookie_for(stale.id))
+
+        r = client.get("/api/public/guest/verify-status")
+
+        assert r.status_code == 200
+        assert r.json() == {"verified": False, "expires_in": 0}
+
+    def test_cookie_without_guest_cookie_returns_false(self, client: TestClient, db: Session):
+        from app.services.human_verification import COOKIE_NAME
+
+        guest = _make_guest(db, "orphan")
+        client.cookies.clear()
+        client.cookies.set(COOKIE_NAME, _human_cookie_for(guest.id))
+
+        r = client.get("/api/public/guest/verify-status")
+
+        assert r.json() == {"verified": False, "expires_in": 0}
+
+    def test_dev_bypass_skips_guest_binding_and_writes_nothing(
+        self, client: TestClient, db: Session
+    ):
+        """DEV-ONLY: the gates accept everyone under the bypass, so the probe must agree
+        without resolving (and creating) the dev guest row — a write it promises not to make."""
+        from unittest.mock import patch
+
+        from app.core.config import Settings
+        from app.models.guest import Guest
+        from app.services.human_verification import COOKIE_NAME
+
+        guest = _make_guest(db, "bypass")
+        rows_before = db.query(Guest).count()
+        bypass = Settings(env="development", dev_auth_bypass=True)
+        with patch("app.core.config.get_settings", lambda: bypass):
+            client.cookies.clear()
+            client.cookies.set(COOKIE_NAME, _human_cookie_for(guest.id))
+            r = client.get("/api/public/guest/verify-status")
+
+        assert r.json()["verified"] is True
+        assert db.query(Guest).count() == rows_before

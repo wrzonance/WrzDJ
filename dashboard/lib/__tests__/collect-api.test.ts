@@ -112,6 +112,27 @@ describe("collect api client", () => {
     expect(r.nickname).toBe("DJ");
   });
 
+  // Regression (#874): an email merge leaves wrzdj_human bound to a guest that
+  // no longer exists. The profile load is gated like every other collect call,
+  // so it must re-verify and retry once instead of surfacing a dead 403.
+  it("getCollectProfile re-verifies and retries once on 403 human_verification_required", async () => {
+    const profile = { nickname: "DJ", email_verified: true, submission_count: 3, submission_cap: 15 };
+    const stale403 = new Response(
+      JSON.stringify({ detail: { code: "human_verification_required" } }),
+      { status: 403 },
+    );
+    (fetch as unknown as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(stale403)
+      .mockResolvedValueOnce(OK_RESPONSE(profile));
+    const reverify = vi.fn().mockResolvedValue(undefined);
+
+    const r = await apiClient.getCollectProfile("ABC", reverify);
+
+    expect(reverify).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(r.nickname).toBe("DJ");
+  });
+
   // ── checkHasRequested ─────────────────────────────────────────────────────
 
   it("checkHasRequested returns has_requested flag", async () => {

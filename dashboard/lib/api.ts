@@ -2243,11 +2243,19 @@ class ApiClient {
     });
   }
 
-  async getCollectProfile(code: string): Promise<CollectProfileResponse> {
-    const res = await fetch(
-      `${getApiUrl()}/api/public/collect/${code}/profile`,
-      { method: 'GET', headers: { 'Content-Type': 'application/json' }, credentials: 'include' },
-    );
+  async getCollectProfile(
+    code: string,
+    reverify?: () => Promise<void>,
+  ): Promise<CollectProfileResponse> {
+    const doFetch = () =>
+      fetch(
+        `${getApiUrl()}/api/public/collect/${code}/profile`,
+        { method: 'GET', headers: { 'Content-Type': 'application/json' }, credentials: 'include' },
+      );
+    if (reverify) {
+      return withHumanRetry<CollectProfileResponse>(doFetch, reverify);
+    }
+    const res = await doFetch();
     if (!res.ok) {
       throw new ApiError(`getCollectProfile failed: ${res.status}`, res.status);
     }

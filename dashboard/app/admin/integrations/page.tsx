@@ -85,6 +85,7 @@ export default function AdminIntegrationsPage() {
   if (loading) {
     return (
       <div className="container">
+        <PageControls />
         <div className="loading">Loading integrations...</div>
       </div>
     );

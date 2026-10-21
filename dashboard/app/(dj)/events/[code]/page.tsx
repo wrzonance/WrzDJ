@@ -899,6 +899,7 @@ export default function EventQueuePage() {
   if (isLoading || !isAuthenticated) {
     return (
       <div className="container">
+        <PageControls />
         <div className="loading">Loading...</div>
       </div>
     );
@@ -907,6 +908,7 @@ export default function EventQueuePage() {
   if (loading) {
     return (
       <div className="container">
+        <PageControls />
         <div className="loading">Loading event...</div>
       </div>
     );
@@ -915,6 +917,7 @@ export default function EventQueuePage() {
   if (error || !event) {
     return (
       <div className="container">
+        <PageControls />
         <EventErrorCard
           error={error}
           fallbackMessage="Event not found or expired."

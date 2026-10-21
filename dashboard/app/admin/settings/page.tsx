@@ -40,6 +40,7 @@ export default function AdminSettingsPage() {
   if (loading) {
     return (
       <div className="container">
+        <PageControls />
         <div className="loading">Loading settings...</div>
       </div>
     );
@@ -48,6 +49,7 @@ export default function AdminSettingsPage() {
   if (!settings) {
     return (
       <div className="container">
+        <PageControls />
         <div className="card" style={{ color: 'var(--color-danger)' }}>{error || loadError || 'Failed to load'}</div>
       </div>
     );

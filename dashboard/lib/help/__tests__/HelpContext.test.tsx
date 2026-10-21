@@ -330,3 +330,38 @@ describe('seen-pages module', () => {
     expect(isPageSeen('new-page')).toBe(true);
   });
 });
+
+describe('seen-pages browser fallback ownership (#863 review)', () => {
+  beforeEach(() => {
+    localStorageMock.clear();
+    initSeenPages([]);
+  });
+
+  it('purges another account\'s fallback keys when a different user signs in', () => {
+    initSeenPages([], 1);
+    window.localStorage.setItem(`wrzdj-help-seen-${TOURS_SKIPPED}`, '1');
+    window.localStorage.setItem('wrzdj-help-seen-dashboard', '1');
+    initSeenPages([], 1);
+    expect(window.localStorage.getItem(`wrzdj-help-seen-${TOURS_SKIPPED}`)).toBe('1');
+
+    initSeenPages([], 2);
+    expect(window.localStorage.getItem(`wrzdj-help-seen-${TOURS_SKIPPED}`)).toBeNull();
+    expect(window.localStorage.getItem('wrzdj-help-seen-dashboard')).toBeNull();
+
+    const { result } = renderHook(() => useHelp(), { wrapper });
+    expect(result.current.hasSeenPage('dashboard')).toBe(false);
+  });
+
+  it('purges keys left by the pre-ownership scheme on the first claim', () => {
+    window.localStorage.setItem('wrzdj-help-seen-dashboard', '1');
+    initSeenPages([], 3);
+    expect(window.localStorage.getItem('wrzdj-help-seen-dashboard')).toBeNull();
+  });
+
+  it('keeps the fallback for the same account across sign-ins', () => {
+    initSeenPages([], 7);
+    window.localStorage.setItem(`wrzdj-help-seen-${TOURS_SKIPPED}`, '1');
+    initSeenPages([], 7);
+    expect(window.localStorage.getItem(`wrzdj-help-seen-${TOURS_SKIPPED}`)).toBe('1');
+  });
+});

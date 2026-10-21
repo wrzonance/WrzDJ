@@ -14,14 +14,14 @@ vi.mock('@/components/help/HelpButton', () => ({
 describe('PageControls', () => {
   it('renders a single toolbar holding the theme toggle', () => {
     render(<PageControls />);
-    const toolbar = screen.getByRole('toolbar', { name: 'Page controls' });
+    const toolbar = screen.getByRole('group', { name: 'Page controls' });
     expect(toolbar).toContainElement(screen.getByTestId('theme-toggle'));
     expect(screen.queryByTestId('help-button')).not.toBeInTheDocument();
   });
 
   it('adds the help button for the given page, after the theme toggle', () => {
     render(<PageControls helpPage="dashboard" />);
-    const toolbar = screen.getByRole('toolbar', { name: 'Page controls' });
+    const toolbar = screen.getByRole('group', { name: 'Page controls' });
     const help = screen.getByTestId('help-button');
     expect(help).toHaveTextContent('dashboard');
     const order = Array.from(toolbar.querySelectorAll('button')).map((b) => b.dataset.testid);
@@ -34,7 +34,7 @@ describe('PageControls', () => {
         <button data-testid="density">Density</button>
       </PageControls>,
     );
-    const toolbar = screen.getByRole('toolbar', { name: 'Page controls' });
+    const toolbar = screen.getByRole('group', { name: 'Page controls' });
     const order = Array.from(toolbar.querySelectorAll('button')).map((b) => b.dataset.testid);
     expect(order).toEqual(['density', 'theme-toggle', 'help-button']);
   });

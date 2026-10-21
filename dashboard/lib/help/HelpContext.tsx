@@ -3,10 +3,25 @@
 import { createContext, useCallback, useContext, useRef, useState, ReactNode } from 'react';
 import { api } from '@/lib/api';
 import type { HelpSpotConfig, HelpContextValue } from './types';
-import { isPageSeen, markPageSeen } from './seen-pages';
+import { isPageSeen, markPageSeen, seenStorageKey, TOURS_SKIPPED } from './seen-pages';
 import { isHelpDisabled } from './is-help-disabled';
 
 const HelpContext = createContext<HelpContextValue | null>(null);
+
+/** Seen on this account (server-initialised set) or in this browser (fallback). */
+function isSeen(id: string): boolean {
+  if (isPageSeen(id)) return true;
+  if (typeof localStorage === 'undefined') return false;
+  return localStorage.getItem(seenStorageKey(id)) === '1';
+}
+
+function persistSeen(id: string): void {
+  markPageSeen(id);
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(seenStorageKey(id), '1');
+  }
+  api.markHelpPageSeen(id).catch(() => {});
+}
 
 export function HelpProvider({ children }: { children: ReactNode }) {
   const [helpMode, setHelpMode] = useState(false);
@@ -15,6 +30,8 @@ export function HelpProvider({ children }: { children: ReactNode }) {
   const [activeSpotId, setActiveSpotId] = useState<string | null>(null);
   const spotsRef = useRef<Map<string, HelpSpotConfig>>(new Map());
   const onboardingPageRef = useRef<string | null>(null);
+  // Help mode as it was before the tour switched it on, restored when the tour ends.
+  const helpModeBeforeTourRef = useRef(false);
 
   const [isDisabled] = useState(isHelpDisabled);
 
@@ -41,24 +58,22 @@ export function HelpProvider({ children }: { children: ReactNode }) {
     const spots = getSpotsForPage(page);
     if (spots.length === 0) return;
     onboardingPageRef.current = page;
+    setHelpMode((prev) => {
+      helpModeBeforeTourRef.current = prev;
+      return true;
+    });
     setOnboardingActive(true);
     setCurrentStep(0);
     setActiveSpotId(spots[0].id);
-    setHelpMode(true);
   }, [isDisabled, getSpotsForPage]);
 
-  const completeOnboarding = useCallback(() => {
-    const page = onboardingPageRef.current;
+  /** End the tour, recording `seenId` (the page, or the account-wide skip marker). */
+  const endOnboarding = useCallback((seenId: string | null) => {
     setOnboardingActive(false);
     setCurrentStep(0);
     setActiveSpotId(null);
-    if (page) {
-      markPageSeen(page);
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(`wrzdj-help-seen-${page}`, '1');
-      }
-      api.markHelpPageSeen(page).catch(() => {});
-    }
+    setHelpMode(helpModeBeforeTourRef.current);
+    if (seenId) persistSeen(seenId);
     onboardingPageRef.current = null;
   }, []);
 
@@ -68,12 +83,12 @@ export function HelpProvider({ children }: { children: ReactNode }) {
     const spots = getSpotsForPage(page);
     const next = currentStep + 1;
     if (next >= spots.length) {
-      completeOnboarding();
+      endOnboarding(page);
     } else {
       setCurrentStep(next);
       setActiveSpotId(spots[next].id);
     }
-  }, [currentStep, getSpotsForPage, completeOnboarding]);
+  }, [currentStep, getSpotsForPage, endOnboarding]);
 
   const prevStep = useCallback(() => {
     const page = onboardingPageRef.current;
@@ -84,15 +99,14 @@ export function HelpProvider({ children }: { children: ReactNode }) {
     setActiveSpotId(spots[prev].id);
   }, [currentStep, getSpotsForPage]);
 
+  // Skipping is an account-wide opt-out (#863): no page auto-starts its tour again.
   const skipOnboarding = useCallback(() => {
-    completeOnboarding();
-  }, [completeOnboarding]);
+    endOnboarding(TOURS_SKIPPED);
+  }, [endOnboarding]);
 
   const hasSeenPage = useCallback((page: string): boolean => {
     if (isDisabled) return true;
-    if (isPageSeen(page)) return true;
-    if (typeof localStorage === 'undefined') return false;
-    return localStorage.getItem(`wrzdj-help-seen-${page}`) === '1';
+    return isSeen(TOURS_SKIPPED) || isSeen(page);
   }, [isDisabled]);
 
   return (

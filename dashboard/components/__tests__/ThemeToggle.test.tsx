@@ -1,52 +1,25 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import React from 'react';
 import { ThemeToggle } from '../ThemeToggle';
-import { ThemeProvider } from '@/lib/theme';
-import * as HelpContext from '@/lib/help/HelpContext';
-import type { HelpContextValue } from '@/lib/help/types';
 
-function makeHelpContext(overrides: Partial<HelpContextValue> = {}): HelpContextValue {
-  return {
-    helpMode: false,
-    onboardingActive: false,
-    currentStep: 0,
-    activeSpotId: null,
-    toggleHelpMode: () => {},
-    registerSpot: () => () => {},
-    getSpotsForPage: () => [],
-    startOnboarding: () => {},
-    nextStep: () => {},
-    prevStep: () => {},
-    skipOnboarding: () => {},
-    hasSeenPage: () => false,
-    ...overrides,
-  };
-}
+const toggleTheme = vi.fn();
 
-function renderThemeToggle() {
-  localStorage.setItem('wrzdj-theme', 'dark');
-  return render(
-    <ThemeProvider>
-      <ThemeToggle />
-    </ThemeProvider>,
-  );
-}
+vi.mock('@/lib/theme', () => ({
+  useTheme: () => ({ theme: 'dark', toggleTheme }),
+}));
 
 describe('ThemeToggle', () => {
-  it('renders the toggle button when onboarding is not active', () => {
-    vi.spyOn(HelpContext, 'useHelp').mockReturnValue(
-      makeHelpContext({ onboardingActive: false })
-    );
-    renderThemeToggle();
-    expect(screen.getByRole('button', { name: /current theme/i })).toBeInTheDocument();
+  it('names the current theme and the action', () => {
+    render(<ThemeToggle />);
+    const btn = screen.getByRole('button', { name: 'Current theme: Dark. Click to change.' });
+    expect(btn).toHaveTextContent('Dark');
+    expect(btn).toHaveAttribute('type', 'button');
   });
 
-  it('renders nothing when onboarding is active', () => {
-    vi.spyOn(HelpContext, 'useHelp').mockReturnValue(
-      makeHelpContext({ onboardingActive: true })
-    );
-    renderThemeToggle();
-    expect(screen.queryByRole('button', { name: /current theme/i })).not.toBeInTheDocument();
+  it('cycles the theme on click', () => {
+    render(<ThemeToggle />);
+    fireEvent.click(screen.getByRole('button', { name: /current theme/i }));
+    expect(toggleTheme).toHaveBeenCalledTimes(1);
   });
 });

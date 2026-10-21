@@ -11,9 +11,10 @@ import { api, ApiError, Event, ArchivedEvent } from '@/lib/api';
 import { useEventStream } from '@/lib/use-event-stream';
 import { usePollingLoop } from '@/lib/use-polling-loop';
 import { useEventRequests } from '@/lib/requests/use-event-requests';
-import { useHelp } from '@/lib/help/HelpContext';
+import { useAutoOnboarding } from '@/lib/help/useAutoOnboarding';
 import { HelpSpot } from '@/components/help/HelpSpot';
-import { HelpButton } from '@/components/help/HelpButton';
+import { PageControls } from '@/components/PageControls';
+import { DensityToggle } from '@/components/DensityToggle';
 import { OnboardingOverlay } from '@/components/help/OnboardingOverlay';
 import { useTabTitle } from '@/lib/tab-title';
 import { EventErrorCard } from '@/components/EventErrorCard';
@@ -83,7 +84,6 @@ export default function EventQueuePage() {
     code,
     enabled: activeTab === 'pre-event' && isAuthenticated && role !== 'pending',
   });
-  const { hasSeenPage, startOnboarding, onboardingActive } = useHelp();
 
   // Banner upload state
 
@@ -201,12 +201,7 @@ export default function EventQueuePage() {
 
   // Auto-trigger onboarding for first-time visitors to this tab
   const eventLoaded = canAccess && !loading && !!event;
-  useEffect(() => {
-    if (eventLoaded && !onboardingActive && !hasSeenPage(helpPageId)) {
-      const timer = setTimeout(() => startOnboarding(helpPageId), 500);
-      return () => clearTimeout(timer);
-    }
-  }, [eventLoaded, onboardingActive, helpPageId, hasSeenPage, startOnboarding]);
+  useAutoOnboarding(helpPageId, eventLoaded);
 
   const loadData = useCallback(async (): Promise<boolean> => {
     const requestedCode = code;
@@ -337,6 +332,7 @@ export default function EventQueuePage() {
   if (isLoading || !isAuthenticated || role === 'pending') {
     return (
       <div className="container">
+        <PageControls />
         <div className="loading">Loading...</div>
       </div>
     );
@@ -345,6 +341,7 @@ export default function EventQueuePage() {
   if (loading || (!error && event?.code !== code)) {
     return (
       <div className="container">
+        <PageControls />
         <div className="loading">Loading event...</div>
       </div>
     );
@@ -353,6 +350,7 @@ export default function EventQueuePage() {
   if (error || !event) {
     return (
       <div className="container">
+        <PageControls />
         <EventErrorCard
           error={error}
           fallbackMessage="Event not found or expired."
@@ -406,18 +404,9 @@ export default function EventQueuePage() {
 
   return (
     <div className={`container${compactMode ? ' compact' : ''}`}>
-      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
-        <button
-          className="theme-toggle"
-          onClick={toggleCompactMode}
-          title={compactMode ? 'Switch to normal density' : 'Switch to compact density'}
-          aria-label={compactMode ? 'Compact mode on' : 'Compact mode off'}
-        >
-          <span style={{ fontSize: '0.8rem', lineHeight: 1 }}>{compactMode ? '\u2630' : '\u2637'}</span>
-          <span className="theme-toggle-label">{compactMode ? 'Dense' : 'Normal'}</span>
-        </button>
-        <HelpButton page={helpPageId} inline />
-      </div>
+      <PageControls helpPage={helpPageId}>
+        <DensityToggle compact={compactMode} onToggle={toggleCompactMode} />
+      </PageControls>
       <OnboardingOverlay page={helpPageId} />
 
       {actionError && (

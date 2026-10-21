@@ -117,8 +117,13 @@ export function OnboardingOverlay({ page }: OnboardingOverlayProps) {
         <h3 className="onboarding-card-title">{currentSpot.title}</h3>
         <p className="onboarding-card-desc">{currentSpot.description}</p>
         <div className="onboarding-nav">
-          <button className="btn btn-sm" style={{ background: '#333' }} onClick={skipOnboarding}>
-            Skip
+          <button
+            className="btn btn-sm"
+            style={{ background: '#333' }}
+            onClick={skipOnboarding}
+            title="Skip tours on every page. You can start one later from the ? button."
+          >
+            Skip tours
           </button>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             {currentStep > 0 && (

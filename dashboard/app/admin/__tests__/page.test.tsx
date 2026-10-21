@@ -12,7 +12,9 @@ vi.mock('next/link', () => ({
 vi.mock('@/lib/help/HelpContext', () => ({
   useHelp: () => ({ hasSeenPage: () => true, startOnboarding: vi.fn(), onboardingActive: false }),
 }));
-vi.mock('@/components/help/HelpButton', () => ({ HelpButton: () => null }));
+vi.mock('@/components/PageControls', () => ({
+  PageControls: ({ children }: { children?: React.ReactNode }) => <div data-testid="page-controls">{children}</div>,
+}));
 vi.mock('@/components/help/OnboardingOverlay', () => ({ OnboardingOverlay: () => null }));
 vi.mock('@/components/help/HelpSpot', () => ({
   HelpSpot: ({ children }: { children: React.ReactNode }) => <>{children}</>,

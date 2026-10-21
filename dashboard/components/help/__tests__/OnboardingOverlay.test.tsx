@@ -97,7 +97,7 @@ describe('OnboardingOverlay', () => {
 
     render(<OnboardingOverlay page="p" />);
     expect(screen.getByText('Next')).toBeInTheDocument();
-    expect(screen.getByText('Skip')).toBeInTheDocument();
+    expect(screen.getByText('Skip tours')).toBeInTheDocument();
     expect(screen.queryByText('Back')).not.toBeInTheDocument();
   });
 
@@ -197,7 +197,7 @@ describe('OnboardingOverlay', () => {
     vi.spyOn(HelpContext, 'useHelp').mockReturnValue(mockCtx);
 
     render(<OnboardingOverlay page="p" />);
-    fireEvent.click(screen.getByText('Skip'));
+    fireEvent.click(screen.getByText('Skip tours'));
     expect(skipFn).toHaveBeenCalledTimes(1);
   });
 

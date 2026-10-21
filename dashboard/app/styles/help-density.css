@@ -31,26 +31,39 @@
   }
 }
 
-/* Help System */
-.help-btn-container {
-  position: fixed;
-  top: 1rem;
-  right: 1rem;
-  z-index: 1200;
+/* Page controls — the single top-right row: page toggles, theme, help (#863) */
+.page-controls {
   display: flex;
+  justify-content: flex-end;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.5rem;
+  min-height: 32px;
+  margin-bottom: 0.75rem;
 }
 
-.help-btn-container-inline {
+/* Every control in the row shares one height so it reads as one toolbar. */
+.page-controls .theme-toggle,
+.page-controls .help-tour-btn {
+  min-height: 32px;
+}
+
+.density-toggle-icon {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
+/* Help System */
+.help-controls {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
 .help-btn {
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   border: 2px solid var(--border);
   background: var(--card);

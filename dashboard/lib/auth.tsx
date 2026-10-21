@@ -126,7 +126,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     api.getMe()
       .then((user) => {
         const userRole = parseUserRole(user.role);
-        initSeenPages(user.help_pages_seen ?? []);
+        initSeenPages(user.help_pages_seen ?? [], user.id);
         redirectToLoginOnUnauthorized();
         setIsAuthenticated(true);
         setRole(userRole);
@@ -168,7 +168,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       throw error;
     }
-    initSeenPages(user.help_pages_seen ?? []);
+    initSeenPages(user.help_pages_seen ?? [], user.id);
     setRole(userRole);
     setIsAuthenticated(true);
   };

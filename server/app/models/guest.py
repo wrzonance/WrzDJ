@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Text
+from sqlalchemy import DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.encryption import EncryptedText
@@ -22,5 +22,11 @@ class Guest(Base):
     )
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     nickname: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # Cloudflare Turnstile returns pass/fail only, so "human" is recorded as
+    # the last pass time and a running count (#862).
+    human_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    human_verify_count: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)

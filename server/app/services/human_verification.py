@@ -22,11 +22,29 @@ from app.core.time import utcnow
 
 if TYPE_CHECKING:
     from fastapi import Request, Response
+    from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
 COOKIE_NAME = "wrzdj_human"
 HUMAN_COOKIE_VERSION = 2  # Bump on any breaking schema or policy change.
+
+
+def record_human_verification(db: Session, guest_id: int) -> None:
+    """Stamp a Turnstile pass on the guest row (last pass time + running count).
+
+    Turnstile itself returns only pass/fail, so this is the whole "human"
+    signal the admin Guests page can show (#862). A missing row is a no-op:
+    the cookie is still issued, the stat is simply not recorded.
+    """
+    from app.models.guest import Guest
+
+    guest = db.query(Guest).filter(Guest.id == guest_id).first()
+    if guest is None:
+        return
+    guest.human_verified_at = utcnow()
+    guest.human_verify_count = (guest.human_verify_count or 0) + 1
+    db.commit()
 
 
 def _b64encode(data: bytes) -> str:

@@ -128,18 +128,16 @@ export function RequestModal({ code, onClose, onRequestsClosed }: RequestModalPr
 
     setSubmitting(true);
     try {
-      const result = await api.submitRequest(
-        code,
-        selectedSong.artist,
-        selectedSong.title,
-        note || undefined,
-        selectedSong.url || undefined,
-        selectedSong.album_art || undefined,
-        undefined,
-        { isrc: selectedSong.isrc || undefined },
-        undefined,
-        nickname || undefined,
-      );
+      const result = await api.submitRequest({
+        eventCode: code,
+        artist: selectedSong.artist,
+        title: selectedSong.title,
+        note: note || undefined,
+        sourceUrl: selectedSong.url || undefined,
+        artworkUrl: selectedSong.album_art || undefined,
+        metadata: { isrc: selectedSong.isrc || undefined },
+        nickname: nickname || undefined,
+      });
       setSubmitted(true);
       setSubmitIsDuplicate(result.is_duplicate ?? false);
       setSubmitVoteCount(result.vote_count);

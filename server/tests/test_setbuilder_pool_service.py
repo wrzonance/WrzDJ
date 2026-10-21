@@ -3,12 +3,12 @@
 import pytest
 from sqlalchemy.orm import Session
 
-from app.api import setbuilder as setbuilder_api
+from app.api import setbuilder_pool as setbuilder_api
 from app.models.request import Request, RequestStatus
 from app.models.set import Set
 from app.models.set_pool import SetPoolTrack
 from app.models.user import User
-from app.services import apple_music_catalog
+from app.services.apple_music import catalog as apple_music_catalog
 from app.services.setbuilder import pool
 from app.services.setbuilder.playlist_url import (
     InvalidPlaylistUrl,
@@ -438,7 +438,7 @@ class TestUrlParser:
 class TestPlaylistCandidates:
     def test_apple_music_candidates_preserve_identity_and_metadata(self, test_user, monkeypatch):
         monkeypatch.setattr(
-            "app.services.apple_music_catalog.fetch_public_playlist",
+            "app.services.apple_music.catalog.fetch_public_playlist",
             lambda storefront, playlist_id: (
                 {"name": "Mix"},
                 [
@@ -473,27 +473,24 @@ class TestPlaylistCandidates:
     def test_tidal_candidates_mapped(self, db, test_user, monkeypatch):
         from app.schemas.tidal import TidalSearchResult
 
-        class FakeTrack:
-            pass
-
         def fake_get_playlist_tracks(db_, user, playlist_id):
-            return [FakeTrack()]
+            return [
+                TidalSearchResult(
+                    track_id="999",
+                    title="Tidal Song",
+                    artist="Tidal Artist",
+                    album="Album",
+                    bpm=128.0,
+                    key="Am",
+                    duration_seconds=200,
+                    cover_url="https://resources.tidal.com/x.jpg",
+                    isrc="QZABC1234567",
+                )
+            ]
 
-        def fake_track_to_result(t):
-            return TidalSearchResult(
-                track_id="999",
-                title="Tidal Song",
-                artist="Tidal Artist",
-                album="Album",
-                bpm=128.0,
-                key="Am",
-                duration_seconds=200,
-                cover_url="https://resources.tidal.com/x.jpg",
-                isrc="QZABC1234567",
-            )
-
-        monkeypatch.setattr("app.services.tidal.get_playlist_tracks", fake_get_playlist_tracks)
-        monkeypatch.setattr("app.services.tidal._track_to_result", fake_track_to_result)
+        monkeypatch.setattr(
+            "app.services.providers.tidal_search.get_playlist_tracks", fake_get_playlist_tracks
+        )
         cands = pool.candidates_from_tidal(db, test_user, "pl-1")
         assert len(cands) == 1
         assert cands[0].track_id == "tidal:999"
@@ -516,7 +513,10 @@ class TestPlaylistCandidates:
                 )
             ]
 
-        monkeypatch.setattr("app.services.beatport.get_playlist_tracks", fake_get_playlist_tracks)
+        monkeypatch.setattr(
+            "app.services.providers.beatport_playlists.get_playlist_tracks",
+            fake_get_playlist_tracks,
+        )
         cands = pool.candidates_from_beatport(db, test_user, "42")
         assert len(cands) == 1
         assert cands[0].track_id == "beatport:42"

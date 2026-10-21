@@ -18,9 +18,9 @@ from sqlalchemy.orm import Session
 
 from app.models.track import Track
 from app.models.user import User
-from app.services.recommendation.scorer import TrackProfile
 from app.services.setbuilder import pool
 from app.services.setbuilder.pool import dedupe_signature, hydrate_candidates_from_store
+from app.services.tracks.profile import TrackProfile
 from app.services.tracks.store import TrackIdentity, get_track, upsert_track
 
 

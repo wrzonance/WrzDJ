@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
+import { getApiUrl } from '../api';
 
 vi.mock('@thumbmarkjs/thumbmarkjs', () => ({
   getThumbmark: vi.fn().mockResolvedValue({ thumbmark: 'mock_hash_value', components: {} }),
@@ -16,9 +17,11 @@ describe('useGuestIdentity (F6)', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it('marks isReturning=false when server returns action=create', async () => {
+    vi.stubEnv('NEXT_PUBLIC_API_URL', '');
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ guest_id: 7, action: 'create' }),
@@ -31,6 +34,7 @@ describe('useGuestIdentity (F6)', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.guestId).toBe(7);
     expect(result.current.isReturning).toBe(false);
+    expect(mockFetch.mock.calls[0][0]).toBe(`${getApiUrl()}/api/public/guest/identify`);
   });
 
   it('marks isReturning=true when server returns action=cookie_hit', async () => {
@@ -59,6 +63,7 @@ describe('useGuestIdentity — reconcileHint and refresh()', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it('exposes reconcileHint from server response', async () => {

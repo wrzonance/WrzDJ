@@ -128,7 +128,7 @@ describe('detectSubnetConflictsFrom (pure function)', () => {
     const result = detectSubnetConflictsFrom(interfaces);
     expect(result).toHaveLength(2);
 
-    const subnets = result.map((c) => c.subnet).sort();
+    const subnets = result.map((c) => c.subnet).sort((a, b) => a.localeCompare(b));
     expect(subnets).toEqual(['172.17.0.0/16', '192.168.1.0/24']);
   });
 

@@ -1,0 +1,155 @@
+/* Document history / settings (#395) - functional styling only. */
+
+.brandMenuWrap {
+  position: relative;
+  min-width: 0;
+}
+
+.brandButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  max-width: min(34vw, 28rem);
+  padding: 0.32rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.brandButton:hover,
+.brandButton:focus-visible {
+  background: var(--surface-raised, rgba(255, 255, 255, 0.06));
+  border-color: var(--border-subtle);
+  outline: none;
+}
+
+.brandMenu {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  z-index: 60;
+  width: 260px;
+  padding: 0.35rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.48);
+}
+
+.brandMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.5rem 0.55rem;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.brandMenuItem:hover:not(:disabled) {
+  background: var(--surface-raised, rgba(255, 255, 255, 0.06));
+}
+
+.brandMenuItem:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.brandSaveRow {
+  align-items: flex-start;
+}
+
+.saveDot {
+  width: 0.55rem;
+  height: 0.55rem;
+  flex-shrink: 0;
+  margin-top: 0.22rem;
+  border-radius: 999px;
+  background: #34d399;
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.1);
+}
+
+.saveDotDirty {
+  background: #f59e0b;
+  animation: save-pulse 1.5s ease-in-out infinite;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14);
+}
+
+.saveLabel,
+.saveSub {
+  display: block;
+}
+
+.saveLabel {
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.saveSub {
+  margin-top: 0.1rem;
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  line-height: 1.35;
+}
+
+.historyControls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.historyIconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  min-width: 2.45rem;
+  height: 2rem;
+  padding: 0 0.45rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface-raised, rgba(255, 255, 255, 0.05));
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.historyIconButton:hover:not(:disabled) {
+  border-color: var(--border);
+  background: var(--surface-raised, rgba(255, 255, 255, 0.08));
+}
+
+.historyIconButton:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
+.depthBadge {
+  display: inline-block;
+  min-width: 1.15rem;
+  margin-left: 0.2rem;
+  border-radius: 999px;
+  background: var(--surface-raised, rgba(255, 255, 255, 0.08));
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  line-height: 1.2;
+  text-align: center;
+}
+
+@keyframes save-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.72);
+    opacity: 0.7;
+  }
+}

@@ -1,8 +1,10 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
+    "target": "ES2021",
+    "lib": ["ES2021", "DOM"],
     "module": "nodenext",
     "moduleResolution": "nodenext",
+    "types": ["node"],
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

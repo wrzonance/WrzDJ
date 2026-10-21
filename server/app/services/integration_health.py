@@ -43,9 +43,9 @@ def _check_spotify_capabilities() -> ServiceCapabilities:
     auth_status = CapabilityStatus.CONFIGURED
     search_status = CapabilityStatus.CONFIGURED
     try:
-        from app.services.spotify import _get_spotify_client
+        from app.services.providers.spotify import get_spotify_client
 
-        sp = _get_spotify_client()
+        sp = get_spotify_client()
         result = sp.search(q="test", type="track", limit=1)
         if result is not None:
             auth_status = CapabilityStatus.YES

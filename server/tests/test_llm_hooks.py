@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-if TYPE_CHECKING:
-    from sqlalchemy.orm import Session
-
+from app.services.recommendation.context import RecommendationContext
 from app.services.recommendation.llm_hooks import (
     LLMSuggestionQuery,
     LLMSuggestionResult,
@@ -17,6 +15,9 @@ from app.services.recommendation.llm_hooks import (
     is_llm_available,
 )
 from app.services.recommendation.scorer import EventProfile
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 def _add_active_connector(db, user):
@@ -43,7 +44,7 @@ def _add_active_connector(db, user):
 def _add_org_default_connector(db):
     """Insert an active ORG-scoped connector and point the system default at it."""
     from app.models.llm_connector import SCOPE_ORG, LlmConnector
-    from app.services.system_settings import update_system_settings
+    from app.services.system_settings import SystemSettingsPatch, update_system_settings
 
     connector = LlmConnector(
         user_id=None,
@@ -56,8 +57,20 @@ def _add_org_default_connector(db):
     db.add(connector)
     db.commit()
     db.refresh(connector)
-    update_system_settings(db, llm_default_connector_id=connector.id)
+    update_system_settings(db, SystemSettingsPatch(llm_default_connector_id=connector.id))
     return connector
+
+
+def test_system_settings_patch_preserves_omitted_connector_and_accepts_explicit_null(db):
+    from app.services.system_settings import SystemSettingsPatch, update_system_settings
+
+    connector = _add_org_default_connector(db)
+
+    settings = update_system_settings(db, SystemSettingsPatch(spotify_enabled=False))
+    assert settings.llm_default_connector_id == connector.id
+
+    settings = update_system_settings(db, SystemSettingsPatch(llm_default_connector_id=None))
+    assert settings.llm_default_connector_id is None
 
 
 class TestIsLLMAvailable:
@@ -84,41 +97,41 @@ class TestIsLLMAvailable:
         ``llm_enabled`` toggle governs ONLY the org-fallback path, never BYO
         credentials.
         """
-        from app.services.system_settings import update_system_settings
+        from app.services.system_settings import SystemSettingsPatch, update_system_settings
 
         _add_active_connector(db, test_user)
-        update_system_settings(db, llm_enabled=False)
+        update_system_settings(db, SystemSettingsPatch(llm_enabled=False))
         assert is_llm_available(db, actor=test_user) is True
 
     def test_unavailable_for_connectorless_dj_when_llm_disabled(self, db: Session, test_user):
         """Org default exists but llm_enabled=False -> connectorless DJ blocked."""
-        from app.services.system_settings import update_system_settings
+        from app.services.system_settings import SystemSettingsPatch, update_system_settings
 
         _add_org_default_connector(db)
-        update_system_settings(db, llm_enabled=False)
+        update_system_settings(db, SystemSettingsPatch(llm_enabled=False))
         assert is_llm_available(db, actor=test_user) is False
 
     def test_available_via_org_fallback_when_enabled(self, db: Session, test_user):
         """Org default exists and llm_enabled=True -> connectorless DJ available."""
-        from app.services.system_settings import update_system_settings
+        from app.services.system_settings import SystemSettingsPatch, update_system_settings
 
         _add_org_default_connector(db)
-        update_system_settings(db, llm_enabled=True)
+        update_system_settings(db, SystemSettingsPatch(llm_enabled=True))
         assert is_llm_available(db, actor=test_user) is True
 
     def test_returns_true_when_llm_enabled_and_actor_connector(self, db: Session, test_user):
         """When the actor owns an active connector and llm_enabled is True, returns True."""
-        from app.services.system_settings import update_system_settings
+        from app.services.system_settings import SystemSettingsPatch, update_system_settings
 
         _add_active_connector(db, test_user)
-        update_system_settings(db, llm_enabled=True)
+        update_system_settings(db, SystemSettingsPatch(llm_enabled=True))
         assert is_llm_available(db, actor=test_user) is True
 
     def test_returns_false_without_connector(self, db: Session, test_user):
         """No connector and no org default -> not available."""
-        from app.services.system_settings import update_system_settings
+        from app.services.system_settings import SystemSettingsPatch, update_system_settings
 
-        update_system_settings(db, llm_enabled=True)
+        update_system_settings(db, SystemSettingsPatch(llm_enabled=True))
         assert is_llm_available(db, actor=test_user) is False
 
 
@@ -133,24 +146,23 @@ class TestGenerateLLMSuggestions:
         mock_call_llm.return_value = expected
 
         profile = EventProfile(track_count=5)
-        result = await generate_llm_suggestions(profile, "chill vibes", max_queries=3)
+        context = RecommendationContext(profile)
+        db = MagicMock()
+        result = await generate_llm_suggestions(context, "chill vibes", max_queries=3, db=db)
 
         assert result is expected
         mock_call_llm.assert_called_once_with(
-            profile,
+            context,
             "chill vibes",
             3,
-            tracks=None,
-            rejected_tracks=None,
-            currently_playing=None,
-            db=None,
+            db=db,
             actor=None,
         )
 
     @pytest.mark.asyncio
     @patch("app.services.recommendation.llm_client.call_llm")
     async def test_passes_tracks_to_llm_client(self, mock_call_llm):
-        from app.services.recommendation.scorer import TrackProfile
+        from app.services.tracks.profile import TrackProfile
 
         expected = LLMSuggestionResult(
             queries=[LLMSuggestionQuery(search_query="house", reasoning="test")],
@@ -160,17 +172,16 @@ class TestGenerateLLMSuggestions:
 
         profile = EventProfile(track_count=1)
         tracks = [TrackProfile(title="Strobe", artist="deadmau5")]
-        result = await generate_llm_suggestions(profile, "more like this", tracks=tracks)
+        context = RecommendationContext(profile, accepted_tracks=tracks)
+        db = MagicMock()
+        result = await generate_llm_suggestions(context, "more like this", db=db)
 
         assert result is expected
         mock_call_llm.assert_called_once_with(
-            profile,
+            context,
             "more like this",
             6,
-            tracks=tracks,
-            rejected_tracks=None,
-            currently_playing=None,
-            db=None,
+            db=db,
             actor=None,
         )
 

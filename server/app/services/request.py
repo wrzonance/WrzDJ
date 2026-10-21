@@ -1,13 +1,14 @@
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy.orm import Session
 
 from app.core.time import utcnow
+from app.core.track_ids import normalize_isrc
 from app.models.event import Event
 from app.models.request import Request, RequestStatus
 from app.services.dedup import compute_dedupe_key, find_duplicate
-from app.services.recommendation.camelot import parse_key
-from app.services.track_normalizer import normalize_isrc
+from app.services.music_matching import parse_key
 from app.services.vote import add_vote
 
 # Valid state transitions for request status
@@ -22,6 +23,23 @@ VALID_TRANSITIONS: dict[RequestStatus, set[RequestStatus]] = {
 
 class InvalidStatusTransitionError(ValueError):
     """Raised when an invalid status transition is attempted."""
+
+
+@dataclass(frozen=True)
+class RequestCreateData:
+    artist: str
+    title: str
+    note: str | None = None
+    nickname: str | None = None
+    source: str = "manual"
+    source_url: str | None = None
+    artwork_url: str | None = None
+    guest_id: int | None = None
+    raw_search_query: str | None = None
+    genre: str | None = None
+    bpm: float | None = None
+    musical_key: str | None = None
+    isrc: str | None = None
 
 
 def normalize_key(key_str: str | None) -> str | None:
@@ -39,49 +57,37 @@ def normalize_key(key_str: str | None) -> str | None:
 def create_request(
     db: Session,
     event: Event,
-    artist: str,
-    title: str,
-    note: str | None = None,
-    nickname: str | None = None,
-    source: str = "manual",
-    source_url: str | None = None,
-    artwork_url: str | None = None,
-    guest_id: int | None = None,
-    raw_search_query: str | None = None,
-    genre: str | None = None,
-    bpm: float | None = None,
-    musical_key: str | None = None,
-    isrc: str | None = None,
+    data: RequestCreateData,
 ) -> tuple[Request, bool]:
     """
     Create a new song request.
     Returns (request, is_duplicate).
     """
-    dedupe_key = compute_dedupe_key(artist, title)
-    existing = find_duplicate(db, event.id, artist, title)
+    dedupe_key = compute_dedupe_key(data.artist, data.title)
+    existing = find_duplicate(db, event.id, data.artist, data.title)
 
     if existing:
-        if guest_id:
-            add_vote(db, existing.id, guest_id=guest_id)
+        if data.guest_id:
+            add_vote(db, existing.id, guest_id=data.guest_id)
             db.refresh(existing)
         return existing, True
 
     request = Request(
         event_id=event.id,
-        song_title=title,
-        artist=artist,
-        note=note,
-        nickname=nickname,
-        source=source,
-        source_url=source_url,
-        artwork_url=artwork_url,
-        guest_id=guest_id,
+        song_title=data.title,
+        artist=data.artist,
+        note=data.note,
+        nickname=data.nickname,
+        source=data.source,
+        source_url=data.source_url,
+        artwork_url=data.artwork_url,
+        guest_id=data.guest_id,
         dedupe_key=dedupe_key,
-        raw_search_query=raw_search_query,
-        genre=genre,
-        bpm=bpm,
-        musical_key=normalize_key(musical_key),
-        isrc=normalize_isrc(isrc),
+        raw_search_query=data.raw_search_query,
+        genre=data.genre,
+        bpm=data.bpm,
+        musical_key=normalize_key(data.musical_key),
+        isrc=normalize_isrc(data.isrc),
         # Flag based on event phase so /join and /collect entry points produce
         # equivalent rows during collection — otherwise /join submissions are
         # invisible in the collect leaderboard despite being valid.

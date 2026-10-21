@@ -1,74 +1,87 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { EventEmitter } from 'node:events';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Mock the plugin system before importing BridgeRunner
-vi.mock('@bridge/plugin-bridge.js', () => {
-  const { EventEmitter } = require('events');
-  class MockPluginBridge extends EventEmitter {
-    private _running = false;
-    manager = new EventEmitter();
+const mocks = vi.hoisted(() => ({
+  pluginStart: vi.fn(async () => {}),
+  runtimeInstances: [] as unknown[],
+  plugin: { info: { id: 'mock', name: 'Mock', description: 'Mock' } },
+  checkEventHealth: vi.fn(),
+  detectSubnetConflicts: vi.fn<() => unknown[]>(() => []),
+  formatConflictWarnings: vi.fn<() => string[]>(() => []),
+}));
+
+type RuntimeSnapshot = {
+  running: boolean;
+  connectedDevice: string | null;
+  pluginId: string;
+  deckCount: number;
+  circuitBreakerState: 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+  bufferSize: number;
+  uptimeSeconds: number;
+  backendReachable: boolean;
+  deckStates: never[];
+};
+type FakeRuntime = EventEmitter & {
+  running: boolean;
+  getSnapshot: (() => RuntimeSnapshot) & { mockReturnValue(value: RuntimeSnapshot): void };
+  stop: ReturnType<typeof vi.fn>;
+  resetDecks: ReturnType<typeof vi.fn>;
+  reconnect: ReturnType<typeof vi.fn>;
+  restart: ReturnType<typeof vi.fn>;
+};
+
+vi.mock('@wrzdj/bridge/electron', async () => {
+  const { EventEmitter: RuntimeEmitter } = await import('node:events');
+  class Runtime extends RuntimeEmitter {
+    running = false;
+    readonly getSnapshot = vi.fn(() => ({
+      running: this.running,
+      connectedDevice: null,
+      pluginId: 'mock',
+      deckCount: 0,
+      circuitBreakerState: 'CLOSED' as const,
+      bufferSize: 0,
+      uptimeSeconds: 0,
+      backendReachable: true,
+      deckStates: [],
+    }));
+    readonly stop = vi.fn(async () => {
+      this.running = false;
+      this.emit('statusChanged', this.getSnapshot());
+    });
+    readonly resetDecks = vi.fn();
+    readonly reconnect = vi.fn(async () => {});
+    readonly restart = vi.fn(async () => {});
+
     constructor() {
       super();
-      this.manager.getDeckIds = () => [];
-      this.manager.getDeckState = () => ({});
-      this.manager.destroy = vi.fn();
+      mocks.runtimeInstances.push(this);
     }
-    get isRunning() { return this._running; }
-    async start() { this._running = true; }
-    async stop() { this._running = false; }
+
+    async start(): Promise<void> {
+      await mocks.pluginStart();
+      this.running = true;
+      this.emit('statusChanged', this.getSnapshot());
+    }
   }
-  return { PluginBridge: MockPluginBridge };
+  class TestLogger {
+    debug(): void {}
+    info(): void {}
+    warn(): void {}
+    error(): void {}
+  }
+  return { BridgeRuntime: Runtime, getPlugin: () => mocks.plugin, Logger: TestLogger };
 });
-
-vi.mock('@bridge/plugin-registry.js', () => {
-  const { EventEmitter } = require('events');
-  return {
-    getPlugin: vi.fn(() => {
-      const plugin = new EventEmitter();
-      Object.assign(plugin, {
-        info: { id: 'mock', name: 'Mock', description: 'Mock plugin' },
-        capabilities: {
-          multiDeck: false,
-          playState: false,
-          faderLevel: false,
-          masterDeck: false,
-          albumMetadata: false,
-        },
-        isRunning: false,
-        start: vi.fn(async () => {}),
-        stop: vi.fn(async () => {}),
-      });
-      return plugin;
-    }),
-  };
-});
-
-vi.mock('@bridge/plugins/index.js', () => ({}));
-
-// Mock the health check service
-vi.mock('../event-health-service.js', () => ({
-  checkEventHealth: vi.fn(),
-}));
-
-// Mock network check — default to no conflicts
+vi.mock('../event-health-service.js', () => ({ checkEventHealth: mocks.checkEventHealth }));
 vi.mock('../network-check.js', () => ({
-  detectSubnetConflicts: vi.fn(() => []),
-  formatConflictWarnings: vi.fn(() => []),
+  detectSubnetConflicts: mocks.detectSubnetConflicts,
+  formatConflictWarnings: mocks.formatConflictWarnings,
 }));
-
-// Mock fetch for postBridgeStatus calls
-const mockFetch = vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve('') });
-global.fetch = mockFetch;
 
 import { BridgeRunner } from '../bridge-runner.js';
-import { checkEventHealth } from '../event-health-service.js';
-import { detectSubnetConflicts, formatConflictWarnings } from '../network-check.js';
 import type { BridgeRunnerConfig } from '../../shared/types.js';
 
-const mockedCheckEventHealth = vi.mocked(checkEventHealth);
-const mockedDetectSubnetConflicts = vi.mocked(detectSubnetConflicts);
-const mockedFormatConflictWarnings = vi.mocked(formatConflictWarnings);
-
-const TEST_CONFIG: BridgeRunnerConfig = {
+const config: BridgeRunnerConfig = {
   apiUrl: 'https://api.wrzdj.com',
   apiKey: 'test-key',
   eventCode: 'ABC123',
@@ -83,545 +96,288 @@ const TEST_CONFIG: BridgeRunnerConfig = {
   },
 };
 
-describe('BridgeRunner', () => {
+describe('BridgeRunner runtime adapter', () => {
   let runner: BridgeRunner;
 
   beforeEach(() => {
     vi.useFakeTimers();
+    mocks.runtimeInstances.length = 0;
     vi.clearAllMocks();
-    mockedCheckEventHealth.mockResolvedValue('active');
+    mocks.pluginStart.mockResolvedValue(undefined);
+    mocks.checkEventHealth.mockResolvedValue('active');
+    mocks.detectSubnetConflicts.mockReturnValue([]);
+    mocks.formatConflictWarnings.mockReturnValue([]);
     runner = new BridgeRunner();
   });
 
   afterEach(async () => {
-    if (runner.isRunning) {
-      await runner.stop();
-    }
+    await runner.stop().catch(() => {});
     vi.useRealTimers();
   });
 
-  it('starts and stops cleanly', async () => {
-    await runner.start(TEST_CONFIG);
-    expect(runner.isRunning).toBe(true);
-
-    const status = runner.getStatus();
-    expect(status.eventCode).toBe('ABC123');
-    expect(status.stopReason).toBeNull();
-
-    await runner.stop();
-    expect(runner.isRunning).toBe(false);
-  });
-
-  it('includes stopReason as null initially', async () => {
-    const status = runner.getStatus();
-    expect(status.stopReason).toBeNull();
-  });
-
-  it('sets stopReason when stopped with a reason', async () => {
-    await runner.start(TEST_CONFIG);
-    await runner.stop('Event was deleted');
-
-    const status = runner.getStatus();
-    expect(status.stopReason).toBe('Event was deleted');
-    expect(status.isRunning).toBe(false);
-  });
-
-  it('clears stopReason on next start', async () => {
-    await runner.start(TEST_CONFIG);
-    await runner.stop('Event was deleted');
-    expect(runner.getStatus().stopReason).toBe('Event was deleted');
-
-    await runner.start(TEST_CONFIG);
-    expect(runner.getStatus().stopReason).toBeNull();
-  });
-
-  it('auto-stops when health check returns not_found', async () => {
-    await runner.start(TEST_CONFIG);
-    expect(runner.isRunning).toBe(true);
-
-    mockedCheckEventHealth.mockResolvedValue('not_found');
-
-    // Advance timer to trigger health check
-    await vi.advanceTimersByTimeAsync(30_000);
-
-    expect(runner.isRunning).toBe(false);
-    expect(runner.getStatus().stopReason).toBe('Event was deleted');
-  });
-
-  it('auto-stops when health check returns expired', async () => {
-    await runner.start(TEST_CONFIG);
-    expect(runner.isRunning).toBe(true);
-
-    mockedCheckEventHealth.mockResolvedValue('expired');
-
-    await vi.advanceTimersByTimeAsync(30_000);
-
-    expect(runner.isRunning).toBe(false);
-    expect(runner.getStatus().stopReason).toBe('Event expired or archived');
-  });
-
-  it('does not stop on health check error (transient failure)', async () => {
-    await runner.start(TEST_CONFIG);
-    expect(runner.isRunning).toBe(true);
-
-    mockedCheckEventHealth.mockResolvedValue('error');
-
-    await vi.advanceTimersByTimeAsync(30_000);
-
-    expect(runner.isRunning).toBe(true);
-    expect(runner.getStatus().stopReason).toBeNull();
-  });
-
-  it('does not stop when health check returns active', async () => {
-    await runner.start(TEST_CONFIG);
-    expect(runner.isRunning).toBe(true);
-
-    mockedCheckEventHealth.mockResolvedValue('active');
-
-    await vi.advanceTimersByTimeAsync(30_000);
-
-    expect(runner.isRunning).toBe(true);
-  });
-
-  it('health check is called with correct arguments', async () => {
-    await runner.start(TEST_CONFIG);
-
-    await vi.advanceTimersByTimeAsync(30_000);
-
-    expect(mockedCheckEventHealth).toHaveBeenCalledWith(
-      'https://api.wrzdj.com',
-      'ABC123',
-    );
-  });
-
-  it('stops health check timer when bridge is stopped', async () => {
-    await runner.start(TEST_CONFIG);
-    await runner.stop();
-
-    mockedCheckEventHealth.mockResolvedValue('not_found');
-    await vi.advanceTimersByTimeAsync(60_000);
-
-    // Health check should not have been called after stop
-    expect(mockedCheckEventHealth).not.toHaveBeenCalled();
-  });
-
-  it('emits statusChanged with stopReason on auto-stop', async () => {
-    const statusChanges: Array<{ isRunning: boolean; stopReason: string | null }> = [];
-    runner.on('statusChanged', (status) => {
-      statusChanges.push({ isRunning: status.isRunning, stopReason: status.stopReason });
-    });
-
-    await runner.start(TEST_CONFIG);
-    mockedCheckEventHealth.mockResolvedValue('not_found');
-    await vi.advanceTimersByTimeAsync(30_000);
-
-    const lastStatus = statusChanges[statusChanges.length - 1];
-    expect(lastStatus.isRunning).toBe(false);
-    expect(lastStatus.stopReason).toBe('Event was deleted');
-  });
-
-  it('includes empty networkWarnings when no conflicts', async () => {
-    await runner.start(TEST_CONFIG);
-    const status = runner.getStatus();
-    expect(status.networkWarnings).toEqual([]);
-  });
-
-  it('includes networkWarnings when subnet conflicts detected', async () => {
-    mockedDetectSubnetConflicts.mockReturnValue([
-      {
-        subnet: '192.168.1.0/24',
-        interfaces: [
-          { name: 'eth0', address: '192.168.1.100' },
-          { name: 'wlan0', address: '192.168.1.200' },
-        ],
-      },
-    ]);
-    mockedFormatConflictWarnings.mockReturnValue([
-      'Multiple interfaces on subnet 192.168.1.0/24: eth0 (192.168.1.100), wlan0 (192.168.1.200). This may cause DJ equipment connection failures — consider disabling one interface.',
-    ]);
-
-    await runner.start(TEST_CONFIG);
-    const status = runner.getStatus();
-    expect(status.networkWarnings).toHaveLength(1);
-    expect(status.networkWarnings[0]).toContain('192.168.1.0/24');
-  });
-
-  it('clears networkWarnings on restart', async () => {
-    mockedDetectSubnetConflicts.mockReturnValueOnce([
-      {
-        subnet: '192.168.1.0/24',
-        interfaces: [
-          { name: 'eth0', address: '192.168.1.100' },
-          { name: 'wlan0', address: '192.168.1.200' },
-        ],
-      },
-    ]);
-    mockedFormatConflictWarnings.mockReturnValueOnce(['Warning message']);
-
-    await runner.start(TEST_CONFIG);
-    expect(runner.getStatus().networkWarnings).toHaveLength(1);
-
-    await runner.stop();
-
-    // Second start with no conflicts
-    mockedDetectSubnetConflicts.mockReturnValue([]);
-    mockedFormatConflictWarnings.mockReturnValue([]);
-
-    await runner.start(TEST_CONFIG);
-    expect(runner.getStatus().networkWarnings).toEqual([]);
-  });
-
-  it('calls DELETE /bridge/nowplaying/{code} on stop', async () => {
-    await runner.start(TEST_CONFIG);
-    mockFetch.mockClear();
-
-    await runner.stop();
-
-    // Should have called DELETE /bridge/nowplaying/ABC123 and POST /bridge/status
-    const deleteCall = mockFetch.mock.calls.find(
-      (call) => typeof call[0] === 'string' && call[0].includes('/bridge/nowplaying/') && call[1]?.method === 'DELETE',
-    );
-    expect(deleteCall).toBeDefined();
-    expect(deleteCall![0]).toContain('/bridge/nowplaying/ABC123');
-  });
-
-  it('logs networkWarnings when conflicts detected', async () => {
+  it('preserves the status and log contract through the shared runtime', async () => {
+    const statuses: Array<{ isRunning: boolean; eventCode: string | null }> = [];
     const logs: Array<{ message: string; level: string }> = [];
-    runner.on('log', (msg: { message: string; level: string }) => logs.push(msg));
+    runner.on('statusChanged', (status) => statuses.push(status));
+    runner.on('log', (entry) => logs.push(entry));
 
-    mockedDetectSubnetConflicts.mockReturnValue([
-      {
-        subnet: '192.168.1.0/24',
-        interfaces: [
-          { name: 'eth0', address: '192.168.1.100' },
-          { name: 'wlan0', address: '192.168.1.200' },
-        ],
-      },
-    ]);
-    mockedFormatConflictWarnings.mockReturnValue(['Conflict warning text']);
+    await runner.start(config);
+    const runtime = mocks.runtimeInstances[0] as FakeRuntime;
+    runtime.getSnapshot.mockReturnValue({
+      ...runtime.getSnapshot(), backendReachable: false, bufferSize: 2,
+    });
+    runtime.emit('statusChanged', runtime.getSnapshot());
+    runtime.emit('log', { message: 'runtime diagnostic', level: 'warn' });
 
-    await runner.start(TEST_CONFIG);
-
-    expect(logs.some((l) => l.message.includes('Conflict warning text') && l.level === 'warn')).toBe(true);
+    expect(runner.getStatus()).toMatchObject({
+      isRunning: true,
+      eventCode: 'ABC123',
+      stopReason: null,
+      pluginId: 'mock',
+      backendReachable: false,
+      bufferSize: 2,
+    });
+    expect(statuses.some((status) => status.isRunning && status.eventCode === 'ABC123')).toBe(true);
+    expect(logs).toContainEqual({ message: 'runtime diagnostic', level: 'warn' });
   });
 
-  it('sets backendReachable to false after all retries exhausted', async () => {
-    await runner.start(TEST_CONFIG);
-    expect(runner.getStatus().backendReachable).toBe(true);
+  it('reports runtime cleanup failures after updating the adapter state', async () => {
+    // Regression coverage for 57cfcdc6867f: propagate cleanup failures so IPC and restart callers cannot report success.
+    const logs: Array<{ message: string; level: string }> = [];
+    runner.on('log', (entry) => logs.push(entry));
+    await runner.start(config);
+    const runtime = mocks.runtimeInstances[0] as FakeRuntime;
+    const cleanupError = new Error('device cleanup failed');
+    runtime.stop.mockRejectedValueOnce(cleanupError);
 
-    // Make all POST attempts fail
-    mockFetch.mockRejectedValue(new Error('Network error'));
+    await expect(runner.stop()).rejects.toBe(cleanupError);
 
-    // Trigger a POST by emitting a connection event on the pluginBridge
-    const pluginBridge = (runner as unknown as Record<string, unknown>).pluginBridge as {
-      emit: (event: string, ...args: unknown[]) => boolean;
-    };
-    pluginBridge.emit('connection', { connected: true, deviceName: 'Test Device' });
-
-    // Let all retries execute (3 retries: 2s + 4s + 8s = 14s)
-    await vi.advanceTimersByTimeAsync(20_000);
-
-    expect(runner.getStatus().backendReachable).toBe(false);
-
-    // Restore mock before afterEach cleanup calls stop()
-    mockFetch.mockResolvedValue({ ok: true, text: () => Promise.resolve('') });
+    expect(runner.getStatus().isRunning).toBe(false);
+    expect(logs).toContainEqual({ message: 'Bridge shutdown failed: device cleanup failed', level: 'error' });
   });
 
-  it('restores backendReachable to true on successful POST after failure', async () => {
-    await runner.start(TEST_CONFIG);
+  it('does not start a replacement session when shutdown fails during restart', async () => {
+    await runner.start(config);
+    const runtime = mocks.runtimeInstances[0] as FakeRuntime;
+    runtime.stop.mockRejectedValueOnce(new Error('device cleanup failed'));
 
-    // Make all attempts fail
-    mockFetch.mockRejectedValue(new Error('Network error'));
+    await expect(runner.restartBridge()).rejects.toThrow('device cleanup failed');
 
-    const pluginBridge = (runner as unknown as Record<string, unknown>).pluginBridge as {
-      emit: (event: string, ...args: unknown[]) => boolean;
-    };
-    pluginBridge.emit('connection', { connected: true, deviceName: 'Test Device' });
-
-    await vi.advanceTimersByTimeAsync(20_000);
-    expect(runner.getStatus().backendReachable).toBe(false);
-
-    // Now make fetch succeed again
-    mockFetch.mockResolvedValue({ ok: true, text: () => Promise.resolve('') });
-    pluginBridge.emit('connection', { connected: false });
-
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(runner.getStatus().backendReachable).toBe(true);
+    expect(mocks.runtimeInstances).toHaveLength(1);
+    expect(mocks.pluginStart).toHaveBeenCalledTimes(1);
   });
 
-  it('includes backendReachable: true by default', async () => {
-    const status = runner.getStatus();
-    expect(status.backendReachable).toBe(true);
+  it('handles cleanup failures from automatic authentication shutdown', async () => {
+    // Regression coverage for 57cfcdc6867f: background stop launches must observe rejection after stop begins propagating it.
+    const logs: Array<{ message: string; level: string }> = [];
+    runner.on('log', (entry) => logs.push(entry));
+    await runner.start(config);
+    const runtime = mocks.runtimeInstances[0] as FakeRuntime;
+    runtime.stop.mockRejectedValueOnce(new Error('device cleanup failed'));
+
+    runtime.emit('authenticationError');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(logs).toContainEqual({ message: 'Bridge shutdown failed: device cleanup failed', level: 'error' });
+    expect(logs).toContainEqual({ message: 'Automatic bridge shutdown failed: device cleanup failed', level: 'error' });
   });
 
-  it('posts now playing when deckLive event fires', async () => {
-    await runner.start(TEST_CONFIG);
-    mockFetch.mockClear();
+  it('handles cleanup failures from automatic health-check shutdown', async () => {
+    const logs: Array<{ message: string; level: string }> = [];
+    runner.on('log', (entry) => logs.push(entry));
+    await runner.start(config);
+    const runtime = mocks.runtimeInstances[0] as FakeRuntime;
+    runtime.stop.mockRejectedValueOnce(new Error('device cleanup failed'));
+    mocks.checkEventHealth.mockResolvedValueOnce('expired');
 
-    const pluginBridge = (runner as unknown as Record<string, unknown>).pluginBridge as {
-      emit: (event: string, ...args: unknown[]) => boolean;
-    };
-    pluginBridge.emit('deckLive', {
-      deckId: '1',
-      track: { title: 'Strobe', artist: 'deadmau5', album: 'For Lack of a Better Name' },
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(logs).toContainEqual({ message: 'Bridge shutdown failed: device cleanup failed', level: 'error' });
+    expect(logs).toContainEqual({ message: 'Event health check failed: device cleanup failed', level: 'error' });
+  });
+
+  it('projects runtime connection and track events to app status', async () => {
+    await runner.start(config);
+    const runtime = mocks.runtimeInstances[0] as FakeRuntime;
+    runtime.emit('connection', { connected: true, deviceName: 'Player 1' });
+    runtime.emit('deckLive', {
+      deckId: '1', track: { title: 'Strobe', artist: 'deadmau5', album: 'Album' },
     });
 
-    await vi.advanceTimersByTimeAsync(100);
-
-    const nowPlayingCall = mockFetch.mock.calls.find(
-      (call) => typeof call[0] === 'string' && call[0].includes('/bridge/nowplaying') && call[1]?.method !== 'DELETE',
-    );
-    expect(nowPlayingCall).toBeDefined();
-    const body = JSON.parse(nowPlayingCall![1].body as string);
-    expect(body.title).toBe('Strobe');
-    expect(body.artist).toBe('deadmau5');
-    expect(body.event_code).toBe('ABC123');
-  });
-
-  it('skips duplicate track (deduplication)', async () => {
-    await runner.start(TEST_CONFIG);
-
-    const pluginBridge = (runner as unknown as Record<string, unknown>).pluginBridge as {
-      emit: (event: string, ...args: unknown[]) => boolean;
-    };
-
-    // First track
-    pluginBridge.emit('deckLive', {
-      deckId: '1',
-      track: { title: 'Strobe', artist: 'deadmau5' },
-    });
-    await vi.advanceTimersByTimeAsync(100);
-
-    mockFetch.mockClear();
-
-    // Same track again — should be skipped
-    pluginBridge.emit('deckLive', {
-      deckId: '1',
-      track: { title: 'Strobe', artist: 'deadmau5' },
-    });
-    await vi.advanceTimersByTimeAsync(100);
-
-    const nowPlayingCalls = mockFetch.mock.calls.filter(
-      (call) => typeof call[0] === 'string' && call[0].includes('/bridge/nowplaying') && call[1]?.method !== 'DELETE',
-    );
-    expect(nowPlayingCalls).toHaveLength(0);
-  });
-
-  it('skips track with empty title', async () => {
-    await runner.start(TEST_CONFIG);
-    mockFetch.mockClear();
-
-    const pluginBridge = (runner as unknown as Record<string, unknown>).pluginBridge as {
-      emit: (event: string, ...args: unknown[]) => boolean;
-    };
-    pluginBridge.emit('deckLive', {
-      deckId: '1',
-      track: { title: '', artist: 'deadmau5' },
-    });
-    await vi.advanceTimersByTimeAsync(100);
-
-    const nowPlayingCalls = mockFetch.mock.calls.filter(
-      (call) => typeof call[0] === 'string' && call[0].includes('/bridge/nowplaying') && call[1]?.method !== 'DELETE',
-    );
-    expect(nowPlayingCalls).toHaveLength(0);
-  });
-
-  it('track posting continues when network fails (retries)', async () => {
-    await runner.start(TEST_CONFIG);
-
-    // Make fetch fail temporarily
-    mockFetch.mockRejectedValueOnce(new Error('Network error'))
-      .mockRejectedValueOnce(new Error('Network error'))
-      .mockResolvedValue({ ok: true, text: () => Promise.resolve('') });
-
-    const pluginBridge = (runner as unknown as Record<string, unknown>).pluginBridge as {
-      emit: (event: string, ...args: unknown[]) => boolean;
-    };
-    pluginBridge.emit('deckLive', {
-      deckId: '1',
-      track: { title: 'Test Track', artist: 'Test Artist' },
-    });
-
-    // Let retries execute (2s + 4s)
-    await vi.advanceTimersByTimeAsync(10_000);
-
-    // After retries succeed, backendReachable should still be true
-    expect(runner.getStatus().backendReachable).toBe(true);
-  });
-
-  it('clears currentTrack on clearNowPlaying event', async () => {
-    await runner.start(TEST_CONFIG);
-
-    const pluginBridge = (runner as unknown as Record<string, unknown>).pluginBridge as {
-      emit: (event: string, ...args: unknown[]) => boolean;
-    };
-
-    // First set a track
-    pluginBridge.emit('deckLive', {
-      deckId: '1',
-      track: { title: 'Strobe', artist: 'deadmau5' },
-    });
-    await vi.advanceTimersByTimeAsync(100);
-    expect(runner.getStatus().currentTrack).not.toBeNull();
-
-    mockFetch.mockClear();
-
-    // Clear now playing
-    pluginBridge.emit('clearNowPlaying');
-    await vi.advanceTimersByTimeAsync(100);
-
+    expect(runner.getStatus().connectedDevice).toBe('Player 1');
+    expect(runner.getStatus().currentTrack).toMatchObject({ title: 'Strobe', deckId: '1' });
+    runtime.emit('clearNowPlaying');
     expect(runner.getStatus().currentTrack).toBeNull();
   });
 
-  it('cascade: transient error → continues → expired → stops', async () => {
-    await runner.start(TEST_CONFIG);
-    expect(runner.isRunning).toBe(true);
+  it('keeps the active runtime callbacks after rejecting a duplicate start', async () => {
+    await runner.start(config);
+    const runtime = mocks.runtimeInstances[0] as FakeRuntime;
 
-    // First health check: transient error — should continue
-    mockedCheckEventHealth.mockResolvedValue('error');
+    await expect(runner.start(config)).rejects.toThrow('Bridge is already running');
+    runtime.emit('connection', { connected: true, deviceName: 'Player 1' });
+
+    expect(runner.getStatus()).toMatchObject({
+      isRunning: true,
+      connectedDevice: 'Player 1',
+    });
+    expect(mocks.runtimeInstances).toHaveLength(1);
+  });
+
+  it('stops the session on deleted or expired events and ignores transient health errors', async () => {
+    await runner.start(config);
+    mocks.checkEventHealth.mockResolvedValueOnce('error').mockResolvedValueOnce('expired');
     await vi.advanceTimersByTimeAsync(30_000);
     expect(runner.isRunning).toBe(true);
-    expect(runner.getStatus().stopReason).toBeNull();
-
-    // Second health check: expired — should stop
-    mockedCheckEventHealth.mockResolvedValue('expired');
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(runner.isRunning).toBe(false);
-    expect(runner.getStatus().stopReason).toBe('Event expired or archived');
+    expect(runner.getStatus()).toMatchObject({ isRunning: false, stopReason: 'Event expired or archived' });
   });
 
-  it('throws when starting while already running', async () => {
-    await runner.start(TEST_CONFIG);
-    await expect(runner.start(TEST_CONFIG)).rejects.toThrow('already running');
+  it('stops when an event is deleted and clears the reason and network warnings on the next start', async () => {
+    mocks.detectSubnetConflicts.mockReturnValue([{}]);
+    mocks.formatConflictWarnings.mockReturnValue(['Conflict warning']);
+    await runner.start(config);
+    mocks.checkEventHealth.mockResolvedValueOnce('not_found');
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(runner.getStatus()).toMatchObject({ isRunning: false, stopReason: 'Event was deleted' });
+
+    mocks.detectSubnetConflicts.mockReturnValue([]);
+    await runner.start(config);
+    expect(runner.getStatus()).toMatchObject({ isRunning: true, stopReason: null, networkWarnings: [] });
   });
 
-  it('buffers failed now-playing tracks for replay', async () => {
-    await runner.start(TEST_CONFIG);
+  it('keeps a healthy event running and removes the health timer when stopped', async () => {
+    await runner.start(config);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(runner.isRunning).toBe(true);
+    expect(mocks.checkEventHealth).toHaveBeenCalledOnce();
 
-    // Make fetch fail
-    mockFetch.mockRejectedValue(new Error('Network error'));
-
-    const pluginBridge = (runner as unknown as Record<string, unknown>).pluginBridge as {
-      emit: (event: string, ...args: unknown[]) => boolean;
-    };
-    pluginBridge.emit('deckLive', {
-      deckId: '1',
-      track: { title: 'Lost Track', artist: 'Lost Artist' },
-    });
-
-    // Let retries exhaust (2s + 4s + 8s)
-    await vi.advanceTimersByTimeAsync(20_000);
-
-    // Log should mention buffering
-    const logs: Array<{ message: string; level: string }> = [];
-    runner.on('log', (msg: { message: string; level: string }) => logs.push(msg));
-
-    // Emit another track to trigger more buffer logs
-    pluginBridge.emit('deckLive', {
-      deckId: '2',
-      track: { title: 'Another Lost Track', artist: 'Another Artist' },
-    });
-    await vi.advanceTimersByTimeAsync(20_000);
-
-    expect(logs.some((l) => l.message.includes('Buffered track for replay'))).toBe(true);
-
-    // Restore mock before cleanup
-    mockFetch.mockResolvedValue({ ok: true, text: () => Promise.resolve('') });
+    await runner.stop();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(mocks.checkEventHealth).toHaveBeenCalledOnce();
   });
 
-  it('emits log events with level', async () => {
-    const logs: Array<{ message: string; level: string }> = [];
-    runner.on('log', (msg: { message: string; level: string }) => logs.push(msg));
-
-    await runner.start(TEST_CONFIG);
-
-    expect(logs.some((l) => l.message.includes('Starting bridge') && l.level === 'info')).toBe(true);
-    expect(logs.some((l) => l.message.includes('ABC123'))).toBe(true);
-  });
-
-  it('stops the bridge on a 401 without retrying or recording a circuit failure', async () => {
-    await runner.start(TEST_CONFIG);
-    expect(runner.getStatus().backendReachable).toBe(true);
-
-    // Spy on the private circuit breaker so we can prove a 401 is treated as an
-    // auth problem, NOT a backend-availability failure.
-    const circuitBreaker = (runner as unknown as Record<string, unknown>).circuitBreaker as {
-      recordFailure: () => void;
-      recordSuccess: () => void;
-    };
-    const recordFailure = vi.spyOn(circuitBreaker, 'recordFailure');
-    const stopSpy = vi.spyOn(runner, 'stop');
-
-    // Only the FIRST POST gets a 401 (expired session token); the deferred
-    // shutdown status-POST that stop() issues succeeds, so it can't be confused
-    // for a retry of the 401'd request.
-    mockFetch.mockClear();
-    mockFetch
-      .mockResolvedValueOnce({ status: 401, ok: false, text: () => Promise.resolve('') })
-      .mockResolvedValue({ ok: true, text: () => Promise.resolve('') });
-
-    // A connection event triggers postBridgeStatus → postWithRetry.
-    const pluginBridge = (runner as unknown as Record<string, unknown>).pluginBridge as {
-      emit: (event: string, ...args: unknown[]) => boolean;
-    };
-    pluginBridge.emit('connection', { connected: true, deviceName: 'Test Device' });
-
-    // Resolve the 401 POST only — the retry loop returns immediately on 401 with
-    // NO backoff sleep, so a single microtask flush is enough to settle it.
+  it('does not start health polling when stopped during runtime startup', async () => {
+    let finishStart!: () => void;
+    mocks.pluginStart.mockImplementationOnce(() => new Promise<void>((resolve) => { finishStart = resolve; }));
+    const starting = runner.start(config);
     await Promise.resolve();
+    const runtime = mocks.runtimeInstances[0] as FakeRuntime;
+    await runner.stop();
+    finishStart();
+    await starting;
+
+    expect(runner.isRunning).toBe(false);
+    expect(runtime.stop).toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('cancels a new start waiting for shutdown when another stop arrives', async () => {
+    await runner.start(config);
+    const oldRuntime = mocks.runtimeInstances[0] as FakeRuntime;
+    let finishStop!: () => void;
+    oldRuntime.stop.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => { finishStop = resolve; });
+      oldRuntime.running = false;
+    });
+
+    const stopping = runner.stop();
+    expect(runner.isRunning).toBe(false);
+    const pendingStart = runner.start({ ...config, eventCode: 'XYZ789' });
+
+    // A logout can call stop while the prior device teardown is still pending.
+    const supersedingStop = runner.stop();
+    finishStop();
+    await Promise.all([stopping, supersedingStop]);
+
+    await expect(pendingStart).rejects.toThrow('cancelled');
+    expect(mocks.runtimeInstances).toHaveLength(1);
+    expect(runner.isRunning).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('surfaces runtime startup errors and clears adapter state', async () => {
+    mocks.pluginStart.mockRejectedValueOnce(new Error('equipment unavailable'));
+    await expect(runner.start(config)).rejects.toThrow('equipment unavailable');
+    expect(runner.getStatus()).toMatchObject({ isRunning: false, pluginId: null });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('stops on a runtime authentication-expiry signal without marking the backend unreachable', async () => {
+    await runner.start(config);
+    const runtime = mocks.runtimeInstances[0] as FakeRuntime;
+    runtime.getSnapshot.mockReturnValue({ ...runtime.getSnapshot(), backendReachable: true });
+    runtime.emit('authenticationError');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(runner.getStatus()).toMatchObject({
+      isRunning: false,
+      backendReachable: true,
+      stopReason: 'Session expired — please log in again',
+    });
+  });
+
+  it('ignores a delayed authentication-expiry callback from a stopped runtime', async () => {
+    await runner.start(config);
+    const oldRuntime = mocks.runtimeInstances[0] as FakeRuntime;
+    oldRuntime.emit('authenticationError');
+    await runner.stop();
+    await runner.start(config);
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(runner.getStatus()).toMatchObject({ isRunning: true, stopReason: null });
+  });
+
+  it('ignores an event-health result that belongs to a stopped runtime', async () => {
+    await runner.start(config);
+    let finishHealth!: (status: string) => void;
+    mocks.checkEventHealth.mockImplementationOnce(() => new Promise<string>((resolve) => { finishHealth = resolve; }));
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(mocks.checkEventHealth).toHaveBeenCalledOnce();
+
+    await runner.stop();
+    await runner.start(config);
+    finishHealth('not_found');
     await Promise.resolve();
 
-    const statusPostsBeforeStop = mockFetch.mock.calls.filter(
-      (call) =>
-        typeof call[0] === 'string' &&
-        call[0].includes('/bridge/status') &&
-        call[1]?.method === 'POST',
-    );
-    // Exactly one status POST — the 401 short-circuited the loop (no 2s/4s/8s retry).
-    expect(statusPostsBeforeStop).toHaveLength(1);
-
-    // Advancing through the full retry window must NOT produce a retry of that POST.
-    await vi.advanceTimersByTimeAsync(20_000);
-
-    // 401 is an auth problem — it must NOT count as a circuit/backend failure,
-    // and backendReachable must be left untouched (no false "backend down").
-    expect(recordFailure).not.toHaveBeenCalled();
-    expect(runner.getStatus().backendReachable).toBe(true);
-
-    // The bridge is stopped with the session-expiry reason.
-    expect(stopSpy).toHaveBeenCalledWith('Session expired — please log in again');
-    expect(runner.isRunning).toBe(false);
-    expect(runner.getStatus().stopReason).toBe('Session expired — please log in again');
-
-    // Restore mock before afterEach cleanup.
-    mockFetch.mockResolvedValue({ ok: true, text: () => Promise.resolve('') });
+    expect(runner.getStatus()).toMatchObject({ isRunning: true, stopReason: null });
   });
 
-  it('logs setbuilder transport command payloads from the command poller', () => {
-    const logs: Array<{ message: string; level: string }> = [];
-    runner.on('log', (msg: { message: string; level: string }) => logs.push(msg));
-    const handleCommand = (
-      runner as unknown as {
-        handleCommand: (type: string, command?: { payload?: Record<string, unknown> }) => void;
-      }
-    ).handleCommand.bind(runner);
+  it('does not let an old startup rejection clear a newer runtime session', async () => {
+    let rejectOldStart!: (error: Error) => void;
+    mocks.pluginStart.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectOldStart = reject; }));
+    const oldStart = runner.start(config);
+    await Promise.resolve();
+    await runner.stop();
+    await runner.start(config);
+    rejectOldStart(new Error('late startup failure'));
 
-    handleCommand('setbuilder_transport', {
-      payload: { action: 'play', title: 'Track A', position_sec: 12.25 },
-    });
-    handleCommand('setbuilder_transport');
-
-    expect(
-      logs.some(
-        (l) =>
-          l.level === 'info' &&
-          l.message === 'Setbuilder transport command received: play "Track A" @ 12.3s',
-      ),
-    ).toBe(true);
-    expect(
-      logs.some(
-        (l) => l.level === 'info' && l.message === 'Setbuilder transport command received: unknown @ 0.0s',
-      ),
-    ).toBe(true);
+    await expect(oldStart).rejects.toThrow('late startup failure');
+    expect(runner.isRunning).toBe(true);
+    expect((mocks.runtimeInstances[1] as FakeRuntime).running).toBe(true);
   });
+
+  it('keeps event health and network diagnostics in the Electron adapter', async () => {
+    mocks.detectSubnetConflicts.mockReturnValue([{}]);
+    mocks.formatConflictWarnings.mockReturnValue(['Conflict warning']);
+    await runner.start(config);
+    expect(runner.getStatus().networkWarnings).toEqual(['Conflict warning']);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(mocks.checkEventHealth).toHaveBeenCalledWith(config.apiUrl, config.eventCode);
+  });
+
+  it('delegates equipment controls and restarts only after stopping the old runtime', async () => {
+    await runner.start(config);
+    const first = mocks.runtimeInstances[0] as FakeRuntime;
+    runner.resetDecks();
+    await runner.reconnect();
+    await runner.restartBridge();
+
+    expect(first.resetDecks).toHaveBeenCalledOnce();
+    expect(first.reconnect).toHaveBeenCalledOnce();
+    expect(first.stop).toHaveBeenCalledOnce();
+    expect(mocks.runtimeInstances).toHaveLength(2);
+    expect(runner.isRunning).toBe(true);
+  });
+
 });

@@ -15,8 +15,9 @@ from sqlalchemy.orm import Session
 from app.core.time import utcnow
 from app.models.event import Event
 from app.models.user import User
-from app.services.recommendation.scorer import EventProfile, ScoredTrack, TrackProfile
+from app.services.recommendation.scorer import EventProfile, ScoredTrack
 from app.services.recommendation.service import RecommendationResult
+from app.services.tracks.profile import TrackProfile
 
 
 @pytest.fixture
@@ -42,8 +43,8 @@ def user_with_beatport(db: Session, test_user: User) -> User:
 
 def _mock_playlists_response():
     """Mock playlist info objects for patching."""
-    from app.services.beatport import BeatportPlaylistInfo
-    from app.services.tidal import TidalPlaylistInfo
+    from app.services.providers.beatport import BeatportPlaylistInfo
+    from app.services.providers.tidal import TidalPlaylistInfo
 
     return {
         "tidal": [
@@ -109,8 +110,8 @@ def _mock_template_result():
 
 
 class TestGetPlaylists:
-    @patch("app.services.beatport.list_user_playlists")
-    @patch("app.services.tidal.list_user_playlists")
+    @patch("app.services.providers.beatport.list_user_playlists")
+    @patch("app.services.providers.tidal.list_user_playlists")
     def test_200_with_playlists_from_both_services(
         self,
         mock_tidal_playlists,

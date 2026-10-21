@@ -149,7 +149,7 @@ class TestPostNowPlaying:
     """Tests for POST /api/bridge/nowplaying endpoint."""
 
     @patch("app.core.bridge_auth.get_settings")
-    @patch("app.services.now_playing.lookup_spotify_album_art")
+    @patch("app.services.bridge_integration.lookup_spotify_album_art")
     def test_creates_now_playing(
         self, mock_spotify, mock_settings, client: TestClient, test_event: Event, db: Session
     ):
@@ -182,7 +182,7 @@ class TestPostNowPlaying:
         assert now_playing.source == "bridge"
 
     @patch("app.core.bridge_auth.get_settings")
-    @patch("app.services.now_playing.lookup_spotify_album_art")
+    @patch("app.services.bridge_integration.lookup_spotify_album_art")
     def test_archives_previous_track(
         self, mock_spotify, mock_settings, client: TestClient, test_event: Event, db: Session
     ):
@@ -286,7 +286,7 @@ class TestDeleteNowPlaying:
     """Tests for DELETE /api/bridge/nowplaying/{code} endpoint."""
 
     @patch("app.core.bridge_auth.get_settings")
-    @patch("app.services.now_playing.lookup_spotify_album_art")
+    @patch("app.services.bridge_integration.lookup_spotify_album_art")
     def test_clears_now_playing(
         self, mock_spotify, mock_settings, client: TestClient, test_event: Event, db: Session
     ):
@@ -322,7 +322,7 @@ class TestDeleteNowPlaying:
 class TestGetPublicNowPlaying:
     """Tests for GET /api/public/e/{code}/nowplaying endpoint."""
 
-    @patch("app.services.now_playing.lookup_spotify_album_art")
+    @patch("app.services.bridge_integration.lookup_spotify_album_art")
     @patch("app.core.bridge_auth.get_settings")
     def test_returns_now_playing(
         self, mock_settings, mock_spotify, client: TestClient, test_event: Event, db: Session
@@ -484,7 +484,7 @@ class TestRequestAutoMatch:
     """Tests for automatic request matching flow."""
 
     @patch("app.core.bridge_auth.get_settings")
-    @patch("app.services.now_playing.lookup_spotify_album_art")
+    @patch("app.services.bridge_integration.lookup_spotify_album_art")
     def test_full_request_flow(
         self, mock_spotify, mock_settings, client: TestClient, test_event: Event, db: Session
     ):

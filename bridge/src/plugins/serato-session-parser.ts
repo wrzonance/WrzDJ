@@ -26,7 +26,8 @@
 
 import { readdirSync, statSync } from "fs";
 import { join } from "path";
-import { homedir, platform } from "os";
+import { homedir } from "os";
+import { isMissingFileError } from "./file-errors.js";
 
 /** Parsed track entry from a Serato session file */
 export interface SeratoTrackEntry {
@@ -220,31 +221,26 @@ export function parseSessionBytes(buf: Buffer): ParseResult {
  * - Linux: ~/Music/_Serato_/History/Sessions/
  */
 export function getDefaultSeratoPath(): string {
-  const home = homedir();
-  const os = platform();
-
-  if (os === "darwin" || os === "linux") {
-    return join(home, "Music", "_Serato_", "History", "Sessions");
-  }
-
-  // Windows
-  return join(home, "Music", "_Serato_", "History", "Sessions");
+  return join(homedir(), "Music", "_Serato_", "History", "Sessions");
 }
 
 /**
  * Find the most recently modified `.session` file in the given directory.
  * Returns the full path, or null if no session files exist.
+ * Missing directories and files removed during discovery are expected;
+ * other filesystem errors propagate to the caller.
  */
 export function findLatestSessionFile(dir: string): string | null {
   let files: string[];
   try {
     files = readdirSync(dir);
-  } catch {
-    return null;
+  } catch (error) {
+    if (isMissingFileError(error)) return null;
+    throw error;
   }
 
   let latestPath: string | null = null;
-  let latestMtime = 0;
+  let latestMtime = -Infinity;
 
   for (const file of files) {
     if (!file.endsWith(".session")) continue;
@@ -252,12 +248,12 @@ export function findLatestSessionFile(dir: string): string | null {
     const fullPath = join(dir, file);
     try {
       const stat = statSync(fullPath);
-      if (stat.mtimeMs > latestMtime) {
+      if (stat.isFile() && stat.mtimeMs > latestMtime) {
         latestMtime = stat.mtimeMs;
         latestPath = fullPath;
       }
-    } catch {
-      // Skip files we can't stat
+    } catch (error) {
+      if (!isMissingFileError(error)) throw error;
     }
   }
 

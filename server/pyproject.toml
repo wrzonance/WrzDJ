@@ -23,13 +23,10 @@ dependencies = [
     "Pillow>=12.3.0",        # CVE-2026-25990 (banner upload); 2026-08 GHSA cluster (decoder OOB/DoS)
     "cryptography>=50.0.0",  # GHSA-537c-gmf6-5ccf / CVE-2026-34180; GHSA-g6cj-pr64-35w5 (PKCS#7 Bleichenbacher)
     "PyJWT>=2.15.1",         # 2.14/2.15 security fixes plus padded-JWS compatibility fix
-    "aiohttp>=3.14.3",       # GHSA cluster (ws memory bypass, HTTP/1 pipeline DoS, CRLF, x-origin cookies); GHSA-cq5v-8q36-5273
     "requests>=2.33.0",      # CVE-2026-25645 (URL parsing)
     # SECURITY: minimum versions per 2026-05-07 audit.
     "python-dotenv>=1.2.2",  # CVE-2026-28684 (transitive from pydantic-settings chain)
     "mako>=1.4.2",           # CVE-2026-44307; CVE-2026-102991 / GHSA-5639-2j2p-m4mx (drive-letter path traversal; transitive from alembic)
-    "multidict>=6.9.1",      # CVE-2026-104874 / GHSA-54p9-h82j-f925 (items-view reference leak; transitive from aiohttp)
-    "pyasn1>=0.6.4",         # CVE-2026-30922 (transitive from cryptography chain)
     # SECURITY: minimum versions per 2026-05-19 audit.
     "idna>=3.15",            # CVE-2026-45409 (transitive from requests/httpx)
     "urllib3>=2.8.0",        # GHSA-8988/vxq7/gh4c (proxy TLS bypass, streaming memory/CPU DoS)
@@ -56,6 +53,7 @@ dev = [
     "msgpack>=1.2.1",       # GHSA-6v7p-g79w-8964 (OOB read on Unpacker reuse; transitive from pip-audit via cachecontrol)
     "pip>=26.1.2",           # CVE-2026-3219, CVE-2026-6357, PYSEC-2026-196 (transitive from pip-audit)
     "setuptools>=83.0.0",    # PYSEC-2026-3447 (path traversal via PackageIndex.download)
+    "httpx2>=2.14.0",
 ]
 
 [build-system]

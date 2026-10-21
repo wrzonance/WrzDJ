@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import type { ActivityLogEntry } from '@/lib/api-types';
+import type { ActivityLogEntry } from '@/lib/api/types';
 
 interface ActivityLogPanelProps {
   entries: ActivityLogEntry[];

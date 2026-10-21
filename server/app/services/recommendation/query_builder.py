@@ -6,8 +6,9 @@ for Tidal from an EventProfile and/or template tracks.
 
 from __future__ import annotations
 
-from app.services.recommendation.scorer import EventProfile, TrackProfile
+from app.services.recommendation.scorer import EventProfile
 from app.services.track_normalizer import split_artists
+from app.services.tracks.profile import TrackProfile
 
 # Maximum number of search queries per source
 MAX_SEARCH_QUERIES = 3
@@ -36,7 +37,7 @@ def build_beatport_queries(
             if t.artist and t.artist.lower() not in ("unknown", "various artists"):
                 artist_counts[t.artist] = artist_counts.get(t.artist, 0) + 1
         # Sort by frequency, take top artists as search queries
-        top_artists = sorted(artist_counts, key=artist_counts.get, reverse=True)  # type: ignore[arg-type]
+        top_artists = sorted(artist_counts, key=lambda artist: artist_counts[artist], reverse=True)
         for artist in top_artists[:MAX_SEARCH_QUERIES]:
             queries.append(artist)
 
@@ -91,7 +92,7 @@ def build_tidal_queries(
                         if key not in display_names:
                             display_names[key] = canonical
 
-    top_keys = sorted(artist_counts, key=artist_counts.get, reverse=True)  # type: ignore[arg-type]
+    top_keys = sorted(artist_counts, key=lambda artist: artist_counts[artist], reverse=True)
     top_artists = [display_names[k] for k in top_keys]
 
     queries: list[str] = []

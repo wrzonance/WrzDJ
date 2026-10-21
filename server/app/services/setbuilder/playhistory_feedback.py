@@ -21,19 +21,19 @@ DJ action.
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
 
 from sqlalchemy.orm import Session
 
 from app.models.play_history import PlayHistory
 from app.models.set import Set, SetSlot
 from app.models.set_pool import SetPoolTrack
-from app.services.setbuilder.pool import dedupe_signature
+from app.schemas.setbuilder_history_types import SlotOutcome
 from app.services.track_normalizer import (
     fuzzy_match_score,
     normalize_artist,
     normalize_track_title,
 )
+from app.services.tracks.identity import dedupe_signature
 
 # Fuzzy rung: title weighted 0.7, artist 0.3, accept at >= 0.8 — same shape as
 # now_playing.fuzzy_match_pending_request so DJ-equipment metadata noise that the
@@ -43,8 +43,6 @@ _TITLE_WEIGHT = 0.7
 _ARTIST_WEIGHT = 0.3
 
 _SPOTIFY_PREFIX = "spotify:"
-
-SlotOutcome = Literal["played", "skipped", "out_of_order", "substituted"]
 
 
 @dataclass(frozen=True)

@@ -16,15 +16,17 @@ from sqlalchemy.orm import Session
 from app.models.set import Set, SetSlot
 from app.models.set_pool import SetPoolTrack
 from app.models.user import User
-from app.services.recommendation.camelot import compatibility_score, parse_key
-from app.services.recommendation.scorer import _score_bpm, _score_genre
+from app.services.music_matching import compatibility_score, parse_key, score_bpm, score_genre
 from app.services.setbuilder import targeting
 from app.services.setbuilder import taste_profile as taste_profile_service
+from app.services.setbuilder.constants import AVG_TRACK_LENGTH_SEC
 from app.services.setbuilder.curve import BUILTIN_TEMPLATES, interpolate_energy, uniform_midpoints
+from app.services.setbuilder.queries import ordered_slots as _ordered_slots
+from app.services.setbuilder.queries import pool_tracks as _pool_tracks
 from app.services.setbuilder.taste_profile import TasteProfile
+from app.services.setbuilder.track_metadata import TrackMeta, build_track_meta
 from app.services.setbuilder.vibe_resolver import ResolvedVibe, build_pool_vibe_states
 
-AVG_TRACK_LENGTH_SEC = 210
 MAX_SWAP_ITERATIONS = 50
 PAIRING_BOOST_POINTS = 20.0
 logger = logging.getLogger(__name__)
@@ -35,20 +37,6 @@ logger = logging.getLogger(__name__)
 # short of an all-night marathon; the length gate must not depend on the DJ having
 # remembered to set a target.
 DEFAULT_FALLBACK_SET_DURATION_SEC = 3 * 60 * 60
-
-
-@dataclass(frozen=True)
-class TrackMeta:
-    pool_id: int
-    slot_track_id: str
-    title: str
-    artist: str
-    bpm: float | None
-    key: str | None
-    energy: float | None
-    mood: str | None = None
-    genre: str | None = None
-    transitional_role: str | None = None
 
 
 @dataclass(frozen=True)
@@ -92,11 +80,14 @@ def build_set(db: Session, set_obj: Set, *, commit: bool = True) -> BuildResult:
     targets = _target_energies(db, set_obj, max_slots)
     vibes = _pool_vibes(db, set_obj)
     profile = _taste_profile_or_none(db, set_obj)
-    metas = [_track_meta(t, vibes.get(t.id), profile) for t in pool_tracks]
+    metas = [build_track_meta(t, vibes.get(t.id), profile) for t in pool_tracks]
     by_track_id = {m.slot_track_id: m for m in metas}
     # Real per-track durations (avg fallback for missing/<=0), keyed the same way
     # the chooser identifies tracks, so the loop can accumulate actual playtime.
-    duration_by_track_id = {_track_meta(t).slot_track_id: _track_duration(t) for t in pool_tracks}
+    duration_by_track_id = {
+        meta.slot_track_id: _track_duration(track)
+        for track, meta in zip(pool_tracks, metas, strict=True)
+    }
 
     target_sec = _effective_target_sec(set_obj)
     overlap_sec = max(0, int(set_obj.avg_transition_overlap_sec))
@@ -168,7 +159,10 @@ def recompute_transition_scores(
         slots = _ordered_slots(db, set_obj.id)
     vibes = _pool_vibes(db, set_obj)
     profile = _taste_profile_or_none(db, set_obj)
-    pool_metas = [_track_meta(t, vibes.get(t.id), profile) for t in _pool_tracks(db, set_obj.id)]
+    pool_metas = [
+        build_track_meta(track, vibes.get(track.id), profile)
+        for track in _pool_tracks(db, set_obj.id)
+    ]
     tracks_by_id = {meta.slot_track_id: meta for meta in pool_metas}
     scores: list[TransitionScore] = []
     for idx, slot in enumerate(slots):
@@ -217,19 +211,6 @@ def transition_score(
     return score, warnings
 
 
-def _pool_tracks(db: Session, set_id: int) -> list[SetPoolTrack]:
-    return (
-        db.query(SetPoolTrack)
-        .filter(SetPoolTrack.set_id == set_id)
-        .order_by(SetPoolTrack.id.asc())
-        .all()
-    )
-
-
-def _ordered_slots(db: Session, set_id: int) -> list[SetSlot]:
-    return db.query(SetSlot).filter(SetSlot.set_id == set_id).order_by(SetSlot.position.asc()).all()
-
-
 def _locked_slots(db: Session, set_id: int) -> list[SetSlot]:
     return (
         db.query(SetSlot)
@@ -246,49 +227,6 @@ def _saved_pairings(db: Session, set_id: int) -> set[tuple[str, str]]:
         if prev.track_id and curr.track_id:
             pairings.add((prev.track_id, curr.track_id))
     return pairings
-
-
-def _track_meta(
-    track: SetPoolTrack,
-    resolved: ResolvedVibe | None = None,
-    profile: TasteProfile | None = None,
-) -> TrackMeta:
-    """Build a scoring meta for a pool track.
-
-    Energy and mood are sourced from the read-time vibe cascade (own > community
-    > LLM, #391) when ``resolved`` is supplied — the pool row's own ``energy``/
-    ``mood`` are structurally ``None`` in production (no import fills them), so
-    without this overlay the builder's ``0.30 * _energy_match`` and mood terms
-    are dead constants (#543). The pool row remains the fallback so callers that
-    pass no resolved vibe (and any row that does carry its own value) still work.
-
-    ``genre`` is sourced straight off the pool row (#545) — it is a guaranteed
-    contract field hydrated from the global ``tracks`` row on upsert, NOT part of
-    the vibe cascade (which only carries energy/mood), so it reads like bpm/key
-    rather than via ``resolved``. Missing genre stays ``None`` and degrades
-    neutrally in ``_genre_continuity``.
-
-    ``transitional_role`` has no resolver source yet — the cascade only carries
-    energy/mood — so its scoring term stays a neutral constant (see ``_role_fit``
-    TODO). Re-point energy/mood at the global ``tracks`` row when that lands.
-    """
-    energy = track.energy
-    mood = None
-    if resolved is not None:
-        if resolved.energy is not None:
-            energy = taste_profile_service.taste_adjusted_energy(resolved, profile)
-        mood = resolved.mood
-    return TrackMeta(
-        pool_id=track.id,
-        slot_track_id=track.track_id or f"pool:{track.id}",
-        title=track.title,
-        artist=track.artist,
-        bpm=track.bpm,
-        key=track.camelot or track.key,
-        energy=energy,
-        mood=mood,
-        genre=track.genre,
-    )
 
 
 def _pool_vibes(db: Session, set_obj: Set) -> dict[int, ResolvedVibe]:
@@ -452,7 +390,7 @@ def _energy_match(energy: int | None, target: float) -> float:
 def _bpm_continuity(previous: TrackMeta | None, current: TrackMeta) -> float:
     if previous is None:
         return 0.75
-    return _score_bpm(current.bpm, previous.bpm)
+    return score_bpm(current.bpm, previous.bpm)
 
 
 def _camelot_continuity(previous: TrackMeta | None, current: TrackMeta, strictness: float) -> float:
@@ -473,7 +411,7 @@ def _genre_continuity(previous: TrackMeta | None, current: TrackMeta) -> float:
     """Reward staying within / smoothly moving between related genres (#545).
 
     Delegates to the recommendation scorer's curated genre affinity
-    (``_score_genre``: exact 1.0 / substring 0.5 / same-family 0.4 / related
+    (``score_genre``: exact 1.0 / substring 0.5 / same-family 0.4 / related
     family 0.2-0.4 / unrelated 0.0) by treating the previous track's genre as a
     single-element dominant-genre lane — DRY, no second genre taxonomy.
 
@@ -486,7 +424,7 @@ def _genre_continuity(previous: TrackMeta | None, current: TrackMeta) -> float:
     current_genre = current.genre.strip() if current.genre else ""
     if not previous_genre or not current_genre:
         return 0.5
-    return _score_genre(current_genre, [previous_genre])
+    return score_genre(current_genre, [previous_genre])
 
 
 def _role_fit(role: str | None, position: int, slot_count: int, target: float) -> float:

@@ -64,7 +64,7 @@ export default function RegisterPage() {
       <div className="container" style={{ maxWidth: '400px', marginTop: '100px' }}>
         <div className="card" style={{ textAlign: 'center' }}>
           <h1 style={{ marginBottom: '1rem' }}>Registration Disabled</h1>
-          <p style={{ color: '#9ca3af', marginBottom: '1.5rem' }}>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
             Self-registration is currently disabled. Contact an administrator.
           </p>
           <Link href="/login">
@@ -111,7 +111,7 @@ export default function RegisterPage() {
       <div className="container" style={{ maxWidth: '400px', marginTop: '100px' }}>
         <div className="card" style={{ textAlign: 'center' }}>
           <h1 style={{ marginBottom: '1rem', color: '#22c55e' }}>Registration Submitted</h1>
-          <p style={{ color: '#9ca3af', marginBottom: '1.5rem' }}>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
             {success}
           </p>
           <Link href="/login">
@@ -204,7 +204,7 @@ export default function RegisterPage() {
           </button>
         </form>
 
-        <p style={{ textAlign: 'center', marginTop: '1.5rem', color: '#9ca3af' }}>
+        <p style={{ textAlign: 'center', marginTop: '1.5rem', color: 'var(--text-secondary)' }}>
           Already have an account?{' '}
           <Link href="/login" style={{ color: '#3b82f6' }}>
             Sign In

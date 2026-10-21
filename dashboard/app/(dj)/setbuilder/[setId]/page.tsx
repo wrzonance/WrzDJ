@@ -1,36 +1,32 @@
 'use client';
 
-import { use, useCallback, useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { use, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useAuth } from '@/lib/auth';
+import { useDjAccess } from '@/lib/use-dj-access';
 import { api } from '@/lib/api';
-import type { SetDetail } from '@/lib/api-types';
+import type { SetDetail } from '@/lib/api/types';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import BuilderBrandMenu from '../components/BuilderBrandMenu';
 import BuilderWorkspace from '../components/BuilderWorkspace';
-import ChatSidebar from '../components/ChatSidebar';
+import ChatSidebar from '../components/chat/ChatSidebar';
 import MobileAgentOverlay from '../components/MobileAgentOverlay';
 import { useIsMobile } from '../components/useIsMobile';
-import PairingsOverlay from '../components/PairingsOverlay';
+import PairingsOverlay from '../components/pairings/PairingsOverlay';
 import PlaybackReportOverlay from '../components/PlaybackReportOverlay';
 import BuilderSettingsModal, { type BuilderSettings } from '../components/BuilderSettingsModal';
 import ConfirmActionDialog, { type ConfirmAction } from '../components/ConfirmActionDialog';
 import HistoryControls from '../components/HistoryControls';
-import PoolPanel from '../components/PoolPanel';
+import PoolPanel from '../components/pool/PoolPanel';
 import { useSetDocumentHistory } from '../components/useSetDocumentHistory';
+import { useBuilderPairings } from './useBuilderPairings';
+import { useSetTargetSettings } from './useSetTargetSettings';
+import { useBuilderBuildWorkflow } from './useBuilderBuildWorkflow';
 import TargetEditor from '../components/TargetEditor';
-import {
-  DEFAULT_AVG_TRANSITION_OVERLAP_SEC,
-  formatDuration,
-  type TargetProjection,
-  type TargetSettings,
-} from '../components/targetMath';
-import { poolRuntimeSec, projectedSlotCount } from '../components/poolRuntime';
+import { formatDuration } from '../components/curve/targetMath';
+import { poolRuntimeSec, projectedSlotCount } from '../components/pool/poolRuntime';
 import SetActionsMenu from '../SetActionsMenu';
 import styles from '../setbuilder.module.css';
-
-type OpenPairingsEvent = CustomEvent<{ pairingId?: number | null }>;
+import poolStyles from '../setbuilder-pool.module.css';
 
 const SETTINGS_KEY = 'wrzdj.setbuilder.settings';
 
@@ -68,9 +64,12 @@ function writeBuilderSettings(settings: BuilderSettings): void {
 
 export default function BuilderPage({ params }: { params: Promise<{ setId: string }> }) {
   const { setId } = use(params);
+  return <BuilderPageForSet key={setId} setId={setId} />;
+}
+
+function BuilderPageForSet({ setId }: { setId: string }) {
   const numericSetId = Number(setId);
-  const { isAuthenticated, isLoading, role } = useAuth();
-  const router = useRouter();
+  const { isAuthenticated, isLoading, canAccess } = useDjAccess();
   const isMobile = useIsMobile();
   // Defer mounting either chat surface until after hydration so a mobile client
   // never briefly mounts the desktop sidebar (and its agent fetches) before
@@ -81,47 +80,56 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
   const [error, setError] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
-  const [building, setBuilding] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [pairingsOpen, setPairingsOpen] = useState(false);
   const [playbackOpen, setPlaybackOpen] = useState(false);
-  const [pairingCount, setPairingCount] = useState(0);
-  const [initialPairingId, setInitialPairingId] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [builderSettings, setBuilderSettings] = useState(DEFAULT_SETTINGS);
-  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
-  const confirmResolverRef = useRef<((value: boolean) => void) | null>(null);
-  const historyEnabled = !isLoading && isAuthenticated && role !== 'pending';
+  const historyEnabled = canAccess;
   const history = useSetDocumentHistory(numericSetId, { enabled: historyEnabled });
+  const refreshWorkspace = useCallback(() => {
+    setRefreshToken((current) => current + 1);
+  }, []);
+  const pairings = useBuilderPairings(numericSetId, historyEnabled, refreshWorkspace);
   const [targetOpen, setTargetOpen] = useState(false);
-  const [targetSettings, setTargetSettings] = useState<TargetSettings>({
-    targetDurationSec: null,
-    avgTransitionOverlapSec: DEFAULT_AVG_TRANSITION_OVERLAP_SEC,
+  const target = useSetTargetSettings(set, setSet, setToast);
+  const { settings: targetSettings, projection: targetProjection } = target;
+
+  const onBuildComplete = useCallback((result: Awaited<ReturnType<typeof api.buildSet>>) => {
+    setRefreshToken((value) => value + 1);
+    setToast(`Pass 1 rebuilt ${result.slot_count} slots · ${result.iterations} refine steps`);
+  }, []);
+  const onBuildError = useCallback((message: string) => setError(message), []);
+  const {
+    building,
+    confirmAction,
+    requestBuild: runBuildWorkflow,
+    requestConfirmation,
+    closeConfirmation,
+  } = useBuilderBuildWorkflow({
+    setId: numericSetId,
+    commit: history.commit,
+    onBuildComplete,
+    onBuildError,
   });
-  const [targetProjection, setTargetProjection] = useState<TargetProjection | null>(null);
-  const [savingTarget, setSavingTarget] = useState(false);
-  const [targetError, setTargetError] = useState<string | null>(null);
 
   useEffect(() => {
     setChatSurfaceReady(true);
   }, []);
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push('/login');
-    } else if (!isLoading && role === 'pending') {
-      router.push('/pending');
-    }
-  }, [isAuthenticated, isLoading, role, router]);
-
-  useEffect(() => {
-    if (isAuthenticated) {
+    let cancelled = false;
+    if (canAccess) {
       api
         .getSet(numericSetId)
-        .then(setSet)
-        .catch(() => setError('Set not found'));
+        .then((loadedSet) => {
+          if (!cancelled) setSet(loadedSet);
+        })
+        .catch(() => {
+          if (!cancelled) setError('Set not found');
+        });
     }
-  }, [isAuthenticated, numericSetId]);
+    return () => { cancelled = true; };
+  }, [canAccess, numericSetId]);
 
   useEffect(() => {
     setBuilderSettings(readBuilderSettings());
@@ -132,39 +140,13 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
     writeBuilderSettings(next);
   };
 
-  const requestConfirmation = (action: ConfirmAction) =>
-    new Promise<boolean>((resolve) => {
-      confirmResolverRef.current?.(false);
-      confirmResolverRef.current = (value: boolean) => resolve(value);
-      setConfirmAction(action);
-    });
-
-  const closeConfirm = (value: boolean) => {
-    confirmResolverRef.current?.(value);
-    confirmResolverRef.current = null;
-    setConfirmAction(null);
-  };
-
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(null), 3000);
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const runBuild = async () => {
-    setBuilding(true);
-    try {
-      const result = await history.commit('Recompute set order', () => api.buildSet(numericSetId, true));
-      setRefreshToken((v) => v + 1);
-      setToast(`Pass 1 rebuilt ${result.slot_count} slots · ${result.iterations} refine steps`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to recompute set');
-    } finally {
-      setBuilding(false);
-    }
-  };
-
-  const requestBuild = async () => {
+  const requestBuild = () => {
     if (builderSettings.confirmRecompute) {
       const snapshotSlots = history.snapshot?.slots ?? [];
       const lockedCount = snapshotSlots.filter((slot) => slot.locked).length;
@@ -178,7 +160,7 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
       const builtSlots = projectedSlotCount(poolTracks, targetSettings);
       const remaining = Math.max(0, poolSize - builtSlots);
       const targetLabel = formatDuration(targetSettings.targetDurationSec);
-      const ok = await requestConfirmation({
+      const confirmation: ConfirmAction = {
         title: 'Recompute set order?',
         body: (
           <>
@@ -220,94 +202,12 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
         ),
         confirmLabel: 'Yes, recompute',
         kind: 'warning',
-      });
-      if (!ok) return;
+      };
+      void runBuildWorkflow(confirmation);
+      return;
     }
-    void runBuild();
+    void runBuildWorkflow();
   };
-
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    let cancelled = false;
-    const refreshCount = () => {
-      api
-        .getPairings(Number(setId))
-        .then((state) => {
-          if (!cancelled) setPairingCount(state.count);
-        })
-        .catch(() => {
-          if (!cancelled) setPairingCount(0);
-        });
-    };
-    const openPairings = (event: Event) => {
-      const detail = (event as OpenPairingsEvent).detail;
-      setInitialPairingId(detail?.pairingId ?? null);
-      setPairingsOpen(true);
-      refreshCount();
-    };
-    refreshCount();
-    window.addEventListener('wrzdj:setbuilder-pairings-changed', refreshCount);
-    window.addEventListener('wrzdj:open-pairings', openPairings);
-    return () => {
-      cancelled = true;
-      window.removeEventListener('wrzdj:setbuilder-pairings-changed', refreshCount);
-      window.removeEventListener('wrzdj:open-pairings', openPairings);
-    };
-  }, [isAuthenticated, setId]);
-
-  useEffect(() => {
-    if (!set) return;
-    setTargetSettings({
-      targetDurationSec: set.target_duration_sec,
-      avgTransitionOverlapSec:
-        set.avg_transition_overlap_sec ?? DEFAULT_AVG_TRANSITION_OVERLAP_SEC,
-    });
-  }, [set?.id, set?.target_duration_sec, set?.avg_transition_overlap_sec]);
-
-  const targetDirty =
-    !!set &&
-    (targetSettings.targetDurationSec !== set.target_duration_sec ||
-      targetSettings.avgTransitionOverlapSec !==
-        (set.avg_transition_overlap_sec ?? DEFAULT_AVG_TRANSITION_OVERLAP_SEC));
-
-  const undoTarget = () => {
-    if (!set) return;
-    setTargetError(null);
-    setTargetSettings({
-      targetDurationSec: set.target_duration_sec,
-      avgTransitionOverlapSec:
-        set.avg_transition_overlap_sec ?? DEFAULT_AVG_TRANSITION_OVERLAP_SEC,
-    });
-  };
-
-  const updateTargetSettings = useCallback((settings: TargetSettings) => {
-    setTargetError(null);
-    setTargetSettings(settings);
-  }, []);
-
-  const saveTarget = async () => {
-    if (!set || !targetDirty) return;
-    setSavingTarget(true);
-    setTargetError(null);
-    try {
-      const updated = await api.updateSetTargetSettings(
-        set.id,
-        targetSettings.targetDurationSec,
-        targetSettings.avgTransitionOverlapSec,
-      );
-      setSet(updated);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to save target settings';
-      setTargetError(message);
-      setToast(message);
-    } finally {
-      setSavingTarget(false);
-    }
-  };
-
-  const handleProjectionChange = useCallback((projection: TargetProjection) => {
-    setTargetProjection(projection);
-  }, []);
 
   if (isLoading || !isAuthenticated) {
     return (
@@ -369,18 +269,18 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
               <TargetEditor
                 settings={targetSettings}
                 projection={targetProjection}
-                dirty={targetDirty}
-                saving={savingTarget}
+                dirty={target.dirty}
+                saving={target.saving}
                 open={targetOpen}
                 onOpenChange={setTargetOpen}
-                onSettingsChange={updateTargetSettings}
-                onSave={saveTarget}
-                onUndo={undoTarget}
+                onSettingsChange={target.update}
+                onSave={target.save}
+                onUndo={target.undo}
               />
             )}
-            {targetError ? (
+            {target.error ? (
               <span className={styles.targetSaveError} role="alert">
-                {targetError}
+                {target.error}
               </span>
             ) : null}
           </span>
@@ -397,11 +297,8 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
           <button
             type="button"
             className={styles.topbarPairingsBtn}
-            aria-label={`Open pairings (${pairingCount})`}
-            onClick={() => {
-              setInitialPairingId(null);
-              setPairingsOpen(true);
-            }}
+            aria-label={`Open pairings (${pairings.count})`}
+            onClick={() => pairings.openPairings()}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
               <path
@@ -414,8 +311,23 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
               />
             </svg>
             Pairings
-            <span className={styles.topbarPairingsBadge}>{pairingCount}</span>
+            <span className={styles.topbarPairingsBadge}>{pairings.count}</span>
           </button>
+          {pairings.hasRefreshError && (
+            <>
+              <span className={styles.targetSaveError} role="alert">
+                Could not refresh saved pairings.
+              </span>
+              <button
+                type="button"
+                className="btn btn-sm"
+                aria-label="Retry pairing count"
+                onClick={() => void pairings.refresh()}
+              >
+                Retry
+              </button>
+            </>
+          )}
           {set?.event_id != null && (
             <button
               type="button"
@@ -448,7 +360,7 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
           <button
             className="btn btn-sm"
             title="Re-run deterministic pass 1"
-            onClick={() => void requestBuild()}
+            onClick={requestBuild}
             disabled={building}
           >
             {building ? 'Recomputing...' : 'Recompute'}
@@ -471,6 +383,9 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
 
         <BuilderWorkspace
           setId={numericSetId}
+          jumpSlotRequest={pairings.jumpSlotRequest}
+          onOpenPairings={pairings.openPairings}
+          onPairingsChanged={pairings.handlePairingsChanged}
           refreshToken={refreshToken}
           snapshot={history.snapshot}
           snapshotVersion={history.snapshotVersion}
@@ -482,7 +397,7 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
           confirmRecompute={builderSettings.confirmRecompute}
           requestConfirmation={requestConfirmation}
           targetSettings={targetSettings}
-          onProjectionChange={handleProjectionChange}
+          onProjectionChange={target.updateProjection}
         />
 
         {chatSurfaceReady && !isMobile && (
@@ -507,33 +422,25 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
         />
       )}
       {toast && (
-        <div className={styles.poolToast} role="status" aria-live="polite">
+        <div className={poolStyles.poolToast} role="status" aria-live="polite">
           {toast}
         </div>
       )}
 
       <PairingsOverlay
         setId={Number(setId)}
-        open={pairingsOpen}
-        initialPairingId={initialPairingId}
-        onClose={() => setPairingsOpen(false)}
-        onChanged={setPairingCount}
-        onJumpSlot={(idx) =>
-          window.dispatchEvent(
-            new CustomEvent('wrzdj:setbuilder-jump-slot', { detail: { idx } }),
-          )
-        }
+        open={pairings.open}
+        initialPairingId={pairings.initialPairingId}
+        onClose={pairings.closePairings}
+        onChanged={pairings.handlePairingsChanged}
+        onJumpSlot={pairings.jumpToSlot}
       />
       {set?.event_id != null && (
         <PlaybackReportOverlay
           setId={numericSetId}
           open={playbackOpen}
           onClose={() => setPlaybackOpen(false)}
-          onApplied={() =>
-            window.dispatchEvent(
-              new CustomEvent('wrzdj:setbuilder-pairings-changed', { detail: {} }),
-            )
-          }
+          onApplied={() => pairings.handlePairingsChanged()}
         />
       )}
       <BuilderSettingsModal
@@ -546,11 +453,11 @@ export default function BuilderPage({ params }: { params: Promise<{ setId: strin
       />
       <ConfirmActionDialog
         action={confirmAction}
-        onCancel={() => closeConfirm(false)}
-        onConfirm={() => closeConfirm(true)}
+        onCancel={() => closeConfirmation(false)}
+        onConfirm={() => closeConfirmation(true)}
       />
       {history.toast && (
-        <div className={styles.poolToast} role="status">
+        <div className={poolStyles.poolToast} role="status">
           {history.toast}
         </div>
       )}

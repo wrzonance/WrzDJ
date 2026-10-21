@@ -51,7 +51,7 @@ export function BridgeControls({ status, selectedEventCode, joinCode }: BridgeCo
       {error && <div className="error-message">{error}</div>}
 
       {status.stopReason && !status.isRunning && (
-        <div style={{ color: '#f59e0b', fontSize: '0.8rem', marginBottom: '0.5rem', padding: '6px 8px', background: '#2a2000', borderRadius: '4px' }}>
+        <div style={{ color: 'var(--color-warning)', fontSize: '0.8rem', marginBottom: '0.5rem', padding: '6px 8px', background: 'var(--color-warning-background)', borderRadius: '4px' }}>
           Bridge stopped: {status.stopReason}
         </div>
       )}
@@ -68,7 +68,7 @@ export function BridgeControls({ status, selectedEventCode, joinCode }: BridgeCo
             </button>
           </div>
           {!selectedEventCode && (
-            <p style={{ color: '#f59e0b', fontSize: '0.8rem', marginTop: '0.5rem' }}>
+            <p style={{ color: 'var(--color-warning)', fontSize: '0.8rem', marginTop: '0.5rem' }}>
               Select an event above to start the bridge.
             </p>
           )}

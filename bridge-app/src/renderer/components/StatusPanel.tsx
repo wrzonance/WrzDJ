@@ -13,14 +13,12 @@ export function StatusPanel({ status, joinCode }: StatusPanelProps) {
 
   return (
     <>
-      {/* Backend unreachable warning */}
       {!status.backendReachable && (
         <div className="network-warning">
           <p>Backend unreachable — track updates are not being sent.</p>
         </div>
       )}
 
-      {/* Network warnings */}
       {status.networkWarnings.length > 0 && (
         <div className="network-warning">
           {status.networkWarnings.map((warning, i) => (
@@ -29,7 +27,6 @@ export function StatusPanel({ status, joinCode }: StatusPanelProps) {
         </div>
       )}
 
-      {/* Connection + Now Playing */}
       <div className="card">
         <div className="card-title">Status</div>
 
@@ -55,14 +52,13 @@ export function StatusPanel({ status, joinCode }: StatusPanelProps) {
                 {status.currentTrack.artist}
                 {status.currentTrack.album && ` — ${status.currentTrack.album}`}
                 {' '}
-                <span style={{ color: '#666' }}>Deck {status.currentTrack.deckId}</span>
+                <span style={{ color: 'var(--color-log-debug)' }}>Deck {status.currentTrack.deckId}</span>
               </p>
             </div>
           </div>
         )}
       </div>
 
-      {/* Deck States */}
       {status.deckStates.length > 0 && (
         <div className="card">
           <div className="card-title">Decks</div>

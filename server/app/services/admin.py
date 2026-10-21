@@ -1,3 +1,5 @@
+from typing import TypedDict
+
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -7,6 +9,15 @@ from app.models.request import Request
 from app.models.user import User, UserRole
 from app.services.auth import get_password_hash
 from app.services.event import delete_event
+
+
+class AdminSystemStats(TypedDict):
+    total_users: int
+    active_users: int
+    pending_users: int
+    total_events: int
+    active_events: int
+    total_requests: int
 
 
 def get_all_users(
@@ -129,7 +140,7 @@ def get_all_events_admin(db: Session, page: int = 1, limit: int = 20) -> tuple[l
     return items, total
 
 
-def get_system_stats(db: Session) -> dict:
+def get_system_stats(db: Session) -> AdminSystemStats:
     """Get system-wide statistics."""
     total_users = db.query(User).count()
     active_users = (

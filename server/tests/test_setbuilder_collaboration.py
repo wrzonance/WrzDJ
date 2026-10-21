@@ -1,7 +1,14 @@
 """Invite-link collaboration API coverage for issue #408."""
 
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.models.base import Base
 from app.models.set import Set, SetCollaborator
+from app.models.set_collaborator_invite import SetCollaboratorInvite
 from app.services.auth import get_password_hash
+from app.services.setbuilder import collaboration
 
 
 def _login(client, username, password):
@@ -158,6 +165,95 @@ def test_expired_invite_cannot_be_accepted(client, db, test_user, auth_headers):
     accepted = client.post(f"/api/setbuilder/collaborator-invites/{token}/accept", headers=headers)
     assert accepted.status_code == 410
     assert db.query(SetCollaborator).filter_by(user_id=recipient.id).count() == 0
+
+
+def test_malformed_invite_token_is_rejected_at_the_acceptance_boundary(
+    client, db, test_user, auth_headers
+):
+    from app.models.set_collaborator_invite import SetCollaboratorInvite
+
+    set_obj = Set(owner_id=test_user.id, name="Malformed invite")
+    db.add(set_obj)
+    db.commit()
+    created = client.post(
+        f"/api/setbuilder/sets/{set_obj.id}/collaborator-invites",
+        json={"role": "viewer"},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201
+    recipient = _make_dj(db, "malformed-recipient")
+    recipient_headers = _login(client, "malformed-recipient", "x" * 12)
+
+    rejected = client.post(
+        "/api/setbuilder/collaborator-invites/short/accept",
+        headers=recipient_headers,
+    )
+
+    assert rejected.status_code == 410
+    assert rejected.json() == {"detail": "Invite is no longer available"}
+    invite = db.query(SetCollaboratorInvite).one()
+    assert invite.accepted_at is None
+    assert db.query(SetCollaborator).filter_by(user_id=recipient.id).count() == 0
+
+
+def test_concurrent_invite_acceptance_maps_unique_conflict_to_already_collaborator(
+    tmp_path, monkeypatch
+):
+    engine = create_engine(f"sqlite:///{tmp_path / 'invite-race.db'}")
+    Base.metadata.create_all(bind=engine)
+    sessions = sessionmaker(bind=engine)
+    try:
+        with sessions() as setup:
+            owner = _make_isolated_user(setup, "race-owner")
+            recipient = _make_isolated_user(setup, "race-recipient")
+            set_obj = Set(owner_id=owner.id, name="Concurrent invite")
+            setup.add(set_obj)
+            setup.commit()
+            invite, token = collaboration.create_invite(setup, set_obj.id, owner, "editor")
+            invite_id = invite.id
+            set_id = set_obj.id
+            recipient_id = recipient.id
+            owner_id = owner.id
+
+        with sessions() as accepting:
+            from app.models.user import User
+
+            recipient = accepting.get(User, recipient_id)
+            real_commit = accepting.commit
+
+            def commit_with_competing_acceptance():
+                with sessions() as competitor:
+                    competitor.add(
+                        SetCollaborator(
+                            set_id=set_id,
+                            user_id=recipient_id,
+                            role="editor",
+                            invited_by=owner_id,
+                        )
+                    )
+                    competitor.commit()
+                real_commit()
+
+            monkeypatch.setattr(accepting, "commit", commit_with_competing_acceptance)
+            with pytest.raises(collaboration.AlreadyCollaborator):
+                collaboration.accept_invite(accepting, token, recipient)
+            accepting.expire_all()
+            assert accepting.query(SetCollaborator).filter_by(user_id=recipient_id).count() == 1
+            invite = accepting.get(SetCollaboratorInvite, invite_id)
+            assert invite.accepted_at is None
+            assert invite.revoked_at is None
+    finally:
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
+def _make_isolated_user(db: Session, username: str):
+    from app.models.user import User
+
+    user = User(username=username, password_hash="test-hash", role="dj")
+    db.add(user)
+    db.flush()
+    return user
 
 
 def test_owner_can_revoke_invite_and_token_is_stored_as_hash(client, db, test_user, auth_headers):

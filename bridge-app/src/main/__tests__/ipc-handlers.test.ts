@@ -5,8 +5,9 @@ import { IPC_CHANNELS, DEFAULT_SETTINGS } from '../../shared/types.js';
 const mocks = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   const store = {
+    initializeStore: vi.fn(),
     getApiUrl: vi.fn(() => 'https://api.example.test'),
-    getToken: vi.fn(() => 'stored-token'),
+    readAndRepairToken: vi.fn(() => 'stored-token'),
     setApiUrl: vi.fn(),
     setToken: vi.fn(),
     clearToken: vi.fn(),
@@ -88,7 +89,7 @@ vi.mock('../bridge-runner.js', () => ({ BridgeRunner: mocks.MockBridgeRunner }))
 vi.mock('../log-file-writer.js', () => ({ LogFileWriter: mocks.MockLogFileWriter }));
 vi.mock('../bridge-api-key-service.js', () => ({ fetchBridgeApiKey: mocks.fetchBridgeApiKey }));
 vi.mock('../events-service.js', () => ({ fetchEvents: mocks.fetchEvents }));
-vi.mock('@bridge/plugin-registry.js', () => ({ listPluginMeta: vi.fn(() => []) }));
+vi.mock('@wrzdj/bridge/electron', () => ({ listPluginMeta: vi.fn(() => []), registerBuiltinPlugins: vi.fn() }));
 
 const { registerIpcHandlers, getBridgeRunner, getLogFilePath } = await import('../ipc-handlers.js');
 
@@ -114,7 +115,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mainWindow.isDestroyed.mockReturnValue(false);
   mocks.store.getApiUrl.mockReturnValue('https://api.example.test');
-  mocks.store.getToken.mockReturnValue('stored-token');
+  mocks.store.readAndRepairToken.mockReturnValue('stored-token');
   mocks.store.getApiUrl.mockReturnValue('https://api.example.test');
   mocks.store.getSettings.mockReturnValue(DEFAULT_SETTINGS);
   (getBridgeRunner() as unknown as InstanceType<typeof mocks.MockBridgeRunner>).isRunning = false;
@@ -183,8 +184,10 @@ describe('auth:login IPC boundary', () => {
 
 describe('auth:logout IPC boundary', () => {
   it('clears the stored token and notifies the renderer', async () => {
+    const runner = getBridgeRunner() as unknown as InstanceType<typeof mocks.MockBridgeRunner>;
     await handler(IPC_CHANNELS.AUTH_LOGOUT)({});
 
+    expect(runner.stop).toHaveBeenCalledOnce();
     expect(mocks.store.clearToken).toHaveBeenCalledOnce();
     expect(mainWindow.webContents.send).toHaveBeenCalledWith(
       IPC_CHANNELS.AUTH_CHANGED,
@@ -192,27 +195,130 @@ describe('auth:logout IPC boundary', () => {
     );
   });
 
-  it('completes logout without sending after the window closes during stop', async () => {
+  it('does not send another logout event after the window closes during stop', async () => {
     const runner = getBridgeRunner() as unknown as InstanceType<typeof mocks.MockBridgeRunner>;
     runner.isRunning = true;
     let resolveStop!: () => void;
     runner.stop.mockImplementationOnce(() => new Promise<void>((resolve) => { resolveStop = resolve; }));
     const logoutRequest = handler(IPC_CHANNELS.AUTH_LOGOUT)({});
+    expect(mainWindow.webContents.send).toHaveBeenCalledOnce();
     mainWindow.isDestroyed.mockReturnValue(true);
     mainWindow.emit('closed');
     resolveStop();
 
     await expect(logoutRequest).resolves.toBeUndefined();
     expect(mocks.store.clearToken).toHaveBeenCalledOnce();
-    expect(mainWindow.webContents.send).not.toHaveBeenCalled();
+    expect(mainWindow.webContents.send).toHaveBeenCalledOnce();
+  });
+
+  it('still clears credentials when best-effort bridge shutdown fails', async () => {
+    const runner = getBridgeRunner() as unknown as InstanceType<typeof mocks.MockBridgeRunner>;
+    runner.isRunning = true;
+    runner.stop.mockRejectedValueOnce(new Error('device cleanup failed'));
+
+    await expect(handler(IPC_CHANNELS.AUTH_LOGOUT)({})).resolves.toBeUndefined();
+
+    expect(mocks.store.clearToken).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a successful newer login when an older logout stop finishes later', async () => {
+    const runner = getBridgeRunner() as unknown as InstanceType<typeof mocks.MockBridgeRunner>;
+    let resolveStop!: () => void;
+    runner.stop.mockImplementationOnce(() => new Promise<void>((resolve) => { resolveStop = resolve; }));
+
+    const logoutRequest = handler(IPC_CHANNELS.AUTH_LOGOUT)({});
+    let sendsBeforeOldStopFinishes: number;
+    try {
+      expect(mocks.store.clearToken).toHaveBeenCalledOnce();
+      expect(mainWindow.webContents.send).toHaveBeenLastCalledWith(
+        IPC_CHANNELS.AUTH_CHANGED,
+        expect.objectContaining({ isAuthenticated: false }),
+      );
+
+      await handler(IPC_CHANNELS.AUTH_LOGIN)({}, 'https://new.example', 'new-dj', 'password');
+      sendsBeforeOldStopFinishes = mainWindow.webContents.send.mock.calls.length;
+      expect(mocks.store.setToken).toHaveBeenCalledWith('new-token');
+      expect(mainWindow.webContents.send).toHaveBeenLastCalledWith(
+        IPC_CHANNELS.AUTH_CHANGED,
+        expect.objectContaining({ isAuthenticated: true, username: 'dj' }),
+      );
+    } finally {
+      resolveStop();
+      await logoutRequest;
+    }
+
+    expect(mocks.store.clearToken).toHaveBeenCalledOnce();
+    expect(mainWindow.webContents.send).toHaveBeenCalledTimes(sendsBeforeOldStopFinishes);
+    expect(mainWindow.webContents.send).toHaveBeenLastCalledWith(
+      IPC_CHANNELS.AUTH_CHANGED,
+      expect.objectContaining({ isAuthenticated: true, username: 'dj' }),
+    );
+  });
+
+  it('leaves logout effective when a newer login attempt fails during bridge shutdown', async () => {
+    const runner = getBridgeRunner() as unknown as InstanceType<typeof mocks.MockBridgeRunner>;
+    let resolveStop!: () => void;
+    runner.stop.mockImplementationOnce(() => new Promise<void>((resolve) => { resolveStop = resolve; }));
+    mocks.login.mockRejectedValueOnce(new Error('invalid credentials'));
+
+    const logoutRequest = handler(IPC_CHANNELS.AUTH_LOGOUT)({});
+    let sendsBeforeOldStopFinishes: number;
+    try {
+      const failedLogin = handler(IPC_CHANNELS.AUTH_LOGIN)({}, 'https://new.example', 'new-dj', 'wrong');
+      await expect(failedLogin).rejects.toThrow('invalid credentials');
+      expect(mocks.store.clearToken).toHaveBeenCalledOnce();
+      expect(mainWindow.webContents.send).toHaveBeenLastCalledWith(
+        IPC_CHANNELS.AUTH_CHANGED,
+        expect.objectContaining({ isAuthenticated: false }),
+      );
+      sendsBeforeOldStopFinishes = mainWindow.webContents.send.mock.calls.length;
+    } finally {
+      resolveStop();
+      await logoutRequest;
+    }
+
+    expect(mocks.store.clearToken).toHaveBeenCalledOnce();
+    expect(mocks.store.setToken).not.toHaveBeenCalled();
+    expect(mainWindow.webContents.send).toHaveBeenCalledTimes(sendsBeforeOldStopFinishes);
+  });
+
+  it('does not restore credentials when logout supersedes a pending login', async () => {
+    let resolveLogin!: (result: { accessToken: string; username: string }) => void;
+    mocks.login.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveLogin = resolve;
+    }));
+
+    const loginRequest = handler(IPC_CHANNELS.AUTH_LOGIN)({}, 'https://other.example', 'dj', 'secret');
+    await handler(IPC_CHANNELS.AUTH_LOGOUT)({});
+    resolveLogin({ accessToken: 'new-token', username: 'dj' });
+
+    await expect(loginRequest).rejects.toThrow('session changed');
+    expect(mocks.store.clearToken).toHaveBeenCalledOnce();
+    expect(mocks.store.setToken).not.toHaveBeenCalled();
+    expect(mocks.store.setApiUrl).not.toHaveBeenCalled();
   });
 });
 
 describe('events:fetch IPC boundary', () => {
   it('rejects unauthenticated event fetches', async () => {
-    mocks.store.getToken.mockReturnValueOnce(null as unknown as string);
+    mocks.store.readAndRepairToken.mockReturnValue(null as unknown as string);
 
     await expect(handler(IPC_CHANNELS.EVENTS_FETCH)({})).rejects.toThrow('Not authenticated');
+  });
+});
+
+describe('bridge control IPC boundary', () => {
+  it.each([
+    [IPC_CHANNELS.BRIDGE_STOP, 'stop'],
+    [IPC_CHANNELS.BRIDGE_RESET_DECKS, 'resetDecks'],
+    [IPC_CHANNELS.BRIDGE_RECONNECT, 'reconnect'],
+    [IPC_CHANNELS.BRIDGE_RESTART, 'restartBridge'],
+  ] as const)('rejects unauthenticated %s requests before calling the runner', async (channel, method) => {
+    const runner = getBridgeRunner() as unknown as InstanceType<typeof mocks.MockBridgeRunner>;
+    mocks.store.readAndRepairToken.mockReturnValue(null as unknown as string);
+
+    await expect(handler(channel)({})).rejects.toThrow('Not authenticated');
+    expect(runner[method]).not.toHaveBeenCalled();
   });
 });
 
@@ -225,18 +331,20 @@ describe('auth:getState IPC boundary', () => {
       isAuthenticated: false,
       username: null,
       apiUrl: 'https://custom.example',
+      verificationError: 'Could not verify the saved session. Check the connection and try again.',
     });
     expect(mocks.store.clearToken).not.toHaveBeenCalled();
   });
 
   it('returns the configured URL without verifying when no token is stored', async () => {
     mocks.store.getApiUrl.mockReturnValue('https://custom.example');
-    mocks.store.getToken.mockReturnValueOnce(null as unknown as string);
+    mocks.store.readAndRepairToken.mockReturnValueOnce(null as unknown as string);
 
     await expect(handler(IPC_CHANNELS.AUTH_GET_STATE)({})).resolves.toEqual({
       isAuthenticated: false,
       username: null,
       apiUrl: 'https://custom.example',
+      verificationError: null,
     });
     expect(mocks.verifyToken).not.toHaveBeenCalled();
   });
@@ -251,6 +359,7 @@ describe('auth:getState IPC boundary', () => {
       isAuthenticated: false,
       username: null,
       apiUrl: 'https://api.example.test',
+      verificationError: null,
     });
   });
 
@@ -264,7 +373,52 @@ describe('auth:getState IPC boundary', () => {
       isAuthenticated: true,
       username: 'dj-admin',
       apiUrl: 'https://api.example.test',
+      verificationError: null,
     });
+  });
+
+  it('does not clear a newer login when saved-token verification completes stale', async () => {
+    // Regression for 57cfcdc6867f: a delayed rejection for token A must not clear token B.
+    let finishVerification!: (username: string | null) => void;
+    mocks.verifyToken.mockImplementationOnce(() => new Promise((resolve) => {
+      finishVerification = resolve;
+    }));
+    mocks.store.setApiUrl.mockImplementation((url: string) => {
+      mocks.store.getApiUrl.mockReturnValue(url);
+    });
+    const staleVerification = handler(IPC_CHANNELS.AUTH_GET_STATE)({}) as Promise<unknown>;
+
+    await handler(IPC_CHANNELS.AUTH_LOGIN)({}, 'https://new.example', 'new-dj', 'password');
+    finishVerification(null);
+    await staleVerification;
+
+    expect(mocks.store.setApiUrl).toHaveBeenCalledWith('https://new.example');
+    expect(mocks.store.setToken).toHaveBeenCalledWith('new-token');
+    expect(mocks.store.clearToken).not.toHaveBeenCalled();
+  });
+
+  it('does not report authenticated after logout supersedes saved-token verification', async () => {
+    // Regression for 57cfcdc6867f: a late positive verification cannot resurrect a logged-out session.
+    let finishVerification!: (username: string | null) => void;
+    mocks.verifyToken.mockImplementationOnce(() => new Promise((resolve) => {
+      finishVerification = resolve;
+    }));
+    mocks.store.clearToken.mockImplementation(() => {
+      mocks.store.readAndRepairToken.mockReturnValue(null as unknown as string);
+    });
+    const staleVerification = handler(IPC_CHANNELS.AUTH_GET_STATE)({}) as Promise<{
+      isAuthenticated: boolean;
+      username: string | null;
+    }>;
+
+    await handler(IPC_CHANNELS.AUTH_LOGOUT)({});
+    finishVerification('old-dj');
+
+    await expect(staleVerification).resolves.toMatchObject({
+      isAuthenticated: false,
+      username: null,
+    });
+    expect(mocks.store.clearToken).toHaveBeenCalledOnce();
   });
 });
 
@@ -282,13 +436,129 @@ describe('bridge control IPC boundary', () => {
     });
   });
 
+  it('does not start after logout invalidates an in-flight API-key lookup', async () => {
+    // Regression coverage for 57cfcdc6867f: pending startup must not outlive logout.
+    let resolveApiKey!: (key: string) => void;
+    mocks.fetchBridgeApiKey.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveApiKey = resolve;
+    }));
+
+    const startRequest = handler(IPC_CHANNELS.BRIDGE_START)({}, 'AB12');
+    await handler(IPC_CHANNELS.AUTH_LOGOUT)({});
+    resolveApiKey('bridge-key');
+
+    await expect(startRequest).rejects.toThrow('session changed');
+    const runner = getBridgeRunner() as unknown as InstanceType<typeof mocks.MockBridgeRunner>;
+    expect(runner.start).not.toHaveBeenCalled();
+    expect(mocks.store.clearToken).toHaveBeenCalledOnce();
+  });
+
+  it('does not start after an explicit stop invalidates an in-flight API-key lookup', async () => {
+    let resolveApiKey!: (key: string) => void;
+    mocks.fetchBridgeApiKey.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveApiKey = resolve;
+    }));
+
+    const startRequest = handler(IPC_CHANNELS.BRIDGE_START)({}, 'AB12');
+    await handler(IPC_CHANNELS.BRIDGE_STOP)({});
+    resolveApiKey('bridge-key');
+
+    await expect(startRequest).rejects.toThrow('session changed');
+    const runner = getBridgeRunner() as unknown as InstanceType<typeof mocks.MockBridgeRunner>;
+    expect(runner.start).not.toHaveBeenCalled();
+    expect(runner.stop).toHaveBeenCalledOnce();
+  });
+
+  it('does not start with credentials captured before a new login', async () => {
+    let resolveApiKey!: (key: string) => void;
+    mocks.fetchBridgeApiKey.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveApiKey = resolve;
+    }));
+
+    const startRequest = handler(IPC_CHANNELS.BRIDGE_START)({}, 'AB12');
+    await handler(IPC_CHANNELS.AUTH_LOGIN)({}, 'https://other.example', 'dj', 'secret');
+    resolveApiKey('bridge-key');
+
+    await expect(startRequest).rejects.toThrow('session changed');
+    const runner = getBridgeRunner() as unknown as InstanceType<typeof mocks.MockBridgeRunner>;
+    expect(runner.start).not.toHaveBeenCalled();
+    expect(mocks.store.setToken).toHaveBeenCalledWith('new-token');
+  });
+
+  it('rejects a new start while login is changing the authenticated session', async () => {
+    let resolveLogin!: (result: { accessToken: string; username: string }) => void;
+    mocks.login.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveLogin = resolve;
+    }));
+
+    const loginRequest = handler(IPC_CHANNELS.AUTH_LOGIN)({}, 'https://other.example', 'dj', 'secret');
+    await expect(handler(IPC_CHANNELS.BRIDGE_START)({}, 'AB12'))
+      .rejects.toThrow('login is in progress');
+    expect(mocks.fetchBridgeApiKey).not.toHaveBeenCalled();
+
+    resolveLogin({ accessToken: 'new-token', username: 'dj' });
+    await loginRequest;
+  });
+
+  it.each(['API URL', 'token'])('rejects startup when the captured %s changes during key retrieval', async (credential) => {
+    let resolveApiKey!: (key: string) => void;
+    mocks.fetchBridgeApiKey.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveApiKey = resolve;
+    }));
+
+    const startRequest = handler(IPC_CHANNELS.BRIDGE_START)({}, 'AB12');
+    if (credential === 'API URL') {
+      mocks.store.getApiUrl.mockReturnValue('https://rotated.example');
+    } else {
+      mocks.store.readAndRepairToken.mockReturnValue('rotated-token');
+    }
+    resolveApiKey('bridge-key');
+
+    await expect(startRequest).rejects.toThrow('session changed');
+    const runner = getBridgeRunner() as unknown as InstanceType<typeof mocks.MockBridgeRunner>;
+    expect(runner.start).not.toHaveBeenCalled();
+    expect(mocks.store.setLastEventCode).not.toHaveBeenCalled();
+  });
+
+  it('does not report startup success when stop supersedes an asynchronous runner start', async () => {
+    const runner = getBridgeRunner() as unknown as InstanceType<typeof mocks.MockBridgeRunner>;
+    let resolveRunnerStart!: () => void;
+    runner.start.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveRunnerStart = resolve;
+    }));
+
+    const startRequest = handler(IPC_CHANNELS.BRIDGE_START)({}, 'AB12');
+    await vi.waitFor(() => expect(runner.start).toHaveBeenCalledOnce());
+    await handler(IPC_CHANNELS.BRIDGE_STOP)({});
+    resolveRunnerStart();
+
+    await expect(startRequest).rejects.toThrow('session changed');
+  });
+
+  it('rejects a new start while logout is still stopping the previous bridge', async () => {
+    const runner = getBridgeRunner() as unknown as InstanceType<typeof mocks.MockBridgeRunner>;
+    runner.isRunning = true;
+    let resolveStop!: () => void;
+    runner.stop.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveStop = resolve;
+    }));
+
+    const logoutRequest = handler(IPC_CHANNELS.AUTH_LOGOUT)({});
+    await expect(handler(IPC_CHANNELS.BRIDGE_START)({}, 'AB12'))
+      .rejects.toThrow('logout is in progress');
+    expect(mocks.fetchBridgeApiKey).not.toHaveBeenCalled();
+
+    resolveStop();
+    await logoutRequest;
+  });
+
   it.each(['ab12', 'ABC', 'ABCDEFGHIJK', 1234])('rejects invalid event code %p', async (eventCode) => {
     await expect(handler(IPC_CHANNELS.BRIDGE_START)({}, eventCode)).rejects.toThrow('Invalid event code');
     expect(mocks.fetchBridgeApiKey).not.toHaveBeenCalled();
   });
 
   it('rejects bridge start when no token is stored', async () => {
-    mocks.store.getToken.mockReturnValueOnce(null as unknown as string);
+    mocks.store.readAndRepairToken.mockReturnValueOnce(null as unknown as string);
 
     await expect(handler(IPC_CHANNELS.BRIDGE_START)({}, 'AB12')).rejects.toThrow('Not authenticated');
     expect(mocks.fetchBridgeApiKey).not.toHaveBeenCalled();
@@ -306,6 +576,14 @@ describe('bridge control IPC boundary', () => {
     expect(runner.reconnect).toHaveBeenCalledOnce();
     expect(runner.restartBridge).toHaveBeenCalledOnce();
   });
+
+  it('forwards bridge stop failures to the renderer request boundary', async () => {
+    const runner = getBridgeRunner() as unknown as InstanceType<typeof mocks.MockBridgeRunner>;
+    const cleanupError = new Error('device cleanup failed');
+    runner.stop.mockRejectedValueOnce(cleanupError);
+
+    await expect(handler(IPC_CHANNELS.BRIDGE_STOP)({})).rejects.toBe(cleanupError);
+  });
 });
 
 describe('bridge:exportDebugReport IPC boundary', () => {
@@ -318,7 +596,7 @@ describe('bridge:exportDebugReport IPC boundary', () => {
   });
 
   it('uses the read fallback and awaits the report write', async () => {
-    mocks.readFile.mockRejectedValue(new Error('read failure'));
+    mocks.readFile.mockRejectedValue(Object.assign(new Error('missing log'), { code: 'ENOENT' }));
     let resolveWrite!: () => void;
     const writeCompleted = new Promise<void>((resolve) => {
       resolveWrite = resolve;

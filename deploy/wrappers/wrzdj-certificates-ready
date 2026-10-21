@@ -1,0 +1,26 @@
+#!/bin/bash
+set -euo pipefail
+domain="${1:-}"
+if [ $# -ne 1 ] || [[ ! "$domain" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]; then
+  echo "Usage: wrzdj-certificates-ready domain" >&2
+  exit 1
+fi
+live_dir="/etc/letsencrypt/live/$domain"
+if [ ! -d "$live_dir" ]; then
+  exit 1
+fi
+if [ ! -r "$live_dir" ]; then
+  exit 2
+fi
+for filename in fullchain.pem privkey.pem; do
+  path="$live_dir/$filename"
+  if [ -L "$path" ] && [ ! -e "$path" ]; then
+    exit 2
+  fi
+  if [ ! -e "$path" ]; then
+    exit 1
+  fi
+  if [ ! -r "$path" ] || [ ! -s "$path" ]; then
+    exit 2
+  fi
+done

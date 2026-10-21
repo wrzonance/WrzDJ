@@ -11,8 +11,8 @@ from sqlalchemy.orm import Session
 from app.core.time import utcnow
 from app.models.provider_connection import UserProviderConnection
 from app.models.user import User
-from app.services.apple_music_storage import read_stored_connection
-from app.services.apple_music_tokens import AppleMusicNotConnected
+from app.services.apple_music.storage import read_stored_connection
+from app.services.apple_music.tokens import AppleMusicNotConnected
 
 VALID_TOKEN = "music-user-token-1234567890"
 
@@ -104,6 +104,25 @@ def test_valid_stored_connection_returns_token_and_storefront(db, test_user):
     db.commit()
 
     assert read_stored_connection(db, test_user) == (VALID_TOKEN, "gb")
+
+
+@pytest.mark.parametrize("storefront", ["GB", "g", "usa", "us\n", "éu"])
+def test_malformed_storefront_values_require_reauthorization(db, test_user, storefront):
+    connection = UserProviderConnection(
+        user_id=test_user.id,
+        provider_id="apple_music",
+        connection_state="connected",
+        credential_type="music_user_token",
+        credential_payload=json.dumps({"version": 1, "music_user_token": VALID_TOKEN}),
+        metadata_json=json.dumps({"storefront": storefront}),
+    )
+    db.add(connection)
+    db.commit()
+
+    with pytest.raises(AppleMusicNotConnected):
+        read_stored_connection(db, test_user)
+
+    assert connection.connection_state == "reauthorize"
 
 
 def test_user_can_have_only_one_connection_for_each_provider(db, test_user):

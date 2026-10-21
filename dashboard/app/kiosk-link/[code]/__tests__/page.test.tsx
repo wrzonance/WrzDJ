@@ -15,10 +15,12 @@ vi.mock('next/navigation', () => ({
 // Mock auth
 let mockIsAuthenticated = true;
 let mockIsLoading = false;
+let mockRole: string | null = 'dj';
 vi.mock('@/lib/auth', () => ({
   useAuth: () => ({
     isAuthenticated: mockIsAuthenticated,
     isLoading: mockIsLoading,
+    role: mockRole,
   }),
 }));
 
@@ -37,6 +39,7 @@ describe('KioskLinkPage', () => {
     vi.clearAllMocks();
     mockIsAuthenticated = true;
     mockIsLoading = false;
+    mockRole = 'dj';
     mockGetEvents.mockResolvedValue([
       {
         id: 1, code: 'EVT001', name: 'Friday Night', is_active: true,
@@ -59,6 +62,30 @@ describe('KioskLinkPage', () => {
     await waitFor(() => {
       expect(mockPush).toHaveBeenCalledWith('/login?redirect=/kiosk-link/ABC234');
     });
+  });
+
+  it('redirects pending accounts without loading events or allowing pairing', async () => {
+    // Regression for baseline 57cfcdc6867f: pending accounts could start kiosk pairing.
+    mockRole = 'pending';
+    render(<KioskLinkPage />);
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/pending'));
+    expect(mockGetEvents).not.toHaveBeenCalled();
+    expect(mockCompleteKioskPairing).not.toHaveBeenCalled();
+    expect(screen.queryByText('Friday Night')).not.toBeInTheDocument();
+  });
+
+  it('waits for authentication to finish before loading events', async () => {
+    mockIsLoading = true;
+    const { rerender } = render(<KioskLinkPage />);
+
+    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    expect(mockGetEvents).not.toHaveBeenCalled();
+
+    mockIsLoading = false;
+    rerender(<KioskLinkPage />);
+    await waitFor(() => expect(screen.getByText('Friday Night')).toBeInTheDocument());
+    expect(mockGetEvents).toHaveBeenCalledTimes(1);
   });
 
   it('displays event list when authenticated', async () => {

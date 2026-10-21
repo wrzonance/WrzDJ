@@ -11,8 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_active_user, get_db, require_owned_event_id
+from app.api.setbuilder_common import get_owned_set_or_404 as _get_owned_set_or_404
 from app.core.rate_limit import limiter
-from app.models.set import Set
 from app.models.set_template import SetTemplate
 from app.models.user import User
 from app.schemas.setbuilder import SetDetail
@@ -23,16 +23,9 @@ from app.schemas.setbuilder_templates import (
     SetTemplateGalleryResponse,
     SetTemplateOut,
 )
-from app.services.setbuilder import set_service, set_templates
+from app.services.setbuilder import set_templates
 
 router = APIRouter()
-
-
-def _get_owned_set_or_404(db: Session, set_id: int, user: User) -> Set:
-    set_obj = set_service.get_owned_set(db, set_id, user.id)
-    if set_obj is None:
-        raise HTTPException(status_code=404, detail="Set not found")
-    return set_obj
 
 
 def _get_owned_template_or_404(db: Session, template_id: int, user: User) -> SetTemplate:

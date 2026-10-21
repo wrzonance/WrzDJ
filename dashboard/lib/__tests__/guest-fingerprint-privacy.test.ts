@@ -32,6 +32,18 @@ describe('guest fingerprint privacy', () => {
     });
     vi.spyOn(Math, 'random').mockReturnValue(0); // Always select upstream's telemetry sample.
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    // Thumbmark measures fonts in an about:blank iframe, whose canvas prototype is
+    // a different jsdom realm and bypasses the top-level prototype spy above.
+    const appendChild = Node.prototype.appendChild;
+    vi.spyOn(Node.prototype, 'appendChild').mockImplementation(function (this: Node, node: Node) {
+      const appended = appendChild.call(this, node);
+      if (node instanceof HTMLIFrameElement) {
+        const iframeWindow = node.contentWindow as (Window & typeof globalThis) | null;
+        const iframeCanvas = iframeWindow?.HTMLCanvasElement.prototype;
+        if (iframeCanvas) vi.spyOn(iframeCanvas, 'getContext').mockReturnValue(null);
+      }
+      return appended;
+    });
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       requests.push({ url, body: init?.body as string | undefined });
@@ -56,9 +68,10 @@ describe('guest fingerprint privacy', () => {
 
     await act(async () => { await result.current.refresh(); });
 
-    expect(requests.map(({ url }) => url)).toEqual([
+    expect(requests.map(({ url }) => new URL(url, 'http://localhost:8000').pathname)).toEqual([
       '/api/public/guest/identify', '/api/public/guest/identify',
     ]);
+    expect(requests.every(({ url }) => new URL(url, 'http://localhost:8000').origin === 'http://localhost:8000')).toBe(true);
     for (const { body } of requests) {
       const payload = JSON.parse(body!);
       expect(payload.fingerprint_hash).toMatch(/^[a-f0-9]{32}$/);

@@ -1,11 +1,24 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const root = join(__dirname, '../..');
 const require = createRequire(join(root, 'next.config.js'));
 const nextConfig = require(join(root, 'next.config.js'));
+
+afterEach(() => vi.unstubAllEnvs());
+
+async function configuredConnectSources(apiUrl: string | undefined) {
+  vi.stubEnv('NEXT_PUBLIC_API_URL', apiUrl);
+  const configPath = require.resolve(join(root, 'next.config.js'));
+  delete require.cache[configPath];
+  const headers = await require(configPath).headers();
+  return headers.map((entry: { headers: { key: string; value: string }[] }) => {
+    const policy = entry.headers.find(({ key }) => key === 'Content-Security-Policy');
+    return directives(policy?.value ?? '')['connect-src'];
+  });
+}
 
 function cspFromNginxTemplate(path: string, overlay: boolean) {
   const template = readFileSync(join(root, '..', path), 'utf8');
@@ -27,6 +40,24 @@ function directives(policy: string) {
 }
 
 describe('Apple Music account-link CSP', () => {
+  // Regression for baseline 57cfcdc6867f: the client resolves 127.0.0.1:8000
+  // when opened on that loopback host, which the default CSP used to block.
+  it('allows both local API loopback names when no API URL is configured', async () => {
+    for (const sources of await configuredConnectSources(undefined)) {
+      expect(sources).toContain('http://localhost:8000');
+      expect(sources).toContain('http://127.0.0.1:8000');
+      expect(sources).not.toContain('*');
+    }
+  });
+
+  it('uses only the configured API origin when an API URL is provided', async () => {
+    for (const sources of await configuredConnectSources('https://api.example.test')) {
+      expect(sources).toContain('https://api.example.test');
+      expect(sources).not.toContain('http://localhost:8000');
+      expect(sources).not.toContain('http://127.0.0.1:8000');
+    }
+  });
+
   it('allows MusicKit script and API only on normal Next.js pages', async () => {
     const headers = await nextConfig.headers();
     const page = headers.find(({ source }: { source: string }) => source === '/(.*)');

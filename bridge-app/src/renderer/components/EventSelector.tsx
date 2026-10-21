@@ -15,16 +15,20 @@ export function EventSelector({ selectedCode, onSelect, onEventRemoved }: EventS
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const selectedCodeRef = useRef(selectedCode);
+  const latestRequestId = useRef(0);
   selectedCodeRef.current = selectedCode;
 
   const loadEvents = useCallback(async (isBackground = false) => {
+    const requestId = ++latestRequestId.current;
     if (!isBackground) {
       setLoading(true);
+      setError(null);
     }
-    setError(null);
     try {
       const result = await api.fetchEvents();
+      if (requestId !== latestRequestId.current) return;
       setEvents(result);
+      setError(null);
 
       // If the selected event is no longer in the list, notify parent
       const currentCode = selectedCodeRef.current;
@@ -33,11 +37,11 @@ export function EventSelector({ selectedCode, onSelect, onEventRemoved }: EventS
       }
     } catch (err) {
       // Only show errors on foreground loads — don't disrupt with transient poll failures
-      if (!isBackground) {
+      if (requestId === latestRequestId.current && !isBackground) {
         setError(err instanceof Error ? err.message : 'Failed to load events');
       }
     } finally {
-      if (!isBackground) {
+      if (requestId === latestRequestId.current) {
         setLoading(false);
       }
     }
@@ -60,7 +64,7 @@ export function EventSelector({ selectedCode, onSelect, onEventRemoved }: EventS
     return (
       <div className="card">
         <div className="card-title">Select Event</div>
-        <p style={{ color: '#9ca3af', fontSize: '0.85rem' }}>Loading events...</p>
+        <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>Loading events...</p>
       </div>
     );
   }
@@ -81,7 +85,7 @@ export function EventSelector({ selectedCode, onSelect, onEventRemoved }: EventS
     return (
       <div className="card">
         <div className="card-title">Select Event</div>
-        <p style={{ color: '#9ca3af', fontSize: '0.85rem' }}>
+        <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>
           No active events. Create an event on the WrzDJ dashboard first.
         </p>
         <button className="btn btn-ghost btn-sm" onClick={() => loadEvents()} style={{ marginTop: '0.5rem' }}>

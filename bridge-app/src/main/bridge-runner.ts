@@ -1,96 +1,66 @@
-/**
- * BridgeRunner wraps the PluginBridge for GUI lifecycle control.
- * Delegates equipment detection to the configured plugin via the plugin system.
- *
- * Features:
- *   - AbortController timeouts on all fetch requests
- *   - Circuit breaker to avoid hammering an unreachable backend
- *   - Retry logic on DELETE (clearNowPlaying)
- *   - 401 detection: stops bridge on token expiry
- */
+/** Electron adapter for the shared bridge session runtime. */
 import { EventEmitter } from 'events';
-import { PluginBridge } from '@bridge/plugin-bridge.js';
-import { getPlugin } from '@bridge/plugin-registry.js';
-import { CircuitBreaker } from '@bridge/circuit-breaker.js';
 import {
-  DELETE_BACKOFF_MS,
-  DELETE_MAX_RETRIES,
-  INITIAL_BACKOFF_MS,
-  MAX_RETRIES,
-  computeBackoff,
-  fetchWithTimeout,
-  sleep,
-} from '@bridge/http-retry.js';
-import { CommandPoller } from '@bridge/command-poller.js';
-import type { BridgeCommand } from '@bridge/command-poller.js';
-import { Logger, type LogLevel } from '@bridge/logger.js';
-import { TrackHistoryBuffer } from '@bridge/track-history-buffer.js';
-import type { DeckLiveEvent, DeckState } from '@bridge/deck-state.js';
-import type { NowPlayingPayload, BridgeStatusPayload } from '@bridge/types.js';
-import type { PluginConnectionEvent } from '@bridge/plugin-types.js';
+  BridgeRuntime,
+  getPlugin,
+  Logger,
+  type BridgeConfig,
+  type DeckState,
+  type LogLevel,
+} from '@wrzdj/bridge/electron';
 import { checkEventHealth } from './event-health-service.js';
 import { detectSubnetConflicts, formatConflictWarnings } from './network-check.js';
 import type { BridgeRunnerConfig, BridgeStatus, DeckDisplay, IpcLogMessage, TrackDisplay } from '../shared/types.js';
 
-// Register built-in plugins
-import '@bridge/plugins/index.js';
-
 const HEALTH_CHECK_INTERVAL_MS = 30_000;
+const MILLISECONDS_PER_SECOND = 1_000;
 
-/**
- * BridgeRunner manages the lifecycle of the bridge via plugins.
- *
- * Events:
- *   'statusChanged' - emitted whenever bridge status changes (for IPC forwarding)
- *   'log' - emitted with log messages for the GUI console
- */
+/** Maps the shared session runtime to Electron's established status and event contract. */
 export class BridgeRunner extends EventEmitter {
-  private pluginBridge: PluginBridge | null = null;
+  private runtime: BridgeRuntime | null = null;
   private config: BridgeRunnerConfig | null = null;
   private running = false;
   private connectedDevice: string | null = null;
   private currentTrack: TrackDisplay | null = null;
-  private lastTrackKey: string | null = null;
-  private lastPostTime = 0;
-  private healthCheckTimer: ReturnType<typeof setInterval> | null = null;
   private stopReason: string | null = null;
   private networkWarnings: string[] = [];
   private backendReachable = true;
   private startedAt: number | null = null;
-  private circuitBreaker = new CircuitBreaker({ failureThreshold: 3, cooldownMs: 60_000 });
-  private commandPoller: CommandPoller | null = null;
+  private healthCheckTimer: ReturnType<typeof setInterval> | null = null;
+  private sessionGeneration = 0;
+  private stopPromise: Promise<void> | null = null;
+  private detachRuntimeEvents: (() => void) | null = null;
   private readonly logger = new Logger('Bridge');
-  private readonly trackBuffer = new TrackHistoryBuffer();
-
-  constructor() {
-    super();
-    this.wireCircuitBreaker();
-  }
 
   get isRunning(): boolean {
     return this.running;
   }
 
   async start(config: BridgeRunnerConfig): Promise<void> {
-    if (this.running) {
-      throw new Error('Bridge is already running');
+    let generation: number;
+    const pendingStop = this.stopPromise;
+    if (pendingStop) {
+      generation = ++this.sessionGeneration;
+      await pendingStop;
+      if (generation !== this.sessionGeneration) {
+        throw new Error('Bridge start was cancelled because the session changed');
+      }
+    } else {
+      if (this.running) throw new Error('Bridge is already running');
+      generation = ++this.sessionGeneration;
     }
+    if (this.running) throw new Error('Bridge is already running');
 
     this.config = config;
     this.running = true;
     this.startedAt = Date.now();
-    this.lastTrackKey = null;
-    this.lastPostTime = 0;
     this.currentTrack = null;
     this.connectedDevice = null;
     this.stopReason = null;
-    this.networkWarnings = [];
     this.backendReachable = true;
-    this.circuitBreaker.reset();
-    this.trackBuffer.clear();
+    this.networkWarnings = [];
 
     const protocol = config.settings.protocol || 'stagelinq';
-
     this.log(`Starting bridge for event ${config.eventCode}...`);
     this.log(`API URL: ${config.apiUrl}`);
     this.log(`Protocol: ${protocol}`);
@@ -98,109 +68,87 @@ export class BridgeRunner extends EventEmitter {
     this.log(`Fader Detection: ${config.settings.useFaderDetection}`);
     this.log(`Master Deck Priority: ${config.settings.masterDeckPriority}`);
 
-    // Check for network interface conflicts (affects broadcast-based protocols)
     const conflicts = detectSubnetConflicts();
     if (conflicts.length > 0) {
       this.networkWarnings = formatConflictWarnings(conflicts);
-      for (const warning of this.networkWarnings) {
-        this.log(warning, 'warn');
-      }
+      for (const warning of this.networkWarnings) this.log(warning, 'warn');
     }
 
-    // Create the plugin
     const plugin = getPlugin(protocol);
     if (!plugin) {
       this.running = false;
-      const err = new Error(`Unknown protocol "${protocol}"`);
-      this.log(err.message);
+      const error = new Error(`Unknown protocol "${protocol}"`);
+      this.log(error.message, 'error');
       this.emitStatus();
-      throw err;
+      throw error;
     }
 
-    // Create the PluginBridge
-    this.pluginBridge = new PluginBridge(plugin, {
-      liveThresholdSeconds: config.settings.liveThresholdSeconds,
-      pauseGraceSeconds: config.settings.pauseGraceSeconds,
-      nowPlayingPauseSeconds: config.settings.nowPlayingPauseSeconds,
-      useFaderDetection: config.settings.useFaderDetection,
-      masterDeckPriority: config.settings.masterDeckPriority,
-    });
-
-    this.wireEvents();
+    const runtime = new BridgeRuntime(this.toBridgeConfig(config), plugin, { stopOnUnauthorized: true });
+    this.runtime = runtime;
+    this.detachRuntimeEvents = this.wireRuntimeEvents(runtime, generation);
     this.emitStatus();
-
     try {
-      await this.pluginBridge.start(config.settings.pluginConfig);
+      await runtime.start(config.settings.pluginConfig);
+      if (!this.isCurrentSession(runtime, generation)) {
+        await runtime.stop();
+        return;
+      }
       this.log('Plugin started, listening for DJ equipment...');
       this.startHealthCheck();
-      this.startCommandPoller();
-
-      // Immediate handshake — tell the backend we're online and listening
-      this.log('Bridge online — sending initial status to backend');
-      await this.postBridgeStatus(true);
-    } catch (err) {
-      this.running = false;
-      this.pluginBridge = null;
-      const message = err instanceof Error ? err.message : String(err);
-      this.log(`Failed to connect: ${message}`, 'error');
       this.emitStatus();
-      throw err;
+    } catch (error) {
+      if (this.isCurrentSession(runtime, generation)) {
+        this.running = false;
+        this.runtime = null;
+        this.detachRuntimeEvents?.();
+        this.detachRuntimeEvents = null;
+        this.log(`Failed to connect: ${error instanceof Error ? error.message : String(error)}`, 'error');
+        this.emitStatus();
+      }
+      throw error;
     }
   }
 
   async stop(reason?: string): Promise<void> {
-    if (!this.running) return;
-
+    ++this.sessionGeneration;
+    if (this.stopPromise) return this.stopPromise;
+    if (!this.running && !this.runtime) return;
     this.stopHealthCheck();
-    this.stopCommandPoller();
-
     if (reason) {
       this.stopReason = reason;
       this.log(`Stopping bridge: ${reason}`);
     } else {
       this.log('Stopping bridge...');
     }
-
     this.running = false;
-
-    if (this.pluginBridge) {
-      await this.pluginBridge.stop();
-      this.pluginBridge = null;
-    }
-
+    const runtime = this.runtime;
+    this.runtime = null;
+    this.detachRuntimeEvents?.();
+    this.detachRuntimeEvents = null;
+    const stopping = (async () => {
+      try {
+        await runtime?.stop();
+      } catch (error) {
+        this.log(`Bridge shutdown failed: ${error instanceof Error ? error.message : String(error)}`, 'error');
+        throw error;
+      } finally {
+        this.connectedDevice = null;
+        this.currentTrack = null;
+        this.emitStatus();
+      }
+      this.log('Bridge stopped.');
+    })();
+    this.stopPromise = stopping;
     try {
-      await this.clearNowPlaying();
-      await this.postBridgeStatus(false);
-    } catch {
-      // Best effort on shutdown
+      await stopping;
+    } finally {
+      if (this.stopPromise === stopping) this.stopPromise = null;
     }
-
-    this.connectedDevice = null;
-    this.currentTrack = null;
-    this.emitStatus();
-    this.log('Bridge stopped.');
   }
 
   getStatus(): BridgeStatus {
-    const deckStates: DeckDisplay[] = [];
-
-    if (this.pluginBridge) {
-      const manager = this.pluginBridge.manager;
-      for (const deckId of manager.getDeckIds()) {
-        const state: DeckState = manager.getDeckState(deckId);
-        if (state.state === 'EMPTY' && !state.track) continue;
-        deckStates.push({
-          deckId: state.deckId,
-          state: state.state,
-          trackTitle: state.track?.title ?? null,
-          trackArtist: state.track?.artist ?? null,
-          isPlaying: state.isPlaying,
-          isMaster: state.isMaster,
-          faderLevel: state.faderLevel,
-        });
-      }
-    }
-
+    const snapshot = this.runtime?.getSnapshot();
+    const deckStates = (snapshot?.deckStates ?? []).flatMap((state) => this.toDeckDisplay(state));
     return {
       isRunning: this.running,
       connectedDevice: this.connectedDevice,
@@ -211,357 +159,32 @@ export class BridgeRunner extends EventEmitter {
       backendReachable: this.backendReachable,
       stopReason: this.stopReason,
       networkWarnings: this.networkWarnings,
-      circuitBreakerState: this.circuitBreaker.getState(),
-      bufferSize: this.trackBuffer.size,
+      circuitBreakerState: snapshot?.circuitBreakerState ?? ('CLOSED' as const),
+      bufferSize: snapshot?.bufferSize ?? 0,
       deckCount: deckStates.length,
-      uptimeSeconds: this.startedAt !== null ? Math.floor((Date.now() - this.startedAt) / 1000) : 0,
-      pluginId: this.pluginBridge?.pluginId ?? null,
+      uptimeSeconds: this.startedAt === null
+        ? 0
+        : Math.floor((Date.now() - this.startedAt) / MILLISECONDS_PER_SECOND),
+      pluginId: snapshot?.pluginId ?? null,
     };
   }
 
-  private wireCircuitBreaker(): void {
-    this.circuitBreaker.on('stateChange', ({ from, to }: { from: string; to: string }) => {
-      if (to === 'OPEN') {
-        this.log('Circuit breaker OPEN — backend unreachable, pausing API calls for 60s', 'error');
-        if (this.backendReachable) {
-          this.backendReachable = false;
-          this.emitStatus();
-        }
-      } else if (to === 'HALF_OPEN') {
-        this.log('Circuit breaker HALF_OPEN — probing backend...');
-      } else if (to === 'CLOSED' && from !== 'CLOSED') {
-        this.log('Circuit breaker CLOSED — backend recovered');
-        if (!this.backendReachable) {
-          this.backendReachable = true;
-          this.emitStatus();
-        }
-        this.replayBufferedTracks();
-      }
-    });
-  }
-
-  private wireEvents(): void {
-    if (!this.pluginBridge) return;
-
-    // Handle track going "live"
-    this.pluginBridge.on('deckLive', async (event: DeckLiveEvent) => {
-      const { deckId, track } = event;
-
-      if (this.shouldSkipTrack(track.artist, track.title)) return;
-
-      this.log(`Deck ${deckId} LIVE: "${track.title}" by ${track.artist}`);
-
-      this.updateLastTrack(track.artist, track.title);
-      this.currentTrack = {
-        title: track.title,
-        artist: track.artist,
-        album: track.album ?? null,
-        deckId,
-        startedAt: Date.now(),
-      };
-
-      this.emitStatus();
-      await this.postNowPlaying(track.title, track.artist, track.album, deckId, this.pluginBridge!.pluginId);
-    });
-
-    // Handle connection status from plugin
-    this.pluginBridge.on('connection', async (event: PluginConnectionEvent) => {
-      if (event.connected) {
-        this.connectedDevice = event.deviceName ?? 'Unknown Device';
-        this.log(`Device connected: ${this.connectedDevice}`);
-        this.emitStatus();
-        await this.postBridgeStatus(true, this.connectedDevice);
-      } else {
-        this.connectedDevice = null;
-        this.log('Device disconnected');
-        this.emitStatus();
-        await this.postBridgeStatus(false);
-      }
-    });
-
-    // Handle heartbeat — keep bridge_last_seen fresh on the backend
-    this.pluginBridge.on('heartbeat', async () => {
-      await this.postBridgeStatus(true, this.connectedDevice ?? undefined);
-    });
-
-    // Handle authoritative now-playing clear
-    this.pluginBridge.on('clearNowPlaying', async () => {
-      this.currentTrack = null;
-      this.emitStatus();
-      await this.clearNowPlaying();
-    });
-
-    // Forward plugin ready
-    this.pluginBridge.on('ready', () => {
-      this.log('All devices ready — listening for tracks');
-    });
-
-    // Forward logs
-    this.pluginBridge.on('log', (message: string) => {
-      this.log(message);
-    });
-
-    // Forward status updates when deck state changes
-    this.pluginBridge.manager.on('log', () => {
-      this.emitStatus();
-    });
-  }
-
-  // --- Track deduplication ---
-
-  private makeTrackKey(artist: string, title: string): string {
-    return `${artist.toLowerCase().trim()}::${title.toLowerCase().trim()}`;
-  }
-
-  private shouldSkipTrack(artist: string, title: string): boolean {
-    if (!title) return true;
-
-    const key = this.makeTrackKey(artist, title);
-    if (key === this.lastTrackKey) return true;
-
-    const now = Date.now();
-    if (this.config && now - this.lastPostTime < this.config.settings.minPlaySeconds * 1000) {
-      this.log(`Debouncing track change (${now - this.lastPostTime}ms since last)`, 'debug');
-      return true;
-    }
-
-    return false;
-  }
-
-  private updateLastTrack(artist: string, title: string): void {
-    this.lastTrackKey = this.makeTrackKey(artist, title);
-    this.lastPostTime = Date.now();
-  }
-
-  // --- HTTP communication ---
-
-  /**
-   * POST with retry logic and circuit breaker.
-   * Returns true if successful, false on failure.
-   * Stops bridge on 401 (token expiry).
-   */
-  private async postWithRetry(
-    endpoint: string,
-    payload: NowPlayingPayload | BridgeStatusPayload,
-  ): Promise<boolean> {
-    if (!this.config) return false;
-
-    if (!this.circuitBreaker.allowRequest()) {
-      this.log(`POST ${endpoint} skipped — circuit breaker OPEN`, 'warn');
-      return false;
-    }
-
-    let lastError: Error | null = null;
-
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        const response = await fetchWithTimeout(`${this.config.apiUrl}${endpoint}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Bridge-API-Key': this.config.apiKey,
-          },
-          body: JSON.stringify(payload),
-        });
-
-        if (response.status === 401) {
-          // 401 is an auth problem, not a backend availability issue — don't count as circuit failure
-          this.log(`POST ${endpoint} returned 401 — session expired`, 'error');
-          // Stop bridge asynchronously (don't block the retry loop)
-          setTimeout(() => {
-            this.stop('Session expired — please log in again');
-          }, 0);
-          return false;
-        }
-
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(`HTTP ${response.status}: ${text}`);
-        }
-
-        if (!this.backendReachable) {
-          this.backendReachable = true;
-          this.emitStatus();
-        }
-        this.circuitBreaker.recordSuccess();
-        this.log(`POST ${endpoint} succeeded`);
-        return true;
-      } catch (err) {
-        lastError = err as Error;
-        if (attempt < MAX_RETRIES) {
-          const backoff = computeBackoff(INITIAL_BACKOFF_MS, attempt);
-          this.log(`Retry ${attempt + 1}/${MAX_RETRIES} in ${backoff}ms: ${lastError.message}`, 'warn');
-          await sleep(backoff);
-        }
-      }
-    }
-
-    this.circuitBreaker.recordFailure();
-    if (this.backendReachable) {
-      this.backendReachable = false;
-      this.emitStatus();
-    }
-    this.log(`POST ${endpoint} failed after ${MAX_RETRIES + 1} attempts: ${lastError?.message}`, 'error');
-    return false;
-  }
-
-  private async postNowPlaying(
-    title: string,
-    artist: string,
-    album?: string,
-    deck?: string,
-    source?: string,
-  ): Promise<void> {
-    if (!this.config) return;
-
-    const payload: NowPlayingPayload = {
-      event_code: this.config.eventCode,
-      title,
-      artist,
-      album: album ?? null,
-      deck: deck ?? null,
-      source: source ?? null,
-    };
-
-    const success = await this.postWithRetry('/api/bridge/nowplaying', payload);
-    if (!success) {
-      this.trackBuffer.push(payload);
-      this.log(`Buffered track for replay (${this.trackBuffer.size} in buffer)`);
-    }
-  }
-
-  private async postBridgeStatus(connected: boolean, deviceName?: string): Promise<void> {
-    if (!this.config) return;
-
-    const deckCount = this.pluginBridge
-      ? this.pluginBridge.manager.getDeckIds().length
-      : 0;
-
-    const payload: BridgeStatusPayload = {
-      event_code: this.config.eventCode,
-      connected,
-      device_name: deviceName ?? null,
-      circuit_breaker_state: this.circuitBreaker.getState(),
-      buffer_size: this.trackBuffer.size,
-      plugin_id: this.pluginBridge?.pluginId ?? null,
-      deck_count: deckCount,
-      uptime_seconds: this.startedAt !== null
-        ? Math.floor((Date.now() - this.startedAt) / 1000)
-        : null,
-    };
-
-    await this.postWithRetry('/api/bridge/status', payload);
-  }
-
-  /**
-   * Clear now-playing on the backend with retry logic.
-   */
-  private async clearNowPlaying(): Promise<void> {
-    if (!this.config) return;
-
-    const endpoint = `/api/bridge/nowplaying/${this.config.eventCode}`;
-
-    for (let attempt = 0; attempt <= DELETE_MAX_RETRIES; attempt++) {
-      try {
-        const response = await fetchWithTimeout(`${this.config.apiUrl}${endpoint}`, {
-          method: 'DELETE',
-          headers: {
-            'X-Bridge-API-Key': this.config.apiKey,
-          },
-        });
-
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(`HTTP ${response.status}: ${text}`);
-        }
-
-        this.log(`DELETE ${endpoint} succeeded`);
-        return;
-      } catch (err) {
-        const message = (err as Error).message;
-        if (attempt < DELETE_MAX_RETRIES) {
-          const backoff = computeBackoff(DELETE_BACKOFF_MS, attempt);
-          this.log(`DELETE ${endpoint} retry ${attempt + 1}/${DELETE_MAX_RETRIES} in ${backoff}ms: ${message}`, 'warn');
-          await sleep(backoff);
-        } else {
-          this.log(`DELETE ${endpoint} failed after ${DELETE_MAX_RETRIES + 1} attempts: ${message}`, 'error');
-        }
-      }
-    }
-  }
-
-  // --- Event health check ---
-
-  private startHealthCheck(): void {
-    this.stopHealthCheck();
-    this.healthCheckTimer = setInterval(() => {
-      this.runHealthCheck();
-    }, HEALTH_CHECK_INTERVAL_MS);
-  }
-
-  private stopHealthCheck(): void {
-    if (this.healthCheckTimer) {
-      clearInterval(this.healthCheckTimer);
-      this.healthCheckTimer = null;
-    }
-  }
-
-  private async runHealthCheck(): Promise<void> {
-    if (!this.running || !this.config) return;
-
-    const status = await checkEventHealth(this.config.apiUrl, this.config.eventCode);
-
-    if (status === 'not_found') {
-      this.log('Event no longer exists — stopping bridge');
-      await this.stop('Event was deleted');
-    } else if (status === 'expired') {
-      this.log('Event has expired or been archived — stopping bridge');
-      await this.stop('Event expired or archived');
-    }
-    // 'active' and 'error' — do nothing (don't stop on transient errors)
-  }
-
-  // --- Track buffer replay ---
-
-  private replayBufferedTracks(): void {
-    const tracks = this.trackBuffer.drain();
-    if (tracks.length === 0) return;
-
-    this.log(`Replaying ${tracks.length} buffered track(s)...`);
-
-    // Replay asynchronously — don't block the circuit breaker handler
-    (async () => {
-      for (const { payload } of tracks) {
-        const replayPayload: NowPlayingPayload = { ...payload, delayed: true };
-        const success = await this.postWithRetry('/api/bridge/nowplaying', replayPayload);
-        if (!success) {
-          this.log(`Replay failed for "${payload.title}" — backend may be down again`, 'warn');
-          return;
-        }
-        this.log(`Replayed: "${payload.title}" by ${payload.artist}`);
-      }
-    })();
-  }
-
-  // --- Admin commands ---
-
-  async resetDecks(): Promise<void> {
-    if (!this.running || !this.pluginBridge) {
+  resetDecks(): void {
+    if (!this.running || !this.runtime) {
       this.log('Cannot reset decks — bridge is not running', 'warn');
       return;
     }
     this.log('Resetting deck states...');
-    this.pluginBridge.resetDecks();
-    this.emitStatus();
+    this.runtime.resetDecks();
   }
 
   async reconnect(): Promise<void> {
-    if (!this.running || !this.pluginBridge) {
+    if (!this.running || !this.runtime) {
       this.log('Cannot reconnect — bridge is not running', 'warn');
       return;
     }
     this.log('Reconnecting to DJ equipment...');
-    await this.pluginBridge.reconnect();
+    await this.runtime.reconnect();
   }
 
   async restartBridge(): Promise<void> {
@@ -569,72 +192,147 @@ export class BridgeRunner extends EventEmitter {
       this.log('Cannot restart — no config available', 'warn');
       return;
     }
-    this.log('Restarting bridge...');
     const config = this.config;
+    const restartGeneration = this.sessionGeneration;
+    this.log('Restarting bridge...');
     await this.stop();
+    if (this.sessionGeneration !== restartGeneration + 1) {
+      throw new Error('Bridge restart was cancelled because the session changed');
+    }
     await this.start(config);
   }
 
-  // --- Command poller ---
-
-  private startCommandPoller(): void {
-    if (!this.config) return;
-    this.commandPoller = new CommandPoller(this.circuitBreaker, this.logger);
-    this.commandPoller.on('command', (type: string, command?: BridgeCommand) => {
-      this.handleCommand(type, command);
-    });
-    this.commandPoller.start(this.config.apiUrl, this.config.apiKey, this.config.eventCode);
+  private toBridgeConfig(config: BridgeRunnerConfig): BridgeConfig {
+    return {
+      apiUrl: config.apiUrl,
+      apiKey: config.apiKey,
+      eventCode: config.eventCode,
+      plugin: config.settings.protocol || 'stagelinq',
+      minPlaySeconds: config.settings.minPlaySeconds,
+      liveThresholdSeconds: config.settings.liveThresholdSeconds,
+      nowPlayingPauseSeconds: config.settings.nowPlayingPauseSeconds,
+      pauseGraceSeconds: config.settings.pauseGraceSeconds,
+      useFaderDetection: config.settings.useFaderDetection,
+      masterDeckPriority: config.settings.masterDeckPriority,
+    };
   }
 
-  private stopCommandPoller(): void {
-    if (this.commandPoller) {
-      this.commandPoller.stop();
-      this.commandPoller = null;
+  private wireRuntimeEvents(runtime: BridgeRuntime, generation: number): () => void {
+    const isCurrent = () => this.isCurrentSession(runtime, generation);
+    const statusChanged = (snapshot: ReturnType<BridgeRuntime['getSnapshot']>) => {
+      if (!isCurrent()) return;
+      this.backendReachable = snapshot.backendReachable;
+      this.emitStatus();
+    };
+    const connection = (event: { connected: boolean; deviceName?: string }) => {
+      if (!isCurrent()) return;
+      this.connectedDevice = event.connected ? event.deviceName ?? 'Unknown Device' : null;
+      this.log(event.connected ? `Device connected: ${this.connectedDevice}` : 'Device disconnected');
+      this.emitStatus();
+    };
+    const deckLive = (event: { deckId: string; track: { title: string; artist: string; album?: string } }) => {
+      if (!isCurrent()) return;
+      this.currentTrack = {
+        title: event.track.title,
+        artist: event.track.artist,
+        album: event.track.album ?? null,
+        deckId: event.deckId,
+        startedAt: Date.now(),
+      };
+      this.log(`Deck ${event.deckId} LIVE: "${event.track.title}" by ${event.track.artist}`);
+      this.emitStatus();
+    };
+    const clearNowPlaying = () => {
+      if (!isCurrent()) return;
+      this.currentTrack = null;
+      this.emitStatus();
+    };
+    const ping = () => { if (isCurrent()) this.emit('ping'); };
+    const authenticationError = () => {
+      if (!isCurrent()) return;
+      setTimeout(() => {
+        if (isCurrent()) {
+          void this.stop('Session expired — please log in again').catch((error: unknown) => {
+            this.log(`Automatic bridge shutdown failed: ${error instanceof Error ? error.message : String(error)}`, 'error');
+          });
+        }
+      }, 0);
+    };
+    const log = (message: IpcLogMessage) => { if (isCurrent()) this.forwardLog(message); };
+    const equipmentError = (error: Error) => { if (isCurrent()) this.log(`Equipment error: ${error.message}`, 'error'); };
+    runtime.on('statusChanged', statusChanged);
+    runtime.on('connection', connection);
+    runtime.on('deckLive', deckLive);
+    runtime.on('clearNowPlaying', clearNowPlaying);
+    runtime.on('ping', ping);
+    runtime.on('authenticationError', authenticationError);
+    runtime.on('log', log);
+    runtime.on('equipmentError', equipmentError);
+    return () => {
+      runtime.off('statusChanged', statusChanged);
+      runtime.off('connection', connection);
+      runtime.off('deckLive', deckLive);
+      runtime.off('clearNowPlaying', clearNowPlaying);
+      runtime.off('ping', ping);
+      runtime.off('authenticationError', authenticationError);
+      runtime.off('log', log);
+      runtime.off('equipmentError', equipmentError);
+    };
+  }
+
+  private toDeckDisplay(state: DeckState): DeckDisplay[] {
+    if (state.state === 'EMPTY' && !state.track) return [];
+    return [{
+      deckId: state.deckId,
+      state: state.state,
+      trackTitle: state.track?.title ?? null,
+      trackArtist: state.track?.artist ?? null,
+      isPlaying: state.isPlaying,
+      isMaster: state.isMaster,
+      faderLevel: state.faderLevel,
+    }];
+  }
+
+  private startHealthCheck(): void {
+    this.stopHealthCheck();
+    this.healthCheckTimer = setInterval(() => {
+      void this.runHealthCheck().catch((error: unknown) => {
+        this.log(`Event health check failed: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      });
+    }, HEALTH_CHECK_INTERVAL_MS);
+  }
+
+  private stopHealthCheck(): void {
+    if (this.healthCheckTimer !== null) {
+      clearInterval(this.healthCheckTimer);
+      this.healthCheckTimer = null;
     }
   }
 
-  private handleCommand(type: string, command?: BridgeCommand): void {
-    switch (type) {
-      case 'ping':
-        this.log('Ping received from dashboard');
-        this.emit('ping');
-        break;
-      case 'reset_decks':
-        this.resetDecks();
-        break;
-      case 'reconnect':
-        this.reconnect();
-        break;
-      case 'restart':
-        this.restartBridge();
-        break;
-      case 'setbuilder_transport':
-        this.handleSetbuilderTransport(command?.payload ?? {});
-        break;
-      default:
-        this.log(`Unknown command: ${type}`, 'warn');
-    }
+  private async runHealthCheck(): Promise<void> {
+    if (!this.running || !this.config) return;
+    const runtime = this.runtime;
+    const generation = this.sessionGeneration;
+    const status = await checkEventHealth(this.config.apiUrl, this.config.eventCode);
+    if (!runtime || !this.isCurrentSession(runtime, generation)) return;
+    if (status === 'not_found') await this.stop('Event was deleted');
+    else if (status === 'expired') await this.stop('Event expired or archived');
   }
 
-  private handleSetbuilderTransport(payload: Record<string, unknown>): void {
-    const action = typeof payload.action === 'string' ? payload.action : 'unknown';
-    const title = typeof payload.title === 'string' ? payload.title : '';
-    const position = typeof payload.position_sec === 'number' ? payload.position_sec : 0;
-
-    this.log(
-      `Setbuilder transport command received: ${action}${title ? ` "${title}"` : ''} @ ${position.toFixed(1)}s`
-    );
+  private isCurrentSession(runtime: BridgeRuntime, generation: number): boolean {
+    return this.running && this.runtime === runtime && this.sessionGeneration === generation;
   }
-
-  // --- Status emission ---
 
   private emitStatus(): void {
     this.emit('statusChanged', this.getStatus());
   }
 
+  private forwardLog(message: IpcLogMessage): void {
+    this.logger[message.level](message.message);
+    this.emit('log', message);
+  }
+
   private log(message: string, level: LogLevel = 'info'): void {
-    this.logger[level](message);
-    const logMessage: IpcLogMessage = { message, level };
-    this.emit('log', logMessage);
+    this.forwardLog({ message, level });
   }
 }

@@ -51,7 +51,11 @@ export default function FeatureOptInPanel({ emailVerified, initialNickname, onSa
     try {
       await onSave(payload);
     } catch (e) {
-      setError((e as Error).message);
+      setError(
+        e instanceof Error && e.message.trim()
+          ? e.message
+          : 'Could not save your preferences. Please try again.',
+      );
     } finally {
       setSaving(false);
     }
@@ -100,7 +104,7 @@ export default function FeatureOptInPanel({ emailVerified, initialNickname, onSa
         />
       </div>
 
-      {error && <p className="collection-fieldset-error">{error}</p>}
+      {error && <p role="alert" className="collection-fieldset-error">{error}</p>}
 
       <div className="collect-optin-actions">
         <button

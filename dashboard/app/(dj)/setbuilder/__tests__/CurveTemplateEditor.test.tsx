@@ -1,7 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import CurveTemplateEditorOverlay from '../components/CurveTemplateEditorOverlay';
-import type { CurvePoint } from '@/lib/api-types';
+import CurveTemplateEditorOverlay from '../components/curve/CurveTemplateEditorOverlay';
+import type { CurvePoint } from '@/lib/api/types';
 
 beforeAll(() => {
   globalThis.ResizeObserver = class {
@@ -42,6 +42,15 @@ describe('CurveTemplateEditorOverlay', () => {
     renderOverlay();
     expect(screen.getByTestId('point-count')).toHaveTextContent('3');
     expect(screen.getByLabelText('Template name')).toHaveValue('Untitled curve');
+  });
+
+  it('keeps the SVG paths valid when an existing template has no points', () => {
+    renderOverlay({ mode: 'edit', initial: { id: 12, name: 'Empty curve', points: [] } });
+    const paths = screen.getByTestId('template-canvas').querySelectorAll('path');
+
+    expect(paths).toHaveLength(2);
+    expect(paths[0]).toHaveAttribute('d', '');
+    expect(paths[1]).toHaveAttribute('d', '');
   });
 
   it('loads an existing template for editing and saves changes', () => {

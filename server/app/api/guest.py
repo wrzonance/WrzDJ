@@ -6,24 +6,21 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.core.config import get_settings
-from app.core.rate_limit import get_client_ip, get_guest_id, limiter
+from app.core.rate_limit import get_client_ip, get_guest_id, is_inert_dev_token, limiter
 from app.schemas.guest import IdentifyRequest, IdentifyResponse
 from app.schemas.human_verification import (
     VerifyHumanRequest,
     VerifyHumanResponse,
     VerifyStatusResponse,
 )
-from app.services.guest_identity import identify_guest
+from app.services.guests.identity import identify_guest
 from app.services.human_verification import (
-    COOKIE_NAME,
-    _b64decode,
+    get_human_cookie_remaining_ttl,
     issue_human_cookie,
-    verify_human_cookie,
 )
 from app.services.turnstile import verify_turnstile_token
 
 router = APIRouter()
-settings = get_settings()
 
 
 @router.post("/guest/identify", response_model=IdentifyResponse)
@@ -34,8 +31,6 @@ def identify(
     db: Session = Depends(get_db),
 ) -> JSONResponse:
     """Resolve guest identity via cookie token and/or browser fingerprint."""
-    from app.core.rate_limit import is_inert_dev_token
-
     token_from_cookie = request.cookies.get("wrzdj_guest")
     # A leaked dev-bypass guest row must not be claimable or re-tokenizable here when
     # the bypass is off — drop the reserved token so identity resolves as cookieless.
@@ -60,7 +55,7 @@ def identify(
     )
 
     if result.token:
-        is_prod = settings.env == "production"
+        is_prod = get_settings().env == "production"
         response.set_cookie(
             key="wrzdj_guest",
             value=result.token,
@@ -94,7 +89,7 @@ async def verify_human(
 
     issue_human_cookie(response, guest_id)
 
-    return VerifyHumanResponse(verified=True, expires_in=settings.human_cookie_ttl_seconds)
+    return VerifyHumanResponse(verified=True, expires_in=get_settings().human_cookie_ttl_seconds)
 
 
 @router.get("/guest/verify-status", response_model=VerifyStatusResponse)
@@ -111,16 +106,8 @@ def verify_status(
     """
     response.headers["Cache-Control"] = "no-store, private"
 
-    guest_id = verify_human_cookie(request)
-    if guest_id is None:
+    remaining = get_human_cookie_remaining_ttl(request)
+    if remaining is None:
         return VerifyStatusResponse(verified=False, expires_in=0)
 
-    import json as _json
-
-    raw = request.cookies.get(COOKIE_NAME)
-    payload_part, _sig = raw.rsplit(".", 1)
-    payload = _json.loads(_b64decode(payload_part))
-    from app.core.time import utcnow
-
-    remaining = max(0, int(payload["exp"]) - int(utcnow().timestamp()))
     return VerifyStatusResponse(verified=True, expires_in=remaining)

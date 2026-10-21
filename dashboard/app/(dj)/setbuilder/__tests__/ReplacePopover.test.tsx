@@ -1,7 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
-import ReplacePopover from '../components/ReplacePopover';
-import { rankReplacementCandidates } from '../components/curveMath';
+import ReplacePopover from '../components/pool/ReplacePopover';
+import { rankReplacementCandidates } from '../components/curve/curveMath';
 import type { SlotView, TrackView } from '../components/types';
 
 function mkTrack(over: Partial<TrackView> = {}): TrackView {

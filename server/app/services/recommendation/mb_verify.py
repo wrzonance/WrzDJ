@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.core.time import utcnow
 from app.models.mb_artist_cache import MbArtistCache
-from app.services.musicbrainz import check_artist_exists
+from app.services.providers.musicbrainz import check_artist_exists
 from app.services.track_normalizer import split_artists
 
 # Cached entries older than this are re-verified against MusicBrainz
@@ -41,7 +41,7 @@ def _backfill_lb_popularity(db: Session, normalized_map: dict[str, list[str]]) -
     and lb_user_count is None. Fetches popularity in a single batch
     POST and writes results back to the cache rows.
     """
-    from app.services.listenbrainz import fetch_artist_popularity
+    from app.services.providers.listenbrainz import fetch_artist_popularity
 
     # Find verified artists with MBIDs that haven't been checked against LB yet
     rows_needing_lb = (

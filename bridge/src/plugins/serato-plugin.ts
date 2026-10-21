@@ -18,19 +18,19 @@
  *   - https://github.com/bkstein/SSL-API (Java, MIT)
  *   - https://github.com/whatsnowplaying/whats-now-playing (Python, MIT)
  */
-import { EventEmitter } from "events";
+import type { PluginMeta } from "./plugin-registry.js";
 import { closeSync, fstatSync, openSync, readSync, statSync, watch, type FSWatcher } from "fs";
+import { TypedEventEmitter } from "../shared/typed-event-emitter.js";
 
-function isMissingFileError(err: unknown): boolean {
-  return typeof err === "object" && err !== null && (err as NodeJS.ErrnoException).code === "ENOENT";
-}
-
+import { isMissingFileError } from "./file-errors.js";
 import type {
   EquipmentSourcePlugin,
   PluginCapabilities,
   PluginConfigOption,
   PluginInfo,
-} from "../plugin-types.js";
+  PluginEventMap,
+  PluginEventArguments,
+} from "./plugin-types.js";
 import {
   findLatestSessionFile,
   getDefaultSeratoPath,
@@ -40,40 +40,48 @@ import {
 } from "./serato-session-parser.js";
 
 const DEFAULT_POLL_INTERVAL = 1000;
+const MIN_POLL_INTERVAL_MS = 200;
+const MAX_POLL_INTERVAL_MS = 10_000;
 
-export class SeratoPlugin extends EventEmitter implements EquipmentSourcePlugin {
-  readonly info: PluginInfo = {
-    id: "serato",
-    name: "Serato DJ",
-    description: "Watches Serato session files for track metadata",
+export class SeratoPlugin extends TypedEventEmitter<PluginEventArguments> implements EquipmentSourcePlugin {
+  static readonly metadata: PluginMeta = {
+    info: {
+      id: "serato",
+      name: "Serato DJ",
+      description: "Watches Serato session files for track metadata",
+    },
+    capabilities: {
+      multiDeck: true,
+      playState: false,
+      faderLevel: false,
+      masterDeck: false,
+      albumMetadata: true,
+    },
+    configOptions: [
+      {
+        key: "seratoPath",
+        label: "Sessions folder",
+        type: "string",
+        default: "",
+        description: "Path to Serato sessions folder (auto-detected if empty)",
+      },
+      {
+        key: "pollInterval",
+        label: "Poll interval (ms)",
+        type: "number",
+        default: DEFAULT_POLL_INTERVAL,
+        min: 200,
+        max: 10000,
+        description: "How often to check for new track data",
+      },
+    ]
   };
 
-  readonly capabilities: PluginCapabilities = {
-    multiDeck: true,
-    playState: false,
-    faderLevel: false,
-    masterDeck: false,
-    albumMetadata: true,
-  };
+  readonly info: PluginInfo = structuredClone(SeratoPlugin.metadata.info);
 
-  readonly configOptions: readonly PluginConfigOption[] = [
-    {
-      key: "seratoPath",
-      label: "Sessions folder",
-      type: "string",
-      default: "",
-      description: "Path to Serato sessions folder (auto-detected if empty)",
-    },
-    {
-      key: "pollInterval",
-      label: "Poll interval (ms)",
-      type: "number",
-      default: DEFAULT_POLL_INTERVAL,
-      min: 200,
-      max: 10000,
-      description: "How often to check for new track data",
-    },
-  ];
+  readonly capabilities: PluginCapabilities = structuredClone(SeratoPlugin.metadata.capabilities);
+
+  readonly configOptions: readonly PluginConfigOption[] = structuredClone(SeratoPlugin.metadata.configOptions);
 
   private running = false;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -94,28 +102,33 @@ export class SeratoPlugin extends EventEmitter implements EquipmentSourcePlugin 
       throw new Error("Serato plugin is already running");
     }
 
-    const seratoPath = (config?.seratoPath as string) || "";
+    const seratoPath = config?.seratoPath === undefined ? "" : config.seratoPath;
+    if (typeof seratoPath !== "string" || seratoPath.includes("\0")) {
+      throw new Error("Invalid seratoPath: must be a string without null bytes");
+    }
     this.sessionsDir = seratoPath || getDefaultSeratoPath();
-    this.pollInterval =
-      (config?.pollInterval as number) ?? DEFAULT_POLL_INTERVAL;
+    const pollInterval = config?.pollInterval === undefined ? DEFAULT_POLL_INTERVAL : config.pollInterval;
 
     if (
-      !Number.isInteger(this.pollInterval) ||
-      this.pollInterval < 200 ||
-      this.pollInterval > 10000
+      typeof pollInterval !== "number" ||
+      !Number.isInteger(pollInterval) ||
+      pollInterval < MIN_POLL_INTERVAL_MS ||
+      pollInterval > MAX_POLL_INTERVAL_MS
     ) {
       throw new Error(
-        `Invalid pollInterval: ${this.pollInterval}. Must be an integer between 200 and 10000.`
+        `Invalid pollInterval: must be an integer between ${MIN_POLL_INTERVAL_MS} and ${MAX_POLL_INTERVAL_MS}.`
       );
     }
+    this.pollInterval = pollInterval;
 
-    this.running = true;
     this.fileOffset = 0;
+    this.consecutiveReadErrors = 0;
     this.lastTrackPerDeck = new Map();
     this.sessionPath = null;
 
     this.emit("log", `Looking for Serato session files in: ${this.sessionsDir}`);
     this.locateSessionFile();
+    this.running = true;
     this.startPolling();
     this.watchForNewSessions();
   }
@@ -152,16 +165,17 @@ export class SeratoPlugin extends EventEmitter implements EquipmentSourcePlugin 
       return;
     }
 
-    this.sessionPath = sessionFile;
-
     // Start from the end of the file — we only want new entries
     try {
       const stat = statSync(sessionFile);
       this.fileOffset = stat.size;
-    } catch {
-      this.fileOffset = 0;
+    } catch (error) {
+      if (!isMissingFileError(error)) throw error;
+      this.emit("connection", { connected: false });
+      return;
     }
 
+    this.sessionPath = sessionFile;
     this.emit("log", `Watching session file: ${sessionFile}`);
     this.emit("connection", { connected: true, deviceName: "Serato DJ" });
   }
@@ -170,25 +184,33 @@ export class SeratoPlugin extends EventEmitter implements EquipmentSourcePlugin 
   private startPolling(): void {
     this.pollTimer = setInterval(() => {
       if (!this.running) return;
-      this.pollSessionFile();
+      try {
+        this.pollSessionFile();
+      } catch (error) {
+        this.recordReadError(error);
+      }
     }, this.pollInterval);
   }
 
   /** Watch the sessions directory for new session files. */
   private watchForNewSessions(): void {
     try {
-      this.dirWatcher = watch(this.sessionsDir, (eventType, filename) => {
+      this.dirWatcher = watch(this.sessionsDir, (_eventType, filename) => {
         if (!this.running) return;
         if (!filename?.endsWith(".session")) return;
 
         // A new session file appeared — switch to it
-        const newSession = findLatestSessionFile(this.sessionsDir);
-        if (newSession && newSession !== this.sessionPath) {
-          this.emit("log", `New session file detected: ${newSession}`);
-          this.sessionPath = newSession;
-          this.fileOffset = 0;
-          this.lastTrackPerDeck = new Map();
-          this.emit("connection", { connected: true, deviceName: "Serato DJ" });
+        try {
+          const newSession = findLatestSessionFile(this.sessionsDir);
+          if (newSession && newSession !== this.sessionPath) {
+            this.emit("log", `New session file detected: ${newSession}`);
+            this.sessionPath = newSession;
+            this.fileOffset = 0;
+            this.lastTrackPerDeck = new Map();
+            this.emit("connection", { connected: true, deviceName: "Serato DJ" });
+          }
+        } catch (error) {
+          this.recordReadError(error);
         }
       });
     } catch {
@@ -245,7 +267,7 @@ export class SeratoPlugin extends EventEmitter implements EquipmentSourcePlugin 
     this.fileOffset += result.bytesConsumed;
 
     for (const entry of result.entries) {
-      this.processEntry(entry);
+      this.emitTrackIfChanged(entry);
     }
   }
 
@@ -264,7 +286,7 @@ export class SeratoPlugin extends EventEmitter implements EquipmentSourcePlugin 
   }
 
   /** Process a parsed track entry, deduplicating per deck. */
-  private processEntry(entry: SeratoTrackEntry): void {
+  private emitTrackIfChanged(entry: SeratoTrackEntry): void {
     if (!entry.title && !entry.artist) return;
 
     const deckId = String(entry.deck || 1);

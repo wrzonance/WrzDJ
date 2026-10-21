@@ -40,7 +40,7 @@ test.describe('Login & Auth', () => {
 
     await setupAuth(page, testApi.jwt);
     await page.goto('/events');
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     // Click the logout button
     await page.click('button:has-text("Logout")');

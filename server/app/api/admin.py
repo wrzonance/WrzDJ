@@ -45,7 +45,11 @@ from app.services.integration_health import (
     check_integration_health,
     get_all_integration_statuses,
 )
-from app.services.system_settings import get_system_settings, update_system_settings
+from app.services.system_settings import (
+    SystemSettingsPatch,
+    get_system_settings,
+    update_system_settings,
+)
 
 router = APIRouter()
 
@@ -262,18 +266,7 @@ def admin_update_settings(
     _admin: User = Depends(get_current_admin),
 ) -> SystemSettingsOut:
     settings = update_system_settings(
-        db,
-        registration_enabled=update_data.registration_enabled,
-        search_rate_limit_per_minute=update_data.search_rate_limit_per_minute,
-        spotify_enabled=update_data.spotify_enabled,
-        tidal_enabled=update_data.tidal_enabled,
-        beatport_enabled=update_data.beatport_enabled,
-        bridge_enabled=update_data.bridge_enabled,
-        human_verification_enforced=update_data.human_verification_enforced,
-        llm_enabled=update_data.llm_enabled,
-        llm_rate_limit_per_minute=update_data.llm_rate_limit_per_minute,
-        vibe_consensus_min_sample=update_data.vibe_consensus_min_sample,
-        vibe_consensus_max_stddev=update_data.vibe_consensus_max_stddev,
+        db, SystemSettingsPatch(**update_data.model_dump(exclude_unset=True))
     )
     return SystemSettingsOut.model_validate(settings)
 
@@ -303,7 +296,7 @@ def admin_toggle_integration(
     if service not in VALID_SERVICES:
         raise HTTPException(status_code=400, detail=f"Unknown service: {service}")
 
-    update_system_settings(db, **{f"{service}_enabled": toggle.enabled})
+    update_system_settings(db, SystemSettingsPatch(**{f"{service}_enabled": toggle.enabled}))
     return IntegrationToggleResponse(service=service, enabled=toggle.enabled)
 
 
@@ -362,8 +355,10 @@ def admin_update_ai_settings(
     """Update AI/LLM configuration (org-fallback gate + public rate limit)."""
     settings = update_system_settings(
         db,
-        llm_enabled=update_data.llm_enabled,
-        llm_rate_limit_per_minute=update_data.llm_rate_limit_per_minute,
+        SystemSettingsPatch(
+            llm_enabled=update_data.llm_enabled,
+            llm_rate_limit_per_minute=update_data.llm_rate_limit_per_minute,
+        ),
     )
     return AISettingsOut(
         llm_enabled=settings.llm_enabled,

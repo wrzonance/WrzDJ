@@ -1,6 +1,6 @@
 """Service layer for pre-event collection."""
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import func
@@ -12,7 +12,12 @@ from app.models.event import Event
 from app.models.guest import Guest
 from app.models.guest_profile import GuestProfile
 from app.models.request import Request as SongRequest
-from app.schemas.collect import BulkReviewRequest, UpdateCollectionSettings
+from app.models.request import RequestStatus
+from app.schemas.collect import (
+    BulkReviewRequest,
+    CollectionSettingsResponse,
+    UpdateCollectionSettings,
+)
 from app.schemas.request import RequestSort, SortDirection
 from app.services.request import mark_accepted
 from app.services.request_sort import DEFAULT_SORT_DIRECTION, apply_field_sort, key_sorted
@@ -29,22 +34,22 @@ class NicknameConflictError(Exception):
 def _to_naive_utc(dt: datetime) -> datetime:
     """Normalize a datetime to naive UTC (tzinfo stripped)."""
     if dt.tzinfo is not None:
-        dt = dt.astimezone(tz=None).replace(tzinfo=None)
+        dt = dt.astimezone(UTC).replace(tzinfo=None)
     return dt
 
 
-def collection_settings_payload(event: Event) -> dict:
+def collection_settings_payload(event: Event) -> CollectionSettingsResponse:
     """Serialize collection-scheduling settings for the dashboard."""
-    return {
-        "collection_opens_at": event.collection_opens_at,
-        "live_starts_at": event.live_starts_at,
-        "submission_cap_per_guest": event.submission_cap_per_guest,
-        "collection_phase_override": event.collection_phase_override,
-        "phase": event.phase,
-        "tidal_sync_enabled": event.tidal_sync_enabled,
-        "tidal_collection_playlist_id": event.tidal_collection_playlist_id,
-        "tidal_collection_bidirectional": event.tidal_collection_bidirectional,
-    }
+    return CollectionSettingsResponse(
+        collection_opens_at=event.collection_opens_at,
+        live_starts_at=event.live_starts_at,
+        submission_cap_per_guest=event.submission_cap_per_guest,
+        collection_phase_override=event.collection_phase_override,
+        phase=event.phase,
+        tidal_sync_enabled=event.tidal_sync_enabled,
+        tidal_collection_playlist_id=event.tidal_collection_playlist_id,
+        tidal_collection_bidirectional=event.tidal_collection_bidirectional,
+    )
 
 
 def update_collection_settings(
@@ -104,7 +109,7 @@ def get_sorted_pending_review(
         db.query(SongRequest)
         .filter(SongRequest.event_id == event_id)
         .filter(SongRequest.submitted_during_collection == True)  # noqa: E712
-        .filter(SongRequest.status == "new")
+        .filter(SongRequest.status == RequestStatus.NEW.value)
     )
     total = base.count()
 
@@ -146,7 +151,7 @@ def execute_bulk_review(
         db.query(SongRequest)
         .filter(SongRequest.event_id == event_id)
         .filter(SongRequest.submitted_during_collection == True)  # noqa: E712
-        .filter(SongRequest.status == "new")
+        .filter(SongRequest.status == RequestStatus.NEW.value)
     )
 
     accepted = 0
@@ -164,7 +169,7 @@ def execute_bulk_review(
             .all()
         )
         for r in rows:
-            r.status = "accepted"
+            r.status = RequestStatus.ACCEPTED.value
             mark_accepted(r, now)
             accepted += 1
             accepted_rows.append(r)
@@ -173,7 +178,7 @@ def execute_bulk_review(
             raise HTTPException(status_code=400, detail="min_votes is required")
         rows = pending_q.filter(SongRequest.vote_count >= payload.min_votes).all()
         for r in rows:
-            r.status = "accepted"
+            r.status = RequestStatus.ACCEPTED.value
             mark_accepted(r, now)
             accepted += 1
             accepted_rows.append(r)
@@ -182,7 +187,7 @@ def execute_bulk_review(
             raise HTTPException(status_code=400, detail="request_ids is required")
         rows = pending_q.filter(SongRequest.id.in_(payload.request_ids)).all()
         for r in rows:
-            r.status = "accepted"
+            r.status = RequestStatus.ACCEPTED.value
             mark_accepted(r, now)
             accepted += 1
             accepted_rows.append(r)
@@ -191,13 +196,13 @@ def execute_bulk_review(
             raise HTTPException(status_code=400, detail="request_ids is required")
         rows = pending_q.filter(SongRequest.id.in_(payload.request_ids)).all()
         for r in rows:
-            r.status = "rejected"
+            r.status = RequestStatus.REJECTED.value
             rejected += 1
             rejected_rows.append(r)
     elif payload.action == "reject_remaining":
         rows = pending_q.all()
         for r in rows:
-            r.status = "rejected"
+            r.status = RequestStatus.REJECTED.value
             rejected += 1
             rejected_rows.append(r)
 
@@ -278,7 +283,7 @@ def check_and_increment_submission_count(
     db: Session,
     *,
     event: Event,
-    guest_id: int | None = None,
+    guest_id: int,
 ) -> GuestProfile:
     """Atomically enforce the per-guest cap, incrementing submission_count on success.
 

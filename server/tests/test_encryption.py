@@ -177,7 +177,10 @@ class TestEncryptedTextTypeDecorator:
         Base.metadata.create_all(engine)
         _session = sessionmaker(bind=engine)()
         yield _session
-        _session.close()
+        try:
+            _session.close()
+        finally:
+            engine.dispose()
 
     def test_write_and_read_encrypted(self, session: Session):
         secret = FakeSecret(id=1, token="super-secret")

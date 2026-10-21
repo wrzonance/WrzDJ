@@ -4,7 +4,7 @@ import { NicknameGate } from '../NicknameGate';
 
 // Controllable dev-bypass flag for bypass tests below.
 let devBypassActive = false;
-vi.mock('../../lib/devAuthBypass', () => ({
+vi.mock('../../lib/dev-auth-bypass', () => ({
   isDevAuthBypassActive: () => devBypassActive,
 }));
 
@@ -32,7 +32,7 @@ vi.mock('../../lib/api', () => {
     }
   }
   return {
-    apiClient: {
+    api: {
       getCollectProfile: vi.fn(),
       setCollectProfile: vi.fn(),
       requestVerificationCode: vi.fn(),
@@ -68,12 +68,12 @@ vi.mock('../../lib/turnstile', () => ({
   loadTurnstileScript: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { apiClient, NicknameConflictError } from '../../lib/api';
+import { api, NicknameConflictError } from '../../lib/api';
 
-const mockGetProfile = vi.mocked(apiClient.getCollectProfile);
-const mockSetProfile = vi.mocked(apiClient.setCollectProfile);
-const mockRequestCode = vi.mocked(apiClient.requestVerificationCode);
-const mockConfirmCode = vi.mocked(apiClient.confirmVerificationCode);
+const mockGetProfile = vi.mocked(api.getCollectProfile);
+const mockSetProfile = vi.mocked(api.setCollectProfile);
+const mockRequestCode = vi.mocked(api.requestVerificationCode);
+const mockConfirmCode = vi.mocked(api.confirmVerificationCode);
 
 const emptyProfile = {
   nickname: null,

@@ -43,11 +43,22 @@ describe('login', () => {
     await expect(login('https://api.wrzdj.com', 'admin', 'wrong')).rejects.toThrow('Invalid credentials');
   });
 
+  // Regression for 57cfcdc6867f: backend transport errors include operation context and cause.
+  it('adds login context and preserves the original fetch failure', async () => {
+    const failure = new TypeError('network disconnected');
+    mockFetch.mockRejectedValue(failure);
+
+    await expect(login('https://api.wrzdj.com', 'admin', 'pass')).rejects.toMatchObject({
+      message: 'Login request failed',
+      cause: failure,
+    });
+  });
+
   it('throws generic message when response has no detail', async () => {
     mockFetch.mockResolvedValue({
       ok: false,
       status: 500,
-      json: () => Promise.reject(new Error('parse error')),
+      json: () => Promise.reject(new SyntaxError('invalid JSON')),
     });
 
     await expect(login('https://api.wrzdj.com', 'admin', 'pass')).rejects.toThrow('Login failed');
@@ -85,6 +96,27 @@ describe('login', () => {
 
     await expect(login('https://api.wrzdj.com', 'admin', 'pass'))
       .rejects.toThrow('Login response did not include a valid access token');
+  });
+
+  it('adds login context to successful-response body stream failures', async () => {
+    // Regression coverage for 57cfcdc6867f: body transport failures are not malformed JSON.
+    const failure = new TypeError('terminated');
+    mockFetch.mockResolvedValue({ ok: true, json: () => Promise.reject(failure) });
+
+    await expect(login('https://api.wrzdj.com', 'admin', 'pass')).rejects.toMatchObject({
+      message: 'Login response could not be read',
+      cause: failure,
+    });
+  });
+
+  it('adds login context to error-response body stream failures', async () => {
+    const failure = new TypeError('error response body terminated');
+    mockFetch.mockResolvedValue({ ok: false, status: 500, json: () => Promise.reject(failure) });
+
+    await expect(login('https://api.wrzdj.com', 'admin', 'pass')).rejects.toMatchObject({
+      message: 'Login error response could not be read',
+      cause: failure,
+    });
   });
 
   it('preserves a valid access token exactly', async () => {
@@ -134,6 +166,24 @@ describe('verifyToken', () => {
     // Regression for 28125d51: interrupted transport is not malformed JSON.
     const failure = new TypeError('terminated');
     mockFetch.mockResolvedValue({ ok: true, json: () => Promise.reject(failure) });
+
+    await expect(verifyToken('https://api.wrzdj.com', 'valid-token')).rejects.toMatchObject({
+      message: 'Token verification unavailable',
+      cause: failure,
+    });
+  });
+
+  it.each([
+    ['fetch', (failure: Error) => mockFetch.mockRejectedValue(failure)],
+    ['response body read', (failure: Error) => mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.reject(failure),
+    })],
+  ])('classifies %s failures by boundary, not error-message prefix', async (_operation, reject) => {
+    // Regression for 57cfcdc6867f: transport failures remain availability errors regardless of text.
+    const failure = new TypeError('Token verification transport was interrupted');
+    reject(failure);
 
     await expect(verifyToken('https://api.wrzdj.com', 'valid-token')).rejects.toMatchObject({
       message: 'Token verification unavailable',
@@ -198,6 +248,7 @@ describe('buildAuthState', () => {
       isAuthenticated: true,
       username: 'admin',
       apiUrl: 'https://api.wrzdj.com',
+      verificationError: null,
     });
   });
 
@@ -207,6 +258,7 @@ describe('buildAuthState', () => {
       isAuthenticated: false,
       username: null,
       apiUrl: 'https://api.wrzdj.com',
+      verificationError: null,
     });
   });
 });

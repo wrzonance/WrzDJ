@@ -29,11 +29,11 @@ describe('formatPriorityScore', () => {
 
 describe('getPriorityScoreColor', () => {
   it('returns gray for null', () => {
-    expect(getPriorityScoreColor(null)).toBe('#666');
+    expect(getPriorityScoreColor(null)).toBe('#757575');
   });
 
   it('returns gray for undefined', () => {
-    expect(getPriorityScoreColor(undefined)).toBe('#666');
+    expect(getPriorityScoreColor(undefined)).toBe('#757575');
   });
 
   it('returns green for high score', () => {

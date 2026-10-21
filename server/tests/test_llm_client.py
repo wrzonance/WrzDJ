@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.services.llm.base import ChatResponse, ToolCall
+from app.services.recommendation.context import RecommendationContext
 from app.services.recommendation.llm_client import (
     SEARCH_QUERIES_TOOL,
     SYSTEM_PROMPT,
@@ -12,13 +13,14 @@ from app.services.recommendation.llm_client import (
     build_user_prompt,
     call_llm,
 )
-from app.services.recommendation.scorer import EventProfile, TrackProfile
+from app.services.recommendation.scorer import EventProfile
+from app.services.tracks.profile import TrackProfile
 
 
 class TestBuildUserPrompt:
     def test_empty_profile(self):
         profile = EventProfile(track_count=0)
-        result = build_user_prompt(profile, "chill vibes")
+        result = build_user_prompt(RecommendationContext(profile), "chill vibes")
         assert "DJ's request: chill vibes" in result
         assert "No tracks accepted yet" in result
 
@@ -30,7 +32,7 @@ class TestBuildUserPrompt:
             dominant_genres=["Tech House", "House"],
             track_count=10,
         )
-        result = build_user_prompt(profile, "something darker")
+        result = build_user_prompt(RecommendationContext(profile), "something darker")
         assert "DJ's request: something darker" in result
         assert "Tracks analyzed: 10" in result
         assert "Average BPM: 128" in result
@@ -43,7 +45,7 @@ class TestBuildUserPrompt:
             dominant_genres=["Hip Hop"],
             track_count=3,
         )
-        result = build_user_prompt(profile, "90s classics")
+        result = build_user_prompt(RecommendationContext(profile), "90s classics")
         assert "Tracks analyzed: 3" in result
         assert "Hip Hop" in result
         assert "Average BPM" not in result
@@ -61,7 +63,9 @@ class TestBuildUserPrompt:
             ),
             TrackProfile(title="Levels", artist="Avicii", bpm=126.0),
         ]
-        result = build_user_prompt(profile, "more like these", tracks=tracks)
+        result = build_user_prompt(
+            RecommendationContext(profile, accepted_tracks=tuple(tracks)), "more like these"
+        )
         assert "Tracks in the set:" in result
         assert "deadmau5 — Strobe (128 BPM, 8A, Progressive House)" in result
         assert "Avicii — Levels (126 BPM)" in result
@@ -69,40 +73,58 @@ class TestBuildUserPrompt:
     def test_track_list_capped_at_30(self):
         profile = EventProfile(track_count=40)
         tracks = [TrackProfile(title=f"Track {i}", artist=f"Artist {i}") for i in range(40)]
-        result = build_user_prompt(profile, "test", tracks=tracks)
+        result = build_user_prompt(
+            RecommendationContext(profile, accepted_tracks=tuple(tracks)), "test"
+        )
         assert "Artist 29 — Track 29" in result
         assert "Artist 30 — Track 30" not in result
 
     def test_no_tracks_omits_section(self):
         profile = EventProfile(track_count=0)
-        result = build_user_prompt(profile, "test", tracks=None)
+        result = build_user_prompt(RecommendationContext(profile), "test")
         assert "Tracks in the set:" not in result
-        result2 = build_user_prompt(profile, "test", tracks=[])
+        result2 = build_user_prompt(RecommendationContext(profile, accepted_tracks=[]), "test")
         assert "Tracks in the set:" not in result2
+
+    def test_context_includes_current_track_and_caps_rejected_tracks(self):
+        tracks = [(f"Rejected Artist {index}", f"Rejected Song {index}") for index in range(16)]
+        context = RecommendationContext(
+            event_profile=EventProfile(track_count=0),
+            rejected_tracks=tracks,
+            currently_playing=("New Order", "Blue Monday", 127.6),
+        )
+
+        result = build_user_prompt(context, "keep it moving")
+
+        assert "Currently playing: New Order — Blue Monday (128 BPM)" in result
+        assert "Rejected tracks (DJ said no to these — avoid similar):" in result
+        assert "Rejected Artist 14 — Rejected Song 14" in result
+        assert "Rejected Artist 15 — Rejected Song 15" not in result
 
 
 class TestParseToolResponse:
     def test_valid_tool_use(self):
-        response = MagicMock()
-        tool_block = MagicMock()
-        tool_block.type = "tool_use"
-        tool_block.name = "search_queries"
-        tool_block.input = {
-            "queries": [
-                {
-                    "search_query": "deadmau5 progressive house",
-                    "target_bpm": 128.0,
-                    "target_key": "8A",
-                    "target_genre": "Progressive House",
-                    "reasoning": "Matches dark progressive style",
-                },
-                {
-                    "search_query": "eric prydz",
-                    "reasoning": "Similar artist",
-                },
-            ]
-        }
-        response.content = [tool_block]
+        response = ChatResponse(
+            tool_calls=[
+                ToolCall(
+                    id="t1",
+                    name="search_queries",
+                    input={
+                        "queries": [
+                            {
+                                "search_query": "deadmau5 progressive house",
+                                "target_bpm": 128.0,
+                                "target_key": "8A",
+                                "target_genre": "Progressive House",
+                                "reasoning": "Matches dark progressive style",
+                            },
+                            {"search_query": "eric prydz", "reasoning": "Similar artist"},
+                        ]
+                    },
+                )
+            ],
+            stop_reason="tool_use",
+        )
 
         result = _parse_tool_response(response)
         assert len(result.queries) == 2
@@ -115,40 +137,37 @@ class TestParseToolResponse:
         assert result.queries[1].target_key is None
 
     def test_empty_queries(self):
-        response = MagicMock()
-        tool_block = MagicMock()
-        tool_block.type = "tool_use"
-        tool_block.name = "search_queries"
-        tool_block.input = {"queries": []}
-        response.content = [tool_block]
+        response = ChatResponse(
+            tool_calls=[ToolCall(id="t1", name="search_queries", input={"queries": []})],
+            stop_reason="tool_use",
+        )
 
         result = _parse_tool_response(response)
         assert len(result.queries) == 0
 
     def test_text_only_fallback(self):
-        response = MagicMock()
-        text_block = MagicMock()
-        text_block.type = "text"
-        text_block.text = "I cannot generate queries."
-        response.content = [text_block]
+        response = ChatResponse(text="I cannot generate queries.", stop_reason="end_turn")
 
         result = _parse_tool_response(response)
         assert len(result.queries) == 0
         assert "I cannot generate queries" in result.raw_response
 
     def test_mixed_content_blocks(self):
-        response = MagicMock()
-        text_block = MagicMock()
-        text_block.type = "text"
-        text_block.text = "Here are my suggestions: "
-
-        tool_block = MagicMock()
-        tool_block.type = "tool_use"
-        tool_block.name = "search_queries"
-        tool_block.input = {
-            "queries": [{"search_query": "avicii levels", "reasoning": "Requested song"}]
-        }
-        response.content = [text_block, tool_block]
+        response = ChatResponse(
+            text="Here are my suggestions: ",
+            tool_calls=[
+                ToolCall(
+                    id="t1",
+                    name="search_queries",
+                    input={
+                        "queries": [
+                            {"search_query": "avicii levels", "reasoning": "Requested song"}
+                        ]
+                    },
+                )
+            ],
+            stop_reason="tool_use",
+        )
 
         result = _parse_tool_response(response)
         assert len(result.queries) == 1
@@ -164,67 +183,62 @@ class TestParseToolResponseMalformedPayloads:
     finding on PR #362: bad items are skipped, valid ones still parse.
     """
 
-    def _tool_block(self, tool_input):
-        block = MagicMock()
-        block.type = "tool_use"
-        block.name = "search_queries"
-        block.input = tool_input
-        return block
+    def _response(self, tool_input):
+        return ChatResponse(
+            tool_calls=[ToolCall(id="t1", name="search_queries", input=tool_input)],
+            stop_reason="tool_use",
+        )
 
     def test_input_not_a_dict_is_skipped(self):
-        response = MagicMock()
-        response.content = [self._tool_block(["not", "a", "dict"])]
+        # The public model rejects this at validation time. Construct an invalid
+        # internal payload to retain coverage of the parser's defensive guard.
+        response = ChatResponse.model_construct(
+            tool_calls=[
+                ToolCall.model_construct(id="t1", name="search_queries", input=["not", "a", "dict"])
+            ],
+            stop_reason="tool_use",
+        )
         result = _parse_tool_response(response)
         assert result.queries == []
 
     def test_queries_not_a_list_is_skipped(self):
-        response = MagicMock()
-        response.content = [self._tool_block({"queries": "oops"})]
+        response = self._response({"queries": "oops"})
         result = _parse_tool_response(response)
         assert result.queries == []
 
     def test_non_dict_query_item_is_skipped(self):
-        response = MagicMock()
-        response.content = [
-            self._tool_block(
-                {
-                    "queries": [
-                        "garbage",
-                        {"search_query": "valid query", "reasoning": "ok"},
-                    ]
-                }
-            )
-        ]
+        response = self._response(
+            {
+                "queries": [
+                    "garbage",
+                    {"search_query": "valid query", "reasoning": "ok"},
+                ]
+            }
+        )
         result = _parse_tool_response(response)
         assert len(result.queries) == 1
         assert result.queries[0].search_query == "valid query"
 
     def test_missing_or_blank_search_query_is_skipped(self):
-        response = MagicMock()
-        response.content = [
-            self._tool_block(
-                {
-                    "queries": [
-                        {"reasoning": "no search_query key"},
-                        {"search_query": "", "reasoning": "blank"},
-                        {"search_query": "   ", "reasoning": "whitespace"},
-                        {"search_query": 123, "reasoning": "not a string"},
-                        {"search_query": "keep me", "reasoning": "good"},
-                    ]
-                }
-            )
-        ]
+        response = self._response(
+            {
+                "queries": [
+                    {"reasoning": "no search_query key"},
+                    {"search_query": "", "reasoning": "blank"},
+                    {"search_query": "   ", "reasoning": "whitespace"},
+                    {"search_query": 123, "reasoning": "not a string"},
+                    {"search_query": "keep me", "reasoning": "good"},
+                ]
+            }
+        )
         result = _parse_tool_response(response)
         assert len(result.queries) == 1
         assert result.queries[0].search_query == "keep me"
 
     def test_non_string_reasoning_coerced_to_empty(self):
-        response = MagicMock()
-        response.content = [
-            self._tool_block(
-                {"queries": [{"search_query": "valid", "reasoning": {"unexpected": "dict"}}]}
-            )
-        ]
+        response = self._response(
+            {"queries": [{"search_query": "valid", "reasoning": {"unexpected": "dict"}}]}
+        )
         result = _parse_tool_response(response)
         assert len(result.queries) == 1
         assert result.queries[0].reasoning == ""
@@ -250,7 +264,10 @@ class TestParseToolResponseMalformedPayloads:
         )
         mock_gateway.dispatch = AsyncMock(return_value=response)
         result = await call_llm(
-            EventProfile(track_count=0), "test", db=MagicMock(), actor=MagicMock()
+            RecommendationContext(EventProfile(track_count=0)),
+            "test",
+            db=MagicMock(),
+            actor=MagicMock(),
         )
         assert len(result.queries) == 1
         assert result.queries[0].search_query == "good one"
@@ -288,7 +305,7 @@ class TestCallLLM:
         actor = MagicMock()
         profile = EventProfile(avg_bpm=120.0, dominant_genres=["House"], track_count=5)
 
-        result = await call_llm(profile, "chill vibes", db=db, actor=actor)
+        result = await call_llm(RecommendationContext(profile), "chill vibes", db=db, actor=actor)
 
         assert len(result.queries) == 1
         assert result.queries[0].search_query == "chill house"
@@ -325,7 +342,9 @@ class TestCallLLM:
         mock_gateway.dispatch = AsyncMock(return_value=response)
 
         profile = EventProfile(track_count=0)
-        result = await call_llm(profile, "test", max_queries=2, db=MagicMock(), actor=MagicMock())
+        result = await call_llm(
+            RecommendationContext(profile), "test", max_queries=2, db=MagicMock(), actor=MagicMock()
+        )
 
         assert len(result.queries) == 2
         assert result.queries[0].search_query == "query 0"

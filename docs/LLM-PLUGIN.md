@@ -43,6 +43,11 @@ Provider HTTP endpoint / SDK
 | Models | `app/models/llm_connector.py` | `LlmConnector` row (encrypted credentials), call log, audit log |
 | Exceptions | `app/services/llm/exceptions.py` | Typed error hierarchy adapters must raise |
 
+The caller owns its application transaction. Gateway call logs, audit events, and connector
+status updates use a separate session on the same database engine, so telemetry survives a
+failed agent turn without committing pending set edits. A session explicitly bound to an
+existing connection joins that external transaction without taking commit ownership.
+
 The connector row stores credentials as **encrypted JSON** via the
 `EncryptedText` SQLAlchemy column type — accessing
 `connector.credentials` returns the decrypted plaintext blob. Your adapter is
@@ -276,7 +281,7 @@ The contract covers:
    unknown lookups.
 
 Adapter-specific HTTP and parsing behaviour belongs in a separate test file
-(see the built-in adapters' tests in `test_llm_adapters.py` for the pattern).
+(see the built-in adapters' tests in `server/tests/test_llm_adapters_*.py` for the pattern).
 
 Run the contract test against your adapter:
 

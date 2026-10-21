@@ -1,176 +1,253 @@
-import { test, expect } from '@playwright/test';
-import { createTestApi, setupAuth, waitForPage, type TestApi } from './helpers';
+import { expect, test, type Page, type Route } from '@playwright/test';
 
-/**
- * Search pipeline E2E tests — hits real services (Tidal/Spotify).
- *
- * These tests validate the unified search pipeline including result
- * rendering, junk filtering, and metadata badges. They require a
- * running backend with at least one music service configured.
- */
+const EVENT_CODE = 'E2ESEARCH';
+const ARTWORK =
+  'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="48" height="48"/%3E';
 
-let testApi: TestApi;
-let eventCode: string;
+interface SearchFixture {
+  onSearch: (query: string, route: Route) => Promise<void>;
+  submittedRequests: Record<string, unknown>[];
+  searchedQueries: string[];
+  diagnostics: string[];
+}
 
-test.beforeAll(async ({ playwright }, testInfo) => {
-  const baseURL = testInfo.project.use.baseURL || 'https://192.168.20.5';
-  testApi = await createTestApi(playwright, baseURL);
-  const event = await testApi.createEvent('E2E-Search-Pipeline');
-  eventCode = event.code;
-});
+function result(title: string, options: { source?: string; bpm?: number; key?: string } = {}) {
+  return {
+    title,
+    artist: `${title} Artist`,
+    album: `${title} Album`,
+    album_art: ARTWORK,
+    bpm: options.bpm ?? 124,
+    key: options.key ?? '8A',
+    genre: 'House',
+    isrc: 'USAAA2600001',
+    popularity: 72,
+    preview_url: null,
+    source: options.source ?? 'spotify',
+    spotify_id: `id-${title.toLowerCase().replaceAll(' ', '-')}`,
+    url: `https://example.invalid/tracks/${encodeURIComponent(title)}`,
+  };
+}
 
-test.afterAll(async () => {
-  await testApi.dispose();
-});
-
-test.describe('Search Pipeline', () => {
-  // Real service calls can be slow
-  test.slow();
-
-  test('search returns results with album art', async ({ page }) => {
-    await setupAuth(page, testApi.jwt);
-    await page.goto(`/join/${eventCode}`);
-    await waitForPage(page, 2000);
-
-    await page.fill('input[placeholder*="Search for a song or artist"]', 'taylor swift');
-    await page.click('button:has-text("Search")');
-
-    const results = page.locator('.request-item');
-    // If no results (service down), skip gracefully
-    try {
-      await expect(results.first()).toBeVisible({ timeout: 15000 });
-    } catch {
-      test.skip();
-      return;
-    }
-    expect(await results.count()).toBeGreaterThan(0);
-
-    // At least some results should have album art
-    const albumArts = page.locator('.request-item img');
-    expect(await albumArts.count()).toBeGreaterThan(0);
+async function installGuestSearchFixture(
+  page: Page,
+  onSearch: SearchFixture['onSearch'],
+): Promise<SearchFixture> {
+  const fixture: SearchFixture = { onSearch, submittedRequests: [], searchedQueries: [], diagnostics: [] };
+  page.on('pageerror', (error) => fixture.diagnostics.push(`pageerror ${error.message}`));
+  page.on('console', (message) => {
+    if (message.type() === 'error') fixture.diagnostics.push(`console ${message.text()}`);
   });
 
-  test('junk results are filtered out', async ({ page }) => {
-    await setupAuth(page, testApi.jwt);
-    await page.goto(`/join/${eventCode}`);
-    await waitForPage(page, 2000);
-
-    await page.fill('input[placeholder*="Search for a song or artist"]', 'above and beyond');
-    await page.click('button:has-text("Search")');
-
-    const results = page.locator('.request-item');
-    try {
-      await expect(results.first()).toBeVisible({ timeout: 15000 });
-    } catch {
-      test.skip();
+  // Allow only local app assets and the routed API fixture; third-party
+  // providers, analytics, and accidentally unhandled remote calls stay offline.
+  await page.route('**/*', async (route) => {
+    const url = new URL(route.request().url());
+    if (['127.0.0.1', 'localhost', '::1'].includes(url.hostname)) {
+      await route.continue();
       return;
     }
-
-    // Check that no titles contain junk keywords
-    const count = await results.count();
-    for (let i = 0; i < count; i++) {
-      const title = await results.nth(i).locator('h3').textContent();
-      if (title) {
-        const lower = title.toLowerCase();
-        expect(lower).not.toContain('workout');
-        expect(lower).not.toContain('cardio');
-        // "Pt." suffix is junk indicator (compilations, not real tracks)
-        expect(lower).not.toMatch(/\bpt\.\s*$/);
-      }
-    }
+    await route.abort();
   });
 
-  test('consecutive searches work (regression)', async ({ page }) => {
-    await setupAuth(page, testApi.jwt);
-    await page.goto(`/join/${eventCode}`);
-    await waitForPage(page, 2000);
+  // Keep this browser flow hermetic: every API request is answered locally and
+  // unknown API paths fail instead of reaching a configured or live service.
+  await page.route('**/api/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const path = url.pathname;
+    fixture.diagnostics.push(`intercepted ${request.method()} ${path}`);
 
-    // First search
-    await page.fill('input[placeholder*="Search for a song or artist"]', 'daft punk');
-    await page.click('button:has-text("Search")');
-
-    const results = page.locator('.request-item');
-    try {
-      await expect(results.first()).toBeVisible({ timeout: 15000 });
-    } catch {
-      test.skip();
+    if (path === '/api/public/guest/identify') {
+      await route.fulfill({ json: { guest_id: 101, action: 'create', reconcile_hint: false } });
       return;
     }
-
-    // Second search — clear and search again
-    const searchInput = page.locator('input[placeholder*="Search for a song or artist"]');
-    await searchInput.clear();
-    await searchInput.fill('metallica');
-    await page.click('button:has-text("Search")');
-
-    // New results should appear
-    await page.waitForTimeout(2000);
-    const newResults = page.locator('.request-item');
-    await expect(newResults.first()).toBeVisible({ timeout: 15000 });
-    expect(await newResults.count()).toBeGreaterThan(0);
-  });
-
-  test('adding search result to queue works', async ({ page }) => {
-    await setupAuth(page, testApi.jwt);
-    await page.goto(`/join/${eventCode}`);
-    await waitForPage(page, 2000);
-
-    await page.fill('input[placeholder*="Search for a song or artist"]', 'bohemian rhapsody');
-    await page.click('button:has-text("Search")');
-
-    const results = page.locator('.request-item');
-    try {
-      await expect(results.first()).toBeVisible({ timeout: 15000 });
-    } catch {
-      test.skip();
+    if (path === '/api/public/guest/verify-status') {
+      await route.fulfill({ json: { verified: true, expires_in: 3600 } });
       return;
     }
-
-    // Select first result
-    await results.first().click();
-
-    // Submit
-    const submitBtn = page.locator('button:has-text("Submit Request")');
-    await expect(submitBtn).toBeVisible({ timeout: 3000 });
-    await submitBtn.click();
-
-    // Verify success
-    const success = page.locator('text=/Request Submitted!|Vote Added!/');
-    await expect(success).toBeVisible({ timeout: 5000 });
-  });
-
-  test('BPM/key badges visible on some results', async ({ page }) => {
-    // Use a fresh event since prior test may have submitted a request,
-    // causing has_requested to trigger the request list view
-    const badgeEvent = await testApi.createEvent('E2E-Search-Badges');
-
-    await setupAuth(page, testApi.jwt);
-    await page.goto(`/join/${badgeEvent.code}`);
-    await waitForPage(page, 2000);
-
-    await page.fill('input[placeholder*="Search for a song or artist"]', 'above and beyond');
-    await page.click('button:has-text("Search")');
-
-    const results = page.locator('.request-item');
-    try {
-      await expect(results.first()).toBeVisible({ timeout: 15000 });
-    } catch {
-      test.skip();
+    if (path === `/api/public/collect/${EVENT_CODE}/join-config`) {
+      await route.fulfill({ json: { frictionless_join: true } });
       return;
     }
-
-    // At least some results should show BPM or key badges
-    // These come from Tidal/Beatport enriched results
-    const bpmBadges = page.locator('.badge-bpm, [title*="BPM"]');
-    const keyBadges = page.locator('.badge-key, [title*="Key"]');
-    const totalBadges = await bpmBadges.count() + await keyBadges.count();
-
-    // It's acceptable if no badges appear (depends on service availability)
-    if (totalBadges === 0) {
-      test.info().annotations.push({
-        type: 'info',
-        description: 'No BPM/key badges found — services may not return metadata for this query',
+    if (path === `/api/public/collect/${EVENT_CODE}/guest/ensure-name`) {
+      await route.fulfill({ json: { nickname: 'GuestDJ', auto_generated: true } });
+      return;
+    }
+    if (path === `/api/public/events/${EVENT_CODE}`) {
+      await route.fulfill({
+        json: {
+          name: 'Search Fixture Event',
+          phase: 'live',
+          requests_open: true,
+          collection_code: EVENT_CODE,
+          frictionless_join: true,
+          submission_cap_per_guest: 5,
+          banner_url: null,
+          banner_colors: null,
+        },
       });
+      return;
     }
+    if (path === `/api/public/events/${EVENT_CODE}/has-requested`) {
+      await route.fulfill({ json: { has_requested: false } });
+      return;
+    }
+    if (path === `/api/public/events/${EVENT_CODE}/requests` && request.method() === 'GET') {
+      await route.fulfill({
+        json: { requests: [], now_playing: null, total: 0, event: { name: 'Search Fixture Event' } },
+      });
+      return;
+    }
+    if (path === `/api/public/events/${EVENT_CODE}/my-requests`) {
+      await route.fulfill({ json: { requests: [] } });
+      return;
+    }
+    if (path === `/api/public/collect/${EVENT_CODE}/profile`) {
+      await route.fulfill({
+        json: { email_verified: false, nickname: 'GuestDJ', submission_cap: 5, submission_count: 0 },
+      });
+      return;
+    }
+    if (path === '/api/auth/settings') {
+      await route.fulfill({ json: { registration_enabled: false, turnstile_site_key: '' } });
+      return;
+    }
+    if (path === `/api/events/${EVENT_CODE}/search` && request.method() === 'GET') {
+      const query = url.searchParams.get('q') ?? '';
+      fixture.searchedQueries.push(query);
+      await fixture.onSearch(query, route);
+      return;
+    }
+    if (path === `/api/search` && request.method() === 'GET') {
+      await route.fulfill({ status: 503, json: { detail: 'Fixture fallback search unavailable' } });
+      return;
+    }
+    if (path === `/api/events/${EVENT_CODE}/requests` && request.method() === 'POST') {
+      fixture.submittedRequests.push(request.postDataJSON() as Record<string, unknown>);
+      await route.fulfill({ json: { id: 301, is_duplicate: false, vote_count: 1 } });
+      return;
+    }
+
+    await route.fulfill({ status: 404, json: { detail: `Unmatched E2E API route: ${request.method()} ${path}` } });
+  });
+
+  // The verify-status fixture should prevent Turnstile from loading. Block the
+  // provider script defensively so this test can never contact Cloudflare.
+  await page.route('https://challenges.cloudflare.com/**', (route) => route.abort());
+  return fixture;
+}
+
+async function openSearchSheet(page: Page, fixture: SearchFixture) {
+  await page.goto(`/join/${EVENT_CODE}`);
+  await expect(
+    page.getByPlaceholder('Search for a song or artist...'),
+    `Guest gate did not open; intercepted API calls: ${fixture.diagnostics.join(', ') || '(none)'}`,
+  ).toBeVisible();
+}
+
+async function searchFor(page: Page, query: string) {
+  await page.getByPlaceholder('Search for a song or artist...').fill(query);
+  await page.getByRole('button', { name: 'Search' }).click();
+}
+
+test.describe('Guest search workflow', () => {
+  test.beforeEach(({ baseURL }) => {
+    const hostname = new URL(baseURL ?? '').hostname;
+    expect(['127.0.0.1', 'localhost', '::1']).toContain(hostname);
+  });
+
+  test('renders the event search result with its artwork and provider identity', async ({ page }) => {
+    const fixture = await installGuestSearchFixture(page, async (_query, route) => {
+      await route.fulfill({ json: [result('Signal Bloom', { source: 'beatport' })] });
+    });
+
+    await openSearchSheet(page, fixture);
+    await searchFor(page, 'signal bloom');
+
+    const item = page.getByRole('button', { name: /Signal Bloom Signal Bloom Artist/ });
+    await expect(item).toBeVisible();
+    await expect(item.getByRole('img', { name: 'Signal Bloom Album' })).toHaveAttribute('src', ARTWORK);
+    await expect(item.locator('[title="Beatport"]')).toBeVisible();
+    expect(fixture.searchedQueries).toEqual(['signal bloom']);
+  });
+
+  test('a failed search can be retried and replaces the error with matching results', async ({ page }) => {
+    const fixture = await installGuestSearchFixture(page, async (query, route) => {
+      if (query === 'broken query') {
+        await route.fulfill({ status: 503, json: { detail: 'Fixture search unavailable' } });
+        return;
+      }
+      await route.fulfill({ json: [result('Recovered Signal')] });
+    });
+
+    await openSearchSheet(page, fixture);
+    await searchFor(page, 'broken query');
+    const searchAlert = page.locator('.gst-request-sheet [role="alert"]');
+    await expect(searchAlert).toHaveText('Song search is unavailable. Please try again.');
+
+    await searchFor(page, 'recovered signal');
+    await expect(searchAlert).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Recovered Signal Recovered Signal Artist/ })).toBeVisible();
+    expect(fixture.searchedQueries).toEqual(['broken query', 'recovered signal']);
+  });
+
+  test('consecutive queries show only results returned for the latest query', async ({ page }) => {
+    // Regression for baseline 57cfcdc6867f: a stale first-query result cannot satisfy the second search.
+    let releaseLatestResponse!: () => void;
+    const latestResponse = new Promise<void>((resolve) => { releaseLatestResponse = resolve; });
+    let latestRequestSeen!: () => void;
+    const latestSearchSeen = new Promise<void>((resolve) => { latestRequestSeen = resolve; });
+    const fixture = await installGuestSearchFixture(page, async (query, route) => {
+      if (query === 'first query') {
+        await route.fulfill({ json: [result('First Query Result')] });
+        return;
+      }
+      latestRequestSeen();
+      await latestResponse;
+      await route.fulfill({ json: [result('Latest Query Result')] });
+    });
+
+    await openSearchSheet(page, fixture);
+    await searchFor(page, 'first query');
+    const firstResult = page.getByRole('button', { name: /First Query Result First Query Result Artist/ });
+    await expect(firstResult).toBeVisible();
+
+    await searchFor(page, 'latest query');
+    await latestSearchSeen;
+    await expect(firstResult).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '…' })).toBeVisible();
+
+    releaseLatestResponse();
+    await expect(page.getByRole('button', { name: /Latest Query Result Latest Query Result Artist/ })).toBeVisible();
+    await expect(firstResult).toHaveCount(0);
+    expect(fixture.searchedQueries).toEqual(['first query', 'latest query']);
+  });
+
+  test('selecting and submitting a result preserves its metadata in the request', async ({ page }) => {
+    const fixture = await installGuestSearchFixture(page, async (_query, route) => {
+      await route.fulfill({ json: [result('Queued Result', { bpm: 127, key: '9A' })] });
+    });
+
+    await openSearchSheet(page, fixture);
+    await searchFor(page, 'queued result');
+    await page.getByRole('button', { name: /Queued Result Queued Result Artist/ }).click();
+    await expect(page.getByText('Confirm Request')).toBeVisible();
+    await page.getByPlaceholder("e.g., It's my birthday!").fill('Play this next');
+    await page.getByRole('button', { name: 'Submit Request' }).click();
+
+    await expect(page.getByText('Request Submitted!')).toBeVisible();
+    expect(fixture.submittedRequests).toEqual([
+      expect.objectContaining({
+        title: 'Queued Result',
+        artist: 'Queued Result Artist',
+        note: 'Play this next',
+        raw_search_query: 'queued result',
+        source: 'spotify',
+        bpm: 127,
+        musical_key: '9A',
+        nickname: 'GuestDJ',
+      }),
+    ]);
   });
 });

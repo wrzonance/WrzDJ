@@ -12,17 +12,21 @@ Two independent paths:
 """
 
 import logging
+from collections.abc import Sequence
 
 from sqlalchemy.orm import Session
 
+from app.models.request import Request
 from app.models.user import User
-from app.services.recommendation.scorer import EventProfile, TrackProfile
-from app.services.soundcharts import (
+from app.services.providers.soundcharts import (
     RELATED_TRACKS_LIMIT,
     SoundchartsTrack,
     discover_songs,
     get_related_songs_by_isrc,
 )
+from app.services.recommendation.scorer import EventProfile
+from app.services.tracks.profile import TrackProfile
+from app.services.tracks.profile_mappers import tidal_result_to_profile
 from app.services.tracks.store import get_track
 
 logger = logging.getLogger(__name__)
@@ -52,7 +56,7 @@ def search_candidates_via_soundcharts(
     with Tidal track_id/url, and total_searched is the number of Tidal
     lookups performed.
     """
-    from app.services.tidal import search_tidal_tracks
+    from app.services.providers.tidal_search import search_tidal_tracks
 
     # Build filter parameters from the event profile
     bpm_min = None
@@ -91,20 +95,7 @@ def search_candidates_via_soundcharts(
         tidal_result = results[0]
         # Tidal doesn't return genre — infer from the profile's dominant genre
         inferred_genre = profile.dominant_genres[0] if profile.dominant_genres else None
-        candidates.append(
-            TrackProfile(
-                title=tidal_result.title,
-                artist=tidal_result.artist,
-                bpm=tidal_result.bpm,
-                key=tidal_result.key,
-                genre=inferred_genre,
-                source="tidal",
-                track_id=tidal_result.track_id,
-                url=tidal_result.tidal_url,
-                cover_url=tidal_result.cover_url,
-                duration_seconds=tidal_result.duration_seconds,
-            )
-        )
+        candidates.append(tidal_result_to_profile(tidal_result, inferred_genre=inferred_genre))
 
     logger.info(
         "Soundcharts→Tidal resolved %d/%d tracks (searched=%d)",
@@ -115,13 +106,13 @@ def search_candidates_via_soundcharts(
     return candidates, total_searched
 
 
-def _seed_isrc(db: Session, request) -> str | None:
+def _seed_isrc(db: Session, request: Request) -> str | None:
     """Resolve a seed request's ISRC: the request's own ISRC first, else the
     master tracks store keyed by the normalized artist+title signature."""
     if getattr(request, "isrc", None):
         return request.isrc
     # Fall back to the master store (#540/#552), the ISRC source of truth.
-    from app.services.setbuilder.pool import dedupe_signature
+    from app.services.tracks.identity import dedupe_signature
 
     signature = dedupe_signature(request.artist, request.song_title)
     stored = get_track(db, signature=signature)
@@ -130,7 +121,7 @@ def _seed_isrc(db: Session, request) -> str | None:
 
 def related_candidates_from_seeds(
     db: Session,
-    requests: list,
+    requests: Sequence[Request],
     *,
     max_seeds: int = MAX_RELATED_SEEDS,
     per_seed_limit: int = RELATED_TRACKS_LIMIT,

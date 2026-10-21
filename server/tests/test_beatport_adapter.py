@@ -100,7 +100,7 @@ class TestIsConnected:
 
 
 class TestSearchWithVersionFilter:
-    @patch("app.services.sync.beatport_adapter.beatport_service.search_beatport_tracks")
+    @patch("app.services.sync.beatport_adapter.beatport_catalog.search_beatport_tracks")
     def test_rejects_karaoke(self, mock_search, adapter, db, bp_user, normalized):
         """Karaoke versions filtered out."""
         mock_search.return_value = [
@@ -109,7 +109,7 @@ class TestSearchWithVersionFilter:
         result = adapter.search_track(db, bp_user, normalized)
         assert result is None
 
-    @patch("app.services.sync.beatport_adapter.beatport_service.search_beatport_tracks")
+    @patch("app.services.sync.beatport_adapter.beatport_catalog.search_beatport_tracks")
     def test_accepts_original_mix(self, mock_search, adapter, db, bp_user, normalized):
         """Original Mix is accepted."""
         mock_search.return_value = [_make_search_result()]
@@ -119,7 +119,7 @@ class TestSearchWithVersionFilter:
 
 
 class TestSearchWithFuzzyScoring:
-    @patch("app.services.sync.beatport_adapter.beatport_service.search_beatport_tracks")
+    @patch("app.services.sync.beatport_adapter.beatport_catalog.search_beatport_tracks")
     def test_scores_above_threshold(self, mock_search, adapter, db, bp_user, normalized):
         """Good match scores above threshold."""
         mock_search.return_value = [_make_search_result()]
@@ -127,7 +127,7 @@ class TestSearchWithFuzzyScoring:
         assert result is not None
         assert result.match_confidence >= 0.5
 
-    @patch("app.services.sync.beatport_adapter.beatport_service.search_beatport_tracks")
+    @patch("app.services.sync.beatport_adapter.beatport_catalog.search_beatport_tracks")
     def test_scores_below_threshold(self, mock_search, adapter, db, bp_user, normalized):
         """Completely different track scores below threshold."""
         mock_search.return_value = [
@@ -138,9 +138,9 @@ class TestSearchWithFuzzyScoring:
 
 
 class TestEnsurePlaylist:
-    @patch("app.services.sync.beatport_adapter.beatport_service.create_beatport_playlist")
+    @patch("app.services.sync.beatport_adapter.beatport_playlists.create_beatport_playlist")
     def test_delegates_to_service(self, mock_create, adapter, db, bp_user, bp_event):
-        """ensure_playlist delegates to beatport_service.create_beatport_playlist."""
+        """ensure_playlist delegates to the playlist workflow."""
         mock_create.return_value = "playlist-123"
         result = adapter.ensure_playlist(db, bp_user, bp_event)
         assert result == "playlist-123"
@@ -148,9 +148,9 @@ class TestEnsurePlaylist:
 
 
 class TestAddToPlaylist:
-    @patch("app.services.sync.beatport_adapter.beatport_service.add_track_to_beatport_playlist")
+    @patch("app.services.sync.beatport_adapter.beatport_playlists.add_track_to_beatport_playlist")
     def test_delegates_to_service(self, mock_add, adapter, db, bp_user):
-        """add_to_playlist delegates to beatport_service."""
+        """add_to_playlist delegates to the playlist workflow."""
         mock_add.return_value = True
         result = adapter.add_to_playlist(db, bp_user, "playlist-123", "track-456")
         assert result is True
@@ -158,9 +158,9 @@ class TestAddToPlaylist:
 
 
 class TestAddTracksToPlaylist:
-    @patch("app.services.sync.beatport_adapter.beatport_service.add_tracks_to_beatport_playlist")
+    @patch("app.services.sync.beatport_adapter.beatport_playlists.add_tracks_to_beatport_playlist")
     def test_batch_delegates_to_service(self, mock_batch, adapter, db, bp_user):
-        """add_tracks_to_playlist delegates to beatport_service batch."""
+        """add_tracks_to_playlist delegates to the playlist workflow batch operation."""
         mock_batch.return_value = True
         result = adapter.add_tracks_to_playlist(db, bp_user, "playlist-123", ["1", "2", "3"])
         assert result is True
@@ -170,9 +170,9 @@ class TestAddTracksToPlaylist:
 class TestSyncTrackPipeline:
     """Test the full sync_track pipeline (search -> ensure -> add -> ADDED)."""
 
-    @patch("app.services.sync.beatport_adapter.beatport_service.add_track_to_beatport_playlist")
-    @patch("app.services.sync.beatport_adapter.beatport_service.create_beatport_playlist")
-    @patch("app.services.sync.beatport_adapter.beatport_service.search_beatport_tracks")
+    @patch("app.services.sync.beatport_adapter.beatport_playlists.add_track_to_beatport_playlist")
+    @patch("app.services.sync.beatport_adapter.beatport_playlists.create_beatport_playlist")
+    @patch("app.services.sync.beatport_adapter.beatport_catalog.search_beatport_tracks")
     def test_full_pipeline_returns_added(
         self, mock_search, mock_create, mock_add, adapter, db, bp_user, bp_event, normalized
     ):
@@ -188,7 +188,7 @@ class TestSyncTrackPipeline:
         assert result.track_match.track_id == "12345"
         assert result.playlist_id == "playlist-99"
 
-    @patch("app.services.sync.beatport_adapter.beatport_service.search_beatport_tracks")
+    @patch("app.services.sync.beatport_adapter.beatport_catalog.search_beatport_tracks")
     def test_not_found_when_search_empty(
         self, mock_search, adapter, db, bp_user, bp_event, normalized
     ):
@@ -198,8 +198,8 @@ class TestSyncTrackPipeline:
         result = adapter.sync_track(db, bp_user, bp_event, normalized)
         assert result.status == SyncStatus.NOT_FOUND
 
-    @patch("app.services.sync.beatport_adapter.beatport_service.create_beatport_playlist")
-    @patch("app.services.sync.beatport_adapter.beatport_service.search_beatport_tracks")
+    @patch("app.services.sync.beatport_adapter.beatport_playlists.create_beatport_playlist")
+    @patch("app.services.sync.beatport_adapter.beatport_catalog.search_beatport_tracks")
     def test_error_when_playlist_creation_fails(
         self, mock_search, mock_create, adapter, db, bp_user, bp_event, normalized
     ):
@@ -213,7 +213,7 @@ class TestSyncTrackPipeline:
 
 
 class TestSyncTrackErrorSanitized:
-    @patch("app.services.sync.beatport_adapter.beatport_service.search_beatport_tracks")
+    @patch("app.services.sync.beatport_adapter.beatport_catalog.search_beatport_tracks")
     def test_sync_error_message_is_sanitized(
         self, mock_search, adapter, db, bp_user, bp_event, normalized
     ):

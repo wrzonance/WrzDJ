@@ -26,19 +26,27 @@ from __future__ import annotations
 import logging
 import re
 import statistics
+from collections.abc import Mapping
 
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.time import utcnow
+from app.core.track_ids import normalize_isrc
 from app.models.request import Request, RequestStatus
-from app.services.musicbrainz import lookup_artist_genre
+from app.services.providers.musicbrainz import lookup_artist_genre
 from app.services.request import normalize_key
+from app.services.sync.source_resolution import (
+    FieldResolution,
+    SourceResolutionResult,
+    resolve_direct_source_track,
+    resolve_spotify_isrc_and_tidal_match,
+    track_field_resolutions,
+)
 from app.services.track_match import find_best_match
 from app.services.track_normalizer import (
     is_remix_title,
     normalize_bpm_to_context,
-    normalize_isrc,
     primary_artist,
 )
 from app.services.tracks.provenance import is_cache_authoritative
@@ -74,7 +82,7 @@ def _extract_source_track_id(source_url: str | None) -> tuple[str | None, str | 
     return None, None
 
 
-def _get_isrc_from_spotify(source_url: str | None) -> str | None:
+def _get_isrc_from_spotify(source_url: str | None, *, request_id: int | None = None) -> str | None:
     """Extract ISRC from a Spotify track URL via the Spotify API.
 
     ISRC (International Standard Recording Code) uniquely identifies a
@@ -86,13 +94,17 @@ def _get_isrc_from_spotify(source_url: str | None) -> str | None:
     if not m:
         return None
     try:
-        from app.services.spotify import _get_spotify_client
+        from app.services.providers.spotify import get_spotify_client
 
-        sp = _get_spotify_client()
+        sp = get_spotify_client()
         track = sp.track(m.group(1))
         return track.get("external_ids", {}).get("isrc")
-    except Exception:
-        logger.warning("Failed to fetch ISRC from Spotify for %s", source_url)
+    except Exception as exc:
+        logger.warning(
+            "Spotify ISRC lookup failed for request %s (%s)",
+            request_id if request_id is not None else "unknown",
+            type(exc).__name__,
+        )
         return None
 
 
@@ -111,16 +123,33 @@ def _apply_enrichment_result(
     with accurate per-field provenance (#541). ``musical_key`` is normalized to
     its Camelot code so the store matches what the request displays.
     """
-    if with_genre and not request.genre and getattr(best, "genre", None):
-        request.genre = best.genre
-        resolved["genre"] = (best.genre, source)
-    if not request.bpm and best.bpm:
-        request.bpm = float(best.bpm)
-        resolved["bpm"] = (float(best.bpm), source)
-    if not request.musical_key and getattr(best, "key", None):
-        normalized = normalize_key(best.key)
-        request.musical_key = normalized
-        resolved["musical_key"] = (normalized, source)
+    _apply_field_resolutions(
+        request,
+        resolved,
+        track_field_resolutions(request, best, source=source, with_genre=with_genre),
+    )
+
+
+def _apply_field_resolutions(
+    request: Request,
+    resolved: dict[str, tuple[object, str]],
+    fields: Mapping[str, FieldResolution],
+) -> None:
+    """Apply a prepared field update once and record its provenance."""
+    for field, update in fields.items():
+        if not getattr(request, field):
+            setattr(request, field, update.value)
+            resolved[field] = (update.value, update.source)
+
+
+def _apply_source_resolution(
+    request: Request,
+    resolved: dict[str, tuple[object, str]],
+    result: SourceResolutionResult,
+) -> str | None:
+    """Apply one source resolver result and return its resolved ISRC."""
+    _apply_field_resolutions(request, resolved, result.fields)
+    return result.isrc
 
 
 def _soundcharts_audio_values(feats) -> dict[str, tuple[object, str]]:
@@ -153,15 +182,19 @@ def _backfill_energy_for_cached(db: Session, request: Request, cached, sig: str)
     upserts the audio fields onto the existing row WITHOUT running the core
     provider cascade. Best-effort: any failure is isolated and never regresses the
     request commit (the store is strictly additive)."""
-    resolved_isrc = cached.isrc or _get_isrc_from_spotify(request.source_url)
+    resolved_isrc = cached.isrc or _get_isrc_from_spotify(request.source_url, request_id=request.id)
     if not resolved_isrc:
         return
     try:
-        from app.services.soundcharts import get_song_features_by_isrc
+        from app.services.providers.soundcharts import get_song_features_by_isrc
 
         feats = get_song_features_by_isrc(resolved_isrc)
-    except Exception:
-        logger.warning("Soundcharts energy backfill lookup failed for request %d", request.id)
+    except Exception as exc:
+        logger.warning(
+            "Soundcharts energy backfill lookup failed for request %d (%s)",
+            request.id,
+            type(exc).__name__,
+        )
         return
     if not feats:
         return
@@ -216,9 +249,11 @@ def _safe_upsert_track(
             fetched_at=utcnow(),
         )
         db.commit()
-    except Exception:
+    except Exception as exc:
         db.rollback()
-        logger.warning("Track store upsert failed for request %d", request_id)
+        logger.warning(
+            "Track store upsert failed for request %d (%s)", request_id, type(exc).__name__
+        )
 
 
 def _trio_trusted(track) -> bool:
@@ -319,6 +354,293 @@ def _apply_bpm_context_correction(db: Session, request: Request) -> float | None
     return None
 
 
+def _persist_enrichment_results(
+    db: Session,
+    request: Request,
+    *,
+    signature: str,
+    resolved: dict[str, tuple[object, str]],
+    resolved_isrc: str | None,
+    resolved_uuid: str | None,
+    canonical_bpm: float | None,
+) -> None:
+    """Seed pre-supplied values and durably write resolved track metadata."""
+    request_id = request.id
+    # Seed the request's own pre-supplied/cascade-confirmed core fields into the
+    # store payload even when no provider NEWLY resolved them this run (#541). A
+    # request can arrive with partial metadata (RequestCreate accepts
+    # genre/bpm/musical_key; the frontend submits search-result fields), and
+    # `_apply_enrichment_result` only records a field into `resolved` when the
+    # Request was MISSING it — so a request that already carried, say, genre would
+    # write a genre-less store row, which can never satisfy the cache-aside gate
+    # (genre AND bpm AND musical_key) and re-hits every provider forever. Seed each
+    # core field the Request holds but `resolved` lacks, attributed to the lowest
+    # `legacy` provenance so any real later enrichment cleanly overrides it (the
+    # `should_overwrite` precedence guard keeps a stronger existing source).
+    for field, value in (
+        ("genre", request.genre),
+        ("bpm", canonical_bpm),  # pre-correction value — never the event-corrected one
+        ("musical_key", request.musical_key),
+    ):
+        if field not in resolved and value is not None:
+            resolved[field] = (value, "legacy")
+
+    # Dual-write the master tracks store. `_safe_upsert_track` commits the
+    # Request's own enrichment first, so a store-write failure never regresses it
+    # — the store is strictly additive (#541).
+    if resolved:
+        values = {field: value for field, (value, _src) in resolved.items()}
+        sources = {field: src for field, (_value, src) in resolved.items()}
+        _safe_upsert_track(
+            db,
+            identity=TrackIdentity(
+                title=request.song_title,
+                artist=request.artist,
+                signature=signature,
+                isrc=resolved_isrc,
+                soundcharts_uuid=resolved_uuid,
+            ),
+            values=values,
+            sources=sources,
+            request_id=request_id,
+        )
+    else:
+        db.commit()
+    logger.info(
+        "Enriched request %d: genre=%s, bpm=%s, key=%s",
+        request_id,
+        request.genre,
+        request.bpm,
+        request.musical_key,
+    )
+
+
+def _enrich_musicbrainz_genre(request: Request, resolved: dict[str, tuple[object, str]]) -> None:
+    """Fill a missing genre from the artist-level MusicBrainz lookup."""
+    request_id = request.id
+    if not request.genre and request.artist:
+        try:
+            genre = lookup_artist_genre(request.artist)
+            if genre:
+                request.genre = genre
+                resolved["genre"] = (genre, "musicbrainz")
+        except Exception as exc:
+            logger.warning(
+                "MusicBrainz enrichment failed for request %d (%s)",
+                request_id,
+                type(exc).__name__,
+            )
+
+
+def _enrich_beatport(
+    db: Session,
+    request: Request,
+    *,
+    user,
+    search_query: str,
+    prefer_original: bool,
+    resolved: dict[str, tuple[object, str]],
+    resolved_isrc: str | None,
+) -> str | None:
+    """Fill missing BPM/key and optional genre from the user's Beatport account."""
+    request_id = request.id
+    if not request.bpm or not request.musical_key or not request.genre:
+        if user and user.beatport_access_token:
+            try:
+                from app.services.providers.beatport_catalog import search_beatport_tracks
+
+                results = search_beatport_tracks(db, user, search_query, limit=5)
+                logger.info(
+                    "Beatport returned %d results for request %d",
+                    len(results) if results else 0,
+                    request_id,
+                )
+                if results:
+                    best = find_best_match(
+                        results,
+                        request.song_title,
+                        request.artist,
+                        prefer_original=prefer_original,
+                    )
+                    if best:
+                        logger.info(
+                            "Beatport best for %d: '%s' by '%s' bpm=%s key=%s mix=%s",
+                            request_id,
+                            best.title,
+                            best.artist,
+                            best.bpm,
+                            best.key,
+                            best.mix_name,
+                        )
+                        _apply_enrichment_result(
+                            request, best, source="beatport", resolved=resolved, with_genre=True
+                        )
+                        if getattr(best, "isrc", None):
+                            resolved_isrc = best.isrc
+                    else:
+                        logger.info("Beatport: no match for request %d", request_id)
+            except Exception as exc:
+                logger.warning(
+                    "Beatport enrichment failed for request %d (%s)",
+                    request_id,
+                    type(exc).__name__,
+                )
+
+    return resolved_isrc
+
+
+def _enrich_tidal(
+    db: Session,
+    request: Request,
+    *,
+    user,
+    search_query: str,
+    prefer_original: bool,
+    resolved: dict[str, tuple[object, str]],
+    resolved_isrc: str | None,
+) -> str | None:
+    """Fill missing BPM/key from Tidal when the user has a linked account."""
+    request_id = request.id
+    if not request.bpm or not request.musical_key:
+        if user and user.tidal_access_token:
+            try:
+                from app.services.providers.tidal_search import search_tidal_tracks
+
+                results = search_tidal_tracks(db, user, search_query, limit=5)
+                logger.info(
+                    "Tidal returned %d results for request %d",
+                    len(results) if results else 0,
+                    request_id,
+                )
+                if results:
+                    best = find_best_match(
+                        results,
+                        request.song_title,
+                        request.artist,
+                        prefer_original=prefer_original,
+                    )
+                    if best:
+                        logger.info(
+                            "Tidal best for %d: '%s' by '%s' bpm=%s key=%s",
+                            request_id,
+                            best.title,
+                            best.artist,
+                            best.bpm,
+                            getattr(best, "key", None),
+                        )
+                        _apply_enrichment_result(request, best, source="tidal", resolved=resolved)
+                        if getattr(best, "isrc", None):
+                            resolved_isrc = best.isrc
+                    else:
+                        logger.info("Tidal: no match for request %d", request_id)
+            except Exception as exc:
+                logger.warning(
+                    "Tidal enrichment failed for request %d (%s)",
+                    request_id,
+                    type(exc).__name__,
+                )
+
+    return resolved_isrc
+
+
+def _resolve_soundcharts_audio_features(
+    request: Request,
+    *,
+    resolved: dict[str, tuple[object, str]],
+    resolved_isrc: str | None,
+    cached,
+) -> str | None:
+    """Fill gated audio-only features when an ISRC and incomplete store row exist."""
+    request_id = request.id
+    resolved_uuid: str | None = None
+    if (
+        get_settings().soundcharts_audio_features_enabled
+        and resolved_isrc
+        and (cached is None or cached.energy is None)
+    ):
+        try:
+            from app.services.providers.soundcharts import get_song_features_by_isrc
+
+            feats = get_song_features_by_isrc(resolved_isrc)
+            if feats:
+                resolved_uuid = feats.soundcharts_uuid or None
+                resolved.update(_soundcharts_audio_values(feats))
+        except Exception as exc:
+            logger.warning(
+                "Soundcharts audio-features lookup failed for request %d (%s)",
+                request_id,
+                type(exc).__name__,
+            )
+
+    return resolved_uuid
+
+
+def _resolve_provider_metadata_and_audio(
+    db: Session,
+    request: Request,
+    *,
+    user,
+    search_query: str,
+    prefer_original: bool,
+    source_svc: str | None,
+    source_track_id: str | None,
+    resolved: dict[str, tuple[object, str]],
+    resolved_isrc: str | None,
+    cached,
+) -> tuple[str | None, str | None, float | None]:
+    """Run provider resolution in priority order, then apply event-local BPM correction."""
+    direct_result = resolve_direct_source_track(
+        db,
+        request,
+        user=user,
+        source_svc=source_svc,
+        source_track_id=source_track_id,
+        resolved_isrc=resolved_isrc,
+        logger=logger,
+    )
+    resolved_isrc = _apply_source_resolution(request, resolved, direct_result)
+    isrc_result = resolve_spotify_isrc_and_tidal_match(
+        db,
+        request,
+        user=user,
+        source_svc=source_svc,
+        resolved_isrc=resolved_isrc,
+        settings_provider=get_settings,
+        isrc_resolver=_get_isrc_from_spotify,
+        logger=logger,
+    )
+    resolved_isrc = _apply_source_resolution(request, resolved, isrc_result)
+    _enrich_musicbrainz_genre(request, resolved)
+    resolved_isrc = _enrich_beatport(
+        db,
+        request,
+        user=user,
+        search_query=search_query,
+        prefer_original=prefer_original,
+        resolved=resolved,
+        resolved_isrc=resolved_isrc,
+    )
+    resolved_isrc = _enrich_tidal(
+        db,
+        request,
+        user=user,
+        search_query=search_query,
+        prefer_original=prefer_original,
+        resolved=resolved,
+        resolved_isrc=resolved_isrc,
+    )
+    if request.musical_key:
+        request.musical_key = normalize_key(request.musical_key)
+
+    # Keep the canonical provider BPM for the store; correction is event-local.
+    canonical_bpm = request.bpm
+    _apply_bpm_context_correction(db, request)
+    resolved_uuid = _resolve_soundcharts_audio_features(
+        request, resolved=resolved, resolved_isrc=resolved_isrc, cached=cached
+    )
+    return resolved_isrc, resolved_uuid, canonical_bpm
+
+
 def enrich_request_metadata(db: Session, request_id: int) -> None:
     """Background task: resolve a request's metadata and dual-write the master store.
 
@@ -338,7 +660,7 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
 
     # dedupe_signature is the same key the pool import uses, so a request and a
     # later pool-import of the same recording collapse to one tracks row.
-    from app.services.setbuilder.pool import dedupe_signature
+    from app.services.tracks.identity import dedupe_signature
 
     sig = dedupe_signature(request.artist, request.song_title)
 
@@ -433,256 +755,25 @@ def enrich_request_metadata(db: Session, request_id: int) -> None:
         request.musical_key,
     )
 
-    # 0. Direct fetch: when source_url points to Beatport or Tidal, skip search entirely
-    if source_svc == "beatport" and source_track_id:
-        if user and user.beatport_access_token and (not request.bpm or not request.musical_key):
-            try:
-                from app.services.beatport import get_beatport_track
-
-                direct = get_beatport_track(db, user, source_track_id)
-                if direct:
-                    logger.info(
-                        "Beatport direct fetch for %d: '%s' bpm=%s key=%s",
-                        request_id,
-                        direct.title,
-                        direct.bpm,
-                        direct.key,
-                    )
-                    _apply_enrichment_result(
-                        request, direct, source="beatport", resolved=resolved, with_genre=True
-                    )
-                    if getattr(direct, "isrc", None):
-                        resolved_isrc = direct.isrc
-            except Exception:
-                logger.warning("Beatport direct fetch failed for request %d", request_id)
-
-    if source_svc == "tidal" and source_track_id:
-        if user and user.tidal_access_token and (not request.bpm or not request.musical_key):
-            try:
-                from app.services.tidal import get_tidal_track_by_id
-
-                direct = get_tidal_track_by_id(db, user, source_track_id)
-                if direct:
-                    logger.info(
-                        "Tidal direct fetch for %d: '%s' bpm=%s key=%s",
-                        request_id,
-                        direct.title,
-                        direct.bpm,
-                        direct.key,
-                    )
-                    _apply_enrichment_result(request, direct, source="tidal", resolved=resolved)
-                    if getattr(direct, "isrc", None):
-                        resolved_isrc = direct.isrc
-            except Exception:
-                logger.warning("Tidal direct fetch failed for request %d", request_id)
-
-    # 0b. Spotify URL → ISRC. Capture the ISRC INDEPENDENTLY of Tidal auth (so the
-    # Soundcharts lookup isn't starved for DJs without a Tidal token), but ONLY when
-    # a consumer actually exists — otherwise the external Spotify call is wasted
-    # (#541). The two consumers: the Tidal exact-match (needs a token + missing
-    # bpm/key) and the Soundcharts audio-features lookup (needs the gate on).
-    needs_isrc_for_tidal = bool(
-        (not request.bpm or not request.musical_key) and user and user.tidal_access_token
+    resolved_isrc, resolved_uuid, canonical_bpm = _resolve_provider_metadata_and_audio(
+        db,
+        request,
+        user=user,
+        search_query=search_query,
+        prefer_original=prefer_original,
+        source_svc=source_svc,
+        source_track_id=source_track_id,
+        resolved=resolved,
+        resolved_isrc=resolved_isrc,
+        cached=cached,
     )
-    needs_isrc_for_soundcharts = get_settings().soundcharts_audio_features_enabled
-    if (
-        source_svc == "spotify"
-        and not resolved_isrc
-        and (needs_isrc_for_tidal or needs_isrc_for_soundcharts)
-    ):
-        resolved_isrc = _get_isrc_from_spotify(request.source_url)
 
-    # Exact Tidal match by ISRC needs a token and only helps when bpm/key are blank.
-    if (
-        source_svc == "spotify"
-        and resolved_isrc
-        and (not request.bpm or not request.musical_key)
-        and user
-        and user.tidal_access_token
-    ):
-        try:
-            from app.services.tidal import search_tidal_by_isrc
-
-            isrc_match = search_tidal_by_isrc(db, user, resolved_isrc)
-            if isrc_match:
-                logger.info(
-                    "ISRC match for %d: '%s' by '%s' bpm=%s key=%s (ISRC=%s)",
-                    request_id,
-                    isrc_match.title,
-                    isrc_match.artist,
-                    isrc_match.bpm,
-                    isrc_match.key,
-                    resolved_isrc,
-                )
-                _apply_enrichment_result(request, isrc_match, source="tidal", resolved=resolved)
-        except Exception:
-            logger.warning("ISRC enrichment failed for request %d", request_id)
-
-    # 1. MusicBrainz for genre (artist-level, free, rate-limited)
-    if not request.genre and request.artist:
-        try:
-            genre = lookup_artist_genre(request.artist)
-            if genre:
-                request.genre = genre
-                resolved["genre"] = (genre, "musicbrainz")
-        except Exception:
-            logger.warning("MusicBrainz enrichment failed for request %d", request_id)
-
-    # 2. Beatport for BPM + key (and genre backfill if MusicBrainz missed)
-    if not request.bpm or not request.musical_key or not request.genre:
-        if user and user.beatport_access_token:
-            try:
-                from app.services.beatport import search_beatport_tracks
-
-                results = search_beatport_tracks(db, user, search_query, limit=5)
-                logger.info(
-                    "Beatport returned %d results for request %d",
-                    len(results) if results else 0,
-                    request_id,
-                )
-                if results:
-                    best = find_best_match(
-                        results,
-                        request.song_title,
-                        request.artist,
-                        prefer_original=prefer_original,
-                    )
-                    if best:
-                        logger.info(
-                            "Beatport best for %d: '%s' by '%s' bpm=%s key=%s mix=%s",
-                            request_id,
-                            best.title,
-                            best.artist,
-                            best.bpm,
-                            best.key,
-                            best.mix_name,
-                        )
-                        _apply_enrichment_result(
-                            request, best, source="beatport", resolved=resolved, with_genre=True
-                        )
-                        if getattr(best, "isrc", None):
-                            resolved_isrc = best.isrc
-                    else:
-                        logger.info("Beatport: no match for request %d", request_id)
-            except Exception:
-                logger.warning("Beatport enrichment failed for request %d", request_id)
-
-    # 3. Tidal for BPM + key (backup when Beatport didn't find them)
-    if not request.bpm or not request.musical_key:
-        if user and user.tidal_access_token:
-            try:
-                from app.services.tidal import search_tidal_tracks
-
-                results = search_tidal_tracks(db, user, search_query, limit=5)
-                logger.info(
-                    "Tidal returned %d results for request %d",
-                    len(results) if results else 0,
-                    request_id,
-                )
-                if results:
-                    best = find_best_match(
-                        results,
-                        request.song_title,
-                        request.artist,
-                        prefer_original=prefer_original,
-                    )
-                    if best:
-                        logger.info(
-                            "Tidal best for %d: '%s' by '%s' bpm=%s key=%s",
-                            request_id,
-                            best.title,
-                            best.artist,
-                            best.bpm,
-                            getattr(best, "key", None),
-                        )
-                        _apply_enrichment_result(request, best, source="tidal", resolved=resolved)
-                        if getattr(best, "isrc", None):
-                            resolved_isrc = best.isrc
-                    else:
-                        logger.info("Tidal: no match for request %d", request_id)
-            except Exception:
-                logger.warning("Tidal enrichment failed for request %d", request_id)
-
-    # Normalize key if we got one from enrichment
-    if request.musical_key:
-        request.musical_key = normalize_key(request.musical_key)
-
-    # 4. BPM context correction: detect half-time/double-time from other event
-    # tracks (shared with the cache-hit path via _apply_bpm_context_correction).
-    # This mutates ONLY request.bpm — the event-specific corrected value must NOT
-    # be written to the global store. The store keeps the canonical provider BPM
-    # (resolved["bpm"]) so future cache hits at other events re-derive their own
-    # per-event correction from it, instead of inheriting this event's tempo (#541).
-    # Stash the canonical pre-correction value for the legacy store seed below: a
-    # pre-supplied BPM is not in `resolved`, so the seed would otherwise persist the
-    # event-corrected request.bpm globally.
-    canonical_bpm = request.bpm
-    _apply_bpm_context_correction(db, request)
-
-    # 5. Soundcharts audio features (energy/danceability/…) — gated, dark by
-    # default. Only when the flag is on, an ISRC is in hand, and the store row
-    # lacks energy. bpm/key/genre stay with the existing cascade to avoid
-    # equal-precedence churn; Soundcharts contributes audio features only.
-    resolved_uuid: str | None = None
-    if (
-        get_settings().soundcharts_audio_features_enabled
-        and resolved_isrc
-        and (cached is None or cached.energy is None)
-    ):
-        try:
-            from app.services.soundcharts import get_song_features_by_isrc
-
-            feats = get_song_features_by_isrc(resolved_isrc)
-            if feats:
-                resolved_uuid = feats.soundcharts_uuid or None
-                resolved.update(_soundcharts_audio_values(feats))
-        except Exception:
-            logger.warning("Soundcharts audio-features lookup failed for request %d", request_id)
-
-    # Seed the request's own pre-supplied/cascade-confirmed core fields into the
-    # store payload even when no provider NEWLY resolved them this run (#541). A
-    # request can arrive with partial metadata (RequestCreate accepts
-    # genre/bpm/musical_key; the frontend submits search-result fields), and
-    # `_apply_enrichment_result` only records a field into `resolved` when the
-    # Request was MISSING it — so a request that already carried, say, genre would
-    # write a genre-less store row, which can never satisfy the cache-aside gate
-    # (genre AND bpm AND musical_key) and re-hits every provider forever. Seed each
-    # core field the Request holds but `resolved` lacks, attributed to the lowest
-    # `legacy` provenance so any real later enrichment cleanly overrides it (the
-    # `should_overwrite` precedence guard keeps a stronger existing source).
-    for field, value in (
-        ("genre", request.genre),
-        ("bpm", canonical_bpm),  # pre-correction value — never the event-corrected one
-        ("musical_key", request.musical_key),
-    ):
-        if field not in resolved and value is not None:
-            resolved[field] = (value, "legacy")
-
-    # Dual-write the master tracks store. `_safe_upsert_track` commits the
-    # Request's own enrichment first, so a store-write failure never regresses it
-    # — the store is strictly additive (#541).
-    if resolved:
-        values = {field: value for field, (value, _src) in resolved.items()}
-        sources = {field: src for field, (_value, src) in resolved.items()}
-        _safe_upsert_track(
-            db,
-            identity=TrackIdentity(
-                title=request.song_title,
-                artist=request.artist,
-                signature=sig,
-                isrc=resolved_isrc,
-                soundcharts_uuid=resolved_uuid,
-            ),
-            values=values,
-            sources=sources,
-            request_id=request_id,
-        )
-    else:
-        db.commit()
-    logger.info(
-        "Enriched request %d: genre=%s, bpm=%s, key=%s",
-        request_id,
-        request.genre,
-        request.bpm,
-        request.musical_key,
+    _persist_enrichment_results(
+        db,
+        request,
+        signature=sig,
+        resolved=resolved,
+        resolved_isrc=resolved_isrc,
+        resolved_uuid=resolved_uuid,
+        canonical_bpm=canonical_bpm,
     )

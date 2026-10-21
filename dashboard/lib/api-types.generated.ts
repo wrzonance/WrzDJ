@@ -2304,6 +2304,9 @@ export interface paths {
          *     pinned one pooled connection per open stream and exhausted the QueuePool
          *     (size 5 + overflow 10 = 15 connections) under modest guest load.
          *
+         *     This route stays synchronous so FastAPI dispatches the synchronous SQLAlchemy
+         *     lookup to its worker threadpool. The long-lived stream body remains async.
+         *
          *     Event types:
          *     - request_created: New request submitted
          *     - request_status_changed: Request status update
@@ -4899,11 +4902,7 @@ export interface components {
              * @default false
              */
             requester_verified: boolean;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "new" | "accepted" | "playing" | "played" | "rejected";
+            status: components["schemas"]["RequestStatus"];
             /** Title */
             title: string;
             /** Vote Count */
@@ -4940,11 +4939,7 @@ export interface components {
              * @default false
              */
             requester_verified: boolean;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "new" | "accepted" | "playing" | "played" | "rejected";
+            status: components["schemas"]["RequestStatus"];
             /** Title */
             title: string;
             /** Vote Count */
@@ -5016,6 +5011,28 @@ export interface components {
             /** Request Id */
             request_id: number;
         };
+        /** CollectionSettingsResponse */
+        CollectionSettingsResponse: {
+            /** Collection Opens At */
+            collection_opens_at: string | null;
+            /** Collection Phase Override */
+            collection_phase_override: ("force_collection" | "force_live") | null;
+            /** Live Starts At */
+            live_starts_at: string | null;
+            /**
+             * Phase
+             * @enum {string}
+             */
+            phase: "pre_announce" | "collection" | "live" | "closed";
+            /** Submission Cap Per Guest */
+            submission_cap_per_guest: number;
+            /** Tidal Collection Bidirectional */
+            tidal_collection_bidirectional: boolean;
+            /** Tidal Collection Playlist Id */
+            tidal_collection_playlist_id: string | null;
+            /** Tidal Sync Enabled */
+            tidal_sync_enabled: boolean;
+        };
         /**
          * CommunityVibeOut
          * @description Community consensus tier (gated by SystemSettings thresholds).
@@ -5045,7 +5062,7 @@ export interface components {
          *       ``azure_deployment_name`` and ``azure_api_version`` all required.
          *
          *     The combination is enforced by :meth:`_require_credentials_for_type`.
-         *     See ``build_create_payload`` in ``services/llm/connector_storage.py``
+         *     See ``build_create_payload`` in ``services/llm/connector_payloads.py``
          *     for the full validation flow (including key shape checks).
          */
         ConnectorCreate: {
@@ -5084,7 +5101,7 @@ export interface components {
          * @description Rotation payload — at least one credential field must be supplied.
          *
          *     Field semantics mirror :class:`ConnectorCreate`. The actual field required
-         *     depends on the connector being rotated (validated in ``rotate_credentials``).
+         *     depends on the connector being rotated (validated by connector payload builders).
          */
         ConnectorCredentialsRotate: {
             /** Api Key */
@@ -6035,6 +6052,47 @@ export interface components {
             /** Prompt */
             prompt: string;
         };
+        /** LLMQueryInfo */
+        LLMQueryInfo: {
+            /**
+             * Reasoning
+             * @default
+             */
+            reasoning: string;
+            /** Search Query */
+            search_query: string;
+            /** Target Bpm */
+            target_bpm: number | null;
+            /** Target Genre */
+            target_genre: string | null;
+            /** Target Key */
+            target_key: string | null;
+        };
+        /** LLMRecommendationResponse */
+        LLMRecommendationResponse: {
+            /**
+             * Llm Available
+             * @default true
+             */
+            llm_available: boolean;
+            /**
+             * Llm Model
+             * @default
+             */
+            llm_model: string;
+            /** Llm Queries */
+            llm_queries: components["schemas"]["LLMQueryInfo"][];
+            profile: components["schemas"]["EventMusicProfile"];
+            /** Services Used */
+            services_used: string[];
+            /** Suggestions */
+            suggestions: components["schemas"]["RecommendedTrack"][];
+            /**
+             * Total Candidates Searched
+             * @default 0
+             */
+            total_candidates_searched: number;
+        };
         /**
          * LiveJoinCodeResponse
          * @description Returns the live join_code for an event that has entered the live phase.
@@ -6090,11 +6148,7 @@ export interface components {
             created_at: string;
             /** Id */
             id: number;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "new" | "accepted" | "playing" | "played" | "rejected";
+            status: components["schemas"]["RequestStatus"];
             /** Title */
             title: string;
             /**
@@ -6286,11 +6340,7 @@ export interface components {
             note: string | null;
             /** Song Title */
             song_title: string;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "new" | "accepted" | "playing" | "played" | "rejected";
+            status: components["schemas"]["RequestStatus"];
             /** Vote Count */
             vote_count: number;
         };
@@ -6407,6 +6457,11 @@ export interface components {
             num_tracks: number;
             /** Source */
             source: string;
+        };
+        /** PlaylistListResponse */
+        PlaylistListResponse: {
+            /** Playlists */
+            playlists: components["schemas"]["PlaylistInfo"][];
         };
         /**
          * PoolCoverageOut
@@ -9069,9 +9124,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["StatusMessageResponse"];
                 };
             };
         };
@@ -10217,9 +10270,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["CollectionSettingsResponse"];
                 };
             };
             /** @description Validation Error */
@@ -10254,9 +10305,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["CollectionSettingsResponse"];
                 };
             };
             /** @description Validation Error */
@@ -10287,7 +10336,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": {
+                        [key: string]: number;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -10384,7 +10435,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": {
+                        [key: string]: number;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -10517,7 +10570,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PlaylistListResponse"];
                 };
             };
             /** @description Validation Error */
@@ -10618,7 +10671,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["LLMRecommendationResponse"];
                 };
             };
             /** @description Validation Error */
@@ -11870,7 +11923,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -14926,9 +14981,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["StatusMessageResponse"];
                 };
             };
         };

@@ -20,17 +20,21 @@
  *   - https://github.com/radusuciu/traktor_nowplaying
  *   - https://github.com/DiscoNova/traktor-metadata-samples
  */
-import { EventEmitter } from "events";
+import type { PluginMeta } from "./plugin-registry.js";
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "http";
+import { TypedEventEmitter } from "../shared/typed-event-emitter.js";
 
 import type {
   EquipmentSourcePlugin,
   PluginCapabilities,
   PluginConfigOption,
   PluginInfo,
-} from "../plugin-types.js";
+  PluginEventMap,
+  PluginEventArguments,
+} from "./plugin-types.js";
 
 const DEFAULT_PORT = 8123;
+const MAX_PORT = 65_535;
 
 /** Maximum ICY metadata block size (1024 * 16 = 16KB — far exceeds any real metadata). */
 const MAX_ICY_META_LENGTH = 16_384;
@@ -58,38 +62,49 @@ export function parseStreamTitle(raw: string): { artist: string; title: string }
   };
 }
 
-export class TraktorBroadcastPlugin extends EventEmitter implements EquipmentSourcePlugin {
-  readonly info: PluginInfo = {
-    id: "traktor-broadcast",
-    name: "Traktor Broadcast",
-    description: "Receives track metadata from Traktor via broadcast stream",
-  };
-
-  readonly capabilities: PluginCapabilities = {
-    multiDeck: false,
-    playState: false,
-    faderLevel: false,
-    masterDeck: false,
-    albumMetadata: false,
-  };
-
-  readonly configOptions: readonly PluginConfigOption[] = [
-    {
-      key: "port",
-      label: "Broadcast port",
-      type: "number",
-      default: DEFAULT_PORT,
-      min: 1024,
-      max: 65535,
-      description: "Local port for Traktor to broadcast to",
+export class TraktorBroadcastPlugin extends TypedEventEmitter<PluginEventArguments> implements EquipmentSourcePlugin {
+  static readonly metadata: PluginMeta = {
+    info: {
+      id: "traktor-broadcast",
+      name: "Traktor Broadcast",
+      description: "Receives track metadata from Traktor via broadcast stream",
     },
-  ];
+    capabilities: {
+      multiDeck: false,
+      playState: false,
+      faderLevel: false,
+      masterDeck: false,
+      albumMetadata: false,
+    },
+    configOptions: [
+      {
+        key: "port",
+        label: "Broadcast port",
+        type: "number",
+        default: DEFAULT_PORT,
+        min: 0,
+        max: 65535,
+        description: "Local port for Traktor to broadcast to (0 selects an available port)",
+      },
+    ]
+  };
+
+  readonly info: PluginInfo = structuredClone(TraktorBroadcastPlugin.metadata.info);
+
+  readonly capabilities: PluginCapabilities = structuredClone(TraktorBroadcastPlugin.metadata.capabilities);
+
+  readonly configOptions: readonly PluginConfigOption[] = structuredClone(TraktorBroadcastPlugin.metadata.configOptions);
 
   private server: Server | null = null;
   private running = false;
   private port = DEFAULT_PORT;
   private lastStreamTitle: string | null = null;
   private readonly activeConnections = new Set<IncomingMessage>();
+
+  get listeningPort(): number | null {
+    const address = this.server?.address();
+    return address && typeof address !== "string" ? address.port : null;
+  }
 
   get isRunning(): boolean {
     return this.running;
@@ -100,15 +115,24 @@ export class TraktorBroadcastPlugin extends EventEmitter implements EquipmentSou
       throw new Error("Traktor Broadcast plugin is already running");
     }
 
-    const port = (config?.port as number) ?? DEFAULT_PORT;
-    if (!Number.isInteger(port) || port < 0 || port > 65535) {
-      throw new Error(`Invalid port: ${port}. Must be an integer between 0 and 65535.`);
+    const port = config?.port === undefined ? DEFAULT_PORT : config.port;
+    if (typeof port !== "number" || !Number.isInteger(port) || port < 0 || port > MAX_PORT) {
+      throw new Error(`Invalid port: must be an integer between 0 and ${MAX_PORT}.`);
     }
     this.port = port;
     this.running = true;
     this.lastStreamTitle = null;
 
-    await this.startServer();
+    try {
+      await this.startServer();
+    } catch (error) {
+      // A bind failure happens before the plugin owns a listening server. Roll
+      // back the startup state so callers can correct the port and retry.
+      this.running = false;
+      this.lastStreamTitle = null;
+      this.server = null;
+      throw error;
+    }
   }
 
   async stop(): Promise<void> {
@@ -123,13 +147,14 @@ export class TraktorBroadcastPlugin extends EventEmitter implements EquipmentSou
     }
     this.activeConnections.clear();
 
-    if (this.server) {
-      // Force-close all open connections (streaming connections never end naturally)
-      this.server.closeAllConnections();
-      await new Promise<void>((resolve) => {
-        this.server!.close(() => resolve());
-      });
+    const server = this.server;
+    if (server) {
       this.server = null;
+      // Force-close all open connections (streaming connections never end naturally)
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
     }
 
     this.removeAllListeners();
@@ -169,7 +194,10 @@ export class TraktorBroadcastPlugin extends EventEmitter implements EquipmentSou
     this.activeConnections.add(req);
 
     // Request ICY metadata from the source
-    const icyMetaInt = parseInt(req.headers["icy-metaint"] as string, 10) || 0;
+    const icyMetaIntHeader = req.headers["icy-metaint"];
+    const icyMetaInt = typeof icyMetaIntHeader === "string"
+      ? Number.parseInt(icyMetaIntHeader, 10) || 0
+      : 0;
 
     if (icyMetaInt > 0) {
       this.emit("log", `ICY metadata interval: ${icyMetaInt} bytes`);
@@ -181,6 +209,7 @@ export class TraktorBroadcastPlugin extends EventEmitter implements EquipmentSou
 
     // Keep the connection alive — Traktor streams continuously
     res.writeHead(200, { "icy-metaint": "0" });
+    res.flushHeaders();
 
     req.on("close", () => {
       this.activeConnections.delete(req);
@@ -216,7 +245,7 @@ export class TraktorBroadcastPlugin extends EventEmitter implements EquipmentSou
             // Complete metadata block
             const metadata = metaBuffer.toString("utf-8").replace(/\0+$/, "");
             if (metadata) {
-              this.processMetadata(metadata);
+              this.publishTrackMetadataIfChanged(metadata);
             }
             readingMeta = false;
             metaBuffer = Buffer.alloc(0);
@@ -257,7 +286,8 @@ export class TraktorBroadcastPlugin extends EventEmitter implements EquipmentSou
 
   private handleHeaderMetadata(req: IncomingMessage): void {
     // Some configurations send metadata via ICY headers
-    const icyName = req.headers["icy-name"] as string | undefined;
+    const icyNameHeader = req.headers["icy-name"];
+    const icyName = typeof icyNameHeader === "string" ? icyNameHeader : undefined;
     if (icyName) {
       this.emit("log", `ICY name: ${icyName}`);
     }
@@ -266,12 +296,12 @@ export class TraktorBroadcastPlugin extends EventEmitter implements EquipmentSou
     req.on("data", (chunk: Buffer) => {
       const text = chunk.toString("utf-8");
       if (text.includes("StreamTitle=")) {
-        this.processMetadata(text);
+        this.publishTrackMetadataIfChanged(text);
       }
     });
   }
 
-  private processMetadata(raw: string): void {
+  private publishTrackMetadataIfChanged(raw: string): void {
     const parsed = parseStreamTitle(raw);
     if (!parsed) return;
 

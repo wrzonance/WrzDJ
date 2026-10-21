@@ -160,6 +160,77 @@ describe('KioskPairPage', () => {
     });
   });
 
+  // Regression for baseline 57cfcdc6867f: transient assignment failures must not erase a valid kiosk session.
+  it('preserves the saved session and offers retry after a transient assignment failure', async () => {
+    const token = 'b'.repeat(64);
+    mockStorage['kiosk_session_token'] = token;
+    mockStorage['kiosk_pair_code'] = 'OLD123';
+    mockGetKioskAssignment
+      .mockRejectedValueOnce(new ApiError('server unavailable', 503))
+      .mockResolvedValueOnce({
+        status: 'pairing',
+        event_code: null,
+        event_join_code: null,
+        event_name: null,
+      });
+
+    render(<KioskPairPage />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not verify this kiosk session. Check the connection and retry.',
+    );
+    expect(mockStorage['kiosk_session_token']).toBe(token);
+    expect(mockStorage['kiosk_pair_code']).toBe('OLD123');
+    expect(mockLocalStorage.removeItem).not.toHaveBeenCalled();
+    expect(mockCreateKioskPairing).not.toHaveBeenCalled();
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Retry session check' }).click();
+    });
+
+    await waitFor(() => expect(mockGetKioskAssignment).toHaveBeenCalledTimes(2));
+    expect(mockGetKioskAssignment).toHaveBeenLastCalledWith(token);
+    expect(mockStorage['kiosk_session_token']).toBe(token);
+    expect(mockStorage['kiosk_pair_code']).toBe('OLD123');
+    expect(mockCreateKioskPairing).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  // Regression for baseline 57cfcdc6867f: a session deleted after initial verification must be re-paired.
+  it('re-pairs when a later assignment poll returns a definitive 404', async () => {
+    mockStorage['kiosk_session_token'] = 'b'.repeat(64);
+    mockStorage['kiosk_pair_code'] = 'OLD123';
+    mockGetKioskAssignment
+      .mockResolvedValueOnce({
+        status: 'pairing',
+        event_code: null,
+        event_join_code: null,
+        event_name: null,
+      })
+      .mockRejectedValueOnce(new ApiError('session not found', 404));
+
+    render(<KioskPairPage />);
+
+    await waitFor(() => expect(mockCreateKioskPairing).toHaveBeenCalledWith('test-nonce-abc123'), {
+      timeout: 5000,
+    });
+    expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('kiosk_session_token');
+    expect(mockStorage['kiosk_session_token']).toBe('a'.repeat(64));
+  });
+
+  // Regression for baseline 57cfcdc6867f: an invalid stored session must be discarded, unlike transient failures.
+  it('re-pairs when the initial saved-session check returns a definitive 404', async () => {
+    mockStorage['kiosk_session_token'] = 'b'.repeat(64);
+    mockStorage['kiosk_pair_code'] = 'OLD123';
+    mockGetKioskAssignment.mockRejectedValueOnce(new ApiError('session not found', 404));
+
+    render(<KioskPairPage />);
+
+    await waitFor(() => expect(mockCreateKioskPairing).toHaveBeenCalledWith('test-nonce-abc123'));
+    expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('kiosk_session_token');
+    expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('kiosk_pair_code');
+  });
+
   it('re-pairs when assignment returns unassigned (event deleted)', async () => {
     // Existing paired session whose event has since been deleted (issue #474).
     mockStorage['kiosk_session_token'] = 'b'.repeat(64);

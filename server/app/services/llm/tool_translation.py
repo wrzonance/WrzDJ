@@ -11,37 +11,51 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Literal
+from collections.abc import Mapping
+from typing import Any
 
-from app.services.llm.base import ChatResponse, Message, TokenUsage, ToolCall, ToolSpec
+from app.services.llm.base import (
+    CanonicalStopReason,
+    ChatResponse,
+    Message,
+    TokenUsage,
+    ToolCall,
+    ToolSpec,
+)
 from app.services.llm.exceptions import ToolTranslationError
 
 logger = logging.getLogger(__name__)
 
-CanonicalStopReason = Literal["end_turn", "tool_use", "max_tokens", "error"]
-
 # Per-provider native-finish-reason → canonical mapping. ``None`` always means
 # "end_turn"; any reason absent from a table maps to "error".
-_FINISH_REASON_OPENAI = {
+_FINISH_REASON_OPENAI: dict[str, CanonicalStopReason] = {
     "stop": "end_turn",
     "tool_calls": "tool_use",
     "function_call": "tool_use",
     "length": "max_tokens",
 }
-_FINISH_REASON_ANTHROPIC = {
+_FINISH_REASON_ANTHROPIC: dict[str, CanonicalStopReason] = {
     "end_turn": "end_turn",
     "stop_sequence": "end_turn",
     "tool_use": "tool_use",
     "max_tokens": "max_tokens",
 }
-_FINISH_REASON_GEMINI = {"STOP": "end_turn", "MAX_TOKENS": "max_tokens"}
-_FINISH_REASON_LLAMA = {"stop": "end_turn", "length": "max_tokens"}
+_FINISH_REASON_GEMINI: dict[str, CanonicalStopReason] = {
+    "STOP": "end_turn",
+    "MAX_TOKENS": "max_tokens",
+}
+_FINISH_REASON_LLAMA: dict[str, CanonicalStopReason] = {
+    "stop": "end_turn",
+    "length": "max_tokens",
+}
 
 
-def _normalise_finish_reason(reason: str | None, mapping: dict[str, str]) -> CanonicalStopReason:
+def _normalise_finish_reason(
+    reason: str | None, mapping: Mapping[str, CanonicalStopReason]
+) -> CanonicalStopReason:
     if reason is None:
         return "end_turn"
-    return mapping.get(reason, "error")  # type: ignore[return-value]
+    return mapping.get(reason, "error")
 
 
 def normalise_anthropic_stop_reason(reason: str | None) -> CanonicalStopReason:

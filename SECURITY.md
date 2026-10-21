@@ -176,7 +176,7 @@ graph TD
   plaintext storage of sensitive fields requires explicit justification.
 - Minimize data collection — don't store data you don't need.
 - **Guest identity is `guest_id` only** (cookie + ThumbmarkJS reconciliation in
-  `services/guest_identity.py`). The codebase has **no IP-derived columns or logs** — IPs are
+  `services/guests/identity.py`). The codebase has **no IP-derived columns or logs** — IPs are
   never persisted as identity. A few flows consume the client IP ephemerally per request and
   then discard it: the slowapi rate limiter (`get_client_ip` in `core/rate_limit.py`) and
   Turnstile verification (`api/guest.py` passes it to `verify_turnstile_token`). Never stored,

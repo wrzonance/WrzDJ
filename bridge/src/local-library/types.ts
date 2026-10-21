@@ -7,8 +7,3 @@ export interface LocalLibraryTrack {
   readonly artist: string | null;
   readonly extension: string;
 }
-
-export interface LocalLibraryReader {
-  scan(): Promise<readonly LocalLibraryTrack[]>;
-  search(query: string): Promise<readonly LocalLibraryTrack[]>;
-}

@@ -10,6 +10,7 @@ from app.services.llm.adapters._httpx_openai import (
     call_openai_chat,
     stream_openai_chat,
 )
+from app.services.llm.adapters._shared import DEFAULT_OPENAI_MODEL as DEFAULT_MODEL
 from app.services.llm.adapters._shared import extract_api_key
 from app.services.llm.base import ChatRequest, ChatResponse, ChatResponseChunk, LlmAdapter
 from app.services.llm.registry import register_adapter
@@ -17,8 +18,6 @@ from app.services.llm.registry import register_adapter
 logger = logging.getLogger(__name__)
 
 OPENAI_BASE_URL = "https://api.openai.com/v1"
-DEFAULT_MODEL = "gpt-5-mini"
-
 # OpenAI Platform's GPT-5 / o-series models reject the legacy ``max_tokens`` field
 # (HTTP 400 ``unsupported_parameter``) and require ``max_completion_tokens``, which
 # every current OpenAI Platform chat model also accepts. Third-party OpenAI-compatible

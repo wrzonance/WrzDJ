@@ -91,7 +91,7 @@ function LoginForm() {
         </form>
 
         {registrationEnabled && (
-          <p style={{ textAlign: 'center', marginTop: '1.5rem', color: '#9ca3af' }}>
+          <p style={{ textAlign: 'center', marginTop: '1.5rem', color: 'var(--text-secondary)' }}>
             Don&apos;t have an account?{' '}
             <Link href="/register" style={{ color: '#3b82f6' }}>
               Create Account

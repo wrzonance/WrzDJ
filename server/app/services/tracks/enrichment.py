@@ -1,0 +1,158 @@
+"""Provider-backed track metadata enrichment shared across features."""
+
+import logging
+
+import tidalapi
+from sqlalchemy.orm import Session
+
+from app.models.user import User
+from app.services.providers.beatport_catalog import search_beatport_tracks
+from app.services.providers.tidal_account import get_tidal_session
+from app.services.providers.tidal_results import get_artist_name
+from app.services.track_match import find_best_match
+from app.services.track_normalizer import is_remix_title, primary_artist
+from app.services.tracks.profile import TrackProfile
+from app.services.tracks.profile_mappers import beatport_result_to_profile
+
+logger = logging.getLogger(__name__)
+
+
+def enrich_track(
+    db: Session,
+    user: User,
+    title: str,
+    artist: str,
+) -> TrackProfile:
+    """Enrich a track with metadata from connected services.
+
+    Tries Beatport first (has genre), fills gaps from Tidal.
+    Returns a TrackProfile with whatever metadata could be found.
+    """
+    bp_profile = None
+    tidal_profile = None
+
+    if user.beatport_access_token:
+        bp_profile = enrich_from_beatport(db, user, title, artist)
+
+    if user.tidal_access_token:
+        tidal_profile = enrich_from_tidal(db, user, title, artist)
+
+    # If both found, merge: Beatport is primary (has genre), Tidal fills gaps
+    if bp_profile and tidal_profile:
+        return TrackProfile(
+            title=bp_profile.title,
+            artist=bp_profile.artist,
+            bpm=bp_profile.bpm or tidal_profile.bpm,
+            key=bp_profile.key or tidal_profile.key,
+            genre=bp_profile.genre,
+            source="beatport",
+            track_id=bp_profile.track_id,
+            url=bp_profile.url,
+            cover_url=bp_profile.cover_url or tidal_profile.cover_url,
+            duration_seconds=bp_profile.duration_seconds or tidal_profile.duration_seconds,
+        )
+
+    if bp_profile:
+        return bp_profile
+
+    if tidal_profile:
+        return tidal_profile
+
+    # Neither service found the track — return minimal profile
+    return TrackProfile(title=title, artist=artist)
+
+
+def enrich_from_beatport(
+    db: Session,
+    user: User,
+    title: str,
+    artist: str,
+) -> TrackProfile | None:
+    """Search Beatport and extract BPM/key/genre from the result."""
+    results = search_beatport_tracks(db, user, f"{primary_artist(artist)} {title}", limit=5)
+    if not results:
+        return None
+
+    # Find best match (prefer originals over remixes for non-remix queries).
+    # Shared selector (#551) — same scoring as the Tidal path and the request
+    # enrichment pipeline. Beatport results expose the default .title/.artist/
+    # .mix_name/.bpm shape, so no accessors are needed.
+    best_result = find_best_match(results, title, artist, prefer_original=not is_remix_title(title))
+    if not best_result:
+        return None
+
+    return beatport_result_to_profile(best_result)
+
+
+def enrich_from_tidal(
+    db: Session,
+    user: User,
+    title: str,
+    artist: str,
+) -> TrackProfile | None:
+    """Search Tidal and extract BPM/key from the result.
+
+    Uses tidalapi.Track.bpm and .audio_modes directly, which
+    are not exposed by the existing _track_to_result helper.
+    """
+    session = get_tidal_session(db, user)
+    if not session:
+        return None
+
+    try:
+        query = f"{primary_artist(artist)} {title}"
+        results = session.search(query, models=[tidalapi.media.Track], limit=5)
+        tracks = results.get("tracks", [])
+        if not tracks:
+            return None
+
+        # Find best match (prefer originals over remixes for non-remix queries).
+        # Shared selector (#551): adds the artist-score floor + BPM-consensus
+        # tiebreaker the old inline loop lacked. Tidal exposes .name (not .title)
+        # and a custom artist accessor, so pass those through.
+        best_track = find_best_match(
+            tracks,
+            title,
+            artist,
+            prefer_original=not is_remix_title(title),
+            get_title=lambda t: t.name or "",
+            get_artist=get_artist_name,
+            get_mix_name=lambda t: None,  # tidalapi has no mix_name — detect remixes from the title
+        )
+        if not best_track:
+            return None
+
+        # Extract BPM and key directly from the tidalapi Track object
+        bpm = None
+        key = None
+        try:
+            bpm = float(best_track.bpm) if hasattr(best_track, "bpm") and best_track.bpm else None
+        except (TypeError, ValueError):
+            pass
+        try:
+            key = best_track.key if hasattr(best_track, "key") and best_track.key else None
+        except (TypeError, AttributeError):
+            pass
+
+        cover_url = None
+        # Artwork is optional; metadata remains useful without it.
+        try:
+            if best_track.album:
+                cover_url = best_track.album.image(640)
+        except Exception as exc:
+            logger.warning("Tidal artwork lookup failed: %s", type(exc).__name__)
+
+        return TrackProfile(
+            title=best_track.name or title,
+            artist=get_artist_name(best_track),
+            bpm=bpm,
+            key=key,
+            source="tidal",
+            track_id=str(best_track.id),
+            url=f"https://tidal.com/browse/track/{best_track.id}",
+            cover_url=cover_url,
+            duration_seconds=best_track.duration if best_track.duration else None,
+        )
+    except Exception as e:
+        logger.error("Tidal enrichment failed for '%s - %s': %s", artist, title, type(e).__name__)
+        return None

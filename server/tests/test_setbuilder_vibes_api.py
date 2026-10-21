@@ -279,7 +279,7 @@ class TestWritePoolVibes:
             _vote(db, "tidal:0", voter.id, energy=7, mood="dark")
 
         with patch(
-            "app.api.setbuilder.vibe_resolver.build_pool_vibe_states",
+            "app.api.setbuilder_pool.vibe_resolver.build_pool_vibe_states",
             wraps=vibe_resolver.build_pool_vibe_states,
         ) as build_states:
             resp = client.post(

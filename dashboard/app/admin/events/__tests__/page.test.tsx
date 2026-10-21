@@ -322,6 +322,26 @@ describe('AdminEventsPage', () => {
 
       expect(window.confirm).toHaveBeenCalled();
       expect(api.bulkDeleteAdminEvents).toHaveBeenCalledWith(['FRI001', 'SAT002']);
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: /Delete Selected/ })).not.toBeInTheDocument();
+      });
+    });
+
+    it('retains selected events and reports an error when bulk delete fails', async () => {
+      vi.mocked(api.bulkDeleteAdminEvents).mockRejectedValue(new Error('Cannot delete selected events'));
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+      render(<AdminEventsPage />);
+      await waitFor(() => expect(screen.getByText('Friday Night')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByLabelText('Advanced'));
+      fireEvent.click(screen.getByLabelText('Select event FRI001'));
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Selected (1)' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Cannot delete selected events')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Delete Selected (1)' })).toBeInTheDocument();
+      });
     });
   });
 });

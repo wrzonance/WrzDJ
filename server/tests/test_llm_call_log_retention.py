@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.time import utcnow
 from app.models.llm_connector import LlmCallLog, LlmConnector
 from app.services.llm.connector_storage import purge_call_log_older_than
-from app.services.system_settings import update_system_settings
+from app.services.system_settings import SystemSettingsPatch, update_system_settings
 
 
 def _make_connector(db: Session, user_id: int) -> LlmConnector:
@@ -119,7 +119,7 @@ class TestCleanupReadsSettings:
         _seed_call_log(db, connector.id, age_days=20)
 
         # Admin shortens retention.
-        update_system_settings(db, llm_call_log_retention_days=7)
+        update_system_settings(db, SystemSettingsPatch(llm_call_log_retention_days=7))
 
         import app.main as main_module
 

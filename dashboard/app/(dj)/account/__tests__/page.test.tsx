@@ -35,6 +35,7 @@ const { mockGetMe, mockChangePassword, mockRequestEmailChange, mockUpdateMyPrefe
         // individual tests still rebinds the same reference the page calls.
         listLlmConnectors: () => Promise.resolve([]),
         getLlmPolicy: () => Promise.reject(new Error('forbidden')),
+        listLlmFeaturePreferences: () => Promise.reject(new Error('forbidden')),
         getAppleMusicStatus: vi.fn(),
         getAppleMusicDeveloperToken: vi.fn(),
         linkAppleMusicAccount: vi.fn(),
@@ -177,6 +178,35 @@ describe('AccountPage', () => {
   });
 
   it('toggles frictionless_join_default and saves', async () => {
+    const update = mockUpdateMyPreferences.mockResolvedValue(undefined);
+    render(<AccountPage />);
+    const toggle = await screen.findByLabelText(/Frictionless join by default/i);
+    fireEvent.click(toggle);
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ frictionless_join_default: true }));
+  });
+
+  it('keeps guest preferences retryable when saving fails', async () => {
+    mockUpdateMyPreferences
+      .mockRejectedValueOnce(new Error('Preference save failed'))
+      .mockResolvedValueOnce(undefined);
+    render(<AccountPage />);
+
+    const toggle = await screen.findByLabelText(/Frictionless join by default/i);
+    fireEvent.click(toggle);
+
+    const saveError = await screen.findByText('Preference save failed', { exact: true });
+    expect(saveError.closest('[role="alert"]')).toBeInTheDocument();
+    expect(toggle).not.toBeChecked();
+    expect(toggle).toBeEnabled();
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(mockUpdateMyPreferences).toHaveBeenCalledTimes(2));
+    expect(toggle).toBeChecked();
+    expect(screen.queryByText('Preference save failed', { exact: true })).not.toBeInTheDocument();
+  });
+
+  it('hydrates the guest preference from the loaded account', async () => {
     mockGetMe.mockResolvedValue({
       id: 1,
       username: 'dj',
@@ -184,13 +214,13 @@ describe('AccountPage', () => {
       help_pages_seen: [],
       pending_email: null,
       email: null,
-      frictionless_join_default: false,
+      frictionless_join_default: true,
     });
-    const update = vi.spyOn(mockApi, 'updateMyPreferences').mockResolvedValue(undefined as never);
     render(<AccountPage />);
-    const toggle = await screen.findByLabelText(/Frictionless join by default/i);
-    fireEvent.click(toggle);
-    await waitFor(() => expect(update).toHaveBeenCalledWith({ frictionless_join_default: true }));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Frictionless join by default/i)).toBeChecked(),
+    );
   });
 
   it('shows pending email from getMe on load', async () => {

@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useRef, useCallback, type ReactNode } from 'react';
-import { useTooltipPosition } from '@/lib/useTooltipPosition';
+import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
+import { useTooltipPosition } from '@/lib/use-tooltip-position';
 
 interface TooltipProps {
   /** Bold heading line */
@@ -41,12 +41,23 @@ export function Tooltip({
     { defaultVertical: 'above' },
   );
 
+  useEffect(() => () => {
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
   const handleMouseEnter = useCallback(() => {
-    timerRef.current = setTimeout(() => setVisible(true), delay);
+    if (timerRef.current !== null) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      setVisible(true);
+    }, delay);
   }, [delay]);
 
   const handleMouseLeave = useCallback(() => {
-    if (timerRef.current) {
+    if (timerRef.current !== null) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
@@ -63,7 +74,7 @@ export function Tooltip({
         </div>
       )}
       {description && (
-        <div style={{ color: '#9ca3af', lineHeight: 1.4 }}>{description}</div>
+        <div style={{ color: 'var(--text-secondary)', lineHeight: 1.4 }}>{description}</div>
       )}
     </>
   );
@@ -94,7 +105,7 @@ export function Tooltip({
             left: leftStyle,
             transform: 'translateX(-50%)',
             background: '#1f1f1f',
-            border: '1px solid #333',
+            border: '1px solid var(--border)',
             borderRadius: '0.375rem',
             padding: '0.5rem 0.625rem',
             maxWidth: `${maxWidth}px`,
@@ -112,13 +123,13 @@ export function Tooltip({
               ...(isAbove
                 ? {
                     bottom: `-${CARET_SIZE / 2 + 1}px`,
-                    borderRight: '1px solid #333',
-                    borderBottom: '1px solid #333',
+                    borderRight: '1px solid var(--border)',
+                    borderBottom: '1px solid var(--border)',
                   }
                 : {
                     top: `-${CARET_SIZE / 2 + 1}px`,
-                    borderLeft: '1px solid #333',
-                    borderTop: '1px solid #333',
+                    borderLeft: '1px solid var(--border)',
+                    borderTop: '1px solid var(--border)',
                   }),
               left: caretLeft,
               transform: 'translateX(-50%) rotate(45deg)',

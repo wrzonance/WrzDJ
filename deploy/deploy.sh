@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [ "$#" -ne 0 ]; then
+  echo "Usage: $0" >&2
+  exit 2
+fi
+
 # WrzDJ Production Deploy Script
 # Usage: ./deploy/deploy.sh
 #
@@ -36,38 +41,7 @@ echo "==> Checking PostgreSQL data volume..."
 echo "==> Stopping existing containers..."
 docker compose -f "$COMPOSE_FILE" down --remove-orphans 2>/dev/null || true
 
-echo "==> Checking for processes holding ports $PORT_API and $PORT_FRONTEND..."
-for PORT in $PORT_API $PORT_FRONTEND; do
-  PIDS=$(ss -tlnp | grep ":${PORT}" | grep -oP 'pid=\K[0-9]+' | sort -u || true)
-  if [ -n "${PIDS:-}" ]; then
-    for PID in $PIDS; do
-      PROC=$(ps -p "$PID" -o comm= 2>/dev/null || echo "unknown")
-      echo "    Port $PORT held by PID $PID ($PROC) — killing"
-      kill "$PID" 2>/dev/null || true
-    done
-    sleep 1
-    # Force kill any survivors
-    for PID in $PIDS; do
-      if kill -0 "$PID" 2>/dev/null; then
-        echo "    PID $PID still alive — sending SIGKILL"
-        kill -9 "$PID" 2>/dev/null || true
-      fi
-    done
-  else
-    echo "    Port $PORT is free"
-  fi
-done
-
-echo "==> Verifying uploads directory structure..."
-# The api_uploads Docker volume handles persistence, but ensure the banners
-# subdirectory exists inside it. On first deploy with an empty volume,
-# start.sh also creates this, but we verify here as a safety net.
-UPLOADS_VOLUME="api_uploads"
-if docker volume inspect "${UPLOADS_VOLUME}" > /dev/null 2>&1; then
-  echo "    Volume ${UPLOADS_VOLUME} exists"
-else
-  echo "    Volume ${UPLOADS_VOLUME} will be created by Docker Compose"
-fi
+"$SCRIPT_DIR/scripts/cleanup-deploy-ports.sh" "$PORT_API" "$PORT_FRONTEND"
 
 echo "==> Ensuring log directories exist..."
 mkdir -p "$SCRIPT_DIR/logs/api"
@@ -78,27 +52,7 @@ echo "==> Rebuilding and starting stack..."
 docker compose -f "$COMPOSE_FILE" up -d --build
 
 echo "==> Waiting for API to become healthy..."
-MAX_WAIT=60
-ELAPSED=0
-while [ $ELAPSED -lt $MAX_WAIT ]; do
-  if curl -sf "http://127.0.0.1:${PORT_API}/health" > /dev/null 2>&1; then
-    echo "    API healthy after ${ELAPSED}s"
-    break
-  fi
-  if [ $ELAPSED -eq 0 ]; then
-    printf "    Waiting"
-  fi
-  printf "."
-  sleep 2
-  ELAPSED=$((ELAPSED + 2))
-done
-
-if [ $ELAPSED -ge $MAX_WAIT ]; then
-  echo ""
-  echo "WARNING: API did not become healthy within ${MAX_WAIT}s"
-  echo "==> API logs:"
-  docker compose -f "$COMPOSE_FILE" logs --tail=20 api
-fi
+"$SCRIPT_DIR/scripts/wait-for-api-health.sh" "$COMPOSE_FILE" "$PORT_API" "${WRZDJ_API_HEALTH_TIMEOUT:-60}"
 
 echo ""
 echo "==> Service status:"

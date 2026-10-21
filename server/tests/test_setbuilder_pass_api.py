@@ -1,6 +1,10 @@
 """API tests for WrzDJSet pass 1/pass 2 endpoints (#390)."""
 
+import json
+
+from app.models.llm_connector import LlmConnector
 from app.models.set_pool import SetPoolSource, SetPoolTrack
+from app.services.llm.adapters.openai_apikey import OpenAIApiKeyAdapter
 from app.services.llm.base import ChatResponse, ToolCall
 
 
@@ -132,7 +136,7 @@ def test_critique_endpoint_uses_gateway(monkeypatch, client, auth_headers, db):
             ],
         )
 
-    monkeypatch.setattr("app.services.setbuilder.pass2_agent.Gateway.dispatch", fake_dispatch)
+    monkeypatch.setattr("app.services.setbuilder.agent.pass2_agent.Gateway.dispatch", fake_dispatch)
 
     resp = client.post(f"/api/setbuilder/sets/{set_obj['id']}/critique", headers=auth_headers)
 
@@ -168,7 +172,7 @@ def test_agent_chat_applies_tool_and_returns_scores(monkeypatch, client, auth_he
             ],
         )
 
-    monkeypatch.setattr("app.services.setbuilder.pass2_agent.Gateway.dispatch", fake_dispatch)
+    monkeypatch.setattr("app.services.setbuilder.agent.pass2_agent.Gateway.dispatch", fake_dispatch)
 
     resp = client.post(
         f"/api/setbuilder/sets/{set_obj['id']}/agent/chat",
@@ -190,7 +194,7 @@ def test_agent_history_initially_empty_without_llm(monkeypatch, client, auth_hea
     async def fail_dispatch(*args, **kwargs):
         raise AssertionError("history load must not call the LLM gateway")
 
-    monkeypatch.setattr("app.services.setbuilder.pass2_agent.Gateway.dispatch", fail_dispatch)
+    monkeypatch.setattr("app.services.setbuilder.agent.pass2_agent.Gateway.dispatch", fail_dispatch)
 
     resp = client.get(
         f"/api/setbuilder/sets/{set_obj['id']}/agent/history",
@@ -207,7 +211,7 @@ def test_agent_history_initially_empty_without_llm(monkeypatch, client, auth_hea
 def test_agent_history_handles_legacy_tool_call_without_display_summary(
     client, auth_headers, db, test_user
 ):
-    from app.services.setbuilder import agent_history
+    from app.services.setbuilder.agent import agent_history
 
     set_obj = _mk_set(client, auth_headers)
     session = agent_history.get_or_create_session(db, set_obj["id"], test_user.id)
@@ -266,7 +270,7 @@ def test_agent_chat_persists_turns_and_history(monkeypatch, client, auth_headers
             ],
         )
 
-    monkeypatch.setattr("app.services.setbuilder.pass2_agent.Gateway.dispatch", fake_dispatch)
+    monkeypatch.setattr("app.services.setbuilder.agent.pass2_agent.Gateway.dispatch", fake_dispatch)
 
     resp = client.post(
         f"/api/setbuilder/sets/{set_obj['id']}/agent/chat",
@@ -344,7 +348,7 @@ def test_agent_chat_rolls_back_all_work_when_later_tool_fails(
             ],
         )
 
-    monkeypatch.setattr("app.services.setbuilder.pass2_agent.Gateway.dispatch", fake_dispatch)
+    monkeypatch.setattr("app.services.setbuilder.agent.pass2_agent.Gateway.dispatch", fake_dispatch)
 
     resp = client.post(
         f"/api/setbuilder/sets/{set_obj['id']}/agent/chat",
@@ -364,6 +368,97 @@ def test_agent_chat_rolls_back_all_work_when_later_tool_fails(
         )
     ]
     assert current_track_ids == original_track_ids
+
+    history = client.get(
+        f"/api/setbuilder/sets/{set_obj['id']}/agent/history",
+        headers=auth_headers,
+    ).json()
+    assert history["messages"] == []
+
+
+def test_agent_chat_critique_telemetry_does_not_commit_failed_turn(
+    monkeypatch, client, auth_headers, db, test_user
+):
+    # Regression for baseline 57cfcdc6867f: Gateway telemetry committed a
+    # pending slot reorder before a later invalid tool could roll back the turn.
+    from app.models.set import SetSlot
+
+    set_obj = _mk_set(client, auth_headers)
+    _mk_pool(db, set_obj["id"])
+    built = client.post(
+        f"/api/setbuilder/sets/{set_obj['id']}/build",
+        json={"confirmed": True},
+        headers=auth_headers,
+    ).json()
+    first, second = built["slots"][:2]
+    original_order = [slot["track_id"] for slot in built["slots"]]
+    connector = LlmConnector(
+        user_id=test_user.id,
+        connector_type="openai_apikey",
+        display_name="Agent test connector",
+        status="active",
+        credentials=json.dumps({"api_key": "sk-fake-key"}),
+        model_hint="gpt-5-mini",
+    )
+    db.add(connector)
+    db.commit()
+
+    responses = iter(
+        [
+            ChatResponse(
+                text="",
+                stop_reason="tool_use",
+                tool_calls=[
+                    ToolCall(
+                        id="reorder-1",
+                        name="reorder_slot",
+                        input={
+                            "slot_id": first["id"],
+                            "position": 1,
+                            "rationale": "Move the stronger groove later.",
+                        },
+                    ),
+                    ToolCall(id="critique-1", name="critique_set", input={}),
+                    ToolCall(id="invalid-1", name="not_a_tool", input={}),
+                ],
+            ),
+            ChatResponse(
+                text="",
+                stop_reason="tool_use",
+                tool_calls=[
+                    ToolCall(
+                        id="critique-result",
+                        name="critique_set",
+                        input={"overall_grade": "B", "summary": "Good flow.", "flags": []},
+                    )
+                ],
+            ),
+        ]
+    )
+
+    async def fake_chat(self, request):
+        return next(responses)
+
+    monkeypatch.setattr(OpenAIApiKeyAdapter, "chat", fake_chat)
+
+    response = client.post(
+        f"/api/setbuilder/sets/{set_obj['id']}/agent/chat",
+        json={"message": "Reorder, critique, then try the invalid tool."},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400, response.json()
+    db.expire_all()
+    current_order = [
+        track_id
+        for (track_id,) in (
+            db.query(SetSlot.track_id)
+            .filter(SetSlot.set_id == set_obj["id"])
+            .order_by(SetSlot.position.asc())
+            .all()
+        )
+    ]
+    assert current_order == original_order
 
     history = client.get(
         f"/api/setbuilder/sets/{set_obj['id']}/agent/history",

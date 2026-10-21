@@ -2,6 +2,17 @@ from datetime import timedelta
 
 from app.core.time import utcnow
 
+COLLECTION_SETTINGS_KEYS = {
+    "collection_opens_at",
+    "live_starts_at",
+    "submission_cap_per_guest",
+    "collection_phase_override",
+    "phase",
+    "tidal_sync_enabled",
+    "tidal_collection_playlist_id",
+    "tidal_collection_bidirectional",
+}
+
 
 def test_patch_collection_sets_dates(client, db, auth_headers, test_event):
     now = utcnow()
@@ -365,7 +376,7 @@ def test_bulk_reject_queues_tidal_removal_for_synced_requests(
     def fake_remove(db, user, event, track_ids):
         calls.append((db, user, event, track_ids))
 
-    import app.api.events as events_module
+    import app.api.events_collection as events_module
 
     monkeypatch.setattr(events_module, "remove_collection_tracks_batch", fake_remove)
 
@@ -407,7 +418,7 @@ def test_bulk_reject_skips_tidal_removal_when_no_track_id(
     def fake_remove(db, user, event, track_ids):
         calls.append((db, user, event, track_ids))
 
-    import app.api.events as events_module
+    import app.api.events_collection as events_module
 
     monkeypatch.setattr(events_module, "remove_collection_tracks_batch", fake_remove)
 
@@ -449,7 +460,7 @@ def test_bulk_reject_skips_tidal_removal_when_bidirectional_disabled(
     def fake_remove(db, user, event, track_ids):
         calls.append((db, user, event, track_ids))
 
-    import app.api.events as events_module
+    import app.api.events_collection as events_module
 
     monkeypatch.setattr(events_module, "remove_collection_tracks_batch", fake_remove)
 
@@ -487,6 +498,70 @@ def test_collection_settings_response_includes_bidirectional(client, auth_header
     assert resp.status_code == 200
     assert "tidal_collection_bidirectional" in resp.json()
     assert resp.json()["tidal_collection_bidirectional"] is False  # default
+
+
+def test_collection_settings_get_response_contract(client, auth_headers, test_event):
+    response = client.get(
+        f"/api/events/{test_event.code}/collection",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == COLLECTION_SETTINGS_KEYS
+    assert body["collection_opens_at"] is None
+    assert body["live_starts_at"] is None
+    assert body["submission_cap_per_guest"] == 15
+    assert body["collection_phase_override"] is None
+    assert body["phase"] in {"pre_announce", "collection", "live", "closed"}
+    assert body["tidal_sync_enabled"] is False
+    assert body["tidal_collection_playlist_id"] is None
+    assert body["tidal_collection_bidirectional"] is False
+
+
+def test_collection_settings_patch_response_contract(client, auth_headers, test_event):
+    now = utcnow()
+    opens = now + timedelta(hours=1)
+    live = now + timedelta(hours=3)
+    response = client.patch(
+        f"/api/events/{test_event.code}/collection",
+        json={
+            "collection_opens_at": opens.isoformat(),
+            "live_starts_at": live.isoformat(),
+            "submission_cap_per_guest": 8,
+            "collection_phase_override": "force_collection",
+            "tidal_sync_enabled": True,
+            "tidal_collection_bidirectional": True,
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == COLLECTION_SETTINGS_KEYS
+    assert body["collection_opens_at"] == opens.isoformat()
+    assert body["live_starts_at"] == live.isoformat()
+    assert body["submission_cap_per_guest"] == 8
+    assert body["collection_phase_override"] == "force_collection"
+    assert body["phase"] == "collection"
+    assert body["tidal_sync_enabled"] is True
+    assert body["tidal_collection_playlist_id"] is None
+    assert body["tidal_collection_bidirectional"] is True
+
+
+def test_collection_settings_openapi_response_contract(client):
+    schema = client.app.openapi()
+    expected_ref = {"$ref": "#/components/schemas/CollectionSettingsResponse"}
+    for method in ("get", "patch"):
+        response_schema = schema["paths"]["/api/events/{code}/collection"][method]["responses"][
+            "200"
+        ]["content"]["application/json"]["schema"]
+        assert response_schema == expected_ref
+
+    response_model = schema["components"]["schemas"]["CollectionSettingsResponse"]
+    assert set(response_model["properties"]) == COLLECTION_SETTINGS_KEYS
+    assert set(response_model["required"]) == COLLECTION_SETTINGS_KEYS
+    assert response_model["properties"]["collection_opens_at"]["anyOf"][-1] == {"type": "null"}
 
 
 def test_patch_collection_settings_sets_bidirectional(client, db, auth_headers, test_event):

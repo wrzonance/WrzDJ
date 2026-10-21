@@ -1,13 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { ThemeToggle } from '../ThemeToggle';
+import { ThemeProvider } from '@/lib/theme';
 import * as HelpContext from '@/lib/help/HelpContext';
 import type { HelpContextValue } from '@/lib/help/types';
-
-vi.mock('@/lib/theme', () => ({
-  useTheme: () => ({ theme: 'dark', toggleTheme: vi.fn() }),
-}));
 
 function makeHelpContext(overrides: Partial<HelpContextValue> = {}): HelpContextValue {
   return {
@@ -15,28 +12,33 @@ function makeHelpContext(overrides: Partial<HelpContextValue> = {}): HelpContext
     onboardingActive: false,
     currentStep: 0,
     activeSpotId: null,
-    toggleHelpMode: vi.fn(),
-    registerSpot: vi.fn(() => vi.fn()),
-    getSpotsForPage: vi.fn(() => []),
-    startOnboarding: vi.fn(),
-    nextStep: vi.fn(),
-    prevStep: vi.fn(),
-    skipOnboarding: vi.fn(),
-    hasSeenPage: vi.fn(() => false),
+    toggleHelpMode: () => {},
+    registerSpot: () => () => {},
+    getSpotsForPage: () => [],
+    startOnboarding: () => {},
+    nextStep: () => {},
+    prevStep: () => {},
+    skipOnboarding: () => {},
+    hasSeenPage: () => false,
     ...overrides,
   };
 }
 
-beforeEach(() => {
-  vi.spyOn(HelpContext, 'useHelp').mockReturnValue(makeHelpContext());
-});
+function renderThemeToggle() {
+  localStorage.setItem('wrzdj-theme', 'dark');
+  return render(
+    <ThemeProvider>
+      <ThemeToggle />
+    </ThemeProvider>,
+  );
+}
 
 describe('ThemeToggle', () => {
   it('renders the toggle button when onboarding is not active', () => {
     vi.spyOn(HelpContext, 'useHelp').mockReturnValue(
       makeHelpContext({ onboardingActive: false })
     );
-    render(<ThemeToggle />);
+    renderThemeToggle();
     expect(screen.getByRole('button', { name: /current theme/i })).toBeInTheDocument();
   });
 
@@ -44,7 +46,7 @@ describe('ThemeToggle', () => {
     vi.spyOn(HelpContext, 'useHelp').mockReturnValue(
       makeHelpContext({ onboardingActive: true })
     );
-    render(<ThemeToggle />);
+    renderThemeToggle();
     expect(screen.queryByRole('button', { name: /current theme/i })).not.toBeInTheDocument();
   });
 });

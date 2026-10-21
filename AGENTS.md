@@ -116,8 +116,9 @@ npm test -- --run
   SQLite in-memory (not PostgreSQL). Fixtures in `server/tests/conftest.py`: `db`, `client`,
   `test_user`, `auth_headers`, `admin_user`, `admin_headers`, `pending_user`, `pending_headers`,
   `test_event`, `test_request`. TestClient host is `"testclient"` (visible to slowapi as the
-  rate-limit key; not stored elsewhere). Single file: `.venv/bin/pytest tests/test_requests.py -v`.
-- **Frontend (vitest)**: config `dashboard/vitest.config.ts`, env jsdom. Tests at
+  rate-limit key; not stored elsewhere). Single file:
+  `.venv/bin/pytest tests/request_endpoints/test_submissions.py -v`.
+- **Frontend (vitest)**: config `dashboard/vitest.config.mts`, env jsdom. Tests at
   `**/__tests__/**/*.test.{ts,tsx}` and `**/*.test.{ts,tsx}`. When adding fields to shared types
   (e.g. `PublicRequestInfo`), update test fixtures too.
 - Pin every bug-fix with a regression test referencing the commit SHA.

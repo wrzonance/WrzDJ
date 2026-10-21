@@ -9,6 +9,9 @@ import { VitePlugin } from '@electron-forge/plugin-vite';
 import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
 
 const config: ForgeConfig = {
+  rebuildConfig: {
+    extraModules: ['better-sqlite3-multiple-ciphers'],
+  },
   packagerConfig: {
     name: 'WrzDJ Bridge',
     executableName: 'wrzdj-bridge',

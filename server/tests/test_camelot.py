@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.services.recommendation.camelot import (
+from app.services.music_matching import (
     CamelotPosition,
     compatibility_score,
     parse_key,

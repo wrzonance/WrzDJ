@@ -9,9 +9,9 @@ from sqlalchemy.orm import Session
 from app.models.set import Set, SetSlot
 from app.models.set_pool import SetPoolSource, SetPoolTrack
 from app.models.user import User
-from app.services.setbuilder import export_tidal
-from app.services.setbuilder.export_common import ExportTrack, collect_export_tracks
-from app.services.setbuilder.export_files import (
+from app.services.setbuilder.exports import export_tidal
+from app.services.setbuilder.exports.export_common import ExportTrack, collect_export_tracks
+from app.services.setbuilder.exports.export_files import (
     file_unresolved,
     render_m3u,
     render_rekordbox_xml,
@@ -232,8 +232,8 @@ class TestResolveForTidal:
         def boom(*a, **kw):  # any API call is a test failure
             raise AssertionError("unexpected Tidal API call")
 
-        monkeypatch.setattr("app.services.tidal.search_tidal_by_isrc", boom)
-        monkeypatch.setattr("app.services.tidal.search_tidal_tracks", boom)
+        monkeypatch.setattr("app.services.providers.tidal.search_tidal_by_isrc", boom)
+        monkeypatch.setattr("app.services.providers.tidal.search_tidal_tracks", boom)
         tracks = [ExportTrack(position=0, title="T", artist="A", track_id="tidal:77")]
         resolved, unresolved = export_tidal.resolve_for_tidal(db, test_user, tracks)
         assert [(t.position, tid) for t, tid in resolved] == [(0, "77")]
@@ -241,11 +241,11 @@ class TestResolveForTidal:
 
     def test_isrc_exact_match_wins_over_search(self, db, test_user, monkeypatch):
         monkeypatch.setattr(
-            "app.services.tidal.search_tidal_by_isrc",
+            "app.services.providers.tidal.search_tidal_by_isrc",
             lambda db_, u, isrc: _result("55", "T", "A"),
         )
         monkeypatch.setattr(
-            "app.services.tidal.search_tidal_tracks",
+            "app.services.providers.tidal.search_tidal_tracks",
             lambda *a, **kw: (_ for _ in ()).throw(AssertionError("search not expected")),
         )
         tracks = [ExportTrack(position=0, title="T", artist="A", isrc="USX9P1234567")]
@@ -253,9 +253,9 @@ class TestResolveForTidal:
         assert resolved[0][1] == "55"
 
     def test_fuzzy_search_resolves_above_threshold(self, db, test_user, monkeypatch):
-        monkeypatch.setattr("app.services.tidal.search_tidal_by_isrc", lambda *a: None)
+        monkeypatch.setattr("app.services.providers.tidal.search_tidal_by_isrc", lambda *a: None)
         monkeypatch.setattr(
-            "app.services.tidal.search_tidal_tracks",
+            "app.services.providers.tidal.search_tidal_tracks",
             lambda db_, u, q, limit=10: [_result("31", "Strobe", "deadmau5")],
         )
         tracks = [ExportTrack(position=0, title="Strobe", artist="deadmau5")]
@@ -263,9 +263,9 @@ class TestResolveForTidal:
         assert resolved[0][1] == "31"
 
     def test_no_match_is_unresolved_not_dropped(self, db, test_user, monkeypatch):
-        monkeypatch.setattr("app.services.tidal.search_tidal_by_isrc", lambda *a: None)
+        monkeypatch.setattr("app.services.providers.tidal.search_tidal_by_isrc", lambda *a: None)
         monkeypatch.setattr(
-            "app.services.tidal.search_tidal_tracks",
+            "app.services.providers.tidal.search_tidal_tracks",
             lambda db_, u, q, limit=10: [_result("9", "Totally Different", "Nobody")],
         )
         tracks = [ExportTrack(position=0, title="Strobe", artist="deadmau5")]
@@ -274,9 +274,9 @@ class TestResolveForTidal:
         assert unresolved == tracks
 
     def test_unwanted_versions_filtered(self, db, test_user, monkeypatch):
-        monkeypatch.setattr("app.services.tidal.search_tidal_by_isrc", lambda *a: None)
+        monkeypatch.setattr("app.services.providers.tidal.search_tidal_by_isrc", lambda *a: None)
         monkeypatch.setattr(
-            "app.services.tidal.search_tidal_tracks",
+            "app.services.providers.tidal.search_tidal_tracks",
             lambda db_, u, q, limit=10: [_result("12", "Strobe (Karaoke Version)", "deadmau5")],
         )
         tracks = [ExportTrack(position=0, title="Strobe", artist="deadmau5")]
@@ -288,7 +288,7 @@ class TestResolveForTidal:
         def boom(*a, **kw):
             raise AssertionError("unexpected Tidal API call")
 
-        monkeypatch.setattr("app.services.tidal.search_tidal_tracks", boom)
+        monkeypatch.setattr("app.services.providers.tidal.search_tidal_tracks", boom)
         tracks = [ExportTrack(position=0, title="", artist="", track_id="beatport:9")]
         resolved, unresolved = export_tidal.resolve_for_tidal(db, test_user, tracks)
         assert resolved == []
@@ -307,7 +307,8 @@ class TestExportToTidal:
         s = _mk_set(db, test_user)
         created: list = []
         monkeypatch.setattr(
-            "app.services.tidal.get_tidal_session", lambda db_, u: self._fake_session(created)
+            "app.services.providers.tidal.get_tidal_session",
+            lambda db_, u: self._fake_session(created),
         )
         added: dict = {}
 
@@ -315,7 +316,7 @@ class TestExportToTidal:
             added["playlist_id"], added["track_ids"] = playlist_id, track_ids
             return True
 
-        monkeypatch.setattr("app.services.tidal.add_tracks_to_playlist", fake_add)
+        monkeypatch.setattr("app.services.providers.tidal.add_tracks_to_playlist", fake_add)
         track = ExportTrack(position=0, title="T", artist="A", track_id="tidal:77")
         outcome = export_tidal.export_to_tidal(db, test_user, s, [(track, "77")])
         assert created == [("WrzDJ Set: Friday Night", "Exported from WrzDJ Set Builder")]
@@ -329,7 +330,7 @@ class TestExportToTidal:
 
     def test_no_session_raises_not_connected(self, db, test_user, monkeypatch):
         s = _mk_set(db, test_user)
-        monkeypatch.setattr("app.services.tidal.get_tidal_session", lambda db_, u: None)
+        monkeypatch.setattr("app.services.providers.tidal.get_tidal_session", lambda db_, u: None)
         with pytest.raises(export_tidal.TidalNotConnected):
             export_tidal.export_to_tidal(
                 db, test_user, s, [(ExportTrack(position=0, title="T", artist="A"), "1")]
@@ -340,9 +341,11 @@ class TestExportToTidal:
     def test_add_failure_raises_and_does_not_mark_exported(self, db, test_user, monkeypatch):
         s = _mk_set(db, test_user)
         monkeypatch.setattr(
-            "app.services.tidal.get_tidal_session", lambda db_, u: self._fake_session([])
+            "app.services.providers.tidal.get_tidal_session", lambda db_, u: self._fake_session([])
         )
-        monkeypatch.setattr("app.services.tidal.add_tracks_to_playlist", lambda *a, **kw: False)
+        monkeypatch.setattr(
+            "app.services.providers.tidal.add_tracks_to_playlist", lambda *a, **kw: False
+        )
         with pytest.raises(export_tidal.TidalExportError):
             export_tidal.export_to_tidal(
                 db, test_user, s, [(ExportTrack(position=0, title="T", artist="A"), "1")]
@@ -358,7 +361,7 @@ class TestExportToTidal:
         def boom(*a, **kw):
             raise AssertionError("get_tidal_session called despite empty resolved list")
 
-        monkeypatch.setattr("app.services.tidal.get_tidal_session", boom)
+        monkeypatch.setattr("app.services.providers.tidal.get_tidal_session", boom)
         with pytest.raises(export_tidal.TidalExportError):
             export_tidal.export_to_tidal(db, test_user, s, [])
         db.refresh(s)
@@ -374,7 +377,9 @@ class TestExportToTidal:
 
             return SimpleNamespace(user=SimpleNamespace(create_playlist=create_playlist))
 
-        monkeypatch.setattr("app.services.tidal.get_tidal_session", lambda db_, u: bad_session())
+        monkeypatch.setattr(
+            "app.services.providers.tidal.get_tidal_session", lambda db_, u: bad_session()
+        )
         with pytest.raises(export_tidal.TidalExportError):
             export_tidal.export_to_tidal(
                 db, test_user, s, [(ExportTrack(position=0, title="T", artist="A"), "1")]

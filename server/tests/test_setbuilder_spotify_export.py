@@ -4,12 +4,8 @@ from types import SimpleNamespace
 
 from app.models.set import Set
 from app.models.set_pool import SetPoolSource, SetPoolTrack
-from app.services.setbuilder import export_spotify
-from app.services.setbuilder.export_common import ExportTrack
-
-
-def _track(position: int, title: str, artist: str, track_id: str | None = None) -> ExportTrack:
-    return ExportTrack(position=position, title=title, artist=artist, track_id=track_id)
+from app.services.setbuilder.exports import export_spotify
+from app.services.setbuilder.exports.export_common import ExportTrack
 
 
 def test_spotify_ids_resolve_without_search(db, test_user, monkeypatch):
@@ -18,7 +14,9 @@ def test_spotify_ids_resolve_without_search(db, test_user, monkeypatch):
 
     monkeypatch.setattr(export_spotify.spotify, "search_songs", fail)
     resolved, unresolved = export_spotify.resolve_for_spotify(
-        db, test_user, [_track(0, "Song", "Artist", "spotify:abc123")]
+        db,
+        test_user,
+        [ExportTrack(position=0, title="Song", artist="Artist", track_id="spotify:abc123")],
     )
 
     assert [(track.position, uri) for track, uri in resolved] == [(0, "spotify:track:abc123")]
@@ -29,7 +27,9 @@ def test_unmatched_spotify_track_is_returned_as_unresolved(db, test_user, monkey
     monkeypatch.setattr(export_spotify.spotify, "search_songs", lambda *args: [])
 
     resolved, unresolved = export_spotify.resolve_for_spotify(
-        db, test_user, [_track(2, "Unknown", "Unknown Artist")]
+        db,
+        test_user,
+        [ExportTrack(position=2, title="Unknown", artist="Unknown Artist", track_id=None)],
     )
 
     assert resolved == []
@@ -44,7 +44,9 @@ def test_fuzzy_match_requires_both_title_and_artist_similarity(db, test_user, mo
     )
 
     resolved, unresolved = export_spotify.resolve_for_spotify(
-        db, test_user, [_track(0, "Exact Title", "Correct Artist")]
+        db,
+        test_user,
+        [ExportTrack(position=0, title="Exact Title", artist="Correct Artist", track_id=None)],
     )
 
     assert resolved == []
@@ -59,7 +61,13 @@ def test_same_artist_with_a_weak_title_match_is_unresolved(db, test_user, monkey
     )
 
     resolved, unresolved = export_spotify.resolve_for_spotify(
-        db, test_user, [_track(0, "Completely Different Long Title", "Artist")]
+        db,
+        test_user,
+        [
+            ExportTrack(
+                position=0, title="Completely Different Long Title", artist="Artist", track_id=None
+            )
+        ],
     )
 
     assert resolved == []
@@ -86,7 +94,13 @@ def test_export_batches_in_order_and_marks_set_exported(db, test_user, monkeypat
             else calls.append(json_body["uris"]) or {"snapshot_id": "snapshot"}
         ),
     )
-    resolved = [(_track(i, f"Track {i}", "Artist"), f"spotify:track:id{i}") for i in range(205)]
+    resolved = [
+        (
+            ExportTrack(position=i, title=f"Track {i}", artist="Artist", track_id=None),
+            f"spotify:track:id{i}",
+        )
+        for i in range(205)
+    ]
 
     outcome = export_spotify.export_to_spotify(db, test_user, set_obj, resolved)
 
@@ -124,7 +138,15 @@ def test_partial_export_attempts_to_remove_created_playlist(db, test_user, monke
 
     with pytest.raises(export_spotify.SpotifyExportError, match="batch failed"):
         export_spotify.export_to_spotify(
-            db, test_user, set_obj, [(_track(0, "Song", "Artist"), "spotify:track:id")]
+            db,
+            test_user,
+            set_obj,
+            [
+                (
+                    ExportTrack(position=0, title="Song", artist="Artist", track_id=None),
+                    "spotify:track:id",
+                )
+            ],
         )
     assert cleanup == [("access-token", "playlist1")]
 
@@ -160,9 +182,9 @@ def test_spotify_preflight_preserves_unresolved_and_requires_explicit_skip(
     db.commit()
     test_user.spotify_access_token = "access-token"
     db.commit()
-    monkeypatch.setattr("app.api.setbuilder.refresh_access_token", lambda db_, user: True)
+    monkeypatch.setattr("app.api.setbuilder_exports.refresh_access_token", lambda db_, user: True)
     monkeypatch.setattr(
-        "app.services.setbuilder.export_spotify.spotify.search_songs",
+        "app.services.setbuilder.exports.export_spotify.spotify.search_songs",
         lambda *args: [],
     )
 
@@ -177,7 +199,7 @@ def test_spotify_preflight_preserves_unresolved_and_requires_explicit_skip(
         )
 
     monkeypatch.setattr(
-        "app.services.setbuilder.export_spotify.export_to_spotify",
+        "app.services.setbuilder.exports.export_spotify.export_to_spotify",
         fake_export,
     )
 

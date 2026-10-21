@@ -48,7 +48,11 @@ async def verify_turnstile_token(token: str, remote_ip: str | None = None) -> bo
         logger.warning("Turnstile returned malformed response")
         return False
 
-    success = result.get("success", False)
+    if not isinstance(result, dict):
+        logger.warning("Turnstile returned malformed response")
+        return False
+
+    success = result.get("success") is True
     if not success:
         logger.warning(
             "Turnstile verification rejected: error-codes=%s",

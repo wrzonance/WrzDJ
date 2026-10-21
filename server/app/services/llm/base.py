@@ -8,9 +8,16 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.services.llm.exceptions import StreamingUnsupported
+
+if TYPE_CHECKING:
+    from app.models.llm_connector import LlmConnector
+
+CanonicalStopReason = Literal["end_turn", "tool_use", "max_tokens", "error"]
 
 
 class ContentBlock(BaseModel):
@@ -84,7 +91,7 @@ class ChatResponse(BaseModel):
 
     text: str = ""
     tool_calls: list[ToolCall] = Field(default_factory=list)
-    stop_reason: Literal["end_turn", "tool_use", "max_tokens", "error"]
+    stop_reason: CanonicalStopReason
     usage: TokenUsage | None = None
     # The provider model id that actually produced the response (for telemetry).
     model: str | None = None
@@ -122,7 +129,7 @@ class ChatResponseChunk(BaseModel):
 
     text_delta: str = ""
     tool_call_deltas: list[ToolCallDelta] = Field(default_factory=list)
-    stop_reason: Literal["end_turn", "tool_use", "max_tokens", "error"] | None = None
+    stop_reason: CanonicalStopReason | None = None
     usage: TokenUsage | None = None
     done: bool = False
 
@@ -138,8 +145,8 @@ class LlmAdapter(ABC):
     #: connector_type identifier — set on the subclass.
     connector_type: str = ""
 
-    def __init__(self, connector) -> None:  # noqa: ANN001 — LlmConnector type
-        self.connector = connector
+    def __init__(self, connector: LlmConnector) -> None:
+        self.connector: LlmConnector = connector
 
     @abstractmethod
     async def chat(self, request: ChatRequest) -> ChatResponse:
@@ -169,8 +176,6 @@ class LlmAdapter(ABC):
         unreachable but makes this method an async generator for type-checkers
         and for callers that iterate before the first ``await``.
         """
-        from app.services.llm.exceptions import StreamingUnsupported
-
         raise StreamingUnsupported(
             f"connector_type={self.connector_type!r} does not support streaming"
         )

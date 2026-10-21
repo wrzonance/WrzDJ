@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import type { SetSummary, SetTemplate } from '@/lib/api-types';
+import type { SetSummary, SetTemplate } from '@/lib/api/types';
 
 interface SaveAsTemplateDialogProps {
   set: SetSummary;

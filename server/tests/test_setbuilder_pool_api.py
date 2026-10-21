@@ -379,7 +379,7 @@ class TestPlaylistImports:
         assert all(t.source_id == source_id for t in tracks)
 
     def test_import_tidal_fetch_failure_502(self, client, auth_headers, set_id, monkeypatch):
-        from app.services.tidal import TidalFetchError
+        from app.services.providers.tidal import TidalFetchError
 
         def boom(db, user, pid):
             raise TidalFetchError("nope")
@@ -482,7 +482,7 @@ class TestUrlImport:
         from app.services.setbuilder.pool import PoolCandidate
 
         monkeypatch.setattr(
-            "app.services.setbuilder.pool.candidates_from_public_url",
+            "app.services.setbuilder.pool_sources.candidates_from_public_url",
             lambda db, user, provider, pid: (
                 "Wedding Bangers 2026",
                 [
@@ -513,7 +513,9 @@ class TestUrlImport:
                 PoolCandidate(track_id="apple_music:song-1", title="A Song", artist="A Singer")
             ]
 
-        monkeypatch.setattr("app.services.setbuilder.pool.candidates_from_public_url", candidates)
+        monkeypatch.setattr(
+            "app.services.setbuilder.pool_sources.candidates_from_public_url", candidates
+        )
         resp = client.post(
             f"/api/setbuilder/sets/{set_id}/pool/import/url",
             json={"url": "https://music.apple.com/us/playlist/hits/pl.abc123"},
@@ -531,7 +533,7 @@ class TestUrlImport:
         def boom(db, user, provider, pid):
             raise PoolImportError("Couldn't fetch that Spotify playlist — is it public?")
 
-        monkeypatch.setattr("app.services.setbuilder.pool.candidates_from_public_url", boom)
+        monkeypatch.setattr("app.services.setbuilder.pool_sources.candidates_from_public_url", boom)
         resp = client.post(
             f"/api/setbuilder/sets/{set_id}/pool/import/url",
             json={"url": "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"},

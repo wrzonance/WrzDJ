@@ -1,5 +1,6 @@
 """Pytest configuration and fixtures for WrzDJ tests."""
 
+import os
 from collections.abc import Generator
 from datetime import timedelta
 
@@ -9,18 +10,28 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-import app.db.session as _db_session_module
-from app.api import deps as _deps_module
-from app.api import sse as _sse_module
-from app.api.deps import get_db
-from app.core.time import utcnow
-from app.main import create_app, no_background_lifespan
-from app.models.base import Base
-from app.models.event import Event
-from app.models.guest import Guest
-from app.models.request import Request, RequestStatus
-from app.models.user import User
-from app.services.auth import create_access_token
+# Set this before importing the app or test modules: several JWT tests capture
+# cached settings at module-import time during collection.
+_TEST_JWT_SECRET = "wrzdj-pytest-only-jwt-secret-" + "x" * 48
+_ORIGINAL_JWT_SECRET = os.environ.get("JWT_SECRET")
+os.environ["JWT_SECRET"] = _TEST_JWT_SECRET
+
+from app.core.config import get_settings  # noqa: E402
+
+get_settings.cache_clear()
+
+import app.db.session as _db_session_module  # noqa: E402
+from app.api import deps as _deps_module  # noqa: E402
+from app.api import sse as _sse_module  # noqa: E402
+from app.api.deps import get_db  # noqa: E402
+from app.core.time import utcnow  # noqa: E402
+from app.main import create_app, no_background_lifespan  # noqa: E402
+from app.models.base import Base  # noqa: E402
+from app.models.event import Event  # noqa: E402
+from app.models.guest import Guest  # noqa: E402
+from app.models.request import Request, RequestStatus  # noqa: E402
+from app.models.user import User  # noqa: E402
+from app.services.auth import create_access_token  # noqa: E402
 
 DIRECT_SESSIONLOCAL_MODULES = (_sse_module,)
 DEPENDENCY_OVERRIDE_SESSIONLOCAL_MODULES = (_deps_module,)
@@ -43,6 +54,21 @@ ADMIN_USER_PASSWORD_HASH = "$2b$04$LaJfWm6YwkBoEVVFvnxu7unVKG7HRGM9hiSvk448HhWZK
 PENDING_USER_PASSWORD_HASH = "$2b$04$BnvACwtrVGvZhu5TzYdOR.tpGyY6OQ4p5oILNEgHPmvOGWotCWWYu"
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _restore_test_jwt_secret() -> Generator[None, None, None]:
+    """Use a deterministic long test-only key and restore the process environment."""
+    get_settings.cache_clear()
+    assert len(_TEST_JWT_SECRET.encode()) >= 64
+    try:
+        yield
+    finally:
+        if _ORIGINAL_JWT_SECRET is None:
+            os.environ.pop("JWT_SECRET", None)
+        else:
+            os.environ["JWT_SECRET"] = _ORIGINAL_JWT_SECRET
+        get_settings.cache_clear()
+
+
 def _auth_headers_for_user(user: User) -> dict[str, str]:
     token = create_access_token(data={"sub": user.username, "tv": user.token_version})
     return {"Authorization": f"Bearer {token}"}
@@ -55,7 +81,10 @@ def _database_schema() -> Generator[None, None, None]:
     try:
         yield
     finally:
-        Base.metadata.drop_all(bind=engine)
+        try:
+            Base.metadata.drop_all(bind=engine)
+        finally:
+            engine.dispose()
 
 
 @pytest.fixture(scope="function")

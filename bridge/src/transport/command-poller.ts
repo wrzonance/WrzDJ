@@ -1,0 +1,149 @@
+/**
+ * CommandPoller — polls the backend for pending bridge commands.
+ *
+ * The DJ dashboard can queue commands (reset_decks, reconnect, restart) via
+ * POST /api/bridge/commands/{event_code}. This poller fetches them every 5s
+ * and emits 'command' events for the bridge to act on.
+ *
+ * Respects the circuit breaker — skips polls when the backend is unreachable.
+ */
+import type { CircuitBreaker } from "./circuit-breaker.js";
+import type { Logger } from "../shared/logger.js";
+import { TypedEventEmitter } from "../shared/typed-event-emitter.js";
+
+const POLL_INTERVAL_MS = 5_000;
+const FETCH_TIMEOUT_MS = 10_000;
+
+export interface BridgeCommand {
+  readonly command_id: string;
+  readonly command_type: string;
+  readonly payload?: Record<string, unknown>;
+}
+
+export interface CommandPollerEventMap {
+  authenticationError: [];
+  command: [type: string, command: BridgeCommand];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseCommands(body: unknown): BridgeCommand[] {
+  if (!isRecord(body) || !Array.isArray(body.commands)) {
+    throw new Error("Invalid command response: expected a commands array");
+  }
+  return body.commands.map((command: unknown) => {
+    if (!isRecord(command) ||
+      typeof command.command_id !== "string" || !command.command_id.trim() ||
+      typeof command.command_type !== "string" || !command.command_type.trim() ||
+      (command.payload !== undefined && !isRecord(command.payload))) {
+      throw new Error("Invalid command response: malformed command");
+    }
+    return {
+      command_id: command.command_id,
+      command_type: command.command_type,
+      ...(command.payload === undefined ? {} : { payload: { ...command.payload } }),
+    };
+  });
+}
+
+/**
+ * Polls GET /api/bridge/commands/{event_code} for pending commands.
+ *
+ * Events emitted:
+ *   'command' — fired for each command received, with the command type string
+ *               and the full command payload as the second argument
+ */
+export class CommandPoller extends TypedEventEmitter<CommandPollerEventMap> {
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private apiUrl = "";
+  private apiKey = "";
+  private eventCode = "";
+  private readonly circuitBreaker: CircuitBreaker;
+  private readonly log: Logger;
+
+  constructor(circuitBreaker: CircuitBreaker, log: Logger) {
+    super();
+    this.circuitBreaker = circuitBreaker;
+    this.log = log;
+  }
+
+  get isPolling(): boolean {
+    return this.pollTimer !== null;
+  }
+
+  start(apiUrl: string, apiKey: string, eventCode: string): void {
+    if (this.pollTimer !== null) {
+      return;
+    }
+
+    this.apiUrl = apiUrl;
+    this.apiKey = apiKey;
+    this.eventCode = eventCode;
+
+    this.log.info("Command poller started");
+    this.pollTimer = setInterval(() => {
+      this.poll();
+    }, POLL_INTERVAL_MS);
+  }
+
+  stop(): void {
+    if (this.pollTimer !== null) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+      this.log.info("Command poller stopped");
+    }
+  }
+
+  private async poll(): Promise<void> {
+    const admission = this.circuitBreaker.beginRequest();
+    if (!admission) {
+      this.log.debug("Command poll skipped — circuit breaker not allowing requests");
+      return;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+      try {
+        const response = await fetch(
+          `${this.apiUrl}/api/bridge/commands/${this.eventCode}`,
+          {
+            method: "GET",
+            headers: {
+              "X-Bridge-API-Key": this.apiKey,
+            },
+            signal: controller.signal,
+          },
+        );
+
+        if (response.status === 401) {
+          this.circuitBreaker.recordSuccess(admission);
+          this.emit("authenticationError");
+          return;
+        }
+
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`HTTP ${response.status}: ${text}`);
+        }
+
+        const body: unknown = await response.json();
+        const commands = parseCommands(body);
+        this.circuitBreaker.recordSuccess(admission);
+        for (const cmd of commands) {
+          this.log.info(`Received command: ${cmd.command_type}`);
+          this.emit("command", cmd.command_type, cmd);
+        }
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    } catch (err) {
+      this.circuitBreaker.recordFailure(admission);
+      const message = err instanceof Error ? err.message : String(err);
+      this.log.warn(`Command poll failed: ${message}`);
+    }
+  }
+}

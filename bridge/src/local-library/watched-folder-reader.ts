@@ -1,7 +1,7 @@
 import type { Dirent } from "node:fs";
 import { readdir, realpath, stat } from "node:fs/promises";
 import { basename, extname, join, relative, sep } from "node:path";
-import type { LocalLibraryReader, LocalLibraryTrack } from "./types.js";
+import type { LocalLibraryTrack } from "./types.js";
 
 const AUDIO_EXTENSIONS = new Set([
   ".aac",
@@ -34,7 +34,7 @@ interface WatchedFolderFileSystem {
 
 const defaultFileSystem: WatchedFolderFileSystem = { readdir, realpath, stat };
 
-export class WatchedFolderReader implements LocalLibraryReader {
+export class WatchedFolderReader {
   constructor(
     private readonly rootPath: string,
     private readonly fileSystem: WatchedFolderFileSystem = defaultFileSystem,

@@ -228,6 +228,39 @@ class TestBuildSearchResults:
         assert len(result) == 1
         assert result[0].popularity == 80
 
+    def test_fuzzy_dedup_keeps_most_popular_track_across_providers(self):
+        """Popularity ranking selects the representative before fuzzy dedup."""
+        tidal = [_tidal("Strobe", "deadmau5", popularity=10)]
+        spotify = [_spotify("Strobe", "deadmau5", popularity=90)]
+
+        result = build_search_results(tidal_results=tidal, spotify_results=spotify)
+
+        assert len(result) == 1
+        assert result[0].title == "Strobe"
+        assert result[0].source == "spotify"
+        assert result[0].popularity == 90
+
+    def test_isrc_dedup_keeps_tidal_on_equal_popularity_and_merges_metadata(self):
+        """Exact ISRC matches retain Tidal-first tie handling and fill metadata."""
+        tidal = [_tidal("Strobe", "deadmau5", popularity=75, isrc="USRC12345")]
+        spotify = [
+            SearchResult(
+                title="Strobe",
+                artist="deadmau5",
+                popularity=75,
+                isrc="USRC12345",
+                source="spotify",
+                bpm=128,
+            )
+        ]
+
+        result = build_search_results(tidal_results=tidal, spotify_results=spotify)
+
+        assert len(result) == 1
+        assert result[0].source == "tidal"
+        assert result[0].popularity == 75
+        assert result[0].bpm == 128
+
     def test_empty_inputs(self):
         """All empty inputs returns empty list."""
         result = build_search_results()

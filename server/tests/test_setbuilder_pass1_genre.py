@@ -1,7 +1,7 @@
 """Regression tests: pass-1 must score on track GENRE continuity (#545).
 
 Before #545 the deterministic builder ignored ``genre`` entirely —
-``_track_meta`` never mapped it onto ``TrackMeta`` and ``_candidate_score`` had
+``build_track_meta`` never mapped it onto ``TrackMeta`` and ``_candidate_score`` had
 no genre term — so the contract guarantee that every pool track carries a genre
 was wasted. These tests seed otherwise-identical candidates that differ ONLY in
 genre relative to the running context and assert the genre-continuity term now
@@ -16,9 +16,9 @@ from app.models.user import User
 from app.services.setbuilder.pass1_deterministic import (
     TrackMeta,
     _genre_continuity,
-    _track_meta,
     build_set,
 )
+from app.services.setbuilder.track_metadata import build_track_meta
 
 
 def _mk_set(db: Session, user: User, *, duration: int) -> Set:
@@ -63,12 +63,12 @@ def _mk_track(db: Session, set_obj: Set, source: SetPoolSource, idx: int, **kw) 
 
 
 def test_genre_flows_into_track_meta(db: Session, test_user: User):
-    """``_track_meta`` maps the pool row's genre onto ``TrackMeta.genre``."""
+    """``build_track_meta`` maps the pool row's genre onto ``TrackMeta.genre``."""
     set_obj = _mk_set(db, test_user, duration=210)
     src = _mk_source(db, set_obj)
     track = _mk_track(db, set_obj, src, 0, genre="Tech House")
 
-    meta = _track_meta(track)
+    meta = build_track_meta(track)
 
     assert meta.genre == "Tech House"
 

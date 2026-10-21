@@ -13,6 +13,9 @@ const yaml = dashboardRequire('js-yaml');
 const workflow = yaml.load(fs.readFileSync(
   path.join(__dirname, '../.github/workflows/dependency-health.yml'), 'utf8',
 ));
+const releaseWorkflow = yaml.load(fs.readFileSync(
+  path.join(__dirname, '../.github/workflows/release.yml'), 'utf8',
+));
 
 for (const stepName of ['Report contract test drift', 'Report new upstream releases']) {
   test(`${stepName} treats upstream output as data, not shell code`, () => {
@@ -99,3 +102,45 @@ for (const version of ['1.2.3', '1.2.3\nforged=true']) {
     }
   });
 }
+
+// Regression for the clean release dependency gap at 57cfcdc6867f.
+test('desktop release installs bridge-owned runtime dependencies before packaging', () => {
+  const buildJob = releaseWorkflow.jobs['build-bridge-app'];
+  const installSteps = buildJob.steps.filter((step) => step.run === 'npm ci');
+  const bridgeInstallIndex = installSteps.findIndex((step) => step['working-directory'] === 'bridge');
+  const appInstallIndex = installSteps.findIndex((step) => step['working-directory'] === 'bridge-app');
+
+  assert.notEqual(bridgeInstallIndex, -1, 'release job installs bridge dependencies');
+  assert.notEqual(appInstallIndex, -1, 'release job installs bridge-app dependencies');
+  assert.ok(
+    bridgeInstallIndex < appInstallIndex,
+    'bridge dependencies are installed before npm links the local bridge package',
+  );
+
+  const appManifest = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '../bridge-app/package.json'), 'utf8',
+  ));
+  assert.equal(appManifest.dependencies['@wrzdj/bridge'], 'file:../bridge');
+
+  const bridgeManifest = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '../bridge/package.json'), 'utf8',
+  ));
+  const bridgeLock = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '../bridge/package-lock.json'), 'utf8',
+  ));
+  const appLock = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '../bridge-app/package-lock.json'), 'utf8',
+  ));
+  for (const dependency of ['alphatheta-connect', 'metadata-connect', 'onelibrary-connect', 'stagelinq']) {
+    assert.ok(bridgeManifest.dependencies[dependency], `${dependency} is owned by bridge`);
+    assert.ok(bridgeLock.packages[`node_modules/${dependency}`], `${dependency} is locked by bridge`);
+    assert.equal(
+      appLock.packages[`node_modules/${dependency}`],
+      undefined,
+      `${dependency} is not installed by bridge-app's lockfile`,
+    );
+  }
+
+  const matrixPlatforms = buildJob.strategy.matrix.include.map(({ platform }) => platform);
+  assert.deepEqual(matrixPlatforms, ['linux', 'darwin', 'darwin', 'win32']);
+});

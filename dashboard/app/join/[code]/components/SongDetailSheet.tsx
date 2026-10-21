@@ -1,6 +1,7 @@
 'use client';
 
 import { GuestRequestInfo } from '@/lib/api';
+import { artGradient } from '@/lib/art-gradient';
 import TickNumber from './TickNumber';
 
 interface Props {
@@ -9,6 +10,8 @@ interface Props {
   totalCount: number;
   votes: number;
   voted: boolean;
+  canVote: boolean;
+  isVoting: boolean;
   onVote: () => void;
   onClose: () => void;
 }
@@ -16,25 +19,8 @@ interface Props {
 const ACCENT = '#00f0ff';
 const ACCENT2 = '#ff2bd6';
 
-const GRADIENTS = [
-  'linear-gradient(135deg, #ff006e, #8338ec, #3a86ff)',
-  'linear-gradient(135deg, #ffbe0b, #fb5607)',
-  'linear-gradient(135deg, #06ffa5, #0077b6)',
-  'linear-gradient(135deg, #ff6b9d, #c44569)',
-  'linear-gradient(135deg, #f72585, #7209b7)',
-  'linear-gradient(135deg, #4cc9f0, #4361ee)',
-  'linear-gradient(135deg, #f15bb5, #fee440)',
-  'linear-gradient(135deg, #2dc653, #25a244)',
-  'linear-gradient(135deg, #ef476f, #ffd166)',
-];
-
-function artGradient(seed: string) {
-  const code = (seed.charCodeAt(0) || 0) + (seed.charCodeAt(1) || 0);
-  return GRADIENTS[code % GRADIENTS.length];
-}
-
 export default function SongDetailSheet({
-  track, rank, totalCount, votes, voted, onVote, onClose,
+  track, rank, totalCount, votes, voted, canVote, isVoting, onVote, onClose,
 }: Props) {
   const initials = `${track.title[0] ?? '?'}${track.artist[0] ?? ''}`.toUpperCase();
   const surface = 'rgba(255,255,255,0.05)';
@@ -204,13 +190,15 @@ export default function SongDetailSheet({
       }}>
         <button
           onClick={onVote}
+          disabled={isVoting || !canVote}
           style={{
             width: '100%', height: 64, borderRadius: 18,
             background: voted ? 'transparent' : `linear-gradient(90deg, ${ACCENT}, ${ACCENT2})`,
             border: voted ? `1.5px solid ${ACCENT}` : 'none',
             color: voted ? ACCENT : '#000',
             fontFamily: 'var(--font-grotesk, system-ui)', fontSize: 18.2, fontWeight: 800, letterSpacing: 0.4,
-            cursor: 'pointer',
+            cursor: isVoting ? 'wait' : canVote ? 'pointer' : 'default',
+            opacity: isVoting || !canVote ? 0.65 : 1,
             boxShadow: voted ? 'none' : `0 14px 36px -8px ${ACCENT}90, 0 0 0 1px rgba(255,255,255,0.15) inset`,
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
             transition: 'all 160ms',

@@ -15,14 +15,17 @@ export default function Sparks({ accent, accent2, fire, onDone }: Props) {
   const [active, setActive] = useState(false);
 
   useEffect(() => {
-    if (!fire) return;
+    if (!fire) {
+      setActive(false);
+      return;
+    }
     setActive(true);
     const t = setTimeout(() => {
       setActive(false);
       onDone?.();
     }, 900);
     return () => clearTimeout(t);
-  }, [fire]);  
+  }, [fire]);
 
   if (!active) return null;
 

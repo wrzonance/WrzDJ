@@ -1,9 +1,11 @@
+import logging
 from collections.abc import Generator
 
 from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
+from app.core import config as core_config
 from app.core.session_cookie import session_token_from_cookie
 from app.db.session import SessionLocal
 from app.models.event import Event
@@ -202,11 +204,10 @@ def require_verified_human(
     structured detail {"code": "human_verification_required"} so the frontend
     can distinguish this from generic forbidden errors and trigger a re-bootstrap.
     """
-    from app.core.config import get_settings
     from app.core.rate_limit import get_guest_id
     from app.services.human_verification import issue_human_cookie, verify_human_cookie
 
-    if get_settings().auth_bypass_enabled:  # DEV-ONLY, inert in production
+    if core_config.get_settings().auth_bypass_enabled:  # DEV-ONLY, inert in production
         return get_guest_id(request, db)
 
     guest_id_cookie = verify_human_cookie(request)
@@ -237,14 +238,11 @@ def require_verified_human_soft(
     Apply this dependency to all gated public endpoints during rollout. After
     Phase 3 cleanup, swap to require_verified_human directly and remove this.
     """
-    import logging
-
-    from app.core.config import get_settings
     from app.core.rate_limit import get_guest_id
     from app.services.human_verification import issue_human_cookie, verify_human_cookie
     from app.services.system_settings import get_system_settings
 
-    if get_settings().auth_bypass_enabled:  # DEV-ONLY, inert in production
+    if core_config.get_settings().auth_bypass_enabled:  # DEV-ONLY, inert in production
         return get_guest_id(request, db)
 
     sys_settings = get_system_settings(db)
@@ -279,10 +277,9 @@ def require_email_verified(
     Returns 403 with structured detail {"code": "email_verification_required"}
     so the frontend can render the EmailGate component.
     """
-    from app.core.config import get_settings
     from app.models.guest import Guest
 
-    if get_settings().auth_bypass_enabled:  # DEV-ONLY, inert in production
+    if core_config.get_settings().auth_bypass_enabled:  # DEV-ONLY, inert in production
         return guest_id
 
     guest = db.get(Guest, guest_id)

@@ -21,6 +21,23 @@ turned out to be stale in places (e.g. it described Spotify as "now only an ISRC
 this audit found the live code doing more than that recon assumed, §6 says so explicitly and
 corrects it rather than repeating it.
 
+The `path:line` evidence below records that July audit. Provider clients have since moved into
+`server/app/services/providers/`; current imports use `app.services.providers`. Candidate search
+now lives in `recommendation/candidate_search.py`, and playlist source adapters in
+`setbuilder/pool_sources.py`. The inventory's client-module column uses the current paths;
+the dated evidence citations retain their original locations.
+The Tidal facade delegates account/device login to `providers/tidal_account.py`, search to
+`providers/tidal_search.py`, playlist lifecycle to `providers/tidal_playlists.py`, and request
+synchronization to `providers/tidal_request_sync.py`; result conversion is in
+`providers/tidal_results.py`.
+The Beatport facade delegates account/token lifecycle, catalog queries, playlists, and manual
+request links to `providers/beatport_account.py`, `providers/beatport_catalog.py`,
+`providers/beatport_playlists.py`, and `providers/beatport_manual_link.py`.
+Shared `TrackProfile` values, provider-result mappers, and title/artist enrichment now live in
+`tracks/profile.py`, `tracks/profile_mappers.py`, and `tracks/enrichment.py`. Recommendations and
+SetBuilder both consume these neutral modules; `recommendation/enrichment.py` retains event-track
+selection and orchestration. The dated citations below describe their earlier locations.
+
 ### Document map
 
 1. This section.
@@ -48,12 +65,12 @@ matrix rows.
 
 | Provider | Client module | Auth model | Fields supplied | Wired into | Gate | Fate |
 |---|---|---|---|---|---|---|
-| Spotify | `server/app/services/spotify.py` | App client-credentials (server-wide config; **no** per-DJ OAuth)¹ | Search: title/artist/album/ISRC/popularity/preview/artwork². Bridge: ISRC only³. Playlist-import: ISRC/duration/artwork⁴. Never bpm/key/genre. | request-queue, pool-public-playlist-import | none (server credentials only) | keep |
-| Beatport | `server/app/services/beatport.py` | Per-DJ OAuth2 — server-side login-code-token exchange⁵ | bpm, key, genre, duration — **no ISRC field at all**⁶ | request-queue, recommendation-enrichment, pool-hydrate-enrich | connected-token (`user.beatport_access_token`) | keep |
-| Tidal | `server/app/services/tidal.py` | Per-DJ OAuth2 — device-code flow⁷ | bpm, key, ISRC, duration — no genre⁸ | request-queue, recommendation-enrichment, pool-hydrate-enrich | connected-token (`user.tidal_access_token`) | keep |
-| MusicBrainz | `server/app/services/musicbrainz.py` | none — public API⁹ | genre (artist-level)¹⁰; artist-existence verification¹¹ | request-queue, recommendation-enrichment (junk-artist filter) | none | keep |
-| Soundcharts | `server/app/services/soundcharts.py` | App API key (`x-app-id`/`x-api-key`, server-wide) | Audio features persisted: energy + 10 others (the client also returns tempo_bpm/key/genres, but the pipeline never writes them to the store — see §3.1)¹²; discovery candidates (title/artist only)¹³; related-track candidates (title/artist only)¹⁴ | request-queue (audio-features step), recommendation-soundcharts-candidates (both generators) | **inconsistent across call sites** — see note below | keep |
-| ListenBrainz | `server/app/services/listenbrainz.py` | **Differs by endpoint**: `lb_radio_discover` needs the server-wide `listenbrainz_user_token` (**not** per-DJ); `fetch_artist_popularity` is fully anonymous — it builds no `Authorization` header at all¹⁵ | Artist popularity counts; LB-Radio title/artist candidates¹⁶ — never genre/bpm/key/ISRC | recommendation-enrichment (LB Radio discovery + artist-popularity junk filter) | LB Radio: token presence. Popularity: **none** — it runs even on a deployment with no token configured¹⁵ | keep |
+| Spotify | `server/app/services/providers/spotify.py` | App client-credentials (server-wide config; **no** per-DJ OAuth)¹ | Search: title/artist/album/ISRC/popularity/preview/artwork². Bridge: ISRC only³. Playlist-import: ISRC/duration/artwork⁴. Never bpm/key/genre. | request-queue, pool-public-playlist-import | none (server credentials only) | keep |
+| Beatport | `server/app/services/providers/beatport.py` | Per-DJ OAuth2 — server-side login-code-token exchange⁵ | bpm, key, genre, duration — **no ISRC field at all**⁶ | request-queue, recommendation-enrichment, pool-hydrate-enrich | connected-token (`user.beatport_access_token`) | keep |
+| Tidal | `server/app/services/providers/tidal.py` | Per-DJ OAuth2 — device-code flow⁷ | bpm, key, ISRC, duration — no genre⁸ | request-queue, recommendation-enrichment, pool-hydrate-enrich | connected-token (`user.tidal_access_token`) | keep |
+| MusicBrainz | `server/app/services/providers/musicbrainz.py` | none — public API⁹ | genre (artist-level)¹⁰; artist-existence verification¹¹ | request-queue, recommendation-enrichment (junk-artist filter) | none | keep |
+| Soundcharts | `server/app/services/providers/soundcharts.py` | App API key (`x-app-id`/`x-api-key`, server-wide) | Audio features persisted: energy + 10 others (the client also returns tempo_bpm/key/genres, but the pipeline never writes them to the store — see §3.1)¹²; discovery candidates (title/artist only)¹³; related-track candidates (title/artist only)¹⁴ | request-queue (audio-features step), recommendation-soundcharts-candidates (both generators) | **inconsistent across call sites** — see note below | keep |
+| ListenBrainz | `server/app/services/providers/listenbrainz.py` | **Differs by endpoint**: `lb_radio_discover` needs the server-wide `listenbrainz_user_token` (**not** per-DJ); `fetch_artist_popularity` is fully anonymous — it builds no `Authorization` header at all¹⁵ | Artist popularity counts; LB-Radio title/artist candidates¹⁶ — never genre/bpm/key/ISRC | recommendation-enrichment (LB Radio discovery + artist-popularity junk filter) | LB Radio: token presence. Popularity: **none** — it runs even on a deployment with no token configured¹⁵ | keep |
 
 **Note on Soundcharts' gate.** The client module has three independent call sites with three
 different gates — this is a real inconsistency, not fixed in this PR (tracked in §7(b)):

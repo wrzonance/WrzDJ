@@ -3,15 +3,15 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useAuth } from '@/lib/auth';
+import { useDjAccess } from '@/lib/use-dj-access';
 import { api } from '@/lib/api';
-import type { SetDetail, SetSummary, TasteProfile } from '@/lib/api-types';
+import type { SetDetail, SetSummary, TasteProfile } from '@/lib/api/types';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import ShareDialog from './ShareDialog';
 import TemplateGalleryDialog from './TemplateGalleryDialog';
 
 export default function SetbuilderPage() {
-  const { isAuthenticated, isLoading, role } = useAuth();
+  const { isAuthenticated, isLoading, canAccess } = useDjAccess();
   const router = useRouter();
   const [sets, setSets] = useState<SetSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,15 +28,7 @@ export default function SetbuilderPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push('/login');
-    } else if (!isLoading && role === 'pending') {
-      router.push('/pending');
-    }
-  }, [isAuthenticated, isLoading, role, router]);
-
-  useEffect(() => {
-    if (isAuthenticated) {
+    if (canAccess) {
       api
         .listSets()
         .then(setSets)
@@ -47,7 +39,7 @@ export default function SetbuilderPage() {
         .then(setTasteProfile)
         .catch(() => setTasteProfile(null));
     }
-  }, [isAuthenticated]);
+  }, [canAccess]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();

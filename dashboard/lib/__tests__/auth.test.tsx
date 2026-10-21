@@ -42,7 +42,7 @@ function fireStorage(key: string, oldValue: string | null, newValue: string | nu
 describe('AuthProvider (cookie session)', () => {
   beforeEach(() => {
     localStorage.clear();
-    mocks.login.mockReset().mockResolvedValue({ access_token: 'secret-jwt' });
+    mocks.login.mockReset().mockResolvedValue(undefined);
     mocks.getMe.mockReset().mockResolvedValue(me);
     mocks.endSession.mockReset().mockResolvedValue(undefined);
     mocks.setUnauthorizedHandler.mockReset();

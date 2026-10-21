@@ -39,9 +39,25 @@ TAG_PATTERN='^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?$'
 SHA_PATTERN='^[0-9a-f]{40}$'
 
 main() {
+  if [ "$#" -gt 2 ]; then
+    echo "ERROR: expected a release tag and optional full commit sha" >&2
+    exit 2
+  fi
+
   local tag="${1:-}" expected_sha="${2:-}"
-  if [ -z "$tag" ] && [ -n "${SSH_ORIGINAL_COMMAND:-}" ]; then
-    read -r tag expected_sha _ <<<"$SSH_ORIGINAL_COMMAND"
+  if [ "$#" -eq 0 ] && [ -n "${SSH_ORIGINAL_COMMAND:-}" ]; then
+    local -a ssh_args=()
+    if [[ "$SSH_ORIGINAL_COMMAND" == *$'\n'* || "$SSH_ORIGINAL_COMMAND" == *$'\r'* ]]; then
+      echo "ERROR: expected a release tag and optional full commit sha" >&2
+      exit 2
+    fi
+    read -r -a ssh_args <<<"$SSH_ORIGINAL_COMMAND"
+    if [ "${#ssh_args[@]}" -gt 2 ]; then
+      echo "ERROR: expected a release tag and optional full commit sha" >&2
+      exit 2
+    fi
+    tag="${ssh_args[0]:-}"
+    expected_sha="${ssh_args[1]:-}"
   fi
 
   if [[ ! "$tag" =~ $TAG_PATTERN ]]; then
@@ -77,7 +93,9 @@ main() {
 
   printf '%s\n' "$sha" > "$STATE_FILE"
   echo "==> Removing dangling images..."
-  docker image prune -f >/dev/null
+  if ! docker image prune -f >/dev/null; then
+    echo "WARNING: deployment succeeded, but dangling-image cleanup failed" >&2
+  fi
   echo "==> $tag (${sha:0:12}) is live"
 }
 

@@ -1,7 +1,9 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import styles from '../setbuilder.module.css';
+
+import dialogStyles from '../setbuilder-dialogs.module.css';
+import sharedStyles from '../setbuilder-shared.module.css';
 
 export interface ConfirmAction {
   title: string;
@@ -25,34 +27,34 @@ export default function ConfirmActionDialog({
   const kind = action.kind ?? 'danger';
   const iconClass =
     kind === 'warning'
-      ? styles.confirmIconWarning
+      ? dialogStyles.confirmIconWarning
       : kind === 'danger'
-        ? styles.confirmIconDanger
-        : styles.confirmIconNeutral;
+        ? dialogStyles.confirmIconDanger
+        : dialogStyles.confirmIconNeutral;
   return (
-    <div className={styles.modalWrap}>
-      <div className={styles.modalBackdrop} onMouseDown={onCancel} />
+    <div className={sharedStyles.modalWrap}>
+      <div className={sharedStyles.modalBackdrop} onMouseDown={onCancel} />
       <div
-        className={styles.confirmDialog}
+        className={dialogStyles.confirmDialog}
         role="alertdialog"
         aria-modal="true"
         aria-label={action.title}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className={styles.confirmHeader}>
-          <span className={`${styles.confirmIcon} ${iconClass}`}>
+        <div className={dialogStyles.confirmHeader}>
+          <span className={`${dialogStyles.confirmIcon} ${iconClass}`}>
             {kind === 'warning' ? '!' : kind === 'danger' ? '×' : 'i'}
           </span>
           <h2>{action.title}</h2>
         </div>
-        <div className={styles.confirmBody}>{action.body}</div>
-        <div className={styles.confirmActions}>
+        <div className={dialogStyles.confirmBody}>{action.body}</div>
+        <div className={dialogStyles.confirmActions}>
           <button type="button" className="btn btn-sm" onClick={onCancel}>
             Cancel
           </button>
           <button
             type="button"
-            className={`btn btn-sm ${kind === 'danger' ? styles.dangerBtn : styles.warningBtn}`}
+            className={`btn btn-sm ${kind === 'danger' ? sharedStyles.dangerBtn : sharedStyles.warningBtn}`}
             onClick={onConfirm}
           >
             {action.confirmLabel}

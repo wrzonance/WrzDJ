@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import {
-  apiClient,
+  api,
   ApiError,
   CollectProfileResponse,
   EmailVerificationRequiredError,
@@ -11,7 +11,7 @@ import {
 } from '../lib/api';
 import { useGuestIdentity } from '../lib/use-guest-identity';
 import { getTurnstileSiteKey, loadTurnstileScript } from '../lib/turnstile';
-import { isDevAuthBypassActive } from '../lib/devAuthBypass';
+import { isDevAuthBypassActive } from '../lib/dev-auth-bypass';
 import { ModalOverlay } from './ModalOverlay';
 import EmailVerification from './EmailVerification';
 
@@ -121,7 +121,7 @@ export function NicknameGate({ code, onComplete, reverify }: Props) {
   const loadProfile = useCallback(async () => {
     setGateState('loading');
     try {
-      const p = await apiClient.getCollectProfile(code);
+      const p = await api.getCollectProfile(code);
       setProfileCache(p);
       if (p.nickname && p.email_verified) {
         onComplete({
@@ -164,7 +164,7 @@ export function NicknameGate({ code, onComplete, reverify }: Props) {
     setSaving(true);
     setInputError(null);
     try {
-      const p = await apiClient.setCollectProfile(code, { nickname: parsed.data }, reverify);
+      const p = await api.setCollectProfile(code, { nickname: parsed.data }, reverify);
       setProfileCache(p);
       setSavedNickname(parsed.data);
       setSavedFlash(true);
@@ -208,7 +208,7 @@ export function NicknameGate({ code, onComplete, reverify }: Props) {
     setSendingCode(true);
     setInputError(null);
     try {
-      await apiClient.requestVerificationCode(emailInput, otpTurnstileToken);
+      await api.requestVerificationCode(emailInput, otpTurnstileToken);
       // Reset widget for next attempt (fresh token per send)
       if (otpWidgetIdRef.current && window.turnstile) {
         window.turnstile.reset(otpWidgetIdRef.current);
@@ -229,8 +229,8 @@ export function NicknameGate({ code, onComplete, reverify }: Props) {
     // failure is not misreported as a bad code.
     let verified = false;
     try {
-      await apiClient.confirmVerificationCode(emailInput, codeInput);
-      const p = await apiClient.getCollectProfile(code);
+      await api.confirmVerificationCode(emailInput, codeInput);
+      const p = await api.getCollectProfile(code);
       setProfileCache(p);
       setEmailVerified(true);
       verified = true;
@@ -249,7 +249,7 @@ export function NicknameGate({ code, onComplete, reverify }: Props) {
       }
       // Email is verified — claim the deferred name as a separate step so a
       // claim failure can't strand the guest behind an already-consumed code.
-      const claimed = await apiClient.setCollectProfile(
+      const claimed = await api.setCollectProfile(
         code,
         { nickname: pendingNickname },
         reverify,

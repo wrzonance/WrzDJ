@@ -1,5 +1,5 @@
+import base64
 import logging
-import sys
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -175,8 +175,6 @@ class Settings(BaseSettings):
         """Return uploads directory, defaulting to server/uploads/ if not set."""
         if self.uploads_dir:
             return self.uploads_dir
-        from pathlib import Path
-
         return str(Path(__file__).resolve().parent.parent.parent / "uploads")
 
     # Bootstrap admin user (created on first startup if no users exist)
@@ -187,7 +185,6 @@ class Settings(BaseSettings):
     def effective_human_cookie_secret(self) -> bytes:
         """Return the HMAC key as bytes. In dev, auto-generates an ephemeral
         key on first call and caches it on the settings instance."""
-        import base64
         import secrets
 
         if self.human_cookie_secret:
@@ -277,11 +274,11 @@ def _fernet_key_list_error(keys: str, setting_name: str) -> str | None:
 
 
 def validate_settings(settings: Settings) -> None:
-    """Validate required settings and print helpful error messages."""
+    """Validate required settings and raise with helpful startup diagnostics."""
     errors = []
 
     if settings.is_production:
-        # nosec B105 - We're checking if the default value is still set (a security check)
+        # Compare the configured sentinel to reject the insecure production default.
         if settings.jwt_secret == "change-me-in-production":  # nosec B105
             errors.append("JWT_SECRET must be set to a secure value in production")
         if settings.cors_origins == "*":
@@ -317,6 +314,7 @@ def validate_settings(settings: Settings) -> None:
             )
 
     if not settings.is_production:
+        # This is the same sentinel comparison used to warn during development.
         if settings.jwt_secret == "change-me-in-production":  # nosec B105
             logging.warning(
                 "JWT_SECRET is using the default value. Set a unique secret for security."
@@ -339,7 +337,7 @@ def validate_settings(settings: Settings) -> None:
     if errors:
         for error in errors:
             logging.error("Configuration error: %s", error)
-        sys.exit(1)
+        raise ValueError("Invalid configuration:\n" + "\n".join(errors))
 
 
 @lru_cache

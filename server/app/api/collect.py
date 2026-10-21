@@ -4,6 +4,7 @@ Identity is `guest_id` only — the wrzdj_guest cookie is required for write
 endpoints. See docs/RECOVERY-IP-IDENTITY.md.
 """
 
+import json
 import logging
 from typing import Literal
 
@@ -21,6 +22,7 @@ from app.api.deps import (
 )
 from app.core.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.core.rate_limit import limiter
+from app.core.track_ids import normalize_isrc
 from app.models.event import Event
 from app.models.guest import Guest
 from app.models.request import Request as SongRequest
@@ -47,42 +49,23 @@ from app.schemas.collect import (
 )
 from app.services import collect as collect_service
 from app.services.activity_log import log_activity
-from app.services.beatport import search_beatport_tracks
 from app.services.collect import NicknameConflictError, upsert_profile
 from app.services.dedup import compute_dedupe_key, find_duplicate
 from app.services.event import get_event_by_public_code_with_status
-from app.services.guest_names import generate_unique_nickname
-from app.services.sync.orchestrator import _enrich_with_fresh_session
+from app.services.guests.names import generate_unique_nickname
+from app.services.providers.beatport import search_beatport_tracks
+from app.services.sync.orchestrator import (
+    enrich_with_fresh_session,
+    sync_collection_requests_with_fresh_session,
+)
 from app.services.system_settings import get_system_settings
-from app.services.tidal import sync_collection_requests_batch
 from app.services.track_match import find_best_match
-from app.services.track_normalizer import is_remix_title, normalize_isrc
+from app.services.track_normalizer import is_remix_title
 from app.services.vote import add_vote
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-def _sync_collection_requests_with_fresh_session(event_id: int, request_ids: list[int]) -> None:
-    """Run sync_collection_requests_batch in its own DB session.
-
-    Re-queries the event (for its DJ + Tidal settings) and the requests by ID so
-    no request-scoped session or live ORM rows are pinned during the Tidal API
-    calls (issue #505).
-    """
-    from app.db.session import SessionLocal
-
-    session = SessionLocal()
-    try:
-        event = session.get(Event, event_id)
-        if not event:
-            return
-        rows = session.query(SongRequest).filter(SongRequest.id.in_(request_ids)).all()
-        if rows:
-            sync_collection_requests_batch(session, event.created_by, event, rows)
-    finally:
-        session.close()
 
 
 def _get_event_or_404(db: Session, code: str) -> Event:
@@ -110,20 +93,18 @@ def _banner_colors_for_event(event: Event) -> list[str] | None:
     """Parse the stored JSON-encoded banner_colors string into a list, or None."""
     if not event.banner_colors:
         return None
-    import json as _json
-
     try:
-        value = _json.loads(event.banner_colors)
+        value = json.loads(event.banner_colors)
         if isinstance(value, list) and all(isinstance(c, str) for c in value):
             return value
-    except (_json.JSONDecodeError, TypeError):
+    except (json.JSONDecodeError, TypeError):
         pass  # malformed stored value: treat as no custom colours
     return None
 
 
 @router.get("/{code}", response_model=CollectEventPreview)
 @limiter.limit("120/minute")
-def preview(code: str, request: Request, db: Session = Depends(get_db)):
+def preview(code: str, request: Request, db: Session = Depends(get_db)) -> CollectEventPreview:
     event = _get_event_or_404(db, code)
     settings = get_system_settings(db)
     return CollectEventPreview(
@@ -150,7 +131,7 @@ def leaderboard(
     limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
-):
+) -> CollectLeaderboardResponse:
     event = _get_event_or_404(db, code)
 
     q = (
@@ -206,11 +187,9 @@ def get_profile(
     request: Request,
     db: Session = Depends(get_db),
     guest_id: int = Depends(require_verified_human),
-):
+) -> CollectProfileResponse:
     event = _get_event_or_404(db, code)
     profile = collect_service.get_profile(db, event_id=event.id, guest_id=guest_id)
-    from app.models.guest import Guest
-
     guest_row = db.query(Guest).filter(Guest.id == guest_id).first()
     is_verified = guest_row is not None and guest_row.email_verified_at is not None
     if profile is None:
@@ -236,7 +215,7 @@ def set_profile(
     request: Request,
     db: Session = Depends(get_db),
     guest_id: int = Depends(require_email_verified),
-):
+) -> CollectProfileResponse:
     event = _get_event_or_404(db, code)
     try:
         profile = upsert_profile(
@@ -265,8 +244,6 @@ def set_profile(
             event_code=code,
         )
     is_verified = False
-    from app.models.guest import Guest
-
     guest_row = db.query(Guest).filter(Guest.id == guest_id).first()
     is_verified = guest_row is not None and guest_row.email_verified_at is not None
     return CollectProfileResponse(
@@ -279,7 +256,7 @@ def set_profile(
 
 @router.get("/{code}/join-config", response_model=JoinConfigResponse)
 @limiter.limit("60/minute")
-def join_config(code: str, request: Request, db: Session = Depends(get_db)):
+def join_config(code: str, request: Request, db: Session = Depends(get_db)) -> JoinConfigResponse:
     """Public, unauthenticated: lets the join page decide its gate mode on load."""
     event = _get_event_or_404(db, code)
     return JoinConfigResponse(frictionless_join=event.frictionless_join)
@@ -294,7 +271,7 @@ def ensure_name(
     response: Response,
     db: Session = Depends(get_db),
     guest_id: int | None = Depends(require_verified_human_soft),
-):
+) -> EnsureNameResponse:
     """Frictionless-join name management. Auto-generates a nickname when none is
     set, or applies a manual rename. Gated on event.frictionless_join so it can
     never bypass email verification on a hardened (non-frictionless) event.
@@ -336,7 +313,7 @@ def my_picks(
     request: Request,
     db: Session = Depends(get_db),
     guest_id: int = Depends(require_email_verified),
-):
+) -> CollectMyPicksResponse:
     event = _get_event_or_404(db, code)
 
     submitted = (
@@ -420,7 +397,7 @@ def my_picks(
     )
 
 
-@router.post("/{code}/requests", status_code=201)
+@router.post("/{code}/requests", status_code=201, response_model=None)
 @limiter.limit("10/minute")
 def submit(
     code: str,
@@ -429,7 +406,7 @@ def submit(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     guest_id: int = Depends(require_email_verified),
-):
+) -> JSONResponse | dict[str, int | bool]:
     event = _get_event_or_404(db, code)
     if event.phase != "collection":
         raise HTTPException(status_code=409, detail="Collection has ended")
@@ -491,9 +468,9 @@ def submit(
     # reintroduce the pre-#541 silent-skip the moment the collect schema gains trio
     # fields. Pass the ID so each task opens/closes its own session rather than
     # pinning the request-scoped connection through slow external calls (issue #505).
-    background_tasks.add_task(_enrich_with_fresh_session, row.id)
+    background_tasks.add_task(enrich_with_fresh_session, row.id)
     if event.tidal_sync_enabled and get_system_settings(db).tidal_enabled:
-        background_tasks.add_task(_sync_collection_requests_with_fresh_session, event.id, [row.id])
+        background_tasks.add_task(sync_collection_requests_with_fresh_session, event.id, [row.id])
     log_activity(
         db,
         level="info",
@@ -512,7 +489,7 @@ def vote(
     request: Request,
     db: Session = Depends(get_db),
     guest_id: int = Depends(require_email_verified),
-):
+) -> dict[str, bool]:
     event = _get_event_or_404(db, code)
     if event.phase not in ("collection", "live"):
         raise HTTPException(status_code=409, detail="Voting is closed")
@@ -574,13 +551,14 @@ def enrich_preview(
                         bpm = int(best.bpm) if best.bpm is not None else None
                         key = best.key or None
                         genre = best.genre or None
+            # Enrichment is best-effort; callers receive the preview with null metadata.
             except Exception as exc:
                 logger.warning(
                     "enrich_preview: Beatport lookup failed for '%s' by '%s': %s",
                     item.title,
                     item.artist,
                     exc,
-                )  # nosec B110 — best-effort, callers handle null fields
+                )
 
         results.append(
             EnrichPreviewResult(
@@ -606,7 +584,7 @@ def request_preview(
     request: Request,
     _verified: int = Depends(require_email_verified),
     db: Session = Depends(get_db),
-):
+) -> CollectPreviewResponse:
     event = _get_event_or_404(db, code)
     song_request = (
         db.query(SongRequest)

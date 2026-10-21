@@ -3,7 +3,6 @@ from datetime import UTC, datetime
 
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Depends,
     File,
     HTTPException,
@@ -15,30 +14,23 @@ from fastapi import (
 )
 from sqlalchemy.orm import Session
 
-from app.api import events_exports
 from app.api.deps import (
     get_current_active_user,
     get_current_user_optional,
     get_db,
-    get_event_for_dj_or_admin,
     get_owned_event,
     require_verified_human_soft,
 )
+from app.api.event_status import raise_for_unavailable_event
+from app.api.events_collection import router as collection_router
+from app.api.events_recommendations import router as recommendations_router
+from app.api.events_requests import router as requests_router
 from app.core.config import get_settings
-from app.core.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
-from app.core.rate_limit import get_guest_id, limiter
+from app.core.rate_limit import limiter
 from app.models.event import Event
-from app.models.request import RequestStatus
 from app.models.user import User, UserRole
 from app.schemas.activity_log import ActivityLogEntry
-from app.schemas.collect import (
-    BulkReviewRequest,
-    BulkReviewResponse,
-    PendingReviewResponse,
-    PendingReviewRow,
-    UpdateCollectionSettings,
-)
-from app.schemas.common import AcceptAllResponse, BulkActionResponse
+from app.schemas.common import BulkActionResponse
 from app.schemas.event import (
     BulkDeleteEventsRequest,
     DisplaySettingsResponse,
@@ -47,27 +39,8 @@ from app.schemas.event import (
     EventOut,
     EventUpdate,
 )
-from app.schemas.recommendation import (
-    EventMusicProfile,
-    LLMPromptRequest,
-    RecommendationResponse,
-    RecommendedTrack,
-    TemplatePlaylistRequest,
-)
-from app.schemas.request import (
-    RequestCreate,
-    RequestListResponse,
-    RequestOut,
-    RequestSort,
-    SortDirection,
-)
 from app.schemas.search import SearchResult
-from app.services.collect import (
-    collection_settings_payload,
-    execute_bulk_review,
-    get_sorted_pending_review,
-    update_collection_settings,
-)
+from app.services.activity_log import get_recent_activity
 from app.services.event import (
     EventLookupResult,
     archive_event,
@@ -83,32 +56,18 @@ from app.services.event import (
     unarchive_event,
     update_event,
 )
-from app.services.event_bus import publish_event
+from app.services.intent_parser import parse_intent
 from app.services.kiosk import is_trusted_kiosk_for_event
 from app.services.now_playing import (
     get_manual_hide_setting,
     set_now_playing_visibility,
 )
-from app.services.request import (
-    accept_all_new_requests,
-    bulk_delete_requests,
-    create_request,
-    reject_all_new_requests,
-)
-from app.services.request_sort import (
-    DEFAULT_SORT_DIRECTION,
-    filtered_requests_query,
-    get_sorted_requests,
-    status_counts,
-)
-from app.services.sync.orchestrator import _enrich_with_fresh_session, sync_requests_batch
-from app.services.sync.registry import get_connected_adapters
-from app.services.tidal import (
-    remove_collection_tracks_batch,
-    sync_collection_requests_batch,
-)
+
+from . import events_exports
 
 router = APIRouter()
+router.include_router(requests_router)
+router.include_router(collection_router)
 
 # Preserve the previous module-level exports for callers that imported these names.
 MAX_EXPORT_PLAY_HISTORY = events_exports.MAX_EXPORT_PLAY_HISTORY
@@ -129,14 +88,9 @@ def _to_naive_utc(dt: datetime) -> datetime:
     return dt.astimezone(UTC).replace(tzinfo=None)
 
 
-settings = get_settings()
-
-# FIXME: per-process cache — value drifts in multi-worker deployments until next request
-_llm_rate_limit_cache: dict[str, int] = {"value": 3}
-
-
 def _get_base_url(request: Request | None) -> str | None:
     """Get the base URL for constructing public URLs."""
+    settings = get_settings()
     if settings.public_url:
         return settings.public_url.rstrip("/")
     if request:
@@ -163,78 +117,6 @@ def _get_banner_urls(event, request: Request | None) -> tuple[str | None, str | 
     stem = event.banner_filename.rsplit(".", 1)[0]
     kiosk_url = f"{api_base}/uploads/{stem}_kiosk.webp"
     return banner_url, kiosk_url
-
-
-def _request_to_out(r) -> RequestOut:
-    """Convert a Request model to RequestOut schema."""
-    return RequestOut(
-        id=r.id,
-        event_id=r.event_id,
-        song_title=r.song_title,
-        artist=r.artist,
-        source=r.source,
-        source_url=r.source_url,
-        artwork_url=r.artwork_url,
-        note=r.note,
-        nickname=r.nickname,
-        status=r.status,
-        created_at=r.created_at,
-        updated_at=r.updated_at,
-        accepted_at=r.accepted_at,
-        raw_search_query=r.raw_search_query,
-        sync_results_json=r.sync_results_json,
-        vote_count=r.vote_count,
-        genre=r.genre,
-        bpm=r.bpm,
-        musical_key=r.musical_key,
-    )
-
-
-def _build_recommendation_response(result, db, actor=None) -> RecommendationResponse:
-    """Build a RecommendationResponse from a recommendation engine result."""
-    from app.services.recommendation.camelot import parse_key
-    from app.services.recommendation.llm_hooks import is_llm_available
-
-    profile = EventMusicProfile(
-        avg_bpm=result.event_profile.avg_bpm,
-        bpm_range_low=result.event_profile.bpm_range[0] if result.event_profile.bpm_range else None,
-        bpm_range_high=result.event_profile.bpm_range[1]
-        if result.event_profile.bpm_range
-        else None,
-        dominant_keys=[str(p) for k in result.event_profile.dominant_keys if (p := parse_key(k))],
-        dominant_genres=list(result.event_profile.dominant_genres),
-        track_count=result.event_profile.track_count,
-        enriched_count=result.enriched_count,
-    )
-
-    suggestions = [
-        RecommendedTrack(
-            title=s.profile.title,
-            artist=s.profile.artist,
-            bpm=s.profile.bpm,
-            key=str(p) if (p := parse_key(s.profile.key)) else s.profile.key,
-            genre=s.profile.genre,
-            score=s.score,
-            bpm_score=s.bpm_score,
-            key_score=s.key_score,
-            genre_score=s.genre_score,
-            source=s.profile.source,
-            track_id=s.profile.track_id,
-            url=s.profile.url,
-            cover_url=s.profile.cover_url,
-            duration_seconds=s.profile.duration_seconds,
-            mb_verified=result.mb_verified.get(s.profile.artist, False),
-        )
-        for s in result.suggestions
-    ]
-
-    return RecommendationResponse(
-        suggestions=suggestions,
-        profile=profile,
-        services_used=result.services_used,
-        total_candidates_searched=result.total_candidates_searched,
-        llm_available=is_llm_available(db, actor=actor),
-    )
 
 
 def _event_to_out(
@@ -339,10 +221,8 @@ def get_activity_log(
     limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
-):
+) -> list[ActivityLogEntry]:
     """Get recent activity log entries for the current user's events."""
-    from app.services.activity_log import get_recent_activity
-
     entries = get_recent_activity(db, limit=limit, event_code=event_code, user_id=current_user.id)
     return [
         ActivityLogEntry(
@@ -378,17 +258,13 @@ def get_event(
     if not (is_owner or is_admin):
         raise HTTPException(status_code=404, detail="Event not found")
 
-    if lookup_result == EventLookupResult.EXPIRED:
-        raise HTTPException(status_code=410, detail="Event has expired")
-
-    if lookup_result == EventLookupResult.ARCHIVED:
-        raise HTTPException(status_code=410, detail="Event has been archived")
+    raise_for_unavailable_event(lookup_result)
 
     return _event_to_out(event, request)
 
 
 @router.get("/{code}/search", response_model=list[SearchResult])
-@limiter.limit(lambda: f"{settings.search_rate_limit_per_minute}/minute")
+@limiter.limit(lambda: f"{get_settings().search_rate_limit_per_minute}/minute")
 def event_search(
     code: str,
     request: Request,
@@ -408,12 +284,11 @@ def event_search(
     holds a JWT but no guest wrzdj_human cookie, so without the bypass an
     enforced gate would 403 them on their own event.
     """
-    from app.services.beatport import search_beatport_tracks
-    from app.services.intent_parser import parse_intent
+    from app.services.providers.beatport import search_beatport_tracks
+    from app.services.providers.spotify import search_songs
+    from app.services.providers.tidal import search_tidal_tracks
     from app.services.search_merge import build_search_results
-    from app.services.spotify import search_songs
     from app.services.system_settings import get_system_settings
-    from app.services.tidal import search_tidal_tracks
 
     event_obj, lookup_result = get_event_by_public_code_with_status(db, code)
 
@@ -446,20 +321,21 @@ def event_search(
     if not tidal_results and sys_settings.spotify_enabled:
         spotify_results = search_songs(db, q)
 
-    # Beatport append: if owner has it linked and sync enabled for this event
-    beatport_results = []
-    if (
+    # Beatport is available only when global, owner, and event gates all pass.
+    beatport_search_available = bool(
         sys_settings.beatport_enabled
         and owner
         and owner.beatport_access_token
         and event_obj.beatport_sync_enabled
-    ):
+    )
+    beatport_results = []
+    if beatport_search_available:
         beatport_results = search_beatport_tracks(db, owner, q, limit=10)
 
     has_any_source = (
         (owner and owner.tidal_access_token)
         or sys_settings.spotify_enabled
-        or sys_settings.beatport_enabled
+        or beatport_search_available
     )
     if not has_any_source:
         raise HTTPException(status_code=503, detail="Song search is currently unavailable")
@@ -595,463 +471,6 @@ def get_display_settings(
     )
 
 
-@router.post("/{code}/requests", response_model=RequestOut)
-@limiter.limit(lambda: f"{settings.request_rate_limit_per_minute}/minute")
-def submit_request(
-    code: str,
-    request_data: RequestCreate,
-    request: Request,
-    response: Response,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    current_user: User | None = Depends(get_current_user_optional),
-) -> RequestOut:
-    event, lookup_result = get_event_by_public_code_with_status(db, code)
-
-    if lookup_result == EventLookupResult.NOT_FOUND:
-        raise HTTPException(status_code=404, detail="Event not found")
-
-    if lookup_result == EventLookupResult.EXPIRED:
-        raise HTTPException(status_code=410, detail="Event has expired")
-
-    if lookup_result == EventLookupResult.ARCHIVED:
-        raise HTTPException(status_code=410, detail="Event has been archived")
-
-    # The authenticated owner (DJ dashboard "Add" button) AND a paired kiosk (a
-    # trusted physical device on this event) both bypass the guest
-    # human-verification gate. Neither holds a wrzdj_human cookie, so an enforced
-    # gate would 403 them — the kiosk submit path included (issue #514). Everyone
-    # else still passes through it (soft/enforced).
-    is_owner = current_user is not None and current_user.id == event.created_by_user_id
-    is_kiosk = is_trusted_kiosk_for_event(db, request.headers.get("X-Kiosk-Session"), event)
-    if not is_owner and not is_kiosk:
-        require_verified_human_soft(request, response, db)
-
-    if not event.requests_open:
-        raise HTTPException(status_code=403, detail="Requests are closed for this event")
-
-    song_request, is_duplicate = create_request(
-        db=db,
-        event=event,
-        artist=request_data.artist,
-        title=request_data.title,
-        note=request_data.note,
-        nickname=request_data.nickname,
-        source=request_data.source.value,
-        source_url=request_data.source_url,
-        artwork_url=request_data.artwork_url,
-        guest_id=get_guest_id(request, db),
-        raw_search_query=request_data.raw_search_query,
-        genre=request_data.genre,
-        bpm=request_data.bpm,
-        musical_key=request_data.musical_key,
-        isrc=request_data.isrc,
-    )
-
-    # Enrich missing metadata in the background (Beatport, MusicBrainz). Enqueue
-    # even for already-complete submissions: enrich_request_metadata seeds the
-    # master track store and returns fast when the trio is present, so a complete
-    # search-result submission still populates the store for reuse (#541). Use a
-    # FRESH session (not the request-scoped `db`) so the task — which may make
-    # Spotify/Soundcharts network calls — doesn't pin a pool connection (#505).
-    if not is_duplicate:
-        background_tasks.add_task(_enrich_with_fresh_session, song_request.id)
-
-    if not is_duplicate:
-        publish_event(
-            event.code,  # canonical SSE channel key (matches the stream subscriber)
-            "request_created",
-            {
-                "request_id": song_request.id,
-                "title": song_request.song_title,
-                "artist": song_request.artist,
-            },
-        )
-
-    return _request_to_out(song_request).model_copy(update={"is_duplicate": is_duplicate})
-
-
-@router.post("/{code}/requests/accept-all", response_model=AcceptAllResponse)
-@limiter.limit("10/minute")
-def accept_all_requests_endpoint(
-    request: Request,
-    background_tasks: BackgroundTasks,
-    event: Event = Depends(get_owned_event),
-    db: Session = Depends(get_db),
-) -> AcceptAllResponse:
-    """Accept all NEW requests for an event in one operation."""
-    accepted = accept_all_new_requests(db, event)
-
-    # Trigger batch sync — one background task for all accepted requests
-    # Uses sequential search + batch playlist add to avoid API rate limiting.
-    # Pass IDs (not the request `db` or live rows) so the task uses a fresh,
-    # promptly-closed session instead of pinning the pool connection (issue #505).
-    if accepted and get_connected_adapters(event.created_by):
-        background_tasks.add_task(_sync_requests_with_fresh_session, [r.id for r in accepted])
-
-    if accepted:
-        publish_event(
-            event.code,
-            "requests_bulk_update",
-            {
-                "action": "accepted",
-                "count": len(accepted),
-            },
-        )
-
-    return AcceptAllResponse(status="ok", accepted_count=len(accepted))
-
-
-@router.post("/{code}/requests/reject-all", response_model=BulkActionResponse)
-@limiter.limit("10/minute")
-def reject_all_requests_endpoint(
-    request: Request,
-    event: Event = Depends(get_owned_event),
-    db: Session = Depends(get_db),
-) -> BulkActionResponse:
-    """Reject all NEW requests for an event in one operation."""
-    count = reject_all_new_requests(db, event)
-    if count > 0:
-        publish_event(
-            event.code,
-            "requests_bulk_update",
-            {
-                "action": "rejected",
-                "count": count,
-            },
-        )
-    return BulkActionResponse(status="ok", count=count)
-
-
-@router.delete("/{code}/requests/bulk", response_model=BulkActionResponse)
-@limiter.limit("10/minute")
-def bulk_delete_requests_endpoint(
-    request: Request,
-    status: str | None = Query(default=None),
-    event: Event = Depends(get_owned_event),
-    db: Session = Depends(get_db),
-) -> BulkActionResponse:
-    """Bulk delete requests for an event, optionally filtered by status."""
-    count = bulk_delete_requests(db, event, status)
-    if count > 0:
-        publish_event(
-            event.code,
-            "requests_bulk_update",
-            {
-                "action": "deleted",
-                "count": count,
-            },
-        )
-    return BulkActionResponse(status="ok", count=count)
-
-
-@router.get("/{code}/requests", response_model=RequestListResponse)
-@limiter.limit("60/minute")
-def get_event_requests(
-    request: Request,
-    status: RequestStatus | None = None,
-    since: datetime | None = None,
-    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-    sort: RequestSort = RequestSort.DATE_REQUESTED,
-    direction: SortDirection | None = None,
-    event: Event = Depends(get_owned_event),
-    db: Session = Depends(get_db),
-) -> RequestListResponse:
-    """Paginated, sorted request list. Owner sees requests regardless of status.
-
-    ``total`` is computed before pagination so the dashboard shows a truthful
-    count rather than inferring it from the returned page length (issue #478).
-    """
-    resolved = direction or DEFAULT_SORT_DIRECTION[sort]
-
-    if sort == RequestSort.BEST_MATCH:
-        requests, total = _best_match_page(db, event, status, since, limit, offset, resolved)
-    else:
-        rows, total = get_sorted_requests(
-            db,
-            event,
-            status=status,
-            since=since,
-            sort=sort,
-            direction=resolved,
-            limit=limit,
-            offset=offset,
-        )
-        requests = [_request_to_out(r) for r in rows]
-
-    return RequestListResponse(
-        requests=requests,
-        total=total,
-        limit=limit,
-        offset=offset,
-        sort=sort,
-        direction=resolved,
-        status_counts=status_counts(db, event),
-    )
-
-
-def _best_match_page(
-    db: Session,
-    event: "Event",
-    status: RequestStatus | None,
-    since: datetime | None,
-    limit: int,
-    offset: int,
-    direction: SortDirection,
-) -> tuple[list[RequestOut], int]:
-    """Best Match (priority) sort with a true total, then paginate.
-
-    Priority scoring needs now-playing context and runs over the whole filtered
-    set, so we score everything, then slice the requested window. ``_apply_priority_sort``
-    ranks highest-score-first (desc); ``asc`` reverses it so the response's
-    ``direction`` metadata matches the order actually applied (issue #478).
-    """
-    base = filtered_requests_query(db, event, status, since)
-    total = base.count()
-    ordered = _apply_priority_sort(base.all(), event, db)
-    if direction == SortDirection.ASC:
-        ordered = list(reversed(ordered))
-    return ordered[offset : offset + limit], total
-
-
-def _apply_priority_sort(
-    requests: list,
-    event: "Event",
-    db: Session,
-) -> list[RequestOut]:
-    """Score and sort requests by DJ priority, attaching scores to output."""
-    from app.services.now_playing import get_now_playing
-    from app.services.priority_scorer import (
-        RequestScoreInput,
-        rank_requests_by_priority,
-    )
-
-    # Get now-playing context (BPM/key from matched request)
-    now_playing_key: str | None = None
-    now_playing_bpm: float | None = None
-    np = get_now_playing(db, event.id)
-    if np and np.matched_request_id:
-        matched = np.matched_request
-        if matched:
-            now_playing_key = matched.musical_key
-            now_playing_bpm = matched.bpm
-
-    # Build scoring inputs
-    inputs = [
-        RequestScoreInput(
-            request_id=r.id,
-            vote_count=r.vote_count,
-            created_at=r.created_at,
-            musical_key=r.musical_key,
-            bpm=r.bpm,
-        )
-        for r in requests
-    ]
-
-    # Score and rank
-    scored = rank_requests_by_priority(
-        inputs,
-        now_playing_key=now_playing_key,
-        now_playing_bpm=now_playing_bpm,
-    )
-
-    # Build a lookup for scores by request_id
-    score_map = {s.request_id: s.score for s in scored}
-    # Build ordered ID list
-    ordered_ids = [s.request_id for s in scored]
-
-    # Sort requests to match scored order and attach priority_score
-    request_by_id = {r.id: r for r in requests}
-    result = []
-    for rid in ordered_ids:
-        r = request_by_id.get(rid)
-        if r:
-            out = _request_to_out(r)
-            out.priority_score = score_map.get(rid)
-            result.append(out)
-
-    return result
-
-
-@router.post("/{code}/recommendations", response_model=RecommendationResponse)
-@limiter.limit("5/minute")
-def get_recommendations(
-    request: Request,
-    event: Event = Depends(get_owned_event),
-    db: Session = Depends(get_db),
-) -> RecommendationResponse:
-    """Generate song recommendations based on the event's musical profile."""
-    from app.services.recommendation.service import (
-        _soundcharts_related_available,
-        generate_recommendations,
-    )
-
-    user = event.created_by
-
-    # A candidate source must be available: a connected Tidal/Beatport account,
-    # or the provider-agnostic Soundcharts related-tracks source (#556), which
-    # needs no connected service (dark by default — only when explicitly enabled).
-    has_services = bool(user.tidal_access_token) or bool(user.beatport_access_token)
-    if not has_services and not _soundcharts_related_available():
-        raise HTTPException(
-            status_code=503,
-            detail="No music services connected. Link Tidal or Beatport to get recommendations.",
-        )
-
-    result = generate_recommendations(db, user, event)
-    return _build_recommendation_response(result, db, actor=user)
-
-
-@router.get("/{code}/playlists")
-@limiter.limit("10/minute")
-def get_playlists(
-    request: Request,
-    event: Event = Depends(get_owned_event),
-    db: Session = Depends(get_db),
-):
-    """List the DJ's playlists from connected music services."""
-    from app.schemas.recommendation import PlaylistInfo, PlaylistListResponse
-
-    user = event.created_by
-    playlists: list[PlaylistInfo] = []
-
-    if user.tidal_access_token:
-        from app.services.tidal import list_user_playlists as tidal_list
-
-        for p in tidal_list(db, user):
-            playlists.append(
-                PlaylistInfo(
-                    id=p.id,
-                    name=p.name,
-                    num_tracks=p.num_tracks,
-                    description=p.description,
-                    cover_url=p.cover_url,
-                    source=p.source,
-                )
-            )
-
-    if user.beatport_access_token:
-        from app.services.beatport import list_user_playlists as bp_list
-
-        for p in bp_list(db, user):
-            playlists.append(
-                PlaylistInfo(
-                    id=p.id,
-                    name=p.name,
-                    num_tracks=p.num_tracks,
-                    description=p.description,
-                    cover_url=p.cover_url,
-                    source=p.source,
-                )
-            )
-
-    return PlaylistListResponse(playlists=playlists)
-
-
-@router.post("/{code}/recommendations/from-template", response_model=RecommendationResponse)
-@limiter.limit("5/minute")
-def get_recommendations_from_template(
-    request: Request,
-    template_request: TemplatePlaylistRequest,
-    event: Event = Depends(get_owned_event),
-    db: Session = Depends(get_db),
-) -> RecommendationResponse:
-    """Generate recommendations using a template playlist."""
-    from app.services.recommendation.service import generate_recommendations_from_template
-
-    user = event.created_by
-
-    # Check if any music services are connected
-    has_services = bool(user.tidal_access_token) or bool(user.beatport_access_token)
-    if not has_services:
-        raise HTTPException(
-            status_code=503,
-            detail="No music services connected. Link Tidal or Beatport to get recommendations.",
-        )
-
-    result = generate_recommendations_from_template(
-        db,
-        user,
-        event,
-        template_source=template_request.source,
-        template_id=template_request.playlist_id,
-    )
-    return _build_recommendation_response(result, db, actor=user)
-
-
-@router.post("/{code}/recommendations/llm")
-@limiter.limit(lambda: f"{_llm_rate_limit_cache['value']}/minute")
-async def get_llm_recommendations(
-    request: Request,
-    prompt_request: LLMPromptRequest,
-    event: Event = Depends(get_owned_event),
-    db: Session = Depends(get_db),
-):
-    """Generate song recommendations from an LLM-interpreted DJ prompt."""
-    from app.schemas.recommendation import LLMQueryInfo, LLMRecommendationResponse
-    from app.services.recommendation.llm_hooks import is_llm_available
-    from app.services.recommendation.service import generate_recommendations_from_llm
-    from app.services.system_settings import get_system_settings
-
-    # Refresh LLM rate limit cache from DB
-    sys_settings = get_system_settings(db)
-    _llm_rate_limit_cache["value"] = sys_settings.llm_rate_limit_per_minute
-
-    user = event.created_by
-
-    if not is_llm_available(db, actor=user):
-        raise HTTPException(
-            status_code=503,
-            detail="LLM recommendations not configured. Add a DJ/admin AI connector to enable.",
-        )
-
-    has_services = bool(user.tidal_access_token) or bool(user.beatport_access_token)
-    if not has_services:
-        raise HTTPException(
-            status_code=503,
-            detail="No music services connected. Link Tidal or Beatport to get recommendations.",
-        )
-
-    from app.services.llm.exceptions import QuotaCapReached
-
-    try:
-        result = await generate_recommendations_from_llm(db, user, event, prompt_request.prompt)
-    except QuotaCapReached as exc:
-        # DJ-facing message only — no internal usage/cap details leaked (issue #339).
-        raise HTTPException(status_code=429, detail=str(exc)) from exc
-    except Exception:
-        import logging
-
-        logging.getLogger(__name__).exception("LLM recommendation failed")
-        raise HTTPException(
-            status_code=502,
-            detail="LLM service error. Try again or use algorithmic recommendations.",
-        )
-
-    base = _build_recommendation_response(result, db, actor=user)
-
-    llm_queries = [
-        LLMQueryInfo(
-            search_query=q.search_query,
-            target_bpm=q.target_bpm,
-            target_key=q.target_key,
-            target_genre=q.target_genre,
-            reasoning=q.reasoning,
-        )
-        for q in result.llm_queries
-    ]
-
-    return LLMRecommendationResponse(
-        suggestions=base.suggestions,
-        profile=base.profile,
-        services_used=base.services_used,
-        total_candidates_searched=base.total_candidates_searched,
-        llm_queries=llm_queries,
-        llm_model=result.llm_model or "",
-    )
-
-
 @router.post("/{code}/banner", response_model=EventOut)
 @limiter.limit("10/minute")
 def upload_banner(
@@ -1080,241 +499,6 @@ def upload_banner(
     return _event_to_out(event, request)
 
 
-@router.get("/{code}/collection")
-def get_collection_settings(
-    event: Event = Depends(get_event_for_dj_or_admin),
-) -> dict:
-    """Get pre-event collection scheduling settings."""
-    return collection_settings_payload(event)
-
-
-@router.patch("/{code}/collection")
-def update_collection_settings_endpoint(
-    payload: UpdateCollectionSettings,
-    event: Event = Depends(get_event_for_dj_or_admin),
-    db: Session = Depends(get_db),
-) -> dict:
-    """Update pre-event collection scheduling settings."""
-    update_collection_settings(db, event, payload)
-    return collection_settings_payload(event)
-
-
-@router.post("/{code}/collection/sync-tidal")
-@limiter.limit("5/minute")
-def sync_collection_to_tidal(
-    request: Request,
-    background_tasks: BackgroundTasks,
-    event: Event = Depends(get_event_for_dj_or_admin),
-    db: Session = Depends(get_db),
-):
-    """Sync all non-rejected collection-phase requests to the DJ's Tidal playlist.
-
-    Includes pending (new) and accepted requests so the DJ can listen to guest
-    suggestions on Tidal before the review step.  Already-synced tracks are
-    silently skipped inside sync_requests_batch.
-    """
-    from app.services.system_settings import get_system_settings
-
-    sys_settings = get_system_settings(db)
-    if not sys_settings.tidal_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Tidal integration is currently unavailable",
-        )
-
-    user = event.created_by
-    if not user.tidal_access_token:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Tidal account not linked",
-        )
-
-    if not event.tidal_sync_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Tidal sync not enabled for this event",
-        )
-
-    eligible = [
-        r for r in event.requests if r.submitted_during_collection and r.status != "rejected"
-    ]
-
-    if eligible:
-        # Pass IDs so the task re-queries in a fresh session instead of holding
-        # the request-scoped connection through the Tidal API calls (issue #505).
-        background_tasks.add_task(
-            _sync_collection_requests_with_fresh_session, event.id, [r.id for r in eligible]
-        )
-
-    return {"queued": len(eligible)}
-
-
-@router.get("/{code}/pending-review", response_model=PendingReviewResponse)
-def pending_review(
-    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
-    sort: RequestSort | None = None,
-    direction: SortDirection | None = None,
-    event: Event = Depends(get_event_for_dj_or_admin),
-    db: Session = Depends(get_db),
-):
-    """Paginated pending-review source for DJ bulk-review (issue #478).
-
-    ``total`` is the true count of pending rows before pagination, so the
-    Pre-Event tab never shows a capped page length as the queue size. Default
-    ordering stays the vote-ranked review order; bulk actions still operate
-    server-side against the full filtered set, not the loaded page.
-    """
-    # Resolve the direction up front so the response metadata reflects what was
-    # actually applied: when sort is omitted (default review order) there is no
-    # direction, even if the client passed one (issue #478).
-    resolved = (direction or DEFAULT_SORT_DIRECTION[sort]) if sort else None
-    rows, total = get_sorted_pending_review(
-        db, event.id, sort=sort, direction=resolved, limit=limit, offset=offset
-    )
-    return PendingReviewResponse(
-        requests=[
-            PendingReviewRow(
-                id=r.id,
-                song_title=r.song_title,
-                artist=r.artist,
-                artwork_url=r.artwork_url,
-                vote_count=r.vote_count,
-                nickname=r.nickname,
-                created_at=r.created_at,
-                note=r.note,
-                status=r.status,
-            )
-            for r in rows
-        ],
-        total=total,
-        limit=limit,
-        offset=offset,
-        sort=sort,
-        direction=resolved,
-    )
-
-
-@router.post("/{code}/bulk-review", response_model=BulkReviewResponse)
-def bulk_review(
-    payload: BulkReviewRequest,
-    background_tasks: BackgroundTasks,
-    event: Event = Depends(get_event_for_dj_or_admin),
-    db: Session = Depends(get_db),
-):
-    accepted, rejected, accepted_rows, rejected_rows = execute_bulk_review(db, event.id, payload)
-    # Enrich + sync accepted requests. Guest-collect submissions arrive without
-    # BPM/key/genre. enrich_request_metadata fills those in directly (Tidal/
-    # Beatport/MusicBrainz cascade) — this works regardless of whether the DJ
-    # has any sync adapters connected. sync_requests_batch only adds to a
-    # connected user's playlists; if no adapters, it returns early as a no-op.
-    # Pass IDs through the fresh-session helpers so each task opens and closes its
-    # own connection instead of pinning the request-scoped one across N enrich
-    # calls + the batch sync (issue #505).
-    if accepted_rows:
-        for row in accepted_rows:
-            background_tasks.add_task(_enrich_with_fresh_session, row.id)
-        background_tasks.add_task(_sync_requests_with_fresh_session, [r.id for r in accepted_rows])
-
-    # Direction 1: remove rejected+synced tracks from the Tidal collection playlist.
-    # Requires bidirectional sync to be enabled — tidal_sync_enabled alone is not enough.
-    if event.tidal_sync_enabled and event.tidal_collection_bidirectional:
-        track_ids_to_remove = [
-            r.tidal_collection_track_id for r in rejected_rows if r.tidal_collection_track_id
-        ]
-        if track_ids_to_remove:
-            background_tasks.add_task(
-                _remove_collection_tracks_with_fresh_session,
-                event.id,
-                track_ids_to_remove,
-            )
-
-    return BulkReviewResponse(accepted=accepted, rejected=rejected, unchanged=0)
-
-
-ENRICH_ALL_BATCH_LIMIT = 25
-
-
-def _sync_requests_with_fresh_session(request_ids: list[int]) -> None:
-    """Run sync_requests_batch in its own DB session.
-
-    Same rationale as _enrich_with_fresh_session: the request-scoped `db` stays
-    open until all background tasks complete; for large collections this exhausts
-    the SQLAlchemy connection pool.  Re-querying by ID inside a fresh session
-    releases the connection as soon as the batch finishes.
-    """
-    from app.db.session import SessionLocal
-    from app.models.request import Request as SongRequest
-
-    session = SessionLocal()
-    try:
-        rows = session.query(SongRequest).filter(SongRequest.id.in_(request_ids)).all()
-        if rows:
-            sync_requests_batch(session, rows)
-    finally:
-        session.close()
-
-
-def _sync_collection_requests_with_fresh_session(event_id: int, request_ids: list[int]) -> None:
-    """Run sync_collection_requests_batch in its own DB session.
-
-    Re-queries the event (for its DJ + Tidal settings) and the requests by ID so
-    no request-scoped session or live ORM rows are pinned during the Tidal API
-    calls (issue #505).
-    """
-    from app.db.session import SessionLocal
-    from app.models.request import Request as SongRequest
-
-    session = SessionLocal()
-    try:
-        event = session.get(Event, event_id)
-        if not event:
-            return
-        rows = session.query(SongRequest).filter(SongRequest.id.in_(request_ids)).all()
-        if rows:
-            sync_collection_requests_batch(session, event.created_by, event, rows)
-    finally:
-        session.close()
-
-
-def _remove_collection_tracks_with_fresh_session(event_id: int, track_ids: list[str]) -> None:
-    """Run remove_collection_tracks_batch in its own DB session.
-
-    Re-queries the event (for its DJ + collection playlist) by ID so no
-    request-scoped session is pinned during the Tidal removal calls (issue #505).
-    """
-    from app.db.session import SessionLocal
-
-    session = SessionLocal()
-    try:
-        event = session.get(Event, event_id)
-        if not event:
-            return
-        remove_collection_tracks_batch(session, event.created_by, event, track_ids)
-    finally:
-        session.close()
-
-
-@router.post("/{code}/enrich-all")
-def enrich_all_requests(
-    background_tasks: BackgroundTasks,
-    event: Event = Depends(get_event_for_dj_or_admin),
-    db: Session = Depends(get_db),  # noqa: ARG001 — kept for auth dependency consistency
-):
-    """Queue enrichment for up to ENRICH_ALL_BATCH_LIMIT requests missing BPM, key, or genre.
-
-    Batched to avoid exhausting the connection pool when many tracks need enrichment.
-    Returns `remaining` so the caller can re-invoke until 0.
-    """
-    candidates = [
-        r for r in event.requests if r.bpm is None or r.musical_key is None or r.genre is None
-    ]
-    batch = candidates[:ENRICH_ALL_BATCH_LIMIT]
-    for row in batch:
-        background_tasks.add_task(_enrich_with_fresh_session, row.id)
-    return {"queued": len(batch), "remaining": max(0, len(candidates) - len(batch))}
-
-
 @router.delete("/{code}/banner", response_model=EventOut)
 @limiter.limit("10/minute")
 def delete_banner(
@@ -1331,3 +515,4 @@ def delete_banner(
 
 
 router.include_router(events_exports.router)
+router.include_router(recommendations_router)

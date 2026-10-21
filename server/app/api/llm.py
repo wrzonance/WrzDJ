@@ -19,12 +19,17 @@ from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
 from app.api.deps import get_current_active_user, get_db
+from app.api.llm_connector_inputs import (
+    to_connector_create_input,
+    to_credential_rotation_input,
+)
 from app.core.rate_limit import limiter
 from app.models.llm_connector import (
     CONNECTOR_TYPE_OPENAI_COMPATIBLE,
     VALID_CONNECTOR_TYPES,
     LlmConnector,
 )
+from app.models.llm_contracts import CONNECTOR_TYPE_VALUES, ConnectorType
 from app.models.user import User
 from app.schemas.ai_settings import AIModelsResponse
 from app.schemas.llm import (
@@ -42,28 +47,32 @@ from app.schemas.llm import (
 )
 from app.services.llm.base import ChatRequest as LlmChatRequest
 from app.services.llm.base import Message as LlmMessage
+from app.services.llm.connector_payloads import build_create_payload
+from app.services.llm.connector_preferences import (
+    clear_feature_preference,
+    get_feature_preferences_for_user,
+    set_feature_preference,
+)
 from app.services.llm.connector_storage import (
     AUDIT_CREATED,
     AUDIT_CREDENTIALS_ROTATED,
     AUDIT_DEFAULT_SET,
     AUDIT_DEFAULT_UNSET,
     AUDIT_DELETED,
-    audit_event,
-    build_create_payload,
-    clear_feature_preference,
     create_connector,
     delete_connector,
     get_connector_for_user,
-    get_feature_preferences_for_user,
     list_connectors_for_user,
     rotate_credentials,
     set_default_for_user,
-    set_feature_preference,
     unset_default_for_user,
-    update_metadata,
 )
+from app.services.llm.connector_storage import (
+    update_connector_metadata as update_connector_metadata_service,
+)
+from app.services.llm.connector_telemetry import audit_event
 from app.services.llm.exceptions import LlmError, NoLlmConfigured
-from app.services.llm.gateway import Gateway, _resolve_org_default
+from app.services.llm.gateway import Gateway, resolve_org_default_connector
 from app.services.llm.openrouter_models import get_openrouter_models
 from app.services.system_settings import get_system_settings
 
@@ -75,18 +84,22 @@ router = APIRouter()
 # API-key connector types (everything that isn't the custom OpenAI-compatible
 # endpoint). Gated by the single ``llm_apikey_connectors_enabled`` flag, mirroring
 # ``_check_connector_type_allowed`` below. Sorted for a deterministic response.
-_APIKEY_CONNECTOR_TYPES: tuple[str, ...] = tuple(
-    sorted(VALID_CONNECTOR_TYPES - {CONNECTOR_TYPE_OPENAI_COMPATIBLE})
+_APIKEY_CONNECTOR_TYPES: tuple[ConnectorType, ...] = tuple(
+    connector_type
+    for connector_type in CONNECTOR_TYPE_VALUES
+    if connector_type != CONNECTOR_TYPE_OPENAI_COMPATIBLE
 )
 
 
-def _allowed_connector_types(*, apikey_enabled: bool, compatible_enabled: bool) -> list[str]:
+def _allowed_connector_types(
+    *, apikey_enabled: bool, compatible_enabled: bool
+) -> list[ConnectorType]:
     """Compute the connector types a DJ may create under the given policy.
 
     Kept consistent with ``_check_connector_type_allowed`` so the advertised set
     exactly matches what the create endpoint will accept (no UX/enforcement drift).
     """
-    allowed: list[str] = []
+    allowed: list[ConnectorType] = []
     if apikey_enabled:
         allowed.extend(_APIKEY_CONNECTOR_TYPES)
     if compatible_enabled:
@@ -142,7 +155,7 @@ def _feature_prefs_response(db: Session, user_id: int) -> FeaturePreferencesList
     rows = get_feature_preferences_for_user(db, user_id)
     return FeaturePreferencesListOut(
         preferences=[FeaturePreferenceOut.model_validate(r) for r in rows],
-        known_features=list(KNOWN_FEATURE_VALUES),  # type: ignore[arg-type]
+        known_features=list(KNOWN_FEATURE_VALUES),
     )
 
 
@@ -194,8 +207,8 @@ def get_dj_policy(
         allowed_connector_types=_allowed_connector_types(
             apikey_enabled=settings.llm_apikey_connectors_enabled,
             compatible_enabled=settings.llm_compatible_connector_enabled,
-        ),  # type: ignore[arg-type]
-        org_fallback_available=_resolve_org_default(db) is not None,
+        ),
+        org_fallback_available=resolve_org_default_connector(db) is not None,
     )
 
 
@@ -228,21 +241,7 @@ def create_connector_endpoint(
     _check_connector_type_allowed(db, payload.connector_type)
 
     try:
-        built = build_create_payload(
-            connector_type=payload.connector_type,
-            display_name=payload.display_name,
-            api_key=payload.api_key,
-            base_url=payload.base_url,
-            bearer=payload.bearer,
-            model_hint=payload.model_hint,
-            aws_access_key_id=payload.aws_access_key_id,
-            aws_secret_access_key=payload.aws_secret_access_key,
-            aws_region=payload.aws_region,
-            aws_model_id=payload.aws_model_id,
-            azure_resource_name=payload.azure_resource_name,
-            azure_deployment_name=payload.azure_deployment_name,
-            azure_api_version=payload.azure_api_version,
-        )
+        built = build_create_payload(to_connector_create_input(payload))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -257,9 +256,14 @@ def create_connector_endpoint(
     return _audit_and_return(db, row, actor_user_id=user.id, event_type=AUDIT_CREATED)
 
 
-@router.patch("/connectors/{connector_id}", response_model=ConnectorOut)
+@router.patch(
+    "/connectors/{connector_id}",
+    response_model=ConnectorOut,
+    operation_id="update_connector_metadata_api_llm_connectors__connector_id__patch",
+    summary="Update Connector Metadata",
+)
 @limiter.limit("30/minute")
-def update_connector_metadata(
+def update_connector_metadata_endpoint(
     request: FastAPIRequest,
     connector_id: int,
     payload: ConnectorPatch,
@@ -269,7 +273,9 @@ def update_connector_metadata(
     row = _get_owned_connector_or_404(db, connector_id, user.id)
 
     try:
-        update_metadata(row, display_name=payload.display_name, model_hint=payload.model_hint)
+        update_connector_metadata_service(
+            row, display_name=payload.display_name, model_hint=payload.model_hint
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -296,20 +302,8 @@ def rotate_connector_credentials(
     row = _get_owned_connector_or_404(db, connector_id, user.id)
 
     try:
-        rotate_credentials(
-            db,
-            connector=row,
-            api_key=payload.api_key,
-            base_url=payload.base_url,
-            bearer=payload.bearer,
-            aws_access_key_id=payload.aws_access_key_id,
-            aws_secret_access_key=payload.aws_secret_access_key,
-            aws_region=payload.aws_region,
-            aws_model_id=payload.aws_model_id,
-            azure_resource_name=payload.azure_resource_name,
-            azure_deployment_name=payload.azure_deployment_name,
-            azure_api_version=payload.azure_api_version,
-        )
+        rotation = to_credential_rotation_input(row.connector_type, payload)
+        rotate_credentials(db, connector=row, rotation=rotation)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -348,7 +342,7 @@ _STREAM_TEST_PROMPT = "Reply with one short friendly sentence confirming you are
 
 @router.post("/connectors/{connector_id}/stream-test")
 @limiter.limit("10/minute")
-async def stream_test_connector(
+def stream_test_connector(
     request: FastAPIRequest,
     connector_id: int,
     user: User = Depends(get_current_active_user),
@@ -381,7 +375,13 @@ async def stream_test_connector(
 
     async def _publisher():
         try:
-            async for chunk in Gateway.stream(db, user, chat_request, purpose="stream_test"):
+            async for chunk in Gateway.stream(
+                db,
+                user,
+                chat_request,
+                purpose="stream_test",
+                connector_id=row.id,
+            ):
                 yield {"data": _json.dumps(chunk.model_dump())}
         except NoLlmConfigured:
             yield {"event": "error", "data": _json.dumps({"code": "no_connector"})}

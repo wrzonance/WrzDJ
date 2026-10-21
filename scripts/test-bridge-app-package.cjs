@@ -26,7 +26,7 @@ if (process.argv[2] !== '--electron') {
   assert.ok(fs.statSync(path.join(appRoot, manifest.main)).isFile(), 'Packaged main entry is missing');
   const appRequire = createRequire(path.join(appRoot, manifest.main));
   const expected = JSON.parse(fs.readFileSync(
-    path.join(__dirname, '../bridge-app/package.json'), 'utf8',
+    path.join(__dirname, '../bridge/package.json'), 'utf8',
   )).dependencies;
 
   function packagedEntry(name) {

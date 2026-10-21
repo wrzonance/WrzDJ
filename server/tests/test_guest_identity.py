@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.time import utcnow
 from app.models.guest import Guest
-from app.services.guest_identity import _ua_signals_match, identify_guest
+from app.services.guests.identity import _ua_signals_match, identify_guest
 
 
 def test_create_guest_new_visitor(db: Session):

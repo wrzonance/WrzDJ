@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 
 from sqlalchemy import func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.time import utcnow
@@ -74,8 +75,6 @@ def create_event(db: Session, name: str, user: User, expires_hours: int = 6) -> 
     If two concurrent transactions race and pick overlapping values, the
     INSERT raises IntegrityError and we retry with fresh codes.
     """
-    from sqlalchemy.exc import IntegrityError
-
     expires_at = utcnow() + timedelta(hours=expires_hours)
     max_attempts = 8
     for attempt in range(max_attempts):

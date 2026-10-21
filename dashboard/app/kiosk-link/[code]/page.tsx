@@ -4,13 +4,13 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
-import type { Event } from '@/lib/api-types';
+import type { Event } from '@/lib/api/types';
 
 type PageState = 'loading' | 'picking' | 'pairing' | 'success' | 'error';
 
 export default function KioskLinkPage() {
   const { code } = useParams<{ code: string }>();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, role } = useAuth();
   const router = useRouter();
   const [events, setEvents] = useState<Event[]>([]);
   const [state, setState] = useState<PageState>('loading');
@@ -23,6 +23,10 @@ export default function KioskLinkPage() {
       router.push(`/login?redirect=/kiosk-link/${code}`);
       return;
     }
+    if (role === 'pending') {
+      router.push('/pending');
+      return;
+    }
     api.getEvents().then((evts) => {
       setEvents(evts.filter(e => e.is_active));
       setState('picking');
@@ -30,9 +34,10 @@ export default function KioskLinkPage() {
       setState('error');
       setErrorMsg('Failed to load events');
     });
-  }, [isAuthenticated, isLoading, router, code]);
+  }, [isAuthenticated, isLoading, role, router, code]);
 
   const handleSelectEvent = useCallback(async (eventCode: string, eventName: string) => {
+    if (isLoading || !isAuthenticated || role === 'pending') return;
     setState('pairing');
     setErrorMsg('');
     try {
@@ -50,12 +55,12 @@ export default function KioskLinkPage() {
       }
       setState('error');
     }
-  }, [code]);
+  }, [code, isAuthenticated, isLoading, role]);
 
-  if (isLoading || state === 'loading') {
+  if (isLoading || !isAuthenticated || role === 'pending' || state === 'loading') {
     return (
       <div className="container" style={{ maxWidth: '500px', marginTop: '80px', textAlign: 'center' }}>
-        <p style={{ color: '#9ca3af' }}>Loading...</p>
+        <p style={{ color: 'var(--text-secondary)' }}>Loading...</p>
       </div>
     );
   }
@@ -66,7 +71,7 @@ export default function KioskLinkPage() {
         <h1 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.5rem' }}>
           Pair Kiosk Display
         </h1>
-        <p style={{ color: '#9ca3af', fontSize: '0.875rem', marginBottom: '1.5rem' }}>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '1.5rem' }}>
           Code: <strong style={{ fontFamily: 'monospace', color: '#ededed' }}>
             {code.length > 3 ? `${code.slice(0, 3)}-${code.slice(3)}` : code}
           </strong>
@@ -75,12 +80,12 @@ export default function KioskLinkPage() {
         {state === 'picking' && (
           <>
             {events.length === 0 ? (
-              <p style={{ color: '#9ca3af', textAlign: 'center' }}>
+              <p style={{ color: 'var(--text-secondary)', textAlign: 'center' }}>
                 No active events. Create an event first.
               </p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <p style={{ color: '#9ca3af', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
                   Select an event to display on this kiosk:
                 </p>
                 {events.map((event) => (
@@ -93,7 +98,7 @@ export default function KioskLinkPage() {
                       textAlign: 'left',
                       padding: '0.75rem 1rem',
                       background: 'var(--surface-raised)',
-                      border: '1px solid #333',
+                      border: '1px solid var(--border)',
                       borderRadius: '8px',
                       color: 'var(--text)',
                       cursor: 'pointer',
@@ -116,7 +121,7 @@ export default function KioskLinkPage() {
         )}
 
         {state === 'pairing' && (
-          <p style={{ color: '#9ca3af', textAlign: 'center' }}>Pairing...</p>
+          <p style={{ color: 'var(--text-secondary)', textAlign: 'center' }}>Pairing...</p>
         )}
 
         {state === 'success' && (
@@ -124,7 +129,7 @@ export default function KioskLinkPage() {
             <p style={{ color: '#10b981', marginBottom: '1rem', fontSize: '1.125rem' }}>
               Kiosk paired to &quot;{pairedEventName}&quot;
             </p>
-            <p style={{ color: '#9ca3af', fontSize: '0.875rem', marginBottom: '1.5rem' }}>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '1.5rem' }}>
               The kiosk will automatically show the event display.
             </p>
             <a

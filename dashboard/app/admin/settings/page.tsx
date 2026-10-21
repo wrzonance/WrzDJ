@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { api, SystemSettings } from '@/lib/api';
-import { useAdminPage } from '@/lib/useAdminPage';
+import { useAdminPage } from '@/lib/use-admin-page';
 import { HelpSpot } from '@/components/help/HelpSpot';
 import { HelpButton } from '@/components/help/HelpButton';
 import { OnboardingOverlay } from '@/components/help/OnboardingOverlay';

@@ -5,9 +5,10 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, Field, StringConstraints
 
+from app.core.track_ids import valid_isrc
 from app.core.validation import contains_profanity
+from app.models.request import RequestStatus
 from app.schemas.request import RequestSort, SortDirection
-from app.services.track_normalizer import valid_isrc
 
 
 def _check_nickname_profanity(v: str) -> str:
@@ -67,7 +68,7 @@ class CollectLeaderboardRow(BaseModel):
     artwork_url: str | None
     vote_count: int
     nickname: str | None
-    status: Literal["new", "accepted", "playing", "played", "rejected"]
+    status: RequestStatus
     created_at: datetime
     bpm: int | None = None
     musical_key: str | None = None
@@ -167,6 +168,17 @@ class UpdateCollectionSettings(BaseModel):
     tidal_collection_bidirectional: bool | None = None
 
 
+class CollectionSettingsResponse(BaseModel):
+    collection_opens_at: datetime | None
+    live_starts_at: datetime | None
+    submission_cap_per_guest: int
+    collection_phase_override: Literal["force_collection", "force_live"] | None
+    phase: Literal["pre_announce", "collection", "live", "closed"]
+    tidal_sync_enabled: bool
+    tidal_collection_playlist_id: str | None
+    tidal_collection_bidirectional: bool
+
+
 class PendingReviewRow(BaseModel):
     id: int
     song_title: str
@@ -176,7 +188,7 @@ class PendingReviewRow(BaseModel):
     nickname: str | None
     created_at: datetime
     note: str | None
-    status: Literal["new", "accepted", "playing", "played", "rejected"]
+    status: RequestStatus
 
 
 class PendingReviewResponse(BaseModel):

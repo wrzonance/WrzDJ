@@ -1,12 +1,11 @@
 /**
  * View-model types for the energy-curve editor (#389).
  *
- * Track metadata flows from the pool (#388) / two-pass algorithm (#390);
- * until those land, `slotViewFromApi` fills safe defaults so the curve is
- * renderable from the bare Phase 0 slot rows.
+ * Track metadata flows from the pool (#388) and two-pass algorithm (#390).
+ * `slotViewFromApi` still fills safe defaults when bare Phase 0 slot rows omit it.
  */
 
-import type { PoolTrack, SetSlotOut } from '@/lib/api-types';
+import type { PoolTrack, SetSlotOut } from '@/lib/api/types';
 
 export interface TrackView {
   id: string;

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.time import utcnow
 from app.models.search_cache import SearchCache
-from app.services.spotify import search_songs
+from app.services.providers.spotify import search_songs
 
 
 def response(body: dict, status: int = 200) -> Response:
@@ -66,9 +66,9 @@ def spotify_http():
         return responses()
 
     with (
-        patch("app.services.spotify._get_spotify_client", return_value=client),
+        patch("app.services.providers.spotify.get_spotify_client", return_value=client),
         patch.object(client._session, "request", side_effect=request),
-        patch("app.services.spotify.time.sleep"),
+        patch("app.services.providers.spotify.time.sleep"),
     ):
         yield responses, calls
     client._session.close()
@@ -152,8 +152,8 @@ def test_slow_pages_share_the_original_search_time_budget(
         nonlocal elapsed
         elapsed += seconds
 
-    monkeypatch.setattr("app.services.spotify.time.monotonic", lambda: elapsed)
-    monkeypatch.setattr("app.services.spotify.time.sleep", advance_time)
+    monkeypatch.setattr("app.services.providers.spotify.time.monotonic", lambda: elapsed)
+    monkeypatch.setattr("app.services.providers.spotify.time.sleep", advance_time)
     responses.side_effect = next_response
 
     assert search_songs(db, "artist") == []

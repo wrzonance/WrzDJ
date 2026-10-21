@@ -1,4 +1,5 @@
 import type { AuthState } from '../shared/types.js';
+import { readBackendErrorDetail, readJsonBody, withErrorContext } from './backend-errors.js';
 
 export interface LoginResult {
   readonly accessToken: string;
@@ -18,21 +19,24 @@ export async function login(
   formData.append('username', username);
   formData.append('password', password);
 
-  const response = await fetch(`${apiUrl}/api/auth/login`, {
+  const response = await withErrorContext('Login request failed', () => fetch(`${apiUrl}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: formData,
-  });
+  }));
 
   if (!response.ok) {
-    const error: unknown = await response.json().catch(() => null);
-    const detail = error !== null && typeof error === 'object' && 'detail' in error
-      ? error.detail
-      : undefined;
-    throw new Error(typeof detail === 'string' && detail.trim() ? detail : 'Login failed');
+    const detail = await withErrorContext(
+      'Login error response could not be read',
+      () => readBackendErrorDetail(response, 'Login failed'),
+    );
+    throw new Error(detail);
   }
 
-  const data: unknown = await response.json().catch(() => null);
+  const data = await withErrorContext(
+    'Login response could not be read',
+    () => readJsonBody(response),
+  );
   const accessToken =
     data !== null && typeof data === 'object' && 'access_token' in data
       ? data.access_token
@@ -53,45 +57,42 @@ export async function verifyToken(
   apiUrl: string,
   token: string,
 ): Promise<string | null> {
-  try {
-    const response = await fetch(`${apiUrl}/api/auth/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+  const response = await withErrorContext('Token verification unavailable', () => fetch(
+    `${apiUrl}/api/auth/me`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  ));
 
-    if (response.status === 401 || response.status === 403) {
-      return null;
-    }
-    if (!response.ok) {
-      throw new Error(`Token verification failed (${response.status})`);
-    }
-    const data: unknown = await response.json().catch((error: unknown) => {
-      if (error instanceof SyntaxError) return null;
-      throw error;
-    });
-    const username =
-      data !== null && typeof data === 'object' && !Array.isArray(data) && 'username' in data
-        ? data.username
-        : undefined;
-    if (typeof username !== 'string' || username.trim().length === 0) {
-      throw new Error('Token verification returned an invalid username');
-    }
-    return username;
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith('Token verification')) {
-      throw error;
-    }
-    throw new Error('Token verification unavailable', { cause: error });
+  if (response.status === 401 || response.status === 403) {
+    return null;
   }
+  if (!response.ok) {
+    throw new Error(`Token verification failed (${response.status})`);
+  }
+
+  const data = await withErrorContext(
+    'Token verification unavailable',
+    () => readJsonBody(response),
+  );
+  const username =
+    data !== null && typeof data === 'object' && !Array.isArray(data) && 'username' in data
+      ? data.username
+      : undefined;
+  if (typeof username !== 'string' || username.trim().length === 0) {
+    throw new Error('Token verification returned an invalid username');
+  }
+  return username;
 }
 
 /** Build an AuthState object */
 export function buildAuthState(
   apiUrl: string,
   username: string | null,
+  verificationError: string | null = null,
 ): AuthState {
   return {
     isAuthenticated: username !== null,
     username,
     apiUrl,
+    verificationError,
   };
 }

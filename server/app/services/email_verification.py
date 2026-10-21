@@ -163,7 +163,7 @@ def confirm_verification_code(
     existing = db.query(Guest).filter(Guest.email_hash == eh, Guest.id != guest_id).first()
 
     if existing:
-        from app.services.guest_merge import merge_guests
+        from app.services.guests.merge import merge_guests
 
         merge_result = merge_guests(db, source_guest_id=guest_id, target_guest_id=existing.id)
         db.commit()

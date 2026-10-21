@@ -359,7 +359,8 @@ class TestUnsetDefault:
         db.refresh(theirs)
         assert theirs.is_default is True
 
-    def test_unset_falls_back_to_mru_on_next_dispatch(
+    @pytest.mark.asyncio
+    async def test_unset_falls_back_to_mru_on_next_dispatch(
         self, client: TestClient, auth_headers, db, test_user
     ):
         """Acceptance criterion: unsetting falls back to MRU."""
@@ -378,8 +379,6 @@ class TestUnsetDefault:
         assert pinned.is_default is False
 
         # After unsetting, gateway picks the MRU.
-        import asyncio
-
         fake = ChatResponse(text="mru-served", tool_calls=[], stop_reason="end_turn", usage=None)
         with patch.object(
             __import__(
@@ -389,13 +388,11 @@ class TestUnsetDefault:
             "chat",
             new=AsyncMock(return_value=fake),
         ):
-            resp = asyncio.run(
-                Gateway.dispatch(
-                    db,
-                    test_user,
-                    ChatRequest(messages=[Message(role="user", content="hi")]),
-                    purpose="test",
-                )
+            resp = await Gateway.dispatch(
+                db,
+                test_user,
+                ChatRequest(messages=[Message(role="user", content="hi")]),
+                purpose="test",
             )
 
         assert resp.text == "mru-served"

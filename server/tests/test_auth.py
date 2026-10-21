@@ -1,8 +1,32 @@
 """Tests for authentication endpoints."""
 
+from datetime import timedelta
+from types import SimpleNamespace
+from unittest.mock import patch
+
 from fastapi.testclient import TestClient
 
 from app.models.user import User
+from app.services.auth import create_access_token, decode_token
+
+
+def test_token_operations_read_current_settings():
+    first_secret = "first-test-secret-for-settings-rotation" + "a" * 16
+    rotated_secret = "rotated-test-secret-for-settings-rotation" + "b" * 16
+    assert len(first_secret.encode()) >= 32
+    assert len(rotated_secret.encode()) >= 32
+
+    with patch(
+        "app.services.auth.get_settings",
+        return_value=SimpleNamespace(jwt_secret=first_secret, jwt_expire_minutes=60),
+    ):
+        token = create_access_token({"sub": "dj", "tv": 1}, timedelta(minutes=5))
+
+    with patch(
+        "app.services.auth.get_settings",
+        return_value=SimpleNamespace(jwt_secret=rotated_secret, jwt_expire_minutes=60),
+    ):
+        assert decode_token(token) is None
 
 
 class TestLogin:

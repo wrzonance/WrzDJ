@@ -33,6 +33,27 @@ def log_activity(
     return entry
 
 
+def log_activity_in_fresh_session(
+    level: str,
+    source: str,
+    message: str,
+    event_code: str | None = None,
+    user_id: int | None = None,
+) -> ActivityLog:
+    """Persist activity in an isolated session, separate from caller work."""
+    from app.db.session import SessionLocal
+
+    with SessionLocal() as activity_db:
+        return log_activity(
+            activity_db,
+            level,
+            source,
+            message,
+            event_code=event_code,
+            user_id=user_id,
+        )
+
+
 def get_recent_activity(
     db: Session,
     limit: int = 50,

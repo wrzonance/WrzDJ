@@ -3,13 +3,13 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from app.services.recommendation.enrichment import (
-    enrich_event_tracks,
+from app.services.recommendation.enrichment import enrich_event_tracks
+from app.services.tracks.enrichment import (
     enrich_from_beatport,
     enrich_from_tidal,
     enrich_track,
 )
-from app.services.recommendation.scorer import TrackProfile
+from app.services.tracks.profile import TrackProfile
 
 
 def _make_user(tidal=True, beatport=True):
@@ -35,7 +35,7 @@ def _make_tidal_track(name="Test Track", artist_name="Test Artist", bpm=128, key
 
 
 class TestEnrichFromTidal:
-    @patch("app.services.recommendation.enrichment.get_tidal_session")
+    @patch("app.services.tracks.enrichment.get_tidal_session")
     def test_returns_profile_on_match(self, mock_session):
         session = MagicMock()
         track = _make_tidal_track()
@@ -51,14 +51,14 @@ class TestEnrichFromTidal:
         assert result.bpm == 128.0
         assert result.track_id == "12345"
 
-    @patch("app.services.recommendation.enrichment.get_tidal_session")
+    @patch("app.services.tracks.enrichment.get_tidal_session")
     def test_returns_none_when_no_session(self, mock_session):
         mock_session.return_value = None
         db = MagicMock()
         user = _make_user()
         assert enrich_from_tidal(db, user, "T", "A") is None
 
-    @patch("app.services.recommendation.enrichment.get_tidal_session")
+    @patch("app.services.tracks.enrichment.get_tidal_session")
     def test_returns_none_on_no_results(self, mock_session):
         session = MagicMock()
         session.search.return_value = {"tracks": []}
@@ -67,7 +67,7 @@ class TestEnrichFromTidal:
         user = _make_user()
         assert enrich_from_tidal(db, user, "Nonexistent", "Nobody") is None
 
-    @patch("app.services.recommendation.enrichment.get_tidal_session")
+    @patch("app.services.tracks.enrichment.get_tidal_session")
     def test_handles_missing_bpm(self, mock_session):
         session = MagicMock()
         track = _make_tidal_track(bpm=None)
@@ -80,7 +80,7 @@ class TestEnrichFromTidal:
         assert result is not None
         assert result.bpm is None
 
-    @patch("app.services.recommendation.enrichment.get_tidal_session")
+    @patch("app.services.tracks.enrichment.get_tidal_session")
     def test_handles_exception(self, mock_session):
         session = MagicMock()
         session.search.side_effect = Exception("API error")
@@ -91,7 +91,7 @@ class TestEnrichFromTidal:
 
 
 class TestEnrichFromBeatport:
-    @patch("app.services.recommendation.enrichment.search_beatport_tracks")
+    @patch("app.services.tracks.enrichment.search_beatport_tracks")
     def test_returns_profile_on_match(self, mock_search):
         from app.schemas.beatport import BeatportSearchResult
 
@@ -112,20 +112,27 @@ class TestEnrichFromBeatport:
         user = _make_user()
 
         result = enrich_from_beatport(db, user, "Test Track", "Test Artist")
-        assert result is not None
-        assert result.source == "beatport"
-        assert result.bpm == 126.0
-        assert result.genre == "Tech House"
-        assert result.key == "8A"
+        assert result == TrackProfile(
+            title="Test Track",
+            artist="Test Artist",
+            bpm=126.0,
+            key="8A",
+            genre="Tech House",
+            source="beatport",
+            track_id="999",
+            url="https://beatport.com/track/test/999",
+            cover_url="https://bp.com/cover.jpg",
+            duration_seconds=360,
+        )
 
-    @patch("app.services.recommendation.enrichment.search_beatport_tracks")
+    @patch("app.services.tracks.enrichment.search_beatport_tracks")
     def test_returns_none_on_no_results(self, mock_search):
         mock_search.return_value = []
         db = MagicMock()
         user = _make_user()
         assert enrich_from_beatport(db, user, "T", "A") is None
 
-    @patch("app.services.recommendation.enrichment.search_beatport_tracks")
+    @patch("app.services.tracks.enrichment.search_beatport_tracks")
     def test_returns_none_on_low_match(self, mock_search):
         from app.schemas.beatport import BeatportSearchResult
 
@@ -142,8 +149,8 @@ class TestEnrichFromBeatport:
 
 
 class TestEnrichTrack:
-    @patch("app.services.recommendation.enrichment.enrich_from_beatport")
-    @patch("app.services.recommendation.enrichment.enrich_from_tidal")
+    @patch("app.services.tracks.enrichment.enrich_from_beatport")
+    @patch("app.services.tracks.enrichment.enrich_from_tidal")
     def test_merges_both_sources(self, mock_tidal, mock_bp):
         mock_bp.return_value = TrackProfile(
             title="Track", artist="Artist", bpm=128.0, key=None, genre="House", source="beatport"
@@ -164,8 +171,8 @@ class TestEnrichTrack:
         assert result.key == "8A"  # Filled from Tidal
         assert result.genre == "House"  # From Beatport
 
-    @patch("app.services.recommendation.enrichment.enrich_from_beatport")
-    @patch("app.services.recommendation.enrichment.enrich_from_tidal")
+    @patch("app.services.tracks.enrichment.enrich_from_beatport")
+    @patch("app.services.tracks.enrichment.enrich_from_tidal")
     def test_beatport_only(self, mock_tidal, mock_bp):
         mock_bp.return_value = TrackProfile(
             title="Track", artist="Artist", bpm=128.0, genre="Techno", source="beatport"
@@ -178,8 +185,8 @@ class TestEnrichTrack:
         assert result.source == "beatport"
         assert result.bpm == 128.0
 
-    @patch("app.services.recommendation.enrichment.enrich_from_beatport")
-    @patch("app.services.recommendation.enrichment.enrich_from_tidal")
+    @patch("app.services.tracks.enrichment.enrich_from_beatport")
+    @patch("app.services.tracks.enrichment.enrich_from_tidal")
     def test_tidal_only(self, mock_tidal, mock_bp):
         mock_bp.return_value = None
         mock_tidal.return_value = TrackProfile(
@@ -192,8 +199,8 @@ class TestEnrichTrack:
         assert result.source == "tidal"
         assert result.bpm == 130.0
 
-    @patch("app.services.recommendation.enrichment.enrich_from_beatport")
-    @patch("app.services.recommendation.enrichment.enrich_from_tidal")
+    @patch("app.services.tracks.enrichment.enrich_from_beatport")
+    @patch("app.services.tracks.enrichment.enrich_from_tidal")
     def test_neither_service(self, mock_tidal, mock_bp):
         mock_bp.return_value = None
         mock_tidal.return_value = None
@@ -209,8 +216,8 @@ class TestEnrichTrack:
         db = MagicMock()
         user = _make_user(beatport=False, tidal=False)
         with (
-            patch("app.services.recommendation.enrichment.enrich_from_beatport") as mock_bp,
-            patch("app.services.recommendation.enrichment.enrich_from_tidal") as mock_tidal,
+            patch("app.services.tracks.enrichment.enrich_from_beatport") as mock_bp,
+            patch("app.services.tracks.enrichment.enrich_from_tidal") as mock_tidal,
         ):
             mock_bp.return_value = None
             mock_tidal.return_value = None
@@ -390,7 +397,7 @@ class TestEnrichEventTracks:
 class TestEnrichVersionPreference:
     """Tests for original-preference scoring in enrichment functions."""
 
-    @patch("app.services.recommendation.enrichment.search_beatport_tracks")
+    @patch("app.services.tracks.enrichment.search_beatport_tracks")
     def test_beatport_prefers_original_over_remix(self, mock_search):
         """Beatport enrichment prefers Original Mix over remix for non-remix queries."""
         from app.schemas.beatport import BeatportSearchResult
@@ -420,7 +427,7 @@ class TestEnrichVersionPreference:
         assert result is not None
         assert result.bpm == 132.0  # Original Mix, not Hardstyle Remix's 165
 
-    @patch("app.services.recommendation.enrichment.get_tidal_session")
+    @patch("app.services.tracks.enrichment.get_tidal_session")
     def test_tidal_penalizes_remix_for_original_query(self, mock_session):
         """Tidal enrichment penalizes remix results when searching for an original."""
         session = MagicMock()
@@ -435,3 +442,26 @@ class TestEnrichVersionPreference:
         result = enrich_from_tidal(db, user, "Surrender", "Darude")
         assert result is not None
         assert result.bpm == 132.0  # Original, not remix's 165
+
+    @patch("app.services.tracks.enrichment.get_tidal_session")
+    def test_artwork_failure_keeps_metadata_and_logs_only_exception_class(
+        self, mock_session, caplog
+    ):
+        # Regression: 57cfcdc6867f silently swallowed unexpected artwork failures.
+        session = MagicMock()
+        track = _make_tidal_track(name="Private Track", artist_name="Private Artist")
+        track.album.image.side_effect = RuntimeError("https://private.example/artwork?token=secret")
+        session.search.return_value = {"tracks": [track]}
+        mock_session.return_value = session
+
+        result = enrich_from_tidal(MagicMock(), _make_user(), "Private Track", "Private Artist")
+
+        assert result is not None
+        assert result.title == "Private Track"
+        assert result.cover_url is None
+        artwork_logs = [
+            record for record in caplog.records if record.name == "app.services.tracks.enrichment"
+        ]
+        assert [record.getMessage() for record in artwork_logs] == [
+            "Tidal artwork lookup failed: RuntimeError"
+        ]

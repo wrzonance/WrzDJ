@@ -2361,15 +2361,7 @@
             "type": "boolean"
           },
           "status": {
-            "enum": [
-              "new",
-              "accepted",
-              "playing",
-              "played",
-              "rejected"
-            ],
-            "title": "Status",
-            "type": "string"
+            "$ref": "#/components/schemas/RequestStatus"
           },
           "title": {
             "title": "Title",
@@ -2481,15 +2473,7 @@
             "type": "boolean"
           },
           "status": {
-            "enum": [
-              "new",
-              "accepted",
-              "playing",
-              "played",
-              "rejected"
-            ],
-            "title": "Status",
-            "type": "string"
+            "$ref": "#/components/schemas/RequestStatus"
           },
           "title": {
             "title": "Title",
@@ -2757,6 +2741,94 @@
         "title": "CollectVoteRequest",
         "type": "object"
       },
+      "CollectionSettingsResponse": {
+        "properties": {
+          "collection_opens_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection Opens At"
+          },
+          "collection_phase_override": {
+            "anyOf": [
+              {
+                "enum": [
+                  "force_collection",
+                  "force_live"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection Phase Override"
+          },
+          "live_starts_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live Starts At"
+          },
+          "phase": {
+            "enum": [
+              "pre_announce",
+              "collection",
+              "live",
+              "closed"
+            ],
+            "title": "Phase",
+            "type": "string"
+          },
+          "submission_cap_per_guest": {
+            "title": "Submission Cap Per Guest",
+            "type": "integer"
+          },
+          "tidal_collection_bidirectional": {
+            "title": "Tidal Collection Bidirectional",
+            "type": "boolean"
+          },
+          "tidal_collection_playlist_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tidal Collection Playlist Id"
+          },
+          "tidal_sync_enabled": {
+            "title": "Tidal Sync Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "collection_opens_at",
+          "collection_phase_override",
+          "live_starts_at",
+          "phase",
+          "submission_cap_per_guest",
+          "tidal_collection_bidirectional",
+          "tidal_collection_playlist_id",
+          "tidal_sync_enabled"
+        ],
+        "title": "CollectionSettingsResponse",
+        "type": "object"
+      },
       "CommunityVibeOut": {
         "description": "Community consensus tier (gated by SystemSettings thresholds).",
         "properties": {
@@ -2796,7 +2868,7 @@
         "type": "object"
       },
       "ConnectorCreate": {
-        "description": "Provider-agnostic create payload.\n\nField requirements vary by ``connector_type``:\n\n- ``openai_apikey`` / ``anthropic_apikey`` / ``openrouter_apikey`` /\n  ``xai_apikey`` / ``gemini_apikey``: ``api_key`` required; ``base_url``\n  and ``bearer`` are ignored.\n- ``openai_compatible``: ``base_url`` required; ``bearer`` optional;\n  ``api_key`` is ignored.\n- ``bedrock``: ``aws_access_key_id``, ``aws_secret_access_key``,\n  ``aws_region`` and ``aws_model_id`` required; other fields ignored.\n- ``azure_openai``: ``api_key``, ``azure_resource_name``,\n  ``azure_deployment_name`` and ``azure_api_version`` all required.\n\nThe combination is enforced by :meth:`_require_credentials_for_type`.\nSee ``build_create_payload`` in ``services/llm/connector_storage.py``\nfor the full validation flow (including key shape checks).",
+        "description": "Provider-agnostic create payload.\n\nField requirements vary by ``connector_type``:\n\n- ``openai_apikey`` / ``anthropic_apikey`` / ``openrouter_apikey`` /\n  ``xai_apikey`` / ``gemini_apikey``: ``api_key`` required; ``base_url``\n  and ``bearer`` are ignored.\n- ``openai_compatible``: ``base_url`` required; ``bearer`` optional;\n  ``api_key`` is ignored.\n- ``bedrock``: ``aws_access_key_id``, ``aws_secret_access_key``,\n  ``aws_region`` and ``aws_model_id`` required; other fields ignored.\n- ``azure_openai``: ``api_key``, ``azure_resource_name``,\n  ``azure_deployment_name`` and ``azure_api_version`` all required.\n\nThe combination is enforced by :meth:`_require_credentials_for_type`.\nSee ``build_create_payload`` in ``services/llm/connector_payloads.py``\nfor the full validation flow (including key shape checks).",
         "properties": {
           "api_key": {
             "anyOf": [
@@ -2959,7 +3031,8 @@
         "type": "object"
       },
       "ConnectorCredentialsRotate": {
-        "description": "Rotation payload \u2014 at least one credential field must be supplied.\n\nField semantics mirror :class:`ConnectorCreate`. The actual field required\ndepends on the connector being rotated (validated in ``rotate_credentials``).",
+        "additionalProperties": false,
+        "description": "Rotation payload \u2014 at least one credential field must be supplied.\n\nField semantics mirror :class:`ConnectorCreate`. The actual field required\ndepends on the connector being rotated (validated by connector payload builders).",
         "properties": {
           "api_key": {
             "anyOf": [
@@ -5515,6 +5588,115 @@
         "title": "LLMPromptRequest",
         "type": "object"
       },
+      "LLMQueryInfo": {
+        "properties": {
+          "reasoning": {
+            "default": "",
+            "title": "Reasoning",
+            "type": "string"
+          },
+          "search_query": {
+            "title": "Search Query",
+            "type": "string"
+          },
+          "target_bpm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Bpm"
+          },
+          "target_genre": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Genre"
+          },
+          "target_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Key"
+          }
+        },
+        "required": [
+          "reasoning",
+          "search_query",
+          "target_bpm",
+          "target_genre",
+          "target_key"
+        ],
+        "title": "LLMQueryInfo",
+        "type": "object"
+      },
+      "LLMRecommendationResponse": {
+        "properties": {
+          "llm_available": {
+            "default": true,
+            "title": "Llm Available",
+            "type": "boolean"
+          },
+          "llm_model": {
+            "default": "",
+            "title": "Llm Model",
+            "type": "string"
+          },
+          "llm_queries": {
+            "items": {
+              "$ref": "#/components/schemas/LLMQueryInfo"
+            },
+            "title": "Llm Queries",
+            "type": "array"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/EventMusicProfile"
+          },
+          "services_used": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Services Used",
+            "type": "array"
+          },
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/RecommendedTrack"
+            },
+            "title": "Suggestions",
+            "type": "array"
+          },
+          "total_candidates_searched": {
+            "default": 0,
+            "title": "Total Candidates Searched",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "llm_available",
+          "llm_model",
+          "llm_queries",
+          "profile",
+          "services_used",
+          "suggestions",
+          "total_candidates_searched"
+        ],
+        "title": "LLMRecommendationResponse",
+        "type": "object"
+      },
       "LiveJoinCodeResponse": {
         "description": "Returns the live join_code for an event that has entered the live phase.\n\nGated by require_verified_human so the join_code never leaks to unverified\nbots scraping the collect URL during the collection-to-live transition.",
         "properties": {
@@ -5677,15 +5859,7 @@
             "type": "integer"
           },
           "status": {
-            "enum": [
-              "new",
-              "accepted",
-              "playing",
-              "played",
-              "rejected"
-            ],
-            "title": "Status",
-            "type": "string"
+            "$ref": "#/components/schemas/RequestStatus"
           },
           "title": {
             "title": "Title",
@@ -6271,15 +6445,7 @@
             "type": "string"
           },
           "status": {
-            "enum": [
-              "new",
-              "accepted",
-              "playing",
-              "played",
-              "rejected"
-            ],
-            "title": "Status",
-            "type": "string"
+            "$ref": "#/components/schemas/RequestStatus"
           },
           "vote_count": {
             "title": "Vote Count",
@@ -6649,6 +6815,22 @@
           "source"
         ],
         "title": "PlaylistInfo",
+        "type": "object"
+      },
+      "PlaylistListResponse": {
+        "properties": {
+          "playlists": {
+            "items": {
+              "$ref": "#/components/schemas/PlaylistInfo"
+            },
+            "title": "Playlists",
+            "type": "array"
+          }
+        },
+        "required": [
+          "playlists"
+        ],
+        "title": "PlaylistListResponse",
         "type": "object"
       },
       "PoolCoverageOut": {
@@ -13343,11 +13525,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Disconnect Account Api Apple Music Disconnect Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/StatusMessageResponse"
                 }
               }
             },
@@ -15066,9 +15244,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Collection Settings Api Events  Code  Collection Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/CollectionSettingsResponse"
                 }
               }
             },
@@ -15124,9 +15300,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Update Collection Settings Endpoint Api Events  Code  Collection Patch",
-                  "type": "object"
+                  "$ref": "#/components/schemas/CollectionSettingsResponse"
                 }
               }
             },
@@ -15173,7 +15347,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "title": "Response Sync Collection To Tidal Api Events  Code  Collection Sync Tidal Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -15323,7 +15503,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "title": "Response Enrich All Requests Api Events  Code  Enrich All Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -15592,7 +15778,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PlaylistListResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -15754,7 +15942,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/LLMRecommendationResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -17689,7 +17879,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Vote Api Public Collect  Code  Vote Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -18134,7 +18330,7 @@
     },
     "/api/public/events/{code}/stream": {
       "get": {
-        "description": "Public SSE endpoint for real-time event updates.\n\nSECURITY (CRIT-5): rate-limited and existence-checked. Before this fix,\nthe endpoint had no rate limit and no existence check, allowing\nunauthenticated DoS (unlimited long-lived connections exhausting FDs)\nand passive eavesdropping via 6-char event-code brute force.\n\nPOOL SAFETY (issue #356): the one-shot existence/auth check runs inside a\nshort-lived ``with SessionLocal()`` block whose pooled connection is\nreturned BEFORE the EventSourceResponse is returned. An EventSource\nconnection can stay open indefinitely, so we must NOT hold a\nrequest-scoped ``get_db`` session across the stream lifetime \u2014 doing so\npinned one pooled connection per open stream and exhausted the QueuePool\n(size 5 + overflow 10 = 15 connections) under modest guest load.\n\nEvent types:\n- request_created: New request submitted\n- request_status_changed: Request status update\n- now_playing_changed: Now-playing track update\n- requests_bulk_update: Batch accept/reject\n- bridge_status_changed: Bridge connect/disconnect",
+        "description": "Public SSE endpoint for real-time event updates.\n\nSECURITY (CRIT-5): rate-limited and existence-checked. Before this fix,\nthe endpoint had no rate limit and no existence check, allowing\nunauthenticated DoS (unlimited long-lived connections exhausting FDs)\nand passive eavesdropping via 6-char event-code brute force.\n\nPOOL SAFETY (issue #356): the one-shot existence/auth check runs inside a\nshort-lived ``with SessionLocal()`` block whose pooled connection is\nreturned BEFORE the EventSourceResponse is returned. An EventSource\nconnection can stay open indefinitely, so we must NOT hold a\nrequest-scoped ``get_db`` session across the stream lifetime \u2014 doing so\npinned one pooled connection per open stream and exhausted the QueuePool\n(size 5 + overflow 10 = 15 connections) under modest guest load.\n\nThis route stays synchronous so FastAPI dispatches the synchronous SQLAlchemy\nlookup to its worker threadpool. The long-lived stream body remains async.\n\nEvent types:\n- request_created: New request submitted\n- request_status_changed: Request status update\n- now_playing_changed: Now-playing track update\n- requests_bulk_update: Batch accept/reject\n- bridge_status_changed: Bridge connect/disconnect",
         "operationId": "event_stream_api_public_events__code__stream_get",
         "parameters": [
           {
@@ -22307,11 +22503,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Disconnect Account Api Spotify Disconnect Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/StatusMessageResponse"
                 }
               }
             },
@@ -22683,6 +22875,7 @@
             "name": "q",
             "required": true,
             "schema": {
+              "maxLength": 200,
               "minLength": 1,
               "title": "Q",
               "type": "string"

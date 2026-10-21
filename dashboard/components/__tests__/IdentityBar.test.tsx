@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 vi.mock('../../lib/api', () => ({
-  apiClient: {
+  api: {
     requestVerificationCode: vi.fn(),
     confirmVerificationCode: vi.fn(),
   },
@@ -15,7 +15,7 @@ vi.mock('../../lib/turnstile', () => ({
 }));
 
 import { IdentityBar } from '../IdentityBar';
-import { apiClient } from '../../lib/api';
+import { api } from '../../lib/api';
 
 describe('IdentityBar', () => {
   it('shows nickname', () => {
@@ -57,8 +57,8 @@ describe('IdentityBar', () => {
   it('calls onVerified prop when email verification succeeds', async () => {
     const onVerified = vi.fn();
     // Mock the full OTP flow
-    (apiClient as any).requestVerificationCode = vi.fn().mockResolvedValue({ sent: true });
-    (apiClient as any).confirmVerificationCode = vi.fn().mockResolvedValue({
+    (api as any).requestVerificationCode = vi.fn().mockResolvedValue({ sent: true });
+    (api as any).confirmVerificationCode = vi.fn().mockResolvedValue({
       verified: true, guest_id: 1, merged: false,
     });
 

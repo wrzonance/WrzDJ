@@ -13,7 +13,7 @@ import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from app.services.recommendation.camelot import compatibility_score, parse_key
+from app.services.music_matching import compatibility_score, parse_key
 
 # ---------------------------------------------------------------------------
 # Weights

@@ -17,8 +17,8 @@ works across result shapes: Beatport/search results expose ``.title``/``.artist`
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Callable, Sequence
+from typing import TypeVar, cast
 
 from app.services.track_normalizer import (
     artist_match_score,
@@ -29,29 +29,38 @@ from app.services.track_normalizer import (
 )
 
 logger = logging.getLogger(__name__)
+T = TypeVar("T")
 
 
-def _default_bpm(result: Any) -> float | None:
-    return getattr(result, "bpm", None)
+def _default_title(result: T) -> str:
+    return cast(str, getattr(result, "title"))
 
 
-def _default_mix_name(result: Any) -> str | None:
-    return getattr(result, "mix_name", None)
+def _default_artist(result: T) -> str:
+    return cast(str, getattr(result, "artist"))
+
+
+def _default_bpm(result: T) -> float | None:
+    return cast(float | None, getattr(result, "bpm", None))
+
+
+def _default_mix_name(result: T) -> str | None:
+    return cast(str | None, getattr(result, "mix_name", None))
 
 
 def find_best_match(
-    results,
+    results: Sequence[T],
     title: str,
     artist: str,
     *,
     min_score: float = 0.4,
     min_artist_score: float = 0.35,
     prefer_original: bool = True,
-    get_title: Callable[[Any], str] = lambda r: r.title,
-    get_artist: Callable[[Any], str] = lambda r: r.artist,
-    get_bpm: Callable[[Any], float | None] = _default_bpm,
-    get_mix_name: Callable[[Any], str | None] = _default_mix_name,
-):
+    get_title: Callable[[T], str] = _default_title,
+    get_artist: Callable[[T], str] = _default_artist,
+    get_bpm: Callable[[T], float | None] = _default_bpm,
+    get_mix_name: Callable[[T], str | None] = _default_mix_name,
+) -> T | None:
     """Return the best fuzzy match from ``results`` for the (title, artist) query.
 
     Scores each result by title (60%) + artist (40%) similarity and returns the
@@ -90,7 +99,7 @@ def find_best_match(
         if bpm:
             rounded = round(float(bpm))
             bpm_counts[rounded] = bpm_counts.get(rounded, 0) + 1
-    modal_bpm = max(bpm_counts, key=bpm_counts.get) if bpm_counts else None
+    modal_bpm = max(bpm_counts, key=lambda bpm: bpm_counts[bpm]) if bpm_counts else None
 
     best = None
     best_score = 0.0

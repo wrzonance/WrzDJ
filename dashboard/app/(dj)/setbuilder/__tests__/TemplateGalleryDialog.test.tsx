@@ -1,7 +1,7 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import TemplateGalleryDialog from '../TemplateGalleryDialog';
-import type { SetDetail, SetTemplate } from '@/lib/api-types';
+import type { SetDetail, SetTemplate } from '@/lib/api/types';
 
 const mockListSetTemplates = vi.fn();
 const mockInstantiateSetTemplate = vi.fn();

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import TargetEditor from '../components/TargetEditor';
-import { projectTarget } from '../components/targetMath';
+import { projectTarget } from '../components/curve/targetMath';
 import type { SlotView } from '../components/types';
 
 const slots: SlotView[] = [

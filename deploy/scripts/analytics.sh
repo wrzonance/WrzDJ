@@ -16,8 +16,8 @@ set -euo pipefail
 #   analytics.sh --app --errors
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GOACCESS_CONF="$SCRIPT_DIR/../nginx/goaccess.conf"
-LOG_DIR="/var/log/nginx"
+GOACCESS_CONF="${WRZDJ_ANALYTICS_CONFIG:-$SCRIPT_DIR/../nginx/goaccess.conf}"
+LOG_DIR="${WRZDJ_ANALYTICS_LOG_DIR:-/var/log/nginx}"
 
 # Defaults
 LOG_FILE=""
@@ -25,8 +25,10 @@ HTML_MODE=false
 HTML_PATH="/tmp/wrzdj-analytics.html"
 ERRORS_ONLY=false
 DOMAIN_FILTER=""
+SELECTOR_SET=false
 
 usage() {
+  local status="${1:-0}"
   cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
 
@@ -45,22 +47,35 @@ Examples:
   $(basename "$0") --scanners              # Scanner traffic
   $(basename "$0") --api --html /tmp/a.html # Custom output path
 EOF
-  exit 0
+  exit "$status"
+}
+
+set_log_selector() {
+  local selector="$1"
+  if $SELECTOR_SET; then
+    echo "Only one log source may be selected (--api, --app, or --scanners)" >&2
+    usage 2
+  fi
+  SELECTOR_SET=true
+  case "$selector" in
+    api|app) DOMAIN_FILTER="$selector" ;;
+    scanners) LOG_FILE="$LOG_DIR/default.access.log" ;;
+  esac
 }
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --api)
-      DOMAIN_FILTER="api"
+      set_log_selector api
       shift
       ;;
     --app)
-      DOMAIN_FILTER="app"
+      set_log_selector app
       shift
       ;;
     --scanners)
-      LOG_FILE="$LOG_DIR/default.access.log"
+      set_log_selector scanners
       shift
       ;;
     --errors)
@@ -69,8 +84,9 @@ while [[ $# -gt 0 ]]; do
       ;;
     --html)
       HTML_MODE=true
-      # Check if next arg is a path (not another flag)
-      if [[ ${2:-} && ! ${2:-} == --* ]]; then
+      # Treat any dash-prefixed token as an option, including the short -h alias.
+      # Use ./-name when an output filename starts with a dash.
+      if [[ ${2:-} && ! ${2:-} == -* ]]; then
         HTML_PATH="$2"
         shift
       fi
@@ -81,7 +97,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown option: $1" >&2
-      usage
+      usage 2
       ;;
   esac
 done
@@ -90,7 +106,7 @@ done
 if [[ -z "$LOG_FILE" && -n "$DOMAIN_FILTER" ]]; then
   # Find the matching log file (e.g., api.wrzdj.com.access.log)
   MATCHES=()
-  for f in "$LOG_DIR"/${DOMAIN_FILTER}.*.access.log; do
+  for f in "$LOG_DIR"/"${DOMAIN_FILTER}".*.access.log; do
     [[ -f "$f" ]] && MATCHES+=("$f")
   done
 

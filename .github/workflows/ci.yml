@@ -61,28 +61,7 @@ jobs:
         run: bandit -r app -c pyproject.toml
 
       - name: Dependency audit with pip-audit
-        # Ignored CVEs (each requires explicit justification + revisit cadence):
-        #   CVE-2024-23342 (ecdsa timing attack) - transitive from python-jose, no fix released yet
-        #   CVE-2026-3219  (pip 26.x: concatenated tar/ZIP handling, CVSS 4.6 MEDIUM) -
-        #                  affects pip the build tool, not runtime deps. Our CI installs from
-        #                  pinned requirements only; no untrusted-source install path. Fix is
-        #                  in pip PR #13870; revisit when GitHub Actions ships a patched pip.
-        #   CVE-2026-6357  (pip 26.x: PATH handling) - same class as above; affects pip the
-        #                  build tool only, not runtime deps. Revisit when GHA upgrades pip.
-        #   PYSEC-2025-183 (pyjwt 2.10.1+ weak encryption, DISPUTED) - no fix released, the
-        #                  pyjwt maintainers contest the advisory. We already pin pyjwt to the
-        #                  latest available (2.12.1). Revisit when an upstream fix lands.
-        #   MAL-2026-4750  (fastapi 0.136.3 "malicious code", WITHDRAWN by OSV 2026-05-26) -
-        #                  False positive. 0.136.3 is an official tiangolo release; the flagged
-        #                  dependency 'fastar' is a legitimate Rust-tar-bindings package
-        #                  (published Oct 2025, predates the release) and is pulled ONLY via
-        #                  fastapi's [standard] extra, which we do NOT install (we use plain
-        #                  fastapi + uvicorn[standard]) - so it never enters our dependency tree.
-        #                  We deliberately stay on 0.136.3 for its underscore-header rejection
-        #                  (PR #15589) and SSE field validation (PR #15588). OSV withdrew the
-        #                  advisory; pip-audit's feed still serves it. REMOVE this ignore once
-        #                  the withdrawn entry is purged from the feed.
-        run: pip-audit --ignore-vuln CVE-2024-23342 --ignore-vuln CVE-2026-3219 --ignore-vuln CVE-2026-6357 --ignore-vuln PYSEC-2025-183 --ignore-vuln MAL-2026-4750
+        run: pip-audit
 
       - name: Run tests with coverage
         env:
@@ -147,11 +126,22 @@ jobs:
       - name: Run tests with coverage
         run: npm test -- --run --coverage
 
+      - name: Install Chromium for browser smoke tests
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser smoke tests
+        run: npm run test:e2e:smoke
+
       - name: Test the npm audit gate
         run: node --test ../scripts/npm-audit-gate.test.cjs
 
       - name: Test dependency reporting shell safety
         run: node --test ../scripts/dependency-health.test.cjs
+
+      - name: Test screenshot tools and Git hook setup
+        run: |
+          bash ../scripts/test-screenshot-tools.sh
+          bash ../scripts/test-setup-hooks.sh
 
       - name: Security audit
         # Blocking: high/critical advisories fail unless .npm-audit-ignore.json
@@ -280,8 +270,20 @@ jobs:
       - name: Install test dependencies
         run: pip install pytest
 
+      - name: Set up Node.js for portal client tests
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+
       - name: Run tests
-        run: python -m pytest test_portal.py -q
+        run: python -m pytest -q
+
+      - name: Test kiosk setup and login workflows
+        working-directory: .
+        run: |
+          for test in kiosk/tests/test_*.sh; do
+            bash "$test"
+          done
 
   docker-build:
     name: Docker Build Smoke Test
@@ -370,5 +372,8 @@ jobs:
       - name: Test development proxy runtime
         run: bash scripts/test-proxy-image.sh wrzdj-proxy:smoke
 
-      - name: Test production nginx provisioning
-        run: bash deploy/tests/test_setup_nginx.sh
+      - name: Run deploy regression tests
+        run: |
+          for test in deploy/tests/test_*.sh; do
+            bash "$test"
+          done

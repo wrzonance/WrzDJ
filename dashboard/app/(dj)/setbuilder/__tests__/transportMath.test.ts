@@ -6,7 +6,7 @@ import {
   slotIndexAtPosition,
   slotStartSec,
   totalDuration,
-} from '../components/transportMath';
+} from '../components/timeline/transportMath';
 import type { SlotView } from '../components/types';
 
 function slot(idx: number, durationSec: number): SlotView {

@@ -38,17 +38,14 @@ export function App() {
   // so changing selection mid-run can't display a different event's join code.
   const displayJoinCode = runningJoinCode(selectedEvent, bridgeStatus.eventCode);
 
-  // Loading state
   if (loading && !authState.isAuthenticated) {
     return <div className="loading">Loading...</div>;
   }
 
-  // Not authenticated - show login
   if (!authState.isAuthenticated) {
     return <LoginForm onLogin={login} error={error} loading={loading} />;
   }
 
-  // Authenticated - show main UI
   return (
     <div className="app">
       {pingVisible && (

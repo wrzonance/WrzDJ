@@ -131,9 +131,9 @@ class TestPreflight:
     ):
         _seed_pool(db, set_id)
         _connect_tidal(db, test_user)
-        monkeypatch.setattr("app.services.tidal.search_tidal_by_isrc", lambda *a: None)
+        monkeypatch.setattr("app.services.providers.tidal.search_tidal_by_isrc", lambda *a: None)
         monkeypatch.setattr(
-            "app.services.tidal.search_tidal_tracks", lambda db_, u, q, limit=10: []
+            "app.services.providers.tidal.search_tidal_tracks", lambda db_, u, q, limit=10: []
         )
         resp = client.post(
             f"/api/setbuilder/sets/{set_id}/export/preflight",
@@ -158,9 +158,9 @@ class TestTidalExport:
     ):
         _seed_pool(db, set_id)
         _connect_tidal(db, test_user)
-        monkeypatch.setattr("app.services.tidal.search_tidal_by_isrc", lambda *a: None)
+        monkeypatch.setattr("app.services.providers.tidal.search_tidal_by_isrc", lambda *a: None)
         monkeypatch.setattr(
-            "app.services.tidal.search_tidal_tracks", lambda db_, u, q, limit=10: []
+            "app.services.providers.tidal.search_tidal_tracks", lambda db_, u, q, limit=10: []
         )
         resp = client.post(
             f"/api/setbuilder/sets/{set_id}/export/tidal",
@@ -179,12 +179,12 @@ class TestTidalExport:
     ):
         _seed_pool(db, set_id)
         _connect_tidal(db, test_user)
-        monkeypatch.setattr("app.services.tidal.search_tidal_by_isrc", lambda *a: None)
+        monkeypatch.setattr("app.services.providers.tidal.search_tidal_by_isrc", lambda *a: None)
         monkeypatch.setattr(
-            "app.services.tidal.search_tidal_tracks", lambda db_, u, q, limit=10: []
+            "app.services.providers.tidal.search_tidal_tracks", lambda db_, u, q, limit=10: []
         )
         monkeypatch.setattr(
-            "app.services.tidal.get_tidal_session", lambda db_, u: self._fake_session()
+            "app.services.providers.tidal.get_tidal_session", lambda db_, u: self._fake_session()
         )
         calls = {}
 
@@ -192,7 +192,7 @@ class TestTidalExport:
             calls["track_ids"] = track_ids
             return True
 
-        monkeypatch.setattr("app.services.tidal.add_tracks_to_playlist", fake_add)
+        monkeypatch.setattr("app.services.providers.tidal.add_tracks_to_playlist", fake_add)
         resp = client.post(
             f"/api/setbuilder/sets/{set_id}/export/tidal",
             json={"skip_unresolved": True},
@@ -233,9 +233,9 @@ class TestTidalExport:
         export_to_tidal into TidalExportError and surfaces as 502 at the endpoint."""
         _seed_pool(db, set_id)
         _connect_tidal(db, test_user)
-        monkeypatch.setattr("app.services.tidal.search_tidal_by_isrc", lambda *a: None)
+        monkeypatch.setattr("app.services.providers.tidal.search_tidal_by_isrc", lambda *a: None)
         monkeypatch.setattr(
-            "app.services.tidal.search_tidal_tracks", lambda db_, u, q, limit=10: []
+            "app.services.providers.tidal.search_tidal_tracks", lambda db_, u, q, limit=10: []
         )
 
         broken_session = SimpleNamespace(
@@ -243,7 +243,9 @@ class TestTidalExport:
                 create_playlist=lambda name, desc: (_ for _ in ()).throw(Exception("boom"))
             )
         )
-        monkeypatch.setattr("app.services.tidal.get_tidal_session", lambda db_, u: broken_session)
+        monkeypatch.setattr(
+            "app.services.providers.tidal.get_tidal_session", lambda db_, u: broken_session
+        )
         resp = client.post(
             f"/api/setbuilder/sets/{set_id}/export/tidal",
             json={"skip_unresolved": True},

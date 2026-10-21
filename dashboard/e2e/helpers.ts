@@ -89,7 +89,8 @@ export async function createTestApi(playwright: { request: { newContext: (opts: 
         headers: authHeaders,
       });
       expect(res.ok()).toBeTruthy();
-      return res.json();
+      const data = await res.json();
+      return data.requests;
     },
 
     async updateRequestStatus(_eventCode, requestId, status) {
@@ -157,8 +158,7 @@ export async function setupAuth(
 
 // ─── Wait Helpers ─────────────────────────────────────────────────────────────
 
-/** Wait for DOM content + a short settle period for React hydration */
-export async function waitForPage(page: Page, settleMs = 800) {
+/** Wait for document navigation; callers should assert their page-specific ready content. */
+export async function waitForPage(page: Page) {
   await page.waitForLoadState('domcontentloaded');
-  await page.waitForTimeout(settleMs);
 }

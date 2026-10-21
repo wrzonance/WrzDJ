@@ -1,9 +1,9 @@
 """Rate limiting middleware using slowapi.
 
-Identity is `guest_id` only (cookie + ThumbmarkJS reconciliation in
-app/services/guest_identity.py). The slowapi rate-limiter is the lone
-IP consumer in this codebase — IP is read ephemerally per request as
-the rate-limit bucket key and is never stored, never logged.
+Guest identity is `guest_id` only (cookie + ThumbmarkJS reconciliation in
+app/services/guests/identity.py). Client IP is read ephemerally for slowapi
+rate-limit buckets and passed to the Turnstile verifier as `remoteip`; it is
+never stored or logged by this application.
 
 To restore IP-based identity, see docs/RECOVERY-IP-IDENTITY.md.
 """
@@ -18,6 +18,7 @@ from fastapi import Request, Response
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+from sqlalchemy.exc import IntegrityError
 from starlette.responses import JSONResponse
 
 from app.core.config import get_settings
@@ -63,8 +64,9 @@ def _is_trusted_proxy(ip: str) -> bool:
 def get_client_ip(request: Request) -> str:
     """EPHEMERAL ONLY — never store or log this value.
 
-    Used solely as the slowapi rate-limit bucket key. To restore IP-based
-    identity, see docs/RECOVERY-IP-IDENTITY.md.
+    Used for the slowapi rate-limit bucket key and as Turnstile's `remoteip`
+    verification parameter. It is not persisted or logged. To restore
+    IP-based identity, see docs/RECOVERY-IP-IDENTITY.md.
 
     Priority:
     1. X-Real-IP (nginx overwrites this with the actual connecting client IP)
@@ -94,7 +96,8 @@ limiter = Limiter(key_func=get_client_ip, enabled=get_settings().is_rate_limit_e
 # promotion, backup restore, dev dump) it can NEVER be a production backdoor. The dev
 # guest is also deliberately NOT email-verified, so it could not pass require_email_
 # verified via the normal path even if it were somehow resolved (defense in depth).
-_DEV_BYPASS_GUEST_TOKEN = "dev-auth-bypass-guest"  # nosec B105 - reserved token, not a secret
+# Reserved non-secret value for the isolated development guest identity.
+_DEV_BYPASS_GUEST_TOKEN = "dev-auth-bypass-guest"  # nosec B105
 
 
 def is_inert_dev_token(token: str | None) -> bool:
@@ -117,7 +120,10 @@ def get_guest_id(request: Request, db: Session) -> int | None:
     Under DEV_AUTH_BYPASS (dev only) a cookieless request resolves to a stable dev
     guest, so headless tests need no guest cookie on ANY guest endpoint (this is the
     single identity chokepoint the gates and the inline-resolving routes share).
-    Inert in production — see Settings.auth_bypass_enabled.
+    If that guest does not exist, this may add and flush its row inside a nested
+    savepoint. It never commits: the caller owns the Session transaction and its
+    eventual commit or rollback. The bypass is inert in production — see
+    Settings.auth_bypass_enabled.
     """
     from app.core.config import get_settings
     from app.models.guest import Guest
@@ -146,8 +152,6 @@ def _dev_bypass_guest_id(db: Session) -> int:
     by the explicit require_email_verified bypass, so this row never needs — and must
     not carry — a pre-verified identity that could be abused if it leaked into prod.
     """
-    from sqlalchemy.exc import IntegrityError
-
     from app.core.time import utcnow
     from app.models.guest import Guest
 
@@ -155,13 +159,18 @@ def _dev_bypass_guest_id(db: Session) -> int:
     if guest:
         return guest.id
     guest = Guest(token=_DEV_BYPASS_GUEST_TOKEN, created_at=utcnow(), last_seen_at=utcnow())
-    db.add(guest)
+    savepoint = db.begin_nested()
     try:
-        db.commit()
+        # Keep ownership with the caller; isolate only a concurrent unique-token
+        # collision so unrelated work in this request transaction stays intact.
+        with savepoint:
+            db.add(guest)
+            db.flush()
     except IntegrityError:  # concurrent create — re-read the winner
-        db.rollback()
-        return db.query(Guest).filter(Guest.token == _DEV_BYPASS_GUEST_TOKEN).first().id
-    db.refresh(guest)
+        winner = db.query(Guest).filter(Guest.token == _DEV_BYPASS_GUEST_TOKEN).first()
+        if winner is None:
+            raise
+        return winner.id
     return guest.id
 
 

@@ -26,7 +26,12 @@ from typing import Any
 import httpx
 
 from app.core.time import utcnow
-from app.services.llm.adapters._shared import raise_for_status
+from app.services.llm.adapters._shared import (
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_TIMEOUT_SECONDS,
+    MAX_TIMEOUT_SECONDS,
+    raise_for_status,
+)
 from app.services.llm.base import ChatRequest, ChatResponse, LlmAdapter, Message
 from app.services.llm.exceptions import AuthInvalid, ProviderUnavailable, ToolTranslationError
 from app.services.llm.registry import register_adapter
@@ -43,9 +48,6 @@ from app.services.llm.tool_translation import (
 logger = logging.getLogger(__name__)
 
 ANTHROPIC_BEDROCK_VERSION = "bedrock-2023-05-31"
-DEFAULT_MAX_TOKENS = 1024
-DEFAULT_TIMEOUT_SECONDS = 30.0
-MAX_TIMEOUT_SECONDS = 120.0
 
 FAMILY_ANTHROPIC = "anthropic"
 FAMILY_LLAMA = "llama"

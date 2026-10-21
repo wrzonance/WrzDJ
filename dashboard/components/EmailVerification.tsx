@@ -1,10 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { apiClient, ApiError } from '../lib/api';
+import { api, ApiError } from '../lib/api';
 import { getTurnstileSiteKey, loadTurnstileScript } from '../lib/turnstile';
 
 type VerifyState = 'input' | 'code_sent' | 'verified';
+const VERIFICATION_CODE_TTL_MS = 5 * 60 * 1000;
+const TURNSTILE_LOAD_ERROR = 'Unable to load email verification. Please refresh and try again.';
 
 interface Props {
   isVerified: boolean;
@@ -30,22 +32,31 @@ export default function EmailVerification({ isVerified, onVerified, onSkip }: Pr
     if (!otpWidgetRef.current) return;
     let cancelled = false;
     void (async () => {
-      const sitekey = await getTurnstileSiteKey();
-      if (!sitekey || cancelled) {
-        // Dev / Turnstile-disabled — set a placeholder so the form can submit
-        setOtpTurnstileToken('dev-bypass');
-        return;
+      try {
+        const sitekey = await getTurnstileSiteKey();
+        if (cancelled) return;
+        if (!sitekey) {
+          // Dev / Turnstile-disabled — set a placeholder so the form can submit
+          setOtpTurnstileToken('dev-bypass');
+          return;
+        }
+        await loadTurnstileScript();
+        if (cancelled) return;
+        if (!window.turnstile || !otpWidgetRef.current) {
+          setError(TURNSTILE_LOAD_ERROR);
+          return;
+        }
+        otpWidgetIdRef.current = window.turnstile.render(otpWidgetRef.current, {
+          sitekey,
+          appearance: 'interaction-only',
+          size: 'normal',
+          callback: (token: string) => setOtpTurnstileToken(token),
+          'error-callback': () => setOtpTurnstileToken(''),
+          'expired-callback': () => setOtpTurnstileToken(''),
+        });
+      } catch {
+        if (!cancelled) setError(TURNSTILE_LOAD_ERROR);
       }
-      await loadTurnstileScript();
-      if (cancelled || !window.turnstile || !otpWidgetRef.current) return;
-      otpWidgetIdRef.current = window.turnstile.render(otpWidgetRef.current, {
-        sitekey,
-        appearance: 'interaction-only',
-        size: 'normal',
-        callback: (token: string) => setOtpTurnstileToken(token),
-        'error-callback': () => setOtpTurnstileToken(''),
-        'expired-callback': () => setOtpTurnstileToken(''),
-      });
     })();
     return () => {
       cancelled = true;
@@ -77,9 +88,9 @@ export default function EmailVerification({ isVerified, onVerified, onSkip }: Pr
     setSending(true);
     setError(null);
     try {
-      await apiClient.requestVerificationCode(email.trim(), otpTurnstileToken);
+      await api.requestVerificationCode(email.trim(), otpTurnstileToken);
       setState('code_sent');
-      setExpiresAt(Date.now() + 5 * 60 * 1000);
+      setExpiresAt(Date.now() + VERIFICATION_CODE_TTL_MS);
       setDigits(['', '', '', '', '', '']);
       // Reset widget for next attempt (fresh token per send)
       if (otpWidgetIdRef.current && window.turnstile) {
@@ -151,7 +162,7 @@ export default function EmailVerification({ isVerified, onVerified, onSkip }: Pr
     setConfirming(true);
     setError(null);
     try {
-      const result = await apiClient.confirmVerificationCode(email.trim(), code);
+      const result = await api.confirmVerificationCode(email.trim(), code);
       if (result.verified) {
         setState('verified');
         onVerified();

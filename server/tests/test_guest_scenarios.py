@@ -80,7 +80,7 @@ def test_two_identical_devices_separate_via_cookies(db: Session, test_event: Eve
 
     assert guest_a.id != guest_b.id
 
-    from app.services.guest_identity import identify_guest
+    from app.services.guests.identity import identify_guest
 
     result_a = identify_guest(
         db,

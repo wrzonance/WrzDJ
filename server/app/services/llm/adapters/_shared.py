@@ -29,6 +29,13 @@ from app.services.llm.exceptions import (
     ToolTranslationError,
 )
 
+# Shared request policy for HTTP and Anthropic-SDK adapters. Keeping these in
+# the adapter-common module prevents provider wrappers from drifting apart.
+DEFAULT_TIMEOUT_SECONDS = 30.0
+MAX_TIMEOUT_SECONDS = 120.0
+DEFAULT_MAX_TOKENS = 1024
+DEFAULT_OPENAI_MODEL = "gpt-5-mini"
+
 
 def parse_retry_after(value: str | None) -> int | None:
     if not value:

@@ -26,7 +26,7 @@ from app.schemas.beatport import (
     BeatportStatus,
 )
 from app.schemas.common import StatusMessageResponse
-from app.services.beatport import (
+from app.services.providers.beatport import (
     disconnect_beatport,
     get_beatport_track,
     login_and_get_tokens,
@@ -37,7 +37,6 @@ from app.services.beatport import (
 from app.services.system_settings import get_system_settings
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
 
 router = APIRouter()
 
@@ -61,7 +60,7 @@ def login_beatport(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Beatport integration is currently unavailable",
         )
-    if not settings.beatport_client_id:
+    if not get_settings().beatport_client_id:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Beatport integration not configured",
@@ -105,7 +104,7 @@ def get_status(
     db: Session = Depends(get_db),
 ) -> BeatportStatus:
     """Check if current user has linked Beatport account."""
-    configured = bool(settings.beatport_client_id)
+    configured = bool(get_settings().beatport_client_id)
     sys_settings = get_system_settings(db)
     enabled = sys_settings.beatport_enabled
 
@@ -138,7 +137,7 @@ def disconnect(
 
 
 @router.get("/search", response_model=list[BeatportSearchResult])
-@limiter.limit(lambda: f"{settings.search_rate_limit_per_minute}/minute")
+@limiter.limit(lambda: f"{get_settings().search_rate_limit_per_minute}/minute")
 def search(
     request: Request,
     q: str = Query(..., min_length=1, max_length=200),

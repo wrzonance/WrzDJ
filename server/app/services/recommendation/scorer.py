@@ -1,29 +1,19 @@
-"""BPM, key, and genre scoring algorithm for track recommendations.
+"""Recommendation-specific profiles and candidate ranking.
 
-Scores candidate tracks against an event's musical profile built
-from its accepted/played requests.
+Combines shared musical compatibility primitives with event-profile data to
+rank candidates for an event.
 """
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from app.services.recommendation.camelot import compatibility_score, parse_key
-
-
-@dataclass(frozen=True)
-class TrackProfile:
-    """A track with metadata for scoring."""
-
-    title: str
-    artist: str
-    bpm: float | None = None
-    key: str | None = None
-    genre: str | None = None
-    source: str = "unknown"
-    track_id: str | None = None
-    url: str | None = None
-    cover_url: str | None = None
-    duration_seconds: int | None = None
+from app.services.music_matching import (
+    compatibility_score,
+    parse_key,
+    score_bpm,
+    score_genre,
+)
+from app.services.tracks.profile import TrackProfile
 
 
 @dataclass(frozen=True)
@@ -32,8 +22,8 @@ class EventProfile:
 
     avg_bpm: float | None = None
     bpm_range: tuple[float, float] | None = None
-    dominant_keys: list[str] = ()  # type: ignore[assignment]
-    dominant_genres: list[str] = ()  # type: ignore[assignment]
+    dominant_keys: list[str] = field(default_factory=list)
+    dominant_genres: list[str] = field(default_factory=list)
     track_count: int = 0
 
 
@@ -80,43 +70,6 @@ def build_event_profile(tracks: list[TrackProfile]) -> EventProfile:
     )
 
 
-def _score_bpm(candidate_bpm: float | None, avg_bpm: float | None) -> float:
-    """Score BPM compatibility.
-
-    1.0 within +/-2 BPM of average, linear falloff to 0.0 at +/-20.
-    Half-time (0.5x) and double-time (2.0x) matches are recognized
-    as compatible but scored at 70% of normal (standard DJ technique).
-    0.5 if either BPM is missing.
-    """
-    if candidate_bpm is None or avg_bpm is None:
-        return 0.5
-
-    diff = abs(candidate_bpm - avg_bpm)
-    half_diff = abs(candidate_bpm - avg_bpm * 0.5)
-    double_diff = abs(candidate_bpm - avg_bpm * 2.0)
-
-    # Use the best (smallest) effective difference
-    use_alt = False
-    effective_diff = diff
-    if half_diff < diff or double_diff < diff:
-        best_alt = min(half_diff, double_diff)
-        if best_alt < diff:
-            effective_diff = best_alt
-            use_alt = True
-
-    if effective_diff <= 2.0:
-        base = 1.0
-    elif effective_diff >= 20.0:
-        base = 0.0
-    else:
-        base = 1.0 - (effective_diff - 2.0) / 18.0
-
-    # Half/double-time matches scored at 70% of normal
-    if use_alt:
-        return round(base * 0.7, 4)
-    return base
-
-
 def _score_key(
     candidate_key: str | None,
     dominant_keys: list[str],
@@ -145,133 +98,6 @@ def _score_key(
     return best
 
 
-GENRE_FAMILIES: dict[str, str] = {
-    # House family
-    "house": "house",
-    "deep house": "house",
-    "tech house": "house",
-    "progressive house": "house",
-    "electro house": "house",
-    "bass house": "house",
-    "acid house": "house",
-    "funky house": "house",
-    "afro house": "house",
-    "minimal house": "house",
-    # Techno family
-    "techno": "techno",
-    "minimal techno": "techno",
-    "acid techno": "techno",
-    "hard techno": "techno",
-    "melodic techno": "techno",
-    "peak time techno": "techno",
-    "industrial techno": "techno",
-    # Trance family
-    "trance": "trance",
-    "progressive trance": "trance",
-    "uplifting trance": "trance",
-    "psytrance": "trance",
-    "vocal trance": "trance",
-    # Bass family
-    "drum and bass": "bass",
-    "dubstep": "bass",
-    "jungle": "bass",
-    "breakbeat": "bass",
-    "garage": "bass",
-    "uk garage": "bass",
-    # Hip-hop / R&B family
-    "hip hop": "hip-hop",
-    "hip-hop": "hip-hop",
-    "rap": "hip-hop",
-    "trap": "hip-hop",
-    "r&b": "hip-hop",
-    "rnb": "hip-hop",
-    # Pop / mainstream
-    "pop": "pop",
-    "dance pop": "pop",
-    "synth pop": "pop",
-    "indie pop": "pop",
-    # Rock family
-    "rock": "rock",
-    "alternative rock": "rock",
-    "indie rock": "rock",
-    "punk": "rock",
-    "metal": "rock",
-    # Country / folk
-    "country": "country",
-    "folk": "country",
-    "americana": "country",
-    "bluegrass": "country",
-    # Electronic (broad umbrella)
-    "electronic": "electronic",
-    "electronica": "electronic",
-    "ambient": "electronic",
-    "downtempo": "electronic",
-    "idm": "electronic",
-}
-
-# Cross-family affinity: families that mix well together (tuples must be sorted)
-FAMILY_AFFINITY: dict[tuple[str, str], float] = {
-    ("house", "techno"): 0.4,
-    ("house", "trance"): 0.3,
-    ("techno", "trance"): 0.3,
-    ("electronic", "house"): 0.3,
-    ("electronic", "techno"): 0.3,
-    ("electronic", "trance"): 0.3,
-    ("bass", "electronic"): 0.3,
-    ("hip-hop", "pop"): 0.3,
-    ("pop", "rock"): 0.2,
-}
-
-
-def _score_genre(candidate_genre: str | None, dominant_genres: list[str]) -> float:
-    """Score genre compatibility using exact, substring, family, and affinity matching.
-
-    1.0 = exact match, 0.5 = substring match, 0.4 = same genre family,
-    0.2-0.4 = related families, 0.25 if missing, 0.0 if no relation.
-    """
-    if not candidate_genre:
-        return 0.25
-
-    if not dominant_genres:
-        return 0.25
-
-    candidate_lower = candidate_genre.lower()
-
-    # 1.0 = exact match
-    for dg in dominant_genres:
-        if candidate_lower == dg.lower():
-            return 1.0
-
-    # 0.5 = substring match (e.g. "house" in "deep house")
-    for dg in dominant_genres:
-        dg_lower = dg.lower()
-        if candidate_lower in dg_lower or dg_lower in candidate_lower:
-            return 0.5
-
-    # 0.4 = same genre family (e.g. "deep house" + "tech house" both → "house")
-    candidate_family = GENRE_FAMILIES.get(candidate_lower)
-    if candidate_family:
-        for dg in dominant_genres:
-            dg_family = GENRE_FAMILIES.get(dg.lower())
-            if dg_family and candidate_family == dg_family:
-                return 0.4
-
-    # 0.2-0.4 = related families (e.g. "house" family + "techno" family)
-    if candidate_family:
-        best_affinity = 0.0
-        for dg in dominant_genres:
-            dg_family = GENRE_FAMILIES.get(dg.lower())
-            if dg_family:
-                pair = tuple(sorted([candidate_family, dg_family]))
-                affinity = FAMILY_AFFINITY.get(pair, 0.0)
-                if affinity > best_affinity:
-                    best_affinity = affinity
-        if best_affinity > 0:
-            return best_affinity
-
-    return 0.0
-
-
 def _compute_weights(event_profile: EventProfile) -> dict[str, float]:
     """Compute dynamic weights based on available data.
 
@@ -298,9 +124,9 @@ def score_candidate(
     if weights is None:
         weights = _compute_weights(event_profile)
 
-    bpm_s = _score_bpm(candidate.bpm, event_profile.avg_bpm)
+    bpm_s = score_bpm(candidate.bpm, event_profile.avg_bpm)
     key_s = _score_key(candidate.key, event_profile.dominant_keys)
-    genre_s = _score_genre(candidate.genre, event_profile.dominant_genres)
+    genre_s = score_genre(candidate.genre, event_profile.dominant_genres)
 
     # Dimension-normalized scoring: only include dimensions where the
     # candidate has real data. This eliminates the metadata-completeness

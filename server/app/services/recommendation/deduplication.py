@@ -7,12 +7,12 @@ template playlist, or were returned by multiple search queries.
 from __future__ import annotations
 
 from app.models.request import Request
-from app.services.recommendation.scorer import TrackProfile
 from app.services.track_normalizer import (
     artist_match_score,
     fuzzy_match_score,
     score_track_match,
 )
+from app.services.tracks.profile import TrackProfile
 
 
 def deduplicate_against_requests(

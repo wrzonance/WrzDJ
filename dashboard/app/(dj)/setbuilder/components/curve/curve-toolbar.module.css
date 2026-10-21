@@ -1,0 +1,175 @@
+/* Toolbar */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-wrap: wrap;
+}
+
+.viewSwitch {
+  display: inline-flex;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.viewBtn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+  letter-spacing: 0.03em;
+}
+
+.viewBtnActive {
+  background: var(--card);
+  color: var(--color-curve-accent);
+}
+
+.zoomControls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding-left: 0.25rem;
+}
+
+.toolbarIconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.875rem;
+}
+
+.toolbarIconBtn:hover {
+  color: var(--text);
+  border-color: var(--text-tertiary);
+}
+
+.zoomLabel {
+  min-width: 2.75rem;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.625rem;
+  text-align: center;
+}
+
+.toolbarBtn {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.toolbarBtn:hover {
+  color: var(--text);
+  border-color: var(--text-tertiary);
+}
+
+.toggleLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  margin-left: auto;
+}
+
+/* Dropdown menus (template picker, vibe presets) */
+.dropdown {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  min-width: 230px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.25rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.menuSection {
+  font-size: 0.5625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  padding: 0.4rem 0.6rem 0.2rem;
+}
+
+.menuRow {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.menuItem {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 0.75rem;
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.menuItem:hover {
+  background: var(--surface-raised);
+}
+
+.menuItemHint {
+  font-size: 0.625rem;
+  color: var(--text-tertiary);
+  margin-left: auto;
+  padding-left: 0.5rem;
+}
+
+.menuEdit {
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 0.3rem 0.45rem;
+  border-radius: 5px;
+}
+
+.menuEdit:hover {
+  color: var(--text);
+  background: var(--surface-raised);
+}
+
+.menuDivider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 0.25rem 0;
+}

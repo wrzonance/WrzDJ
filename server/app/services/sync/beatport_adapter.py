@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from app.services import beatport as beatport_service
+from app.services.providers import beatport_catalog, beatport_playlists
 from app.services.sync.base import PlaylistSyncAdapter, TrackMatch
 from app.services.track_normalizer import fuzzy_match_score
 from app.services.version_filter import is_unwanted_version
@@ -51,7 +51,7 @@ class BeatportSyncAdapter(PlaylistSyncAdapter):
         intent: IntentContext | None = None,
     ) -> TrackMatch | None:
         """Search Beatport with version filtering and fuzzy scoring."""
-        candidates = beatport_service.search_beatport_tracks(
+        candidates = beatport_catalog.search_beatport_tracks(
             db, user, f"{normalized.raw_artist} {normalized.raw_title}", limit=10
         )
 
@@ -103,7 +103,7 @@ class BeatportSyncAdapter(PlaylistSyncAdapter):
         event: Event,
     ) -> str | None:
         """Create or get the Beatport playlist for this event."""
-        return beatport_service.create_beatport_playlist(db, user, event)
+        return beatport_playlists.create_beatport_playlist(db, user, event)
 
     def add_to_playlist(
         self,
@@ -113,7 +113,7 @@ class BeatportSyncAdapter(PlaylistSyncAdapter):
         track_id: str,
     ) -> bool:
         """Add a single track to the Beatport playlist."""
-        return beatport_service.add_track_to_beatport_playlist(db, user, playlist_id, track_id)
+        return beatport_playlists.add_track_to_beatport_playlist(db, user, playlist_id, track_id)
 
     def add_tracks_to_playlist(
         self,
@@ -123,4 +123,4 @@ class BeatportSyncAdapter(PlaylistSyncAdapter):
         track_ids: list[str],
     ) -> bool:
         """Batch add tracks to the Beatport playlist."""
-        return beatport_service.add_tracks_to_beatport_playlist(db, user, playlist_id, track_ids)
+        return beatport_playlists.add_tracks_to_beatport_playlist(db, user, playlist_id, track_ids)

@@ -8,7 +8,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SRC="$REPO_ROOT/docs/images"
+SRC="${WRZDJ_SCREENSHOT_IMAGES_DIR:-$REPO_ROOT/docs/images}"
 DST="${1:-$HOME/github/wrzdjweb}/images"
 
 if [[ ! -d "$DST" ]]; then

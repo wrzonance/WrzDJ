@@ -2,6 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_active_user, get_db
+from app.api.request_mapping import request_to_out
 from app.core.rate_limit import limiter
 from app.models.request import RequestStatus
 from app.models.user import User
@@ -12,6 +13,7 @@ from app.services.now_playing import (
     clear_manual_now_playing,
     set_manual_now_playing,
 )
+from app.services.providers.tidal import remove_track_from_collection_playlist
 from app.services.request import (
     InvalidStatusTransitionError,
     clear_other_playing_requests,
@@ -20,9 +22,8 @@ from app.services.request import (
     get_request_by_id,
     update_request_status,
 )
-from app.services.sync.orchestrator import _enrich_with_fresh_session, sync_request_to_services
+from app.services.sync.orchestrator import enrich_with_fresh_session, sync_request_to_services
 from app.services.sync.registry import get_connected_adapters
-from app.services.tidal import remove_track_from_collection_playlist
 
 router = APIRouter()
 
@@ -64,29 +65,6 @@ def _remove_collection_track_with_fresh_session(request_id: int, track_id: str) 
             )
     finally:
         session.close()
-
-
-def _request_to_out(r) -> RequestOut:
-    return RequestOut(
-        id=r.id,
-        event_id=r.event_id,
-        song_title=r.song_title,
-        artist=r.artist,
-        source=r.source,
-        source_url=r.source_url,
-        artwork_url=r.artwork_url,
-        note=r.note,
-        nickname=r.nickname,
-        status=r.status,
-        created_at=r.created_at,
-        updated_at=r.updated_at,
-        raw_search_query=r.raw_search_query,
-        sync_results_json=r.sync_results_json,
-        vote_count=r.vote_count,
-        genre=r.genre,
-        bpm=r.bpm,
-        musical_key=r.musical_key,
-    )
 
 
 @router.patch("/{request_id}", response_model=RequestOut)
@@ -154,7 +132,7 @@ def update_request(
         },
     )
 
-    return _request_to_out(updated)
+    return request_to_out(updated)
 
 
 @router.delete("/{request_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -194,6 +172,6 @@ def refresh_request_metadata(
         raise HTTPException(status_code=403, detail="Not authorized to update this request")
 
     cleared = clear_request_metadata(db, song_request)
-    background_tasks.add_task(_enrich_with_fresh_session, cleared.id)
+    background_tasks.add_task(enrich_with_fresh_session, cleared.id)
 
-    return _request_to_out(cleared)
+    return request_to_out(cleared)

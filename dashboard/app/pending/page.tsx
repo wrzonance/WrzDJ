@@ -50,7 +50,7 @@ export default function PendingPage() {
     <div className="container" style={{ maxWidth: '500px', marginTop: '100px' }}>
       <div className="card" style={{ textAlign: 'center' }}>
         <h1 style={{ marginBottom: '1rem' }}>Account Pending</h1>
-        <p style={{ color: '#9ca3af', marginBottom: '2rem' }}>
+        <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>
           Your account is awaiting admin approval. You&apos;ll be able to use WrzDJ
           once an administrator approves your registration.
         </p>

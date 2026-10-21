@@ -3,6 +3,7 @@
 set -euo pipefail
 image=${1:?Usage: test-proxy-image.sh IMAGE}
 root=$(cd "$(dirname "$0")/.." && pwd)
+# shellcheck disable=SC1091 # The repository root is resolved dynamically at runtime.
 source "$root/scripts/lib/wait-for-container-http.sh"
 scratch=$(mktemp -d)
 network=

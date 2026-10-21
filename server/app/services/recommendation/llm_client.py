@@ -16,17 +16,13 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.models.user import User
-from app.services.llm.base import ChatRequest, Message, ToolSpec
+from app.services.llm.adapters._shared import DEFAULT_MAX_TOKENS
+from app.services.llm.base import ChatRequest, ChatResponse, Message, ToolSpec
 from app.services.llm.gateway import Gateway
-from app.services.recommendation.llm_hooks import LLMSuggestionQuery, LLMSuggestionResult
-from app.services.recommendation.scorer import EventProfile, TrackProfile
+from app.services.recommendation.context import RecommendationContext
+from app.services.recommendation.llm_types import LLMSuggestionQuery, LLMSuggestionResult
 
 logger = logging.getLogger(__name__)
-
-# Default max output tokens for query generation. Was previously sourced from
-# the ``ANTHROPIC_MAX_TOKENS`` env var via settings; that legacy env-var path was
-# removed in #343 now that the connector system is the source of truth.
-DEFAULT_MAX_TOKENS = 1024
 
 SYSTEM_PROMPT = """\
 You are a DJ assistant helping curate song suggestions for a live event.
@@ -153,13 +149,11 @@ SEARCH_QUERIES_TOOL = {
 
 
 def build_user_prompt(
-    profile: EventProfile,
+    context: RecommendationContext,
     dj_prompt: str,
-    tracks: list[TrackProfile] | None = None,
-    rejected_tracks: list[tuple[str, str]] | None = None,
-    currently_playing: tuple[str, str, float | None] | None = None,
 ) -> str:
     """Build the user message from an event profile, track list, and DJ prompt."""
+    profile = context.event_profile
     parts = [f"DJ's request: {dj_prompt}", "", "Current event profile:"]
 
     if profile.track_count == 0:
@@ -175,16 +169,16 @@ def build_user_prompt(
         if profile.dominant_genres:
             parts.append(f"  Dominant genres: {', '.join(profile.dominant_genres)}")
 
-    if currently_playing:
-        artist, title, bpm = currently_playing
+    if context.currently_playing:
+        artist, title, bpm = context.currently_playing
         parts.append("")
         bpm_str = f" ({bpm:.0f} BPM)" if bpm else ""
         parts.append(f"Currently playing: {artist} — {title}{bpm_str}")
 
-    if tracks:
+    if context.accepted_tracks:
         parts.append("")
         parts.append("Tracks in the set:")
-        for t in tracks[:30]:  # Cap at 30 to keep prompt manageable
+        for t in context.accepted_tracks[:30]:  # Cap at 30 to keep prompt manageable
             line = f"  - {t.artist} — {t.title}"
             meta = []
             if t.bpm:
@@ -197,10 +191,10 @@ def build_user_prompt(
                 line += f" ({', '.join(meta)})"
             parts.append(line)
 
-    if rejected_tracks:
+    if context.rejected_tracks:
         parts.append("")
         parts.append("Rejected tracks (DJ said no to these — avoid similar):")
-        for artist, title in rejected_tracks[:15]:  # Cap at 15
+        for artist, title in context.rejected_tracks[:15]:  # Cap at 15
             parts.append(f"  - {artist} — {title}")
 
     return "\n".join(parts)
@@ -235,55 +229,26 @@ def _parse_query_items(items: object) -> list[LLMSuggestionQuery]:
     return parsed
 
 
-def _parse_tool_response(response) -> LLMSuggestionResult:  # noqa: ANN001 — dual-shape input
-    """Parse a gateway ``ChatResponse`` into an ``LLMSuggestionResult``.
-
-    The gateway is the only producer of responses (the legacy direct-Anthropic
-    path was removed in #343). A defensive second path also handles an
-    Anthropic-SDK ``Message``-like object (``.content`` blocks) so any cached
-    ``tool_use`` traces or hand-constructed fixtures remain decodable.
-    """
-    from app.services.llm.base import ChatResponse
-
-    raw_text = ""
+def _parse_tool_response(response: ChatResponse) -> LLMSuggestionResult:
+    """Parse a canonical gateway response into recommendation search queries."""
+    raw_text = response.text or ""
     queries: list[LLMSuggestionQuery] = []
 
-    # Path 1 — canonical ChatResponse (isinstance, not ducktype, so MagicMocks
-    # in legacy tests fall through to path 2 instead of matching here).
-    if isinstance(response, ChatResponse):
-        if response.text:
-            raw_text += response.text
-        for tc in response.tool_calls or []:
-            if tc.name == SEARCH_QUERIES_TOOL_NAME:
-                payload = tc.input if isinstance(tc.input, dict) else {}
-                raw_text += json.dumps(payload)
-                queries.extend(_parse_query_items(payload.get("queries", [])))
-        return LLMSuggestionResult(queries=queries, raw_response=raw_text, model=response.model)
+    for tool_call in response.tool_calls or []:
+        if tool_call.name == SEARCH_QUERIES_TOOL_NAME:
+            payload = tool_call.input if isinstance(tool_call.input, dict) else {}
+            raw_text += json.dumps(payload)
+            queries.extend(_parse_query_items(payload.get("queries", [])))
 
-    # Path 2 — legacy Anthropic SDK Message-like object.
-    for block in getattr(response, "content", []) or []:
-        btype = getattr(block, "type", None)
-        if btype == "text":
-            raw_text += getattr(block, "text", "")
-        elif btype == "tool_use" and getattr(block, "name", "") == SEARCH_QUERIES_TOOL_NAME:
-            block_input = block.input if isinstance(block.input, dict) else {}
-            raw_text += json.dumps(block_input)
-            queries.extend(_parse_query_items(block_input.get("queries", [])))
-
-    return LLMSuggestionResult(
-        queries=queries, raw_response=raw_text, model=getattr(response, "model", None)
-    )
+    return LLMSuggestionResult(queries=queries, raw_response=raw_text, model=response.model)
 
 
 async def call_llm(
-    profile: EventProfile,
+    context: RecommendationContext,
     dj_prompt: str,
     max_queries: int = 6,
-    tracks: list[TrackProfile] | None = None,
-    rejected_tracks: list[tuple[str, str]] | None = None,
-    currently_playing: tuple[str, str, float | None] | None = None,
     *,
-    db: Session | None = None,
+    db: Session,
     actor: User | None = None,
 ) -> LLMSuggestionResult:
     """Generate structured search queries via the LLM gateway.
@@ -295,18 +260,7 @@ async def call_llm(
 
     Returns at most ``max_queries`` queries.
     """
-    if db is None:
-        raise ValueError(
-            "call_llm requires a db session — the connector system is the source of truth"
-        )
-
-    user_message = build_user_prompt(
-        profile,
-        dj_prompt,
-        tracks=tracks,
-        rejected_tracks=rejected_tracks,
-        currently_playing=currently_playing,
-    )
+    user_message = build_user_prompt(context, dj_prompt)
 
     chat_request = ChatRequest(
         messages=[Message(role="user", content=user_message)],

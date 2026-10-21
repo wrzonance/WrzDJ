@@ -94,7 +94,6 @@ function summarise(name: string, probes: PageProbes): void {
   ) {
     out.push('  clean');
   }
-  // eslint-disable-next-line no-console
   console.log(out.join('\n'));
 }
 
@@ -114,7 +113,6 @@ test.describe(`Exploratory: event ${TARGET_EVENT}`, () => {
     const bpmBadgeCount = await page.locator('[aria-label^="BPM:"]').count();
     const keyBadgeCount = await page.locator('[aria-label^="Key:"]').count();
     const genreBadgeCount = await page.locator('[aria-label^="Genre:"]').count();
-    // eslint-disable-next-line no-console
     console.log(
       `  request-items: ${itemCount}, BPM: ${bpmBadgeCount}, Key: ${keyBadgeCount}, Genre: ${genreBadgeCount}`
     );
@@ -140,7 +138,6 @@ test.describe(`Exploratory: event ${TARGET_EVENT}`, () => {
     });
     await page.waitForTimeout(12_000); // 12s = at least 2 poll cycles at 5s interval
 
-    // eslint-disable-next-line no-console
     console.log(`  request-polls fired in 12s: ${requestPollCount}`);
     expect(requestPollCount, 'usePollingLoop should hit /requests at least 2x in 12s').toBeGreaterThanOrEqual(2);
 
@@ -160,7 +157,6 @@ test.describe(`Exploratory: event ${TARGET_EVENT}`, () => {
     // The DJ search button is on the Song Management tab. Find by text.
     const searchButton = page.getByRole('button', { name: /search/i }).first();
     if (!(await searchButton.count())) {
-      // eslint-disable-next-line no-console
       console.log('  search button not found — skipping');
     } else {
       await searchButton.click();
@@ -247,7 +243,6 @@ test.describe(`Exploratory: event ${TARGET_EVENT}`, () => {
       }
     }
 
-    // eslint-disable-next-line no-console
     console.log(`  buttons clicked: ${buttonsClicked}`);
     // Threshold deliberately low — the goal is "no error from any click",
     // not "click N buttons". Most pages only expose a few non-destructive
@@ -309,7 +304,6 @@ test.describe(`Exploratory: event ${TARGET_EVENT}`, () => {
       const before = await api.get(`/api/events/${code}/requests`, auth);
       const beforeRows = await before.json();
       const targetBefore = beforeRows.find((r: { id: number }) => r.id === requestId);
-      // eslint-disable-next-line no-console
       console.log(
         `  before bulk-review — bpm=${targetBefore?.bpm}, key=${targetBefore?.musical_key}`
       );
@@ -330,7 +324,6 @@ test.describe(`Exploratory: event ${TARGET_EVENT}`, () => {
       const after = await api.get(`/api/events/${code}/requests`, auth);
       const afterRows = await after.json();
       const targetAfter = afterRows.find((r: { id: number }) => r.id === requestId);
-      // eslint-disable-next-line no-console
       console.log(
         `  after bulk-review + 8s — bpm=${targetAfter?.bpm}, key=${targetAfter?.musical_key}, genre=${targetAfter?.genre}`
       );
@@ -361,7 +354,6 @@ test.describe(`Exploratory: event ${TARGET_EVENT}`, () => {
     const voteRes = await api.post(`/api/requests/${target.id}/vote`, {
       headers: { 'X-Forwarded-For': `9.9.${Date.now() % 200}.${Date.now() % 200}` },
     });
-    // eslint-disable-next-line no-console
     console.log(`  vote attempt — status ${voteRes.status()}`);
     expect([200, 201, 409], `vote should succeed or be idempotent (got ${voteRes.status()})`).toContain(
       voteRes.status()
@@ -371,7 +363,6 @@ test.describe(`Exploratory: event ${TARGET_EVENT}`, () => {
       const after = await api.get(`/api/events/${TARGET_EVENT}/requests`, auth);
       const afterRows = await after.json();
       const afterTarget = afterRows.find((r: { id: number }) => r.id === target.id);
-      // eslint-disable-next-line no-console
       console.log(`  vote_count: ${before} → ${afterTarget?.vote_count}`);
       expect(afterTarget?.vote_count, 'vote count should increment by 1').toBe(before + 1);
     }
@@ -392,7 +383,6 @@ test.describe(`Exploratory: event ${TARGET_EVENT}`, () => {
       ...auth,
       data: { count: 3 },
     });
-    // eslint-disable-next-line no-console
     console.log(`  recommendations status: ${recRes.status()}`);
     expect([200, 503], `recs should succeed or fail gracefully (got ${recRes.status()})`).toContain(
       recRes.status()
@@ -407,7 +397,6 @@ test.describe(`Exploratory: event ${TARGET_EVENT}`, () => {
       expect(typeof body.total_candidates_searched, 'total_candidates_searched is number').toBe(
         'number'
       );
-      // eslint-disable-next-line no-console
       console.log(
         `  suggestions=${body.suggestions.length}, candidates=${body.total_candidates_searched}, profile.track_count=${body.profile.track_count}`
       );
@@ -428,7 +417,6 @@ test.describe(`Exploratory: event ${TARGET_EVENT}`, () => {
     await page.goto(`/e/${TARGET_EVENT}/display`);
     await page.waitForTimeout(15_000); // 15s = at least 1 poll cycle at 10s
 
-    // eslint-disable-next-line no-console
     console.log(`  kiosk public-api requests in 15s: ${kioskPollCount}`);
     expect(kioskPollCount, 'kiosk should poll public endpoints').toBeGreaterThan(0);
 
@@ -471,7 +459,6 @@ test.describe(`Exploratory: event ${TARGET_EVENT}`, () => {
         ...auth,
         data: { status: t.to },
       });
-      // eslint-disable-next-line no-console
       console.log(`  → ${t.to}: ${res.status()}`);
       expect(res.status(), `transition to ${t.to}`).toBe(t.expectStatus);
     }
@@ -481,7 +468,6 @@ test.describe(`Exploratory: event ${TARGET_EVENT}`, () => {
       ...auth,
       data: { status: 'playing' },
     });
-    // eslint-disable-next-line no-console
     console.log(`  invalid PLAYED→PLAYING: ${invalidRes.status()}`);
     expect(invalidRes.status(), 'FSM should reject PLAYED→PLAYING').toBe(400);
 

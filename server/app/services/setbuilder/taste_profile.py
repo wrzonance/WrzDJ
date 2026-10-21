@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
+from typing import TypedDict
 
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
@@ -36,6 +37,20 @@ class TasteProfile:
     top_moods: list[TasteMood]
     summary: str
     reset_at: datetime | None
+
+
+class TasteProfileContextMood(TypedDict):
+    mood: str
+    count: int
+
+
+class TasteProfileContext(TypedDict):
+    active: bool
+    sample_count: int
+    min_samples: int
+    energy_adjustment: float
+    top_moods: list[TasteProfileContextMood]
+    summary: str
 
 
 def build_taste_profile(db: Session, user_id: int) -> TasteProfile:
@@ -90,7 +105,7 @@ def taste_adjusted_energy(
     return round(max(0.0, min(10.0, float(resolved.energy) + profile.energy_adjustment)), 2)
 
 
-def profile_context(profile: TasteProfile | None) -> dict:
+def profile_context(profile: TasteProfile | None) -> TasteProfileContext:
     """Compact JSON-safe profile summary for pass-2 agent context."""
     if profile is None:
         return {

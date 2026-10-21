@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import EmailVerification from '../EmailVerification';
+import { getTurnstileSiteKey, loadTurnstileScript } from '../../lib/turnstile';
 
 vi.mock('../../lib/api', () => ({
-  apiClient: {
+  api: {
     requestVerificationCode: vi.fn(),
     confirmVerificationCode: vi.fn(),
   },
@@ -21,10 +22,10 @@ vi.mock('../../lib/turnstile', () => ({
   loadTurnstileScript: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { apiClient, ApiError } from '../../lib/api';
+import { api, ApiError } from '../../lib/api';
 
-const mockRequestCode = apiClient.requestVerificationCode as ReturnType<typeof vi.fn>;
-const mockConfirmCode = apiClient.confirmVerificationCode as ReturnType<typeof vi.fn>;
+const mockRequestCode = api.requestVerificationCode as ReturnType<typeof vi.fn>;
+const mockConfirmCode = api.confirmVerificationCode as ReturnType<typeof vi.fn>;
 
 describe('EmailVerification — onSkip prop', () => {
   beforeEach(() => {
@@ -154,6 +155,47 @@ describe('EmailVerification — send code flow', () => {
     await waitFor(() => {
       expect(screen.getByText('Failed to send code')).toBeInTheDocument();
     });
+  });
+});
+
+describe('EmailVerification — Turnstile loading failures', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it.each(['site key', 'script'])('shows a recoverable error when Turnstile %s loading rejects', async (failure) => {
+    if (failure === 'site key') {
+      vi.mocked(getTurnstileSiteKey).mockRejectedValueOnce(new Error('config unavailable'));
+    } else {
+      vi.mocked(getTurnstileSiteKey).mockResolvedValueOnce('test-site-key');
+      vi.mocked(loadTurnstileScript).mockRejectedValueOnce(new Error('script unavailable'));
+    }
+
+    render(<EmailVerification isVerified={false} onVerified={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText(/you@example.com/i), {
+      target: { value: 'test@example.com' },
+    });
+
+    expect(await screen.findByText('Unable to load email verification. Please refresh and try again.'))
+      .toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /send code/i })).toBeDisabled();
+    expect(mockRequestCode).not.toHaveBeenCalled();
+  });
+
+  it('does not update component state when script loading rejects after unmount', async () => {
+    let rejectScript!: (error: Error) => void;
+    vi.mocked(getTurnstileSiteKey).mockResolvedValueOnce('test-site-key');
+    vi.mocked(loadTurnstileScript).mockReturnValueOnce(new Promise((_, reject) => {
+      rejectScript = reject;
+    }));
+
+    const { unmount } = render(<EmailVerification isVerified={false} onVerified={vi.fn()} />);
+    await waitFor(() => expect(loadTurnstileScript).toHaveBeenCalled());
+    unmount();
+
+    rejectScript(new Error('late script failure'));
+    await Promise.resolve();
+    await Promise.resolve();
   });
 });
 

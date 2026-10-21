@@ -4,7 +4,7 @@ This document is the recovery anchor for the IP-identity removal. It exists so t
 
 ## Why this was removed
 
-Prior to commit `<IMPL_SHA>` on branch `fix/drop-ip-identity-and-logging`, the codebase identified guests by *both* a cookie/fingerprint pair (`Guest.token` + `Guest.fingerprint_hash`) and the raw client IP (`client_fingerprint` columns on `requests`, `request_votes`, `guest_profiles`, plus `Guest.ip_address`). The IP path was a fallback for "orphan" rows from the pre-cookie era.
+Prior to commit `9f4e4065eebdfb01f43e214785a3c898cf81c212` (PR #266), the codebase identified guests by *both* a cookie/fingerprint pair (`Guest.token` + `Guest.fingerprint_hash`) and the raw client IP (`client_fingerprint` columns on `requests`, `request_votes`, `guest_profiles`, plus `Guest.ip_address`). The IP path was a fallback for "orphan" rows from the pre-cookie era.
 
 In production this caused a real bug: any two guests behind a shared NAT (a venue WiFi, a household, an office, the local Docker dev-proxy) inherited each other's nicknames because `collect_service.get_profile()` matched by `client_fingerprint` (raw IP) when the cookie's `guest_id` had no profile row yet. A second device joining an event would be greeted as "Hi, alpha!" — alpha being the first guest from that NAT.
 
@@ -12,21 +12,26 @@ The IP-as-identity path was always a leaky abstraction: rate-limit collisions be
 
 ## What this codebase guarantees post-cleanup
 
-- **Identity = `guest_id`.** The `guests` table row is the only source of truth for "who is this person". `guest_id` is derived from a server-issued HttpOnly cookie (`wrzdj_guest`) with ThumbmarkJS browser fingerprint as the cookie-loss reconciliation fallback (`services/guest_identity.py`).
-- **No raw IP, hashed IP, or masked IP is stored anywhere.** No DB column, no log line, no in-memory cache.
-- **The slowapi rate-limiter is the only IP consumer.** It uses `core.rate_limit.get_client_ip()` per request as its bucket key, ephemerally. Never written to disk, never logged.
+- **Identity = `guest_id`.** The `guests` table row is the source of truth for guest identity. A server-issued HttpOnly cookie (`wrzdj_guest`) resolves it, with ThumbmarkJS browser fingerprint as the cookie-loss reconciliation fallback (`services/guests/identity.py`).
+- **Guest identity does not persist IP addresses.** The guest, request, vote and profile models have no IP-derived identity columns, and the application does not log guest IPs.
+- **IP use is ephemeral.** The slowapi rate limiter uses `core.rate_limit.get_client_ip()` as its in-memory bucket key; guest CAPTCHA verification also sends it to Turnstile as `remoteip`. Neither flow stores it as guest identity.
 - **Submission caps are per-person, not per-IP.** Guests behind a shared NAT each get their own `submission_cap_per_guest`. This is intentional (see Risk Note #3 in the original plan).
 
 ## Restoration procedure
 
-### Step 1: Schema restore (alembic downgrade)
+### Step 1: Choose a schema restoration plan
+
+The historical removal is `039_drop_ip_columns.py`, whose parent is revision `038`.
+Its `downgrade()` restores the old columns. The command below applies **only to an isolated
+database already at revision `039`**, for example when reproducing the original change:
 
 ```
 cd server
-.venv/bin/alembic downgrade -1
+.venv/bin/alembic current   # must report 039 before the next command
+.venv/bin/alembic downgrade 038
 ```
 
-This reverses migration `040_drop_ip_columns.py`, restoring:
+This reverses migration `039_drop_ip_columns.py`, restoring:
 
 - `requests.client_fingerprint` (`String(64)`, nullable, indexed)
 - `request_votes.client_fingerprint` (`String(64)`, nullable, indexed)
@@ -34,18 +39,24 @@ This reverses migration `040_drop_ip_columns.py`, restoring:
 - `guest_profiles` unique constraint `(event_id, client_fingerprint)`
 - `guests.ip_address` (`String(45)`, nullable)
 
-The migration's `downgrade()` is the canonical schema restoration. Do not write a new migration to re-add these — use the downgrade.
+On a current installation, `downgrade -1` reverses the latest migration, not this removal.
+Downgrading all the way to `038` would also reverse every later migration. For an approved
+restoration on the current schema, write a forward migration adapted from revision `039`'s
+`downgrade()`, test it against a populated database copy, and verify model/schema agreement.
+Adding columns cannot recover IP values that the original upgrade deleted.
 
-### Step 2: Code restore (git revert)
+### Step 2: Adapt the historical implementation
 
-The implementation lives in a small set of commits on the branch `fix/drop-ip-identity-and-logging`. Find the implementation commit (the one that touches `services/`, `api/`, and `core/rate_limit.py` together):
+The merged removal is preserved in commit `9f4e4065`. Inspect that change as a reference:
 
 ```
-git log --oneline --grep="drop-ip-identity\|fix/drop-ip"
-git revert <IMPL_SHA>
+git show 9f4e4065 -- server/app server/alembic/versions/039_drop_ip_columns.py
 ```
 
-Reverting that commit restores:
+A blanket revert also undoes unrelated collection fixes from the same merged commit and conflicts
+with later service moves. Implement only the approved behavior against the current modules. The
+historical removal affected these symbols (paths below reflect that commit; guest identity now
+lives in `services/guests/identity.py`):
 
 - `core/rate_limit.py`: `get_client_fingerprint`, `mask_fingerprint`, `_fp_source`, `_fp_logger`, `MAX_FINGERPRINT_LENGTH`
 - `services/vote.py`: `client_fingerprint` parameter on `_find_existing_vote`, `add_vote`, `remove_vote`, `has_voted`; the IP-based fallback branch in `_find_existing_vote`
@@ -64,11 +75,14 @@ The frontend race fix (NicknameGate awaiting `useGuestIdentity` ready signal) is
 ```
 cd server
 .venv/bin/alembic check                                  # schema matches models
-.venv/bin/pytest tests/test_no_ip_identity.py -v         # these tests should now FAIL (good — they assert removal)
-.venv/bin/pytest -q                                       # everything else green
+.venv/bin/pytest tests/test_no_ip_identity.py tests/test_no_ip_storage.py tests/test_no_ip_logging.py -v
+.venv/bin/pytest -q
 ```
 
-Note: `test_no_ip_identity.py`, `test_no_ip_storage.py`, `test_no_ip_logging.py`, `test_reversibility.py` will fail after restoration — that's the correct signal. Either delete those test files or invert their assertions.
+The three privacy suites assert the current no-IP-identity contract. An approved behavior change
+needs corresponding boundary tests and an explicit update to that contract; retain checks for
+unchanged privacy guarantees. `test_reversibility.py` existed in the original commit but is no
+longer part of the suite.
 
 ## Files that need to change (frozen reference)
 
@@ -97,11 +111,11 @@ This list is the audit trail. If you find a file in the post-cleanup codebase th
 
 ### New files (created by removal — safe to delete on restoration)
 
-- `server/alembic/versions/040_drop_ip_columns.py` — the migration; **do not delete**, just downgrade past it
+- `server/alembic/versions/039_drop_ip_columns.py` — the migration; **do not delete or rewrite** an applied revision
 - `server/tests/test_no_ip_identity.py` — assertions invert after restore; delete or invert
 - `server/tests/test_no_ip_storage.py` — same
 - `server/tests/test_no_ip_logging.py` — same
-- `server/tests/test_reversibility.py` — keep (the `test_recovery_doc_exists` test is still useful as long as this doc exists)
+- `server/tests/test_reversibility.py` — historical file, no longer present
 - `docs/RECOVERY-IP-IDENTITY.md` — keep, but update the "post-cleanup" section to reflect that IP-identity is back in active use
 
 ### Modified test files
@@ -116,7 +130,9 @@ Probably never. But if any of these come up:
 
 1. **A regulator / venue contract requires per-IP audit logs.** Restore Step 1 only (the schema). Add a write-only audit table that captures IP at submit time. Don't restore the matching/fallback paths — that's what caused the original bug.
 2. **The cookie+fingerprint approach is provably failing in production** — e.g., ThumbmarkJS becomes unavailable, or a major browser disables the wrzdj_guest cookie path. Restore Step 1 + Step 2, but only after exhausting alternatives (different fingerprint library, server-side identity providers, OAuth-style guest auth).
-3. **Forensic investigation of a specific incident.** Don't restore the system. Pull from the relevant time window's slowapi logs (which have IP in their per-request output but not stored long-term), or instrument a temporary capture targeted at the specific endpoint. Restoring system-wide IP storage to investigate one incident is overkill and re-introduces the bug.
+3. **Investigation of a specific incident.** The application does not retain guest IP logs to query.
+   Use existing guest/request audit identifiers. Any new diagnostic capture requires a separate,
+   scoped design; restoring IP-based identity reintroduces the original shared-NAT failure.
 
 In all three cases, prefer surgical re-introduction over a wholesale revert.
 
@@ -124,9 +140,8 @@ In all three cases, prefer surgical re-introduction over a wholesale revert.
 
 | Goal | Command |
 |---|---|
-| See what was removed | `git show fix/drop-ip-identity-and-logging --stat` |
+| See what was removed | `git show 9f4e4065 --stat` |
 | Verify schema is currently IP-free | `cd server && .venv/bin/alembic current && .venv/bin/alembic check` |
-| Verify code is currently IP-free | `grep -rn "client_fingerprint\|get_client_fingerprint\|mask_fingerprint" server/app dashboard/{lib,components,app}` (must be empty) |
-| Full schema restore | `cd server && .venv/bin/alembic downgrade -1` |
-| Full code restore | `git revert <IMPL_SHA>` |
-| Roundtrip verify | `cd server && .venv/bin/alembic upgrade head && .venv/bin/alembic downgrade -1 && .venv/bin/alembic upgrade head` |
+| Verify the guest privacy contract | `cd server && .venv/bin/pytest tests/test_no_ip_identity.py tests/test_no_ip_storage.py tests/test_no_ip_logging.py -v` |
+| Inspect the historical schema restoration | Read `server/alembic/versions/039_drop_ip_columns.py:downgrade` |
+| Plan restoration on the current schema | Add a reviewed forward migration and matching model/API changes; validate a populated database copy |

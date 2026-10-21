@@ -2,6 +2,8 @@
 
 import io
 import json
+import logging
+import warnings
 from unittest.mock import patch
 
 import pytest
@@ -34,7 +36,9 @@ def _make_rgb_image(width: int = 100, height: int = 50, color: tuple = (255, 0, 
 class TestExtractDominantColors:
     def test_returns_three_hex_strings(self):
         img = _make_rgb_image(color=(200, 100, 50))
-        colors = _extract_dominant_colors(img, num_colors=3)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            colors = _extract_dominant_colors(img, num_colors=3)
         assert len(colors) == 3
         for c in colors:
             assert c.startswith("#")
@@ -185,7 +189,8 @@ class TestDeleteBannerFiles:
         main_file.write_bytes(b"fake")
         kiosk_file.write_bytes(b"fake")
 
-        with patch("app.services.banner.settings") as mock_settings:
+        with patch("app.services.banner.get_settings") as mock_get_settings:
+            mock_settings = mock_get_settings.return_value
             mock_settings.resolved_uploads_dir = str(tmp_path)
             delete_banner_files("banners/test_123.webp")
 
@@ -201,11 +206,31 @@ class TestDeleteBannerFiles:
         outside_file = tmp_path / "secret.txt"
         outside_file.write_bytes(b"secret")
 
-        with patch("app.services.banner.settings") as mock_settings:
+        with patch("app.services.banner.get_settings") as mock_get_settings:
+            mock_settings = mock_get_settings.return_value
             mock_settings.resolved_uploads_dir = str(tmp_path / "uploads")
             delete_banner_files("../../secret.txt")
 
         assert outside_file.exists()  # File must NOT be deleted
+
+    def test_unlink_failure_is_logged_without_path_and_cleanup_continues(self, tmp_path, caplog):
+        # Regression: 57cfcdc6867f silently discarded banner cleanup failures.
+        private_path = tmp_path / "private-upload-name.webp"
+        unlink_error = PermissionError(13, "Permission denied", str(private_path))
+
+        with (
+            patch("app.services.banner.get_settings") as mock_get_settings,
+            patch("app.services.banner.Path.unlink", side_effect=unlink_error) as mock_unlink,
+            caplog.at_level(logging.WARNING, logger="app.services.banner"),
+        ):
+            mock_get_settings.return_value.resolved_uploads_dir = str(tmp_path)
+            delete_banner_files("banners/private-upload-name.webp")
+
+        assert mock_unlink.call_count == 2
+        assert "PermissionError" in caplog.text
+        assert "errno=13" in caplog.text
+        assert str(tmp_path) not in caplog.text
+        assert "private-upload-name" not in caplog.text
 
 
 class TestSaveBannerToEvent:

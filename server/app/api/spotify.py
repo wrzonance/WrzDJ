@@ -13,6 +13,7 @@ from app.core.config import get_settings
 from app.core.encryption import DecryptionError, decrypt_encrypted_value, encrypt_value
 from app.core.rate_limit import limiter
 from app.models.user import User
+from app.schemas.common import StatusMessageResponse
 from app.services.spotify_oauth import (
     SpotifyOAuthError,
     authorization_url,
@@ -138,12 +139,12 @@ def authorization_callback(
     return response
 
 
-@router.post("/disconnect")
+@router.post("/disconnect", response_model=StatusMessageResponse)
 @limiter.limit("10/minute")
 def disconnect_account(
     request: Request,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
-) -> dict[str, str]:
+) -> StatusMessageResponse:
     disconnect(db, current_user)
-    return {"status": "ok"}
+    return StatusMessageResponse(status="ok", message="Spotify account disconnected")

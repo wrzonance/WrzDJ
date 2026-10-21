@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { SetDocumentSnapshot } from '@/lib/api-types';
+import type { SetDocumentSnapshot } from '@/lib/api/types';
 import { useSetDocumentHistory } from '../useSetDocumentHistory';
 
 const mockApi = vi.hoisted(() => ({

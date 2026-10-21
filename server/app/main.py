@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import mimetypes
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -40,7 +41,7 @@ def _run_llm_call_log_cleanup() -> None:
     24h) without a restart. Executed in a thread to avoid blocking the loop.
     """
     from app.db.session import SessionLocal
-    from app.services.llm.connector_storage import purge_call_log_older_than
+    from app.services.llm.connector_telemetry import purge_call_log_older_than
     from app.services.system_settings import get_system_settings
 
     db = SessionLocal()
@@ -71,7 +72,7 @@ def _run_tidal_collection_poll() -> None:
     """Synchronous poll, executed in a thread to avoid blocking the event loop."""
     from app.db.session import SessionLocal
     from app.models.event import Event
-    from app.services.tidal import poll_tidal_collection_removals
+    from app.services.providers.tidal_playlists import poll_tidal_collection_removals
 
     db = SessionLocal()
     try:
@@ -103,18 +104,22 @@ async def _tidal_collection_poll_loop() -> None:
             logger.exception("Tidal collection poll loop error")
 
 
-async def global_exception_handler(request: FastAPIRequest, exc: Exception) -> JSONResponse:
+def global_exception_handler(request: FastAPIRequest, exc: Exception) -> JSONResponse:
     """Catch unhandled exceptions and return a generic 500 response."""
     logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI, *, run_background_tasks: bool = True):
+async def lifespan(app: FastAPI, *, run_background_tasks: bool = True) -> AsyncIterator[None]:
     for name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
         lg = logging.getLogger(name)
         lg.handlers.clear()
         lg.propagate = True
+
+    from app.services.llm.registry import initialize_adapters
+
+    initialize_adapters()
 
     tasks: list[asyncio.Task] = []
     if run_background_tasks:
@@ -139,7 +144,7 @@ async def lifespan(app: FastAPI, *, run_background_tasks: bool = True):
 
 
 @asynccontextmanager
-async def no_background_lifespan(app: FastAPI):
+async def no_background_lifespan(app: FastAPI) -> AsyncIterator[None]:
     async with lifespan(app, run_background_tasks=False):
         yield
 

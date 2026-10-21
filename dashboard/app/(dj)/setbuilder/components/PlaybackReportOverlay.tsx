@@ -2,8 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
-import type { PlaybackReport, PlaybackSlotOutcome, PlaybackUnplannedPlay } from '@/lib/api-types';
-import styles from '../setbuilder.module.css';
+import type { PlaybackReport, PlaybackSlotOutcome, PlaybackUnplannedPlay } from '@/lib/api/types';
+
+import playbackStyles from '../setbuilder-playback.module.css';
+import pairingStyles from '../setbuilder-pairings.module.css';
+import sharedStyles from '../setbuilder-shared.module.css';
 
 type Outcome = PlaybackSlotOutcome['outcome'];
 
@@ -23,10 +26,10 @@ const OUTCOME_LABEL: Record<Outcome, string> = {
 };
 
 const OUTCOME_CLASS: Record<Outcome, string> = {
-  played: styles.outcomePlayed,
-  out_of_order: styles.outcomeOutOfOrder,
-  skipped: styles.outcomeSkipped,
-  substituted: styles.outcomeSubstituted,
+  played: playbackStyles.outcomePlayed,
+  out_of_order: playbackStyles.outcomeOutOfOrder,
+  skipped: playbackStyles.outcomeSkipped,
+  substituted: playbackStyles.outcomeSubstituted,
 };
 
 /** One ordered chronological item: a played planned slot OR an unplanned play. */
@@ -36,7 +39,7 @@ type TimelineItem =
 
 function OutcomeBadge({ outcome }: { outcome: Outcome }) {
   return (
-    <span className={`${styles.outcomeBadge} ${OUTCOME_CLASS[outcome]}`}>
+    <span className={`${playbackStyles.outcomeBadge} ${OUTCOME_CLASS[outcome]}`}>
       {OUTCOME_LABEL[outcome]}
     </span>
   );
@@ -133,29 +136,29 @@ export default function PlaybackReportOverlay({
   };
 
   return (
-    <div className={styles.pairingsWrap}>
+    <div className={pairingStyles.pairingsWrap}>
       <button
         type="button"
-        className={styles.pairingsBackdrop}
+        className={pairingStyles.pairingsBackdrop}
         aria-label="Close playback report"
         onClick={onClose}
       />
       <div
-        className={styles.pairingsShell}
+        className={pairingStyles.pairingsShell}
         role="dialog"
         aria-modal="true"
         aria-labelledby="playback-report-title"
       >
-        <header className={styles.pairingsHeader}>
-          <div className={styles.pairingsIcon}>
+        <header className={pairingStyles.pairingsHeader}>
+          <div className={pairingStyles.pairingsIcon}>
             <ReportIcon />
           </div>
-          <div className={styles.pairingsHeaderText}>
+          <div className={pairingStyles.pairingsHeaderText}>
             <h2 id="playback-report-title">Playback report</h2>
             <p>What you planned vs. what actually played at the event.</p>
           </div>
           {summary && (
-            <div className={styles.pairingsStats}>
+            <div className={pairingStyles.pairingsStats}>
               <span>
                 <strong>{summary.played}</strong> played
               </span>
@@ -170,45 +173,45 @@ export default function PlaybackReportOverlay({
               </span>
             </div>
           )}
-          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label="Close">
+          <button type="button" className={sharedStyles.iconBtn} onClick={onClose} aria-label="Close">
             x
           </button>
         </header>
 
-        <div className={styles.playbackBody}>
-          {error && <div className={styles.imError}>{error}</div>}
-          {!error && !report && <div className={styles.pairingsEmpty}>Loading report…</div>}
+        <div className={playbackStyles.playbackBody}>
+          {error && <div className={sharedStyles.imError}>{error}</div>}
+          {!error && !report && <div className={pairingStyles.pairingsEmpty}>Loading report…</div>}
           {report && (
             <>
-              <section className={styles.playbackSection}>
-                <h3 className={styles.playbackSectionHead}>Set timeline (by play order)</h3>
+              <section className={playbackStyles.playbackSection}>
+                <h3 className={playbackStyles.playbackSectionHead}>Set timeline (by play order)</h3>
                 {timeline.length === 0 ? (
-                  <div className={styles.pairingsEmpty}>
+                  <div className={pairingStyles.pairingsEmpty}>
                     No play history recorded for this event yet.
                   </div>
                 ) : (
-                  <ol className={styles.playbackTimeline}>
+                  <ol className={playbackStyles.playbackTimeline}>
                     {timeline.map((item) =>
                       item.kind === 'slot' ? (
-                        <li key={`slot-${item.slot.slot_id}`} className={styles.playbackRow}>
-                          <span className={styles.playbackOrder}>{item.order}</span>
-                          <span className={styles.playbackTrack}>
+                        <li key={`slot-${item.slot.slot_id}`} className={playbackStyles.playbackRow}>
+                          <span className={playbackStyles.playbackOrder}>{item.order}</span>
+                          <span className={playbackStyles.playbackTrack}>
                             <strong>{item.slot.title ?? item.slot.track_id ?? 'Unknown track'}</strong>
                             <small>{item.slot.artist ?? 'Unknown artist'}</small>
                           </span>
-                          <span className={styles.playbackPlanned}>
+                          <span className={playbackStyles.playbackPlanned}>
                             planned #{item.slot.position + 1}
                           </span>
                           <OutcomeBadge outcome={item.slot.outcome} />
                         </li>
                       ) : (
-                        <li key={`unplanned-${item.order}`} className={styles.playbackRow}>
-                          <span className={styles.playbackOrder}>{item.order}</span>
-                          <span className={styles.playbackTrack}>
+                        <li key={`unplanned-${item.order}`} className={playbackStyles.playbackRow}>
+                          <span className={playbackStyles.playbackOrder}>{item.order}</span>
+                          <span className={playbackStyles.playbackTrack}>
                             <strong>{item.play.title}</strong>
                             <small>{item.play.artist}</small>
                           </span>
-                          <span className={styles.playbackPlanned}>not in set</span>
+                          <span className={playbackStyles.playbackPlanned}>not in set</span>
                           <OutcomeBadge outcome="substituted" />
                         </li>
                       ),
@@ -218,17 +221,17 @@ export default function PlaybackReportOverlay({
               </section>
 
               {skipped.length > 0 && (
-                <section className={styles.playbackSection}>
-                  <h3 className={styles.playbackSectionHead}>Planned but never played</h3>
-                  <ol className={styles.playbackTimeline}>
+                <section className={playbackStyles.playbackSection}>
+                  <h3 className={playbackStyles.playbackSectionHead}>Planned but never played</h3>
+                  <ol className={playbackStyles.playbackTimeline}>
                     {skipped.map((slot) => (
-                      <li key={`skipped-${slot.slot_id}`} className={styles.playbackRow}>
-                        <span className={styles.playbackOrder}>#{slot.position + 1}</span>
-                        <span className={styles.playbackTrack}>
+                      <li key={`skipped-${slot.slot_id}`} className={playbackStyles.playbackRow}>
+                        <span className={playbackStyles.playbackOrder}>#{slot.position + 1}</span>
+                        <span className={playbackStyles.playbackTrack}>
                           <strong>{slot.title ?? slot.track_id ?? 'Unknown track'}</strong>
                           <small>{slot.artist ?? 'Unknown artist'}</small>
                         </span>
-                        <span className={styles.playbackPlanned} />
+                        <span className={playbackStyles.playbackPlanned} />
                         <OutcomeBadge outcome="skipped" />
                       </li>
                     ))}
@@ -239,8 +242,8 @@ export default function PlaybackReportOverlay({
           )}
         </div>
 
-        <footer className={styles.playbackFooter}>
-          <span className={styles.playbackFooterNote}>
+        <footer className={playbackStyles.playbackFooter}>
+          <span className={playbackStyles.playbackFooterNote}>
             {applyResult ?? 'Feed back-to-back real plays into your pairing use-counts.'}
           </span>
           <button

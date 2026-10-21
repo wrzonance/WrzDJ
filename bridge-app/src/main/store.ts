@@ -9,32 +9,53 @@ interface StoreSchema {
   settings: BridgeSettings;
 }
 
-const store = new Store<StoreSchema>({
-  defaults: {
-    apiUrl: 'https://api.wrzdj.com',
-    encryptedToken: '',
-    lastEventCode: '',
-    settings: DEFAULT_SETTINGS,
-  },
-});
+let store: Store<StoreSchema> | null = null;
+
+export function initializeStore(): void {
+  store ??= new Store<StoreSchema>({
+    defaults: {
+      apiUrl: 'https://api.wrzdj.com',
+      encryptedToken: '',
+      lastEventCode: '',
+      settings: DEFAULT_SETTINGS,
+    },
+  });
+}
+
+function getStore(): Store<StoreSchema> {
+  if (!store) throw new Error('Persistent store has not been initialized');
+  return store;
+}
 
 // In-memory fallback when OS keychain encryption is unavailable.
 // Token is lost on app restart — user must re-authenticate.
 let sessionToken: string | null = null;
 
+function useMemoryTokenFallback(token: string, warning: string): void {
+  console.warn(warning);
+  try {
+    getStore().set('encryptedToken', '');
+  } catch {
+    console.warn('[Store] Could not clear persisted token for memory fallback');
+  }
+  sessionToken = token;
+}
+
 export function getApiUrl(): string {
-  return store.get('apiUrl');
+  return getStore().get('apiUrl');
 }
 
 export function setApiUrl(url: string): void {
-  store.set('apiUrl', url);
+  getStore().set('apiUrl', url);
 }
 
-export function getToken(): string | null {
-  const encrypted = store.get('encryptedToken');
+export function readAndRepairToken(): string | null {
+  if (sessionToken !== null) return sessionToken;
+
+  const encrypted = getStore().get('encryptedToken');
 
   if (!safeStorage.isEncryptionAvailable()) {
-    return sessionToken;
+    return null;
   }
 
   if (!encrypted) return null;
@@ -43,47 +64,46 @@ export function getToken(): string | null {
     const buffer = Buffer.from(encrypted, 'base64');
     return safeStorage.decryptString(buffer);
   } catch {
-    store.set('encryptedToken', '');
+    getStore().set('encryptedToken', '');
     return null;
   }
 }
 
 export function setToken(token: string): void {
   if (!safeStorage.isEncryptionAvailable()) {
-    console.warn('[Store] OS keychain encryption unavailable — token stored in memory only');
-    sessionToken = token;
+    useMemoryTokenFallback(token, '[Store] OS keychain encryption unavailable — token stored in memory only');
     return;
   }
 
   try {
     const encrypted = safeStorage.encryptString(token);
-    store.set('encryptedToken', encrypted.toString('base64'));
+    getStore().set('encryptedToken', encrypted.toString('base64'));
+    sessionToken = null;
   } catch {
-    console.warn('[Store] Token encryption failed — storing in memory only');
-    sessionToken = token;
+    useMemoryTokenFallback(token, '[Store] Token encryption failed — storing in memory only');
   }
 }
 
 export function clearToken(): void {
-  store.set('encryptedToken', '');
+  getStore().set('encryptedToken', '');
   sessionToken = null;
 }
 
 export function getLastEventCode(): string {
-  return store.get('lastEventCode');
+  return getStore().get('lastEventCode');
 }
 
 export function setLastEventCode(code: string): void {
-  store.set('lastEventCode', code);
+  getStore().set('lastEventCode', code);
 }
 
 export function getSettings(): BridgeSettings {
-  return store.get('settings');
+  return getStore().get('settings');
 }
 
 export function updateSettings(partial: Partial<BridgeSettings>): BridgeSettings {
   const current = getSettings();
   const updated = { ...current, ...partial };
-  store.set('settings', updated);
+  getStore().set('settings', updated);
   return updated;
 }

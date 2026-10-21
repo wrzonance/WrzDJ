@@ -12,20 +12,22 @@ DJ Software  ──►  Plugin  ──►  PluginBridge  ──►  DeckStateMan
 | Layer | File | Responsibility |
 |-------|------|----------------|
 | Plugin | `bridge/src/plugins/*.ts` | Connects to DJ software, emits raw events |
-| PluginBridge | `bridge/src/plugin-bridge.ts` | Normalizes events, synthesizes missing data |
-| DeckStateManager | `bridge/src/deck-state-manager.ts` | Per-deck state machine, debounce, live detection |
-| Bridge entry | `bridge/src/index.ts` | Wires everything together, posts to backend API |
+| PluginBridge | `bridge/src/plugins/plugin-bridge.ts` | Normalizes events, synthesizes missing data |
+| DeckStateManager | `bridge/src/deck/deck-state-manager.ts` | Per-deck state machine, debounce, live detection |
+| Runtime | `bridge/src/runtime/bridge-runtime.ts` | Coordinates plugin, deck state, and backend delivery |
+| Bridge entry | `bridge/src/index.ts` | Registers plugins, loads configuration, and starts the CLI runtime |
 
 ## Core Interfaces
 
-All types are defined in `bridge/src/plugin-types.ts`.
+Plugin contracts are defined in `bridge/src/plugins/plugin-types.ts`; shared track values live in
+`bridge/src/shared/track-types.ts`.
 
 ### EquipmentSourcePlugin
 
-Every plugin implements this interface, which extends Node.js `EventEmitter`:
+Every plugin implements this interface, which narrows Node.js event methods to `PluginEventMap`:
 
 ```typescript
-interface EquipmentSourcePlugin extends EventEmitter {
+interface EquipmentSourcePlugin extends TypedEventEmitter<PluginEventMap> {
   readonly info: PluginInfo;
   readonly capabilities: PluginCapabilities;
   readonly configOptions: readonly PluginConfigOption[];
@@ -112,7 +114,7 @@ Plugins emit these events via `EventEmitter`. PluginBridge subscribes to all of 
 
 ## Plugin Registry
 
-The registry (`bridge/src/plugin-registry.ts`) maps plugin IDs to factory functions. Plugins are instantiated on demand — each call to `getPlugin()` returns a fresh instance.
+The registry (`bridge/src/plugins/plugin-registry.ts`) stores static metadata with each factory, keyed by `metadata.info.id`. Metadata lookup returns independent copies without constructing plugins. Each call to `getPlugin()` creates a fresh instance.
 
 ```typescript
 import {
@@ -120,8 +122,8 @@ import {
   getPluginMeta, listPluginMeta,
 } from "./plugin-registry.js";
 
-// Register a factory
-registerPlugin("my-plugin", () => new MyPlugin());
+// Register static metadata and a factory at application startup
+registerPlugin(MyPlugin.metadata, () => new MyPlugin());
 
 // Create an instance
 const plugin = getPlugin("my-plugin"); // Returns new MyPlugin() or null
@@ -258,32 +260,33 @@ Connects to Pioneer DJ equipment (CDJ-3000, CDJ-2000NXS2, etc.) via the PRO DJ L
 Create `bridge/src/plugins/my-plugin.ts`:
 
 ```typescript
-import { EventEmitter } from "events";
+import { TypedEventEmitter } from "../shared/typed-event-emitter.js";
+import type { PluginMeta } from "./plugin-registry.js";
 import type {
   EquipmentSourcePlugin,
-  PluginCapabilities,
-  PluginInfo,
-} from "../plugin-types.js";
+  PluginEventArguments,
+} from "./plugin-types.js";
 
-export class MyPlugin extends EventEmitter implements EquipmentSourcePlugin {
-  readonly info: PluginInfo = {
-    id: "my-plugin",
-    name: "My DJ Software",
-    description: "Connects to My DJ Software via ...",
+export class MyPlugin extends TypedEventEmitter<PluginEventArguments> implements EquipmentSourcePlugin {
+  static readonly metadata: PluginMeta = {
+    info: {
+      id: "my-plugin",
+      name: "My DJ Software",
+      description: "Connects to My DJ Software via ...",
+    },
+    capabilities: {
+      multiDeck: true,
+      playState: true,
+      faderLevel: false,
+      masterDeck: false,
+      albumMetadata: false,
+    },
+    configOptions: [],
   };
 
-  readonly capabilities: PluginCapabilities = {
-    multiDeck: true,       // Set based on what your integration provides
-    playState: true,
-    faderLevel: false,
-    masterDeck: false,
-    albumMetadata: false,
-  };
-
-  readonly configOptions: readonly PluginConfigOption[] = [
-    // Add user-configurable options here, or leave empty
-    // { key: "port", label: "Port", type: "number", default: 9000, min: 1024, max: 65535 },
-  ];
+  readonly info = structuredClone(MyPlugin.metadata.info);
+  readonly capabilities = structuredClone(MyPlugin.metadata.capabilities);
+  readonly configOptions = structuredClone(MyPlugin.metadata.configOptions);
 
   private running = false;
 
@@ -321,7 +324,7 @@ Add to `bridge/src/plugins/index.ts`:
 ```typescript
 import { MyPlugin } from "./my-plugin.js";
 
-registerPlugin("my-plugin", () => new MyPlugin());
+registerPlugin(MyPlugin.metadata, () => new MyPlugin());
 ```
 
 ### 3. Write tests
@@ -368,32 +371,36 @@ Adding a new plugin with `configOptions` automatically surfaces those options in
 
 ```
 bridge/src/
-  plugin-types.ts              # Interfaces: EquipmentSourcePlugin, events, capabilities
-  plugin-registry.ts           # Factory registry: register/get/list plugins
-  plugin-bridge.ts             # Translation layer: plugin events → DeckStateManager
-  deck-state-manager.ts        # Per-deck state machine (unchanged by plugin system)
-  deck-state.ts                # Type definitions: DeckState, TrackInfo, DeckLiveEvent
+  index.ts                    # CLI composition entry
+  electron-api.ts             # Stable package entry consumed by bridge-app
+  deck/                       # Deck state machine and deck event types
+  runtime/                    # BridgeRuntime, CLI lifecycle, configuration
+  transport/                  # Backend clients, retries, command polling, delivery history
+  shared/                     # TrackInfo, typed emitter, logging, time units
   plugins/
-    index.ts                   # Side-effect import: registers all built-in plugins
+    index.ts                   # Explicit registerBuiltinPlugins composition function
+    plugin-types.ts            # EquipmentSourcePlugin, events, capabilities
+    plugin-registry.ts         # Factory registry: register/get/list plugins
+    plugin-bridge.ts           # Translation layer: plugin events → DeckStateManager
     pioneer-prolink-plugin.ts  # Pioneer PRO DJ LINK integration
     serato-plugin.ts           # Serato DJ session file watcher
     serato-session-parser.ts   # Binary parser for Serato session files
     stagelinq-plugin.ts        # Denon StageLinQ integration
     traktor-broadcast-plugin.ts # Traktor Broadcast/Icecast integration
   __tests__/
-    deck-state-manager.test.ts # Deck state machine tests
-    pioneer-prolink-plugin.test.ts # Pioneer plugin tests
-    serato-plugin.test.ts      # Serato plugin lifecycle and event tests
-    serato-session-parser.test.ts # Serato binary parser tests
-    stagelinq-plugin.test.ts   # StageLinQ plugin tests
-    plugin-bridge.test.ts      # PluginBridge synthesis and event forwarding tests
-    plugin-registry.test.ts    # Registry CRUD tests
-    traktor-broadcast-plugin.test.ts # ICY parsing and HTTP server tests
+    plugins/                   # Adapter lifecycle, parsing, synthesis, and registry tests
+    deck/                      # Deck state machine tests
+    transport/                 # Backend delivery and retry tests
+    runtime/                   # Runtime composition and CLI subprocess tests
+    shared/                    # Shared event and time contracts
+    local-library/             # Local library tests
+    contracts/                 # Cross-provider compatibility tests
+    fixtures/                  # Shared test data and subprocess entrypoints
 
 bridge-app/src/
   shared/types.ts              # PluginMeta, PluginConfigOption, BridgeSettings.protocol
   main/ipc-handlers.ts         # IPC handler: exposes listPluginMeta to renderer
-  main/bridge-runner.ts        # Electron main process: creates PluginBridge from settings
+  main/bridge-runner.ts        # Electron adapter: maps BridgeRuntime status and events to app contracts
   preload/preload.ts           # contextBridge: exposes listPluginMeta to renderer
   renderer/api.ts              # Typed API wrapper for renderer
   renderer/components/

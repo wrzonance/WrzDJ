@@ -13,11 +13,27 @@ despite its own docstring claiming to copy targets. Templates require
 """
 
 import json
+from typing import TypedDict
 
 from sqlalchemy.orm import Session
 
 from app.models.set import Set, SetCurvePoint, SetSlot
 from app.models.set_template import SetTemplate
+
+
+class TemplateSlot(TypedDict):
+    position: int
+    target_energy: float | None
+    locked: bool
+    notes: str | None
+
+
+class TemplateCurvePoint(TypedDict):
+    position_sec: int
+    energy: int
+    label: str | None
+    is_slow_window_start: bool
+    is_slow_window_end: bool
 
 
 def list_templates(db: Session, user_id: int) -> list[SetTemplate]:
@@ -156,7 +172,7 @@ def _encode_slots(slots: list[SetSlot]) -> str:
     )
 
 
-def decode_slots(slots_json: str) -> list[dict]:
+def decode_slots(slots_json: str) -> list[TemplateSlot]:
     """JSON -> slot skeleton dicts."""
     return json.loads(slots_json)
 
@@ -178,6 +194,6 @@ def _encode_curve_points(points: list[SetCurvePoint]) -> str:
     )
 
 
-def decode_curve_points(curve_points_json: str) -> list[dict]:
+def decode_curve_points(curve_points_json: str) -> list[TemplateCurvePoint]:
     """JSON -> curve point dicts."""
     return json.loads(curve_points_json)

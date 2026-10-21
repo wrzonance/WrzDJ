@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [ "$#" -ne 0 ]; then
+  echo "Usage: $0" >&2
+  exit 2
+fi
+
 # WrzDJ Nginx Setup Script
 # Generates nginx configs from templates and installs them.
 #
@@ -127,52 +132,77 @@ if [ -n "$SUDO" ] && [ -d "$NGINX_SITES_AVAILABLE" ] &&
   exit 1
 fi
 
+# nginx 1.25.1 introduced the standalone `http2 on` directive and deprecated
+# the older `listen ... http2` parameter. Probe the installed server only when
+# this invocation will install configs. Generation-only setup can run before
+# nginx is installed, so use the older syntax supported by the declared nginx
+# minimum (Ubuntu 22.04's 1.18) in that mode.
+nginx_version="not installed"
+export HTTP2_LISTEN_OPTION=" http2"
+export HTTP2_DIRECTIVE=""
+if [ -d "$NGINX_SITES_AVAILABLE" ]; then
+  if ! nginx_version_output="$(nginx -v 2>&1)"; then
+    echo "ERROR: Could not determine nginx version using 'nginx -v'." >&2
+    if [ -n "$nginx_version_output" ]; then
+      printf '       nginx reported: %s\n' "$nginx_version_output" >&2
+    fi
+    exit 1
+  fi
+  nginx_version="$(sed -nE \
+    's/^nginx version: nginx\/([0-9]+\.[0-9]+\.[0-9]+)([^0-9].*)?$/\1/p' \
+    <<< "$nginx_version_output")"
+  if [ -z "$nginx_version" ]; then
+    echo "ERROR: Could not parse nginx version from 'nginx -v'." >&2
+    printf '       nginx reported: %s\n' "$nginx_version_output" >&2
+    exit 1
+  fi
+  IFS=. read -r nginx_major nginx_minor nginx_patch <<< "$nginx_version"
+  if (( 10#$nginx_major > 1 ||
+    (10#$nginx_major == 1 && 10#$nginx_minor > 25) ||
+    (10#$nginx_major == 1 && 10#$nginx_minor == 25 && 10#$nginx_patch >= 1) )); then
+    export HTTP2_LISTEN_OPTION=""
+    export HTTP2_DIRECTIVE="http2 on;"
+  fi
+else
+  echo "    nginx is not installed; using compatibility syntax for generated configs"
+fi
+
 echo "==> Generating nginx configs"
 echo "    APP_DOMAIN:    $APP_DOMAIN"
 echo "    API_DOMAIN:    $API_DOMAIN"
 echo "    PORT_API:      $PORT_API"
 echo "    PORT_FRONTEND: $PORT_FRONTEND"
 echo "    SSE_CONN_LIMIT: $SSE_CONN_LIMIT"
+echo "    nginx version: $nginx_version"
 
 # envsubst only replaces the variables we specify, leaving nginx $vars untouched
 # shellcheck disable=SC2016
-VARS='${APP_DOMAIN} ${API_DOMAIN} ${PORT_API} ${PORT_FRONTEND} ${SSE_CONN_LIMIT} ${BOOTSTRAP_DOMAIN} ${BOOTSTRAP_LISTEN_OPTIONS}'
+VARS='${APP_DOMAIN} ${API_DOMAIN} ${PORT_API} ${PORT_FRONTEND} ${SSE_CONN_LIMIT} ${BOOTSTRAP_DOMAIN} ${BOOTSTRAP_LISTEN_OPTIONS} ${HTTP2_LISTEN_OPTION} ${HTTP2_DIRECTIVE}'
 
-# Generate API config. A fresh host gets an HTTP-only bootstrap until all four
-# certificate lineages exist; this lets certbot validate through HTTP.
-if [ "$TLS_READY" -eq 1 ]; then
-  envsubst "$VARS" < "$TEMPLATE_DIR/api.conf.template" \
-    > "$TEMPLATE_DIR/$API_DOMAIN.conf"
-else
-  export BOOTSTRAP_DOMAIN="$API_DOMAIN"
-  export BOOTSTRAP_LISTEN_OPTIONS=""
-  envsubst "$VARS" < "$TEMPLATE_DIR/bootstrap.conf.template" \
-    > "$TEMPLATE_DIR/$API_DOMAIN.conf"
-fi
-echo "    Generated: $TEMPLATE_DIR/$API_DOMAIN.conf"
+# Render one server block using its TLS-specific template or the shared
+# HTTP-only bootstrap template while certificates are being issued.
+render_vhost_config() {
+  local destination="$1" tls_template="$2" bootstrap_domain="$3" bootstrap_listen_options="$4"
+  local template="$TEMPLATE_DIR/$tls_template"
 
-# Generate frontend config
-if [ "$TLS_READY" -eq 1 ]; then
-  envsubst "$VARS" < "$TEMPLATE_DIR/app.conf.template" \
-    > "$TEMPLATE_DIR/$APP_DOMAIN.conf"
-else
-  export BOOTSTRAP_DOMAIN="$APP_DOMAIN"
-  envsubst "$VARS" < "$TEMPLATE_DIR/bootstrap.conf.template" \
-    > "$TEMPLATE_DIR/$APP_DOMAIN.conf"
-fi
-echo "    Generated: $TEMPLATE_DIR/$APP_DOMAIN.conf"
+  if [ "$TLS_READY" -eq 0 ]; then
+    template="$TEMPLATE_DIR/bootstrap.conf.template"
+    export BOOTSTRAP_DOMAIN="$bootstrap_domain"
+    export BOOTSTRAP_LISTEN_OPTIONS="$bootstrap_listen_options"
+  else
+    export BOOTSTRAP_DOMAIN=""
+    export BOOTSTRAP_LISTEN_OPTIONS=""
+  fi
 
-# Generate default catch-all server block
-if [ "$TLS_READY" -eq 1 ]; then
-  envsubst "$VARS" < "$TEMPLATE_DIR/default.conf.template" \
-    > "$TEMPLATE_DIR/default.conf"
-else
-  export BOOTSTRAP_DOMAIN="_"
-  export BOOTSTRAP_LISTEN_OPTIONS=" default_server"
-  envsubst "$VARS" < "$TEMPLATE_DIR/bootstrap.conf.template" \
-    > "$TEMPLATE_DIR/default.conf"
-fi
-echo "    Generated: $TEMPLATE_DIR/default.conf"
+  envsubst "$VARS" < "$template" > "$TEMPLATE_DIR/$destination"
+  echo "    Generated: $TEMPLATE_DIR/$destination"
+}
+
+# A fresh host uses the HTTP-only template until all four certificate lineages
+# exist, which lets certbot validate through HTTP.
+render_vhost_config "$API_DOMAIN.conf" api.conf.template "$API_DOMAIN" ""
+render_vhost_config "$APP_DOMAIN.conf" app.conf.template "$APP_DOMAIN" ""
+render_vhost_config default.conf default.conf.template "_" " default_server"
 
 # Install to nginx if running as root / with sudo
 if [ -d "$NGINX_SITES_AVAILABLE" ]; then
@@ -248,22 +278,6 @@ else
   echo "      sudo cp $TEMPLATE_DIR/$API_DOMAIN.conf /etc/nginx/sites-available/$API_DOMAIN"
   echo "      sudo cp $TEMPLATE_DIR/$APP_DOMAIN.conf /etc/nginx/sites-available/$APP_DOMAIN"
   echo "      sudo cp $TEMPLATE_DIR/default.conf /etc/nginx/sites-available/default"
-fi
-
-# --- Migration: ensure overlay location block exists for existing deployments ---
-# The app.conf.template now includes a dedicated nginx location block for
-# /e/*/overlay that sets CSP frame-ancestors * (allows OBS/streaming embeds).
-# Existing deployments that re-run setup-nginx.sh get this automatically via
-# the template re-generation above. This section just confirms it.
-if [ -d "$NGINX_SITES_AVAILABLE" ]; then
-  INSTALLED_APP="$NGINX_SITES_AVAILABLE/$APP_DOMAIN"
-  if [ -f "$INSTALLED_APP" ] && ! grep -q "frame-ancestors" "$INSTALLED_APP"; then
-    echo ""
-    echo "==> Migration note:"
-    echo "    The installed nginx config for $APP_DOMAIN is missing the overlay"
-    echo "    location block (CSP frame-ancestors for OBS embeds)."
-    echo "    It was updated above — nginx will pick it up after reload."
-  fi
 fi
 
 echo ""

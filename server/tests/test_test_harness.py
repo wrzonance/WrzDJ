@@ -41,6 +41,7 @@ def test_no_background_test_client_skips_lifespan_tasks():
         patch("app.main._tidal_collection_poll_loop") as tidal_loop,
         patch("app.main._llm_call_log_cleanup_loop") as cleanup_loop,
         patch("app.services.llm.health_monitor.health_monitor_loop") as health_loop,
+        patch("app.services.llm.registry.initialize_adapters") as initialize_adapters,
     ):
         test_app = create_app(lifespan_context=no_background_lifespan)
         with TestClient(test_app) as client:
@@ -49,6 +50,7 @@ def test_no_background_test_client_skips_lifespan_tasks():
     tidal_loop.assert_not_called()
     cleanup_loop.assert_not_called()
     health_loop.assert_not_called()
+    initialize_adapters.assert_called_once_with()
 
 
 def test_real_lifespan_starts_and_cancels_background_tasks():

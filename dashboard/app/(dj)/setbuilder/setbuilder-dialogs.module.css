@@ -1,0 +1,216 @@
+.confirmWrap {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+}
+
+.confirmBackdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.confirmDialog {
+  position: absolute;
+  left: 50%;
+  top: 45%;
+  transform: translate(-50%, -50%);
+  width: min(440px, calc(100vw - 2rem));
+  overflow: hidden;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+}
+
+.confirmHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.1rem 0;
+}
+
+.confirmIcon {
+  display: grid;
+  place-items: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 10px;
+  background: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+  font-weight: 800;
+}
+
+.confirmTitle {
+  color: var(--text);
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+}
+
+.confirmBody {
+  padding: 0.8rem 1.1rem 1rem;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+.confirmBody ul {
+  margin-top: 0.6rem;
+  padding-left: 1.1rem;
+}
+
+.confirmFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg);
+}
+
+.builderToast {
+  position: fixed;
+  left: 50%;
+  bottom: 1rem;
+  z-index: 120;
+  transform: translateX(-50%);
+  padding: 0.55rem 0.95rem;
+  border: 1px solid rgba(0, 245, 212, 0.28);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 0.75rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+.settingsModal,
+.confirmDialog {
+  position: relative;
+  z-index: 1;
+  width: min(520px, calc(100vw - 2rem));
+  max-height: min(680px, calc(100vh - 4rem));
+  overflow: auto;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+}
+
+.settingsHeader {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settingsHeader h2,
+.confirmDialog h2 {
+  margin: 0;
+  flex: 1;
+  font-size: 1rem;
+}
+
+.settingsSection {
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settingsSection h3 {
+  margin: 0 0 0.55rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.settingsToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.45rem 0;
+}
+
+.settingsToggleTitle,
+.settingsToggleDescription {
+  display: block;
+}
+
+.settingsToggleTitle {
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.settingsToggleDescription,
+.settingsNote,
+.confirmDialog p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.confirmDialog {
+  padding: 1rem;
+}
+
+.confirmHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.confirmIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex-shrink: 0;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 800;
+}
+
+.confirmIconWarning {
+  background: rgba(245, 158, 11, 0.14);
+  color: #fbbf24;
+}
+
+.confirmIconDanger {
+  background: rgba(239, 68, 68, 0.14);
+  color: #f87171;
+}
+
+.confirmIconNeutral {
+  background: var(--surface-raised, rgba(255, 255, 255, 0.08));
+  color: var(--text-secondary);
+}
+
+.confirmBody {
+  margin-top: 0.75rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.confirmBody p {
+  margin: 0 0 0.45rem;
+}
+
+.confirmBody ul {
+  margin: 0.45rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.confirmBody li + li {
+  margin-top: 0.25rem;
+}
+
+.confirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}

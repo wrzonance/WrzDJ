@@ -14,7 +14,7 @@ import hashlib
 import hmac
 import json
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.core.config import get_settings
 from app.core.time import utcnow
@@ -72,11 +72,7 @@ def issue_human_cookie(response: Response, guest_id: int) -> None:
     )
 
 
-def verify_human_cookie(request: Request) -> int | None:
-    """Return guest_id if the wrzdj_human cookie is valid, signed, version-matched, and unexpired.
-
-    Returns None on any failure (missing, malformed, bad signature, wrong version, expired).
-    """
+def _verified_human_cookie_payload(request: Request) -> dict[str, Any] | None:
     raw = request.cookies.get(COOKIE_NAME)
     if not raw or "." not in raw:
         return None
@@ -99,6 +95,8 @@ def verify_human_cookie(request: Request) -> int | None:
         payload = json.loads(payload_bytes)
     except (ValueError, TypeError):
         return None
+    if not isinstance(payload, dict):
+        return None
 
     # Reject cookies issued under prior schema versions (v=1 had no field;
     # the constant bump forces every pre-existing session to re-verify).
@@ -109,7 +107,6 @@ def verify_human_cookie(request: Request) -> int | None:
         guest_id_raw = payload["guest_id"]
         if not isinstance(guest_id_raw, int) or isinstance(guest_id_raw, bool):
             return None
-        guest_id = guest_id_raw
         exp = payload["exp"]
         if not isinstance(exp, int) or isinstance(exp, bool):
             return None
@@ -119,4 +116,21 @@ def verify_human_cookie(request: Request) -> int | None:
     if exp < int(utcnow().timestamp()):
         return None
 
-    return guest_id
+    return payload
+
+
+def verify_human_cookie(request: Request) -> int | None:
+    """Return guest_id if the wrzdj_human cookie is valid, signed, version-matched, and unexpired.
+
+    Returns None on any failure (missing, malformed, bad signature, wrong version, expired).
+    """
+    payload = _verified_human_cookie_payload(request)
+    return payload["guest_id"] if payload is not None else None
+
+
+def get_human_cookie_remaining_ttl(request: Request) -> int | None:
+    """Return the verified cookie's remaining whole seconds, or None if invalid."""
+    payload = _verified_human_cookie_payload(request)
+    if payload is None:
+        return None
+    return max(0, payload["exp"] - int(utcnow().timestamp()))

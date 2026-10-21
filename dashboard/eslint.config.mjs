@@ -6,7 +6,7 @@ import globals from "globals";
 export default [
   js.configs.recommended,
   {
-    files: ["**/*.{ts,tsx}"],
+    files: ["**/*.{ts,tsx,mts,cts}"],
     languageOptions: {
       parser: tsParser,
       parserOptions: {
@@ -37,6 +37,31 @@ export default [
     },
   },
   {
-    ignores: [".next/", "node_modules/", "*.config.js", "*.config.mjs", "e2e/"],
+    files: ["scripts/**/*.{js,mjs,cjs}", "*.config.{js,mjs,cjs}"],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
+  {
+    files: ["scripts/verify-apple-music-csp.mjs"],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+      },
+    },
+  },
+  {
+    ignores: [
+      ".next/",
+      "node_modules/",
+      "coverage/",
+      "out/",
+      "playwright-report/",
+      "test-results/",
+      ".ak/evidence/",
+      ".desloppify/",
+    ],
   },
 ];

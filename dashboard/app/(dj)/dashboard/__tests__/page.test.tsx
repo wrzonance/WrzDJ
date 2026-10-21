@@ -110,6 +110,22 @@ describe('DashboardPage', () => {
     vi.mocked(api.getActivityLog).mockResolvedValue([]);
   });
 
+  // Regression for baseline 57cfcdc6867f: redirecting does not prevent a protected request.
+  it('does not load protected dashboard data for a pending user', async () => {
+    mockRole = 'pending';
+    vi.mocked(api.getEvents).mockResolvedValue([]);
+    vi.mocked(api.getTidalStatus).mockResolvedValue(null as never);
+    vi.mocked(api.getBeatportStatus).mockResolvedValue(null as never);
+    vi.mocked(api.getActivityLog).mockResolvedValue([]);
+    render(<DashboardPage />);
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/pending'));
+    expect(api.getEvents).not.toHaveBeenCalled();
+    expect(api.getTidalStatus).not.toHaveBeenCalled();
+    expect(api.getBeatportStatus).not.toHaveBeenCalled();
+    expect(api.getActivityLog).not.toHaveBeenCalled();
+  });
+
   it('renders page heading and create button', async () => {
     vi.mocked(api.getEvents).mockResolvedValue([]);
     render(<DashboardPage />);

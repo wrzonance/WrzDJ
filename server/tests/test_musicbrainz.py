@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from app.services.musicbrainz import (
+from app.services.providers.musicbrainz import (
     USER_AGENT,
     _throttle,
     _throttled_get,
@@ -43,7 +43,7 @@ class TestLookupArtistGenre:
             ]
         )
 
-        with patch("app.services.musicbrainz._throttled_get") as mock_get:
+        with patch("app.services.providers.musicbrainz._throttled_get") as mock_get:
             mock_get.side_effect = [search_data, artist_data]
             result = lookup_artist_genre("Radiohead")
 
@@ -54,14 +54,14 @@ class TestLookupArtistGenre:
         assert lookup_artist_genre("   ") is None
 
     def test_returns_none_when_search_fails(self):
-        with patch("app.services.musicbrainz._throttled_get", return_value=None):
+        with patch("app.services.providers.musicbrainz._throttled_get", return_value=None):
             result = lookup_artist_genre("Nonexistent")
 
         assert result is None
 
     def test_returns_none_when_no_results(self):
         with patch(
-            "app.services.musicbrainz._throttled_get",
+            "app.services.providers.musicbrainz._throttled_get",
             return_value=_mock_search_response([]),
         ):
             result = lookup_artist_genre("Nonexistent")
@@ -70,7 +70,7 @@ class TestLookupArtistGenre:
 
     def test_returns_none_when_score_too_low(self):
         search_data = _mock_search_response([{"id": "abc-123", "name": "Close Match", "score": 50}])
-        with patch("app.services.musicbrainz._throttled_get", return_value=search_data):
+        with patch("app.services.providers.musicbrainz._throttled_get", return_value=search_data):
             result = lookup_artist_genre("Something Else")
 
         assert result is None
@@ -81,7 +81,7 @@ class TestLookupArtistGenre:
         )
         artist_data = _mock_artist_response([])
 
-        with patch("app.services.musicbrainz._throttled_get") as mock_get:
+        with patch("app.services.providers.musicbrainz._throttled_get") as mock_get:
             mock_get.side_effect = [search_data, artist_data]
             result = lookup_artist_genre("Obscure Artist")
 
@@ -89,7 +89,7 @@ class TestLookupArtistGenre:
 
     def test_returns_none_when_artist_lookup_fails(self):
         search_data = _mock_search_response([{"id": "abc-123", "name": "Radiohead", "score": 100}])
-        with patch("app.services.musicbrainz._throttled_get") as mock_get:
+        with patch("app.services.providers.musicbrainz._throttled_get") as mock_get:
             mock_get.side_effect = [search_data, None]
             result = lookup_artist_genre("Radiohead")
 
@@ -99,7 +99,7 @@ class TestLookupArtistGenre:
 class TestCheckArtistExists:
     def test_returns_true_with_mbid_for_match(self):
         search_data = _mock_search_response([{"id": "abc-123", "name": "Radiohead", "score": 100}])
-        with patch("app.services.musicbrainz._throttled_get", return_value=search_data):
+        with patch("app.services.providers.musicbrainz._throttled_get", return_value=search_data):
             verified, mbid = check_artist_exists("Radiohead")
 
         assert verified is True
@@ -107,7 +107,7 @@ class TestCheckArtistExists:
 
     def test_returns_false_when_score_too_low(self):
         search_data = _mock_search_response([{"id": "abc-123", "name": "Close Match", "score": 50}])
-        with patch("app.services.musicbrainz._throttled_get", return_value=search_data):
+        with patch("app.services.providers.musicbrainz._throttled_get", return_value=search_data):
             verified, mbid = check_artist_exists("Something Else")
 
         assert verified is False
@@ -118,7 +118,7 @@ class TestCheckArtistExists:
         assert check_artist_exists("   ") == (False, None)
 
     def test_returns_false_when_search_fails(self):
-        with patch("app.services.musicbrainz._throttled_get", return_value=None):
+        with patch("app.services.providers.musicbrainz._throttled_get", return_value=None):
             verified, mbid = check_artist_exists("Nonexistent")
 
         assert verified is False
@@ -126,7 +126,7 @@ class TestCheckArtistExists:
 
     def test_returns_false_when_no_results(self):
         with patch(
-            "app.services.musicbrainz._throttled_get",
+            "app.services.providers.musicbrainz._throttled_get",
             return_value=_mock_search_response([]),
         ):
             verified, mbid = check_artist_exists("Nonexistent")
@@ -136,7 +136,7 @@ class TestCheckArtistExists:
 
     def test_returns_false_when_no_mbid(self):
         search_data = _mock_search_response([{"name": "NoID Artist", "score": 95}])
-        with patch("app.services.musicbrainz._throttled_get", return_value=search_data):
+        with patch("app.services.providers.musicbrainz._throttled_get", return_value=search_data):
             verified, mbid = check_artist_exists("NoID Artist")
 
         assert verified is False
@@ -149,7 +149,7 @@ class TestCheckArtistExists:
                 {"id": "high-id", "name": "Right", "score": 95},
             ]
         )
-        with patch("app.services.musicbrainz._throttled_get", return_value=search_data):
+        with patch("app.services.providers.musicbrainz._throttled_get", return_value=search_data):
             verified, mbid = check_artist_exists("Right")
 
         assert verified is True
@@ -160,7 +160,7 @@ class TestCheckArtistExists:
         search_data = _mock_search_response(
             [{"id": "89ad4ac3", "name": "Various Artists", "score": 100}]
         )
-        with patch("app.services.musicbrainz._throttled_get", return_value=search_data):
+        with patch("app.services.providers.musicbrainz._throttled_get", return_value=search_data):
             verified, mbid = check_artist_exists("electrofab music")
 
         assert verified is False
@@ -169,7 +169,7 @@ class TestCheckArtistExists:
     def test_rejects_unknown_false_positive(self):
         """MB returns '[unknown]' — must reject."""
         search_data = _mock_search_response([{"id": "some-id", "name": "[unknown]", "score": 95}])
-        with patch("app.services.musicbrainz._throttled_get", return_value=search_data):
+        with patch("app.services.providers.musicbrainz._throttled_get", return_value=search_data):
             verified, mbid = check_artist_exists("random stock artist")
 
         assert verified is False
@@ -178,7 +178,7 @@ class TestCheckArtistExists:
     def test_rejects_partial_name_match(self):
         """'bombombini gusini brainrot' → MB returns 'Brainrot' (fuzzy < 0.7) → reject."""
         search_data = _mock_search_response([{"id": "75c51736", "name": "Brainrot", "score": 100}])
-        with patch("app.services.musicbrainz._throttled_get", return_value=search_data):
+        with patch("app.services.providers.musicbrainz._throttled_get", return_value=search_data):
             verified, mbid = check_artist_exists("bombombini gusini brainrot")
 
         assert verified is False
@@ -187,7 +187,7 @@ class TestCheckArtistExists:
     def test_accepts_exact_match(self):
         """'deadmau5' → MB returns 'deadmau5' score=100 → accept."""
         search_data = _mock_search_response([{"id": "good-mbid", "name": "deadmau5", "score": 100}])
-        with patch("app.services.musicbrainz._throttled_get", return_value=search_data):
+        with patch("app.services.providers.musicbrainz._throttled_get", return_value=search_data):
             verified, mbid = check_artist_exists("deadmau5")
 
         assert verified is True
@@ -196,7 +196,7 @@ class TestCheckArtistExists:
     def test_accepts_close_name_match(self):
         """Slight casing difference should still pass fuzzy threshold."""
         search_data = _mock_search_response([{"id": "mbid-123", "name": "Deadmau5", "score": 100}])
-        with patch("app.services.musicbrainz._throttled_get", return_value=search_data):
+        with patch("app.services.providers.musicbrainz._throttled_get", return_value=search_data):
             verified, mbid = check_artist_exists("deadmau5")
 
         assert verified is True
@@ -210,7 +210,7 @@ class TestCheckArtistExists:
                 {"id": "real-id", "name": "Field Music", "score": 92},
             ]
         )
-        with patch("app.services.musicbrainz._throttled_get", return_value=search_data):
+        with patch("app.services.providers.musicbrainz._throttled_get", return_value=search_data):
             verified, mbid = check_artist_exists("Field Music")
 
         assert verified is True
@@ -228,7 +228,7 @@ class TestCheckArtistExists:
                 }
             ]
         )
-        with patch("app.services.musicbrainz._throttled_get", return_value=search_data):
+        with patch("app.services.providers.musicbrainz._throttled_get", return_value=search_data):
             verified, mbid = check_artist_exists("Bobby Cole")
 
         assert verified is False
@@ -246,7 +246,7 @@ class TestCheckArtistExists:
                 }
             ]
         )
-        with patch("app.services.musicbrainz._throttled_get", return_value=search_data):
+        with patch("app.services.providers.musicbrainz._throttled_get", return_value=search_data):
             verified, mbid = check_artist_exists("Stock Artist")
 
         assert verified is False
@@ -264,7 +264,7 @@ class TestCheckArtistExists:
                 }
             ]
         )
-        with patch("app.services.musicbrainz._throttled_get", return_value=search_data):
+        with patch("app.services.providers.musicbrainz._throttled_get", return_value=search_data):
             verified, mbid = check_artist_exists("Library Composer")
 
         assert verified is False
@@ -282,7 +282,7 @@ class TestCheckArtistExists:
                 }
             ]
         )
-        with patch("app.services.musicbrainz._throttled_get", return_value=search_data):
+        with patch("app.services.providers.musicbrainz._throttled_get", return_value=search_data):
             verified, mbid = check_artist_exists("Bobby Cole")
 
         assert verified is True
@@ -291,7 +291,7 @@ class TestCheckArtistExists:
     def test_accepts_no_disambiguation(self):
         """Artist with no disambiguation field should pass."""
         search_data = _mock_search_response([{"id": "good-id", "name": "Deadmau5", "score": 100}])
-        with patch("app.services.musicbrainz._throttled_get", return_value=search_data):
+        with patch("app.services.providers.musicbrainz._throttled_get", return_value=search_data):
             verified, mbid = check_artist_exists("Deadmau5")
 
         assert verified is True
@@ -315,7 +315,7 @@ class TestCheckArtistExists:
                 },
             ]
         )
-        with patch("app.services.musicbrainz._throttled_get", return_value=search_data):
+        with patch("app.services.providers.musicbrainz._throttled_get", return_value=search_data):
             verified, mbid = check_artist_exists("Bobby Cole")
 
         assert verified is True
@@ -333,7 +333,7 @@ class TestLookupArtistGenres:
             ]
         )
 
-        with patch("app.services.musicbrainz._throttled_get") as mock_get:
+        with patch("app.services.providers.musicbrainz._throttled_get") as mock_get:
             mock_get.side_effect = [search_data, artist_data]
             result = lookup_artist_genres("Daft Punk")
 
@@ -349,7 +349,7 @@ class TestLookupArtistGenres:
             ]
         )
 
-        with patch("app.services.musicbrainz._throttled_get") as mock_get:
+        with patch("app.services.providers.musicbrainz._throttled_get") as mock_get:
             mock_get.side_effect = [search_data, artist_data]
             result = lookup_artist_genres("Artist")
 
@@ -362,7 +362,7 @@ class TestThrottledGet:
         mock_response.json.return_value = {"test": True}
         mock_response.raise_for_status = MagicMock()
 
-        with patch("app.services.musicbrainz.httpx.Client") as mock_client_cls:
+        with patch("app.services.providers.musicbrainz.httpx.Client") as mock_client_cls:
             mock_client = MagicMock()
             mock_client.__enter__ = MagicMock(return_value=mock_client)
             mock_client.__exit__ = MagicMock(return_value=False)
@@ -377,7 +377,7 @@ class TestThrottledGet:
         assert result == {"test": True}
 
     def test_returns_none_on_http_error(self):
-        with patch("app.services.musicbrainz.httpx.Client") as mock_client_cls:
+        with patch("app.services.providers.musicbrainz.httpx.Client") as mock_client_cls:
             mock_client = MagicMock()
             mock_client.__enter__ = MagicMock(return_value=mock_client)
             mock_client.__exit__ = MagicMock(return_value=False)

@@ -9,6 +9,7 @@ skip rows as values reorder between polls.
 """
 
 from datetime import datetime
+from typing import TypeAlias
 
 from sqlalchemy import nullslast
 from sqlalchemy.orm import Query, Session
@@ -17,7 +18,7 @@ from sqlalchemy.sql import func
 from app.models.event import Event
 from app.models.request import Request, RequestStatus
 from app.schemas.request import RequestSort, SortDirection
-from app.services.recommendation.camelot import parse_key
+from app.services.music_matching import parse_key
 
 # Default direction per field when the client does not pass one explicitly.
 DEFAULT_SORT_DIRECTION: dict[RequestSort, SortDirection] = {
@@ -43,6 +44,8 @@ _SORT_COLUMNS = {
 
 # Sorts whose column is nullable — nulls always sort last, both directions.
 _NULLABLE_SORTS = {RequestSort.DATE_ACCEPTED, RequestSort.BPM}
+
+RequestSortKey: TypeAlias = tuple[bool, int, str, str, int]
 
 
 def filtered_requests_query(
@@ -93,7 +96,7 @@ def key_sorted(rows: list[Request], direction: SortDirection) -> list[Request]:
     """Sort by harmonic key in Python; null/unparseable keys always last."""
     desc = direction == SortDirection.DESC
 
-    def key_fn(r: Request) -> tuple:
+    def key_fn(r: Request) -> RequestSortKey:
         ordinal = _camelot_ordinal(r.musical_key)
         is_null = ordinal is None
         primary = (-ordinal if desc else ordinal) if ordinal is not None else 0

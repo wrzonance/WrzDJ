@@ -207,6 +207,31 @@ describe('AdminUsersPage', () => {
     });
   });
 
+  it('does not open or submit the edit form for a user with an unknown role', async () => {
+    // Regression pinned to baseline 57cfcdc6867f: API role strings must not be
+    // asserted into an authorization-sensitive role union.
+    vi.mocked(api.getAdminUsers).mockResolvedValue({
+      ...mockUsers,
+      items: [...mockUsers.items, {
+        id: 4,
+        username: 'future-role-user',
+        is_active: true,
+        role: 'owner',
+        created_at: '2026-03-01T00:00:00Z',
+        event_count: 0,
+      }],
+    });
+
+    render(<AdminUsersPage />);
+    await waitFor(() => expect(screen.getByText('future-role-user')).toBeInTheDocument());
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[3]);
+
+    expect(screen.queryByText('Edit: future-role-user')).not.toBeInTheDocument();
+    expect(screen.getByText('Cannot edit user with an unsupported role.')).toBeInTheDocument();
+    expect(api.updateAdminUser).not.toHaveBeenCalled();
+  });
+
   it('shows error when edit fails', async () => {
     vi.mocked(api.updateAdminUser).mockRejectedValue(new Error('Cannot demote last admin'));
 

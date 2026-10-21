@@ -1,4 +1,6 @@
-from datetime import timedelta
+import os
+import time
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -6,6 +8,7 @@ from app.core.time import utcnow
 from app.models.event import Event
 from app.models.guest import Guest
 from app.models.guest_profile import GuestProfile
+from app.schemas.collect import UpdateCollectionSettings
 from app.services import collect as collect_service
 
 
@@ -29,6 +32,26 @@ def _make_guest(db, suffix: str) -> Guest:
     db.commit()
     db.refresh(g)
     return g
+
+
+def test_collection_settings_normalize_aware_times_to_utc(db, test_event):
+    previous_tz = os.environ.get("TZ")
+    os.environ["TZ"] = "America/Los_Angeles"
+    time.tzset()
+    opens_at = datetime(2026, 1, 2, 12, 0, tzinfo=timezone(timedelta(hours=3)))
+
+    try:
+        collect_service.update_collection_settings(
+            db, test_event, UpdateCollectionSettings(collection_opens_at=opens_at)
+        )
+    finally:
+        if previous_tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = previous_tz
+        time.tzset()
+
+    assert test_event.collection_opens_at == datetime(2026, 1, 2, 9, 0)
 
 
 def test_upsert_profile_creates_row(db, test_event: Event):

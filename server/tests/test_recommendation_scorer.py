@@ -2,18 +2,20 @@
 
 import pytest
 
-from app.services.recommendation.scorer import (
+from app.services.music_matching import (
     FAMILY_AFFINITY,
     GENRE_FAMILIES,
+    score_bpm,
+    score_genre,
+)
+from app.services.recommendation.scorer import (
     EventProfile,
     ScoredTrack,
-    TrackProfile,
-    _score_bpm,
-    _score_genre,
     build_event_profile,
     rank_candidates,
     score_candidate,
 )
+from app.services.tracks.profile import TrackProfile
 
 
 class TestBuildEventProfile:
@@ -307,71 +309,71 @@ class TestRankCandidates:
 
 
 class TestScoreBpmFunction:
-    """Direct tests for _score_bpm half/double-time behavior."""
+    """Direct tests for score_bpm half/double-time behavior."""
 
     def test_exact_match(self):
-        assert _score_bpm(128.0, 128.0) == 1.0
+        assert score_bpm(128.0, 128.0) == 1.0
 
     def test_none_candidate(self):
-        assert _score_bpm(None, 128.0) == 0.5
+        assert score_bpm(None, 128.0) == 0.5
 
     def test_none_avg(self):
-        assert _score_bpm(128.0, None) == 0.5
+        assert score_bpm(128.0, None) == 0.5
 
     def test_half_time_exact(self):
         # 64 is exactly half of 128
-        assert _score_bpm(64.0, 128.0) == 0.7
+        assert score_bpm(64.0, 128.0) == 0.7
 
     def test_double_time_exact(self):
         # 256 is exactly double of 128
-        assert _score_bpm(256.0, 128.0) == 0.7
+        assert score_bpm(256.0, 128.0) == 0.7
 
     def test_half_time_near(self):
         # 65 is 1 away from half (64), within tolerance
-        result = _score_bpm(65.0, 128.0)
+        result = score_bpm(65.0, 128.0)
         assert result == 0.7
 
     def test_half_time_far(self):
         # 50 is 14 away from half (64), should get reduced score
-        result = _score_bpm(50.0, 128.0)
+        result = score_bpm(50.0, 128.0)
         # effective_diff = 14, base = 1 - (14-2)/18 = 0.333, * 0.7 = 0.233
         assert 0.2 < result < 0.3
 
     def test_neither_half_nor_double_nor_direct(self):
         # 100 vs avg 128: diff=28, half_diff=|100-64|=36, double_diff=|100-256|=156
         # Direct diff is best but >20, so score = 0.0
-        assert _score_bpm(100.0, 128.0) == 0.0
+        assert score_bpm(100.0, 128.0) == 0.0
 
 
 class TestScoreGenreFunction:
-    """Direct tests for _score_genre with family hierarchy."""
+    """Direct tests for score_genre with family hierarchy."""
 
     def test_exact_match(self):
-        assert _score_genre("House", ["House"]) == 1.0
+        assert score_genre("House", ["House"]) == 1.0
 
     def test_case_insensitive_exact(self):
-        assert _score_genre("house", ["House"]) == 1.0
+        assert score_genre("house", ["House"]) == 1.0
 
     def test_substring_match(self):
-        assert _score_genre("House", ["Deep House"]) == 0.5
+        assert score_genre("House", ["Deep House"]) == 0.5
 
     def test_same_family(self):
-        assert _score_genre("Deep House", ["Tech House"]) == 0.4
+        assert score_genre("Deep House", ["Tech House"]) == 0.4
 
     def test_cross_family_affinity(self):
-        assert _score_genre("Techno", ["House"]) == 0.4
+        assert score_genre("Techno", ["House"]) == 0.4
 
     def test_no_relation(self):
-        assert _score_genre("Country", ["Techno"]) == 0.0
+        assert score_genre("Country", ["Techno"]) == 0.0
 
     def test_missing_candidate(self):
-        assert _score_genre(None, ["House"]) == 0.25
+        assert score_genre(None, ["House"]) == 0.25
 
     def test_missing_dominant(self):
-        assert _score_genre("House", []) == 0.25
+        assert score_genre("House", []) == 0.25
 
     def test_unknown_genre_not_in_families(self):
-        assert _score_genre("Polka", ["Jazz"]) == 0.0
+        assert score_genre("Polka", ["Jazz"]) == 0.0
 
     def test_genre_families_dict_has_expected_families(self):
         families = set(GENRE_FAMILIES.values())

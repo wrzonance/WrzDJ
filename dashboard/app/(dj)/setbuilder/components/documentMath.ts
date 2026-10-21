@@ -1,4 +1,4 @@
-import type { SetDocumentSnapshot } from '@/lib/api-types';
+import type { SetDocumentSnapshot } from '@/lib/api/types';
 
 type DocumentPoolTrack = SetDocumentSnapshot['pool']['tracks'][number];
 
@@ -36,6 +36,25 @@ export function insertPoolTrackIntoDocument(
     ...snapshot,
     slots: nextSlots.map((slot, position) => ({ ...slot, position })),
   };
+}
+
+/** Replace a slot's track from the set's pool while preserving its other edits. */
+export function replaceSlotTrackInDocument(
+  snapshot: SetDocumentSnapshot,
+  slotId: number,
+  poolTrackId: number,
+): SetDocumentSnapshot {
+  const track = snapshot.pool.tracks.find((candidate) => candidate.id === poolTrackId);
+  if (!track) throw new Error('Pool track not found');
+  let replaced = false;
+  const slots = snapshot.slots.map((slot) => {
+    if (slot.id !== slotId) return slot;
+    if (slot.locked) throw new Error('Cannot replace a locked slot');
+    replaced = true;
+    return { ...slot, track_id: slotTrackIdFromPoolTrack(track) };
+  });
+  if (!replaced) throw new Error('Slot not found');
+  return { ...snapshot, slots };
 }
 
 /**

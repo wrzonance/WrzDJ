@@ -38,6 +38,7 @@ class XaiApiKeyAdapter(OpenAICompatibleAdapter):
     """xAI Grok adapter — fixed base URL, api_key credential, OpenAI-compatible wire."""
 
     connector_type = "xai_apikey"
+    default_model = DEFAULT_MODEL
 
     def _extract_credentials(self) -> tuple[str, str | None]:
         """Return (fixed xAI base_url, api_key).

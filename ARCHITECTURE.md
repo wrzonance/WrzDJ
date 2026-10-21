@@ -69,12 +69,36 @@ Pages under `dashboard/app/admin/` with a sidebar layout; non-admins redirected 
 
 - Admin: `server/app/api/admin.py` (`/api/admin/`, incl. integration health/toggle).
 - Authenticated DJ: `events.py`, `requests.py`, `search.py`, `beatport.py`, `tidal.py`.
+- `/api/events` combines `events.py` with `events_requests.py`, `events_recommendations.py`,
+  `events_exports.py`, and `events_collection.py`. The collection module owns collection
+  settings/sync, pending and bulk review, and bulk enrichment.
 - Kiosk: `kiosk.py` — DJ endpoints `/api/kiosk/` + public pairing `/api/public/kiosk/`.
 - Public (no auth): `public.py`, `votes.py`, `bridge.py`, auth settings/register.
 - Rate limiting via slowapi: `@limiter.limit("N/minute")`.
 - Global error handler prevents token/credential leakage (generic 500 in production).
-- Frontend API client `dashboard/lib/api.ts` — singleton `ApiClient`; `this.fetch()` adds Bearer,
-  raw `fetch()` for public; 401 interceptor auto-redirects to login; types mirror Pydantic schemas.
+- Frontend API client `dashboard/lib/api/index.ts` — singleton `ApiClient`; browser requests send the
+  HttpOnly session cookie with `X-Requested-With: WrzDJ` for CSRF protection. Explicit bearer
+  tokens remain supported for non-browser consumers. The 401 interceptor redirects to login;
+  generated types mirror the exported Pydantic schemas.
+
+## Dashboard UI Ownership
+
+- Event components under `dashboard/app/(dj)/events/[code]/components/` are grouped by feature:
+  `recommendations`, `providers`, `kiosk`, `requests`, `voting`, and `management`, with tests
+  beside each group. Recommendation result/loading/acceptance state belongs to
+  `recommendations/useRecommendationResults.ts`; playlist selection has its own hook.
+  `useEventLiveStatus.ts` owns play history, now-playing, and bridge state, discarding responses
+  from old routes and preserving newer bridge updates received through SSE.
+- Account-only provider and preference components live in `dashboard/app/(dj)/account/components/`.
+  Collection form fields shared by event creation and event settings live in
+  `dashboard/components/events/collection/`.
+- `dashboard/app/(dj)/dashboard/components/CreateEventWorkflow.tsx` owns the event-creation form
+  and optional collection setup; the dashboard route owns event loading and the event list.
+- The guest join route owns identity and request loading. `RequestFeed` owns tabs and request-row
+  presentation, and `useGuestRequestVoting` owns optimistic voting and retryable failures.
+  `NicknameGate` remains shared by the join and collect routes.
+- API domain clients under `dashboard/lib/api/domains/` share transport and error parsing from
+  `dashboard/lib/api/transport.ts`; callers use the stable `@/lib/api` entry point.
 
 ## Request Status Flow
 
@@ -96,12 +120,27 @@ REJECTED → NEW (re-open)
 - `vote.py` — idempotent voting with atomic increments.
 - `event.py` — event lifecycle, status computation.
 - `now_playing.py` — NowPlaying table, manual/bridge sync, auto-hide, play-history archival.
-- `tidal.py` / `beatport.py` — OAuth (Beatport: OAuth2 + PKCE S256) + playlist sync.
+- `providers/beatport.py` — public Beatport facade. OAuth2 + PKCE S256 and account lifecycle,
+  catalog queries, playlists, and manual request links live in `beatport_account.py`,
+  `beatport_catalog.py`, `beatport_playlists.py`, and `beatport_manual_link.py` respectively.
+  Shared protocol values and duration parsing live in `beatport_common.py`; catalog and playlist
+  responses share the track-result mapper in `beatport_mapping.py`.
+- `providers/tidal.py` — public Tidal facade. Account/device login, search, playlist lifecycle,
+  and request synchronization live in `tidal_account.py`, `tidal_search.py`,
+  `tidal_playlists.py`, and `tidal_request_sync.py` in the same package. These use the lower-level
+  `tidal_session.py`, `tidal_catalog.py`, and `tidal_results.py` boundaries. Catalog operations bind
+  their session and result conversion directly; `tidal_search.py` owns track-match selection.
 - `admin.py` — user/event CRUD, system stats, last-admin protection (`count_admins(db) > 1`).
 - `integration_health.py` — health checks & admin toggles for external services.
 - `search_merge.py` — dedupes results across Spotify/Beatport.
-- `musicbrainz.py` (rate-limited 1 req/s), `soundcharts.py` — metadata/discovery.
+- `providers/musicbrainz.py` (rate-limited 1 req/s), `providers/soundcharts.py` — metadata/discovery.
+- `providers/spotify.py` / `providers/listenbrainz.py` — Spotify search and ListenBrainz discovery.
 - `intent_parser.py`, `track_normalizer.py`, `version_filter.py` — version/remix handling.
+- `music_matching.py` — shared Camelot key parsing/compatibility and BPM/genre scoring primitives
+  used by recommendations, SetBuilder, and request ordering; feature ranking remains in each caller.
+- `tracks/profile.py`, `tracks/profile_mappers.py`, and `tracks/enrichment.py` — shared track
+  profiles, provider-result conversion, and Beatport/Tidal metadata backfill used by recommendations
+  and SetBuilder. Enrichment returns metadata; callers own master-store writes.
 - `banner.py` — banner image processing (resize 1920x480, WebP q92, desaturate, color extraction;
   path-traversal protected via `Path.is_relative_to()`; migration `009_add_event_banner.py`).
 
@@ -112,16 +151,21 @@ REJECTED → NEW (re-open)
 
 - `gateway.py` — `Gateway.dispatch(db, actor, request, *, purpose)` resolves a connector
   (per-DJ MRU → org default → `NoLlmConfigured`) and routes through the matching adapter.
+  Gateway telemetry and connector status updates use a separate transaction on the caller's
+  database engine; pending agent edits remain owned by the calling route and can roll back.
 - `base.py` (`ChatRequest`/`ChatResponse`/`ToolSpec`/`LlmAdapter` ABC), `registry.py`
   (connector_type → adapter), `tool_translation.py` (JSON-Schema ↔ per-provider tool shape),
-  `url_validator.py`, `connector_storage.py`, `exceptions.py`.
+  `url_validator.py`, `exceptions.py`.
+- `connector_payloads.py` builds typed connector inputs and credentials;
+  `connector_storage.py` owns connector CRUD and transaction boundaries;
+  `connector_preferences.py` persists feature pins; `connector_telemetry.py` owns usage/audit data.
 - Adapters: `openai_apikey.py`, `openai_compatible.py` (Hermes Agent, Ollama, vLLM, LMStudio),
   `anthropic_apikey.py` (uses the `anthropic` SDK).
 - Models: `LlmConnector` (encrypted creds), `LlmCallLog`, `LlmAuditEvent`.
 - Endpoints: admin `/api/admin/llm/*` (policy, force-revoke, usage); DJ `/api/llm/connectors`
   (list/create/rotate/test/delete, rate-limited, scoped to user). UIs: `/admin/ai`, `/settings/ai`.
 - **Credentials**: there is **no env-var credential path**. The one-shot Alembic migration
-  `046_admin_ai_oauth` reads `ANTHROPIC_API_KEY` once on first upgrade to seed a connector; the
+  `047_admin_ai_oauth` reads `ANTHROPIC_API_KEY` once on first upgrade to seed a connector; the
   legacy env-var fallback was removed in #343 — the connector system is the sole credential source.
   `ANTHROPIC_MODEL` (default `claude-haiku-4-5-20251001`) is retained only as a default model-name
   label and for admin model-listing.
@@ -131,9 +175,9 @@ REJECTED → NEW (re-open)
 `server/app/services/recommendation/` — multi-stage pipeline. Routes through the LLM gateway
 (`actor = event.created_by`, `purpose = "recommendation"`); `call_llm` requires a `db` session.
 
-- `service.py` (orchestrator: profile → search → score → dedupe), `enrichment.py` (BPM/key/genre
-  backfill from Beatport/Tidal only — it imports no MusicBrainz client; a standalone title/artist
-  merge that never writes the master `tracks` store itself, reused by callers that do),
+- `service.py` (orchestrator: profile → search → score → dedupe), `candidate_search.py`
+  (provider searches and candidate discovery), `enrichment.py` (event-track selection and
+  enrichment through the shared `tracks/enrichment.py` Beatport/Tidal operation),
   `scorer.py` (BPM compat, harmonic mixing, genre affinity, artist-diversity penalty),
   `camelot.py` (Camelot wheel, half/double-time),
   `llm_client.py` (gateway-backed, forced `tool_use` schema), `llm_hooks.py`, `template.py`
@@ -141,7 +185,8 @@ REJECTED → NEW (re-open)
   `soundcharts_candidates.py` (two live Soundcharts-backed candidate generators: discovery search
   and seed-based related-tracks). Full provider/pipeline detail: `docs/ENRICHMENT.md` §3.2.
 - Three modes: From Requests (event profile), From Playlist (template), AI Assist (Claude Haiku).
-- Endpoints on `events.py`: `POST /{code}/recommendations`, `.../from-template`, `.../llm`,
+- Endpoints in `events_recommendations.py`, included by `events.py`:
+  `POST /{code}/recommendations`, `.../from-template`, `.../llm`,
   `GET /{code}/playlists`.
 
 ## Multi-Service Playlist Sync & Enrichment
@@ -165,8 +210,10 @@ REJECTED → NEW (re-open)
 
 The set builder lets a DJ pre-plan a performance as an ordered timeline of slots backed by a
 candidate-track *pool*, with a derived energy curve, multi-source vibe tagging, sharing, and export
-to real DJ tooling. Backend: `server/app/api/setbuilder.py` + `setbuilder_share.py` (mounted at
-`/api/setbuilder`, public read at `/api/public/setbuilder`) over `server/app/services/setbuilder/`.
+to real DJ tooling. Backend: `server/app/api/setbuilder.py` aggregates the pool, export, pairing,
+and collaboration routers at `/api/setbuilder`; `setbuilder_templates.py` and
+`setbuilder_share.py` are mounted separately, with public reads at `/api/public/setbuilder`.
+These routes use `server/app/services/setbuilder/`.
 Frontend: `dashboard/app/(dj)/setbuilder/`.
 
 **Data model** (`server/app/models/`):
@@ -189,6 +236,7 @@ Frontend: `dashboard/app/(dj)/setbuilder/`.
   leaking existence (matches `deps.get_owned_event_by_id`).
 - `pool.py` — the candidate-track surface; tracks flow in from event requests, Tidal, Beatport,
   public playlist URL, and manual search, each tagged with its `SetPoolSource` for per-source removal.
+  `pool_sources.py` owns provider fetches and ingestion; `pool_types.py` defines their data shapes.
 - `playlist_url.py` — **parses but never fetches** user-supplied playlist URLs (SSRF defense):
   https-only, exact-host allowlist, strict ID charset; importers then call official APIs by ID.
 - `curve.py` — energy-curve templates (built-in + per-DJ) interpolated piecewise-linear onto each
@@ -204,8 +252,9 @@ Frontend: `dashboard/app/(dj)/setbuilder/`.
 - `coverage.py` — read-only pre-build pool-readiness check: reports what fraction of a set's pool
   carries all five pool→builder contract fields (bpm/key/genre/duration/energy), feeding a soft,
   overridable build warning. Full vibe/energy source-of-truth detail: `docs/ENRICHMENT.md` §3.3/§4.
-- `export_common.py` / `export_files.py` / `export_tidal.py` — export the ordered timeline (falling
-  back to pool order until timeline auto-fill lands): Tidal playlist (OAuth + fuzzy match), Rekordbox
+- `exports/export_common.py` / `exports/export_files.py` / `exports/export_tidal.py` — export the
+  ordered timeline (falling back to pool order until timeline auto-fill lands): Tidal playlist
+  (OAuth + fuzzy match), Rekordbox
   XML (`DJ_PLAYLISTS 1.0.0`, synthetic `file://` Location the DJ relinks), M3U8, and plaintext. A
   two-phase preflight reports **unresolved** tracks (409) so the DJ can skip them.
 - `share_service.py` — share-token + duplicate logic; the token is the *sole* capability for the
@@ -225,6 +274,10 @@ Frontend: `dashboard/app/(dj)/setbuilder/`.
 See `docs/PLUGIN-ARCHITECTURE.md` for full details.
 
 - Built-in plugins: StageLinQ (Denon), Pioneer PRO DJ LINK, Serato DJ, Traktor Broadcast.
+- `plugins/` owns plugin contracts, registration, adapters, and event translation; `deck/` owns
+  deck state; `transport/` owns backend delivery, retries, and command polling; `runtime/` owns
+  configuration and lifecycle; `shared/` holds common event, track, logging, and time primitives.
+  `index.ts` is the CLI entry and `electron-api.ts` is the stable Electron package entry.
 - Plugins self-describe via `info` / `capabilities` / `configOptions` (`PluginConfigOption` declares
   type, default, min/max, label). Registry exposes `getPluginMeta()` / `listPluginMeta()` (IPC-safe);
   bridge-app SettingsPanel is fully data-driven — no hardcoded plugin UI.
@@ -236,12 +289,14 @@ See `docs/PLUGIN-ARCHITECTURE.md` for full details.
 
 - Main process: auth, events API, bridge runner, persistent `electron-store`. Renderer: React UI
   (login, event selection, bridge controls, status). IPC via `contextBridge` — renderer has no Node
-  access. Imports bridge code from `../bridge/src/`.
+  access. Imports the supported `@wrzdj/bridge/electron` package entrypoint. Main startup
+  explicitly registers built-in plugins before creating windows or IPC handlers.
 - Installers: `.exe` (Windows), `.dmg` (macOS), `.AppImage` (Linux) via electron-forge.
 - **Externalization**: plugins with npm deps (stagelinq, alphatheta-connect) must be externalized
-  from Vite — add to `externalDeps` in `bridge-app/vite.main.config.ts` AND `dependencies` in
-  `bridge-app/package.json`. `copyExternals` copies them + transitive deps; `AutoUnpackNativesPlugin`
-  unpacks `.node` files. Native build: `npm install --ignore-scripts` then `npx electron-rebuild`.
+  from Vite through `externalDeps` in `bridge-app/vite.main.config.ts`. Their dependencies belong
+  to `bridge/package.json`; `packaging/stage-bridge-dependencies.ts` stages their full runtime
+  dependency graph for Electron packaging. Install bridge dependencies before bridge-app dependencies.
+  `AutoUnpackNativesPlugin` unpacks `.node` files, which are rebuilt for Electron's ABI.
 
 ## Kiosk (Raspberry Pi)
 
@@ -253,6 +308,13 @@ The `kiosk/` directory turns a fresh Pi OS Lite into a locked-down event display
   `dnsmasq-captive.conf`), systemd units (`wrzdj-kiosk.service` reference-only,
   `wrzdj-wifi-portal.service`, watchdog `service`/`timer`/`sh`), optional
   `kiosk/overlayfs/setup-overlayfs.sh`.
+- Portal responsibilities: `portal.py` owns HTTP and coordinated radio operations;
+  `portal_network.py` contains NetworkManager commands and connectivity probes;
+  `portal_config.py` loads typed service settings; `portal_pages.py` renders escaped HTML and
+  holds the browser assets; `portal_requests.py` validates WiFi input before radio changes.
+  `portal_state.py` gives each server its own configuration, network cache and radio locks.
+  `portal_defaults.py` and `portal_types.py` share defaults and payload
+  definitions. Runtime uses Python stdlib; the test suite also runs the browser script with Node.js.
 - **WiFi captive portal**: portal starts on boot; Chromium always opens `http://localhost` first.
   If WiFi unconfigured → pre-scan, start hotspot (`WrzDJ-Kiosk`), serve setup page (touchscreen +
   phone captive portal, DNS redirect to `10.42.0.1`). If configured → JS redirect to `KIOSK_URL`.
@@ -264,10 +326,11 @@ The `kiosk/` directory turns a fresh Pi OS Lite into a locked-down event display
 
 ## CI/CD Layout
 
-- `.github/workflows/ci.yml` — 5 jobs: backend, frontend, bridge, bridge-app, docker-build. Backend:
+- `.github/workflows/ci.yml` — backend, frontend, bridge, bridge-app, kiosk, and docker-build jobs. Backend:
   ruff lint + format, bandit, pip-audit, pytest w/ coverage gate, Alembic `upgrade head && check`.
   Frontend/bridge/bridge-app: ESLint (frontend), `tsc --noEmit`, vitest w/ coverage, npm audit.
-  Docker smoke test builds backend + frontend images.
+  Kiosk runs portal HTTP/process/browser-script tests. Docker smoke tests build backend and
+  frontend images and check deployment provisioning and PostgreSQL upgrades.
 - `.github/workflows/codeql.yml` — CodeQL SAST (Python & JS/TS).
 - **Release** (`release.yml`): triggers on tag push (`v*`), not PR merge. Date-based versioning
   `v2026.02.07` (same-day suffix `.2`). Builds bridge-app installers across 3 platforms (matrix,

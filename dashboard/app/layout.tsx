@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { DM_Sans, Plus_Jakarta_Sans, JetBrains_Mono, Space_Grotesk } from 'next/font/google';
+import localFont from 'next/font/local';
 import { AuthProvider } from '@/lib/auth';
 import { HelpProvider } from '@/lib/help/HelpContext';
 import { LocaleProvider } from '@/lib/locale';
@@ -8,27 +8,31 @@ import { ThemeProvider } from '@/lib/theme';
 import { cookies } from 'next/headers';
 import './globals.css';
 
-const dmSans = DM_Sans({
-  subsets: ['latin'],
+const dmSans = localFont({
+  src: './fonts/dm-sans-latin.woff2',
+  weight: '100 1000',
   variable: '--font-body',
   display: 'swap',
 });
 
-const plusJakarta = Plus_Jakarta_Sans({
-  subsets: ['latin'],
+const plusJakarta = localFont({
+  src: './fonts/plus-jakarta-sans-latin.woff2',
+  weight: '200 800',
   variable: '--font-display',
   display: 'swap',
 });
 
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ['latin'],
+const jetbrainsMono = localFont({
+  src: './fonts/jetbrains-mono-latin.woff2',
+  weight: '100 800',
   variable: '--font-mono',
   display: 'swap',
   preload: false,
 });
 
-const spaceGrotesk = Space_Grotesk({
-  subsets: ['latin'],
+const spaceGrotesk = localFont({
+  src: './fonts/space-grotesk-latin.woff2',
+  weight: '300 700',
   variable: '--font-grotesk',
   display: 'swap',
   preload: false,

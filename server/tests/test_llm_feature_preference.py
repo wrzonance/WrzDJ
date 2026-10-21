@@ -62,7 +62,7 @@ def test_unique_constraint_one_pref_per_user_feature(db, dj_user):
 
 
 def test_set_feature_preference_upserts(db, dj_user):
-    from app.services.llm.connector_storage import (
+    from app.services.llm.connector_preferences import (
         get_feature_preferences_for_user,
         set_feature_preference,
     )
@@ -91,7 +91,7 @@ def test_set_feature_preference_is_conflict_safe_upsert(db, dj_user):
     statement instead of raising ``IntegrityError`` (which previously bubbled a
     500). It must leave exactly one row and return the re-pinned connector.
     """
-    from app.services.llm.connector_storage import (
+    from app.services.llm.connector_preferences import (
         get_feature_preferences_for_user,
         set_feature_preference,
     )
@@ -116,7 +116,7 @@ def test_set_feature_preference_is_conflict_safe_upsert(db, dj_user):
 
 
 def test_clear_feature_preference_removes_row(db, dj_user):
-    from app.services.llm.connector_storage import (
+    from app.services.llm.connector_preferences import (
         clear_feature_preference,
         get_feature_preferences_for_user,
         set_feature_preference,
@@ -147,7 +147,8 @@ def _ok_response() -> ChatResponse:
 
 @pytest.mark.asyncio
 async def test_gateway_prefers_feature_pin_over_default(db, dj_user):
-    from app.services.llm.connector_storage import set_default_for_user, set_feature_preference
+    from app.services.llm.connector_preferences import set_feature_preference
+    from app.services.llm.connector_storage import set_default_for_user
 
     pinned = _make_connector(db, dj_user, display_name="pinned")
     other = _make_connector(db, dj_user, display_name="default")
@@ -173,7 +174,8 @@ async def test_gateway_prefers_feature_pin_over_default(db, dj_user):
 
 @pytest.mark.asyncio
 async def test_gateway_falls_back_when_pinned_connector_auth_invalid(db, dj_user):
-    from app.services.llm.connector_storage import set_default_for_user, set_feature_preference
+    from app.services.llm.connector_preferences import set_feature_preference
+    from app.services.llm.connector_storage import set_default_for_user
 
     pinned = _make_connector(db, dj_user, display_name="pinned", status="auth_invalid")
     fallback = _make_connector(db, dj_user, display_name="fallback")
@@ -201,7 +203,8 @@ async def test_gateway_falls_back_when_pinned_connector_auth_invalid(db, dj_user
 @pytest.mark.asyncio
 async def test_gateway_falls_back_when_pinned_connector_deleted(db, dj_user):
     """A pin whose connector was deleted is skipped (graceful fallback)."""
-    from app.services.llm.connector_storage import set_default_for_user, set_feature_preference
+    from app.services.llm.connector_preferences import set_feature_preference
+    from app.services.llm.connector_storage import set_default_for_user
 
     pinned = _make_connector(db, dj_user, display_name="pinned")
     fallback = _make_connector(db, dj_user, display_name="fallback")
@@ -235,7 +238,7 @@ async def test_gateway_falls_back_when_pinned_connector_deleted(db, dj_user):
 @pytest.mark.asyncio
 async def test_gateway_ignores_pin_for_unknown_feature(db, dj_user):
     """A pin set for one feature must not leak into another purpose."""
-    from app.services.llm.connector_storage import set_feature_preference
+    from app.services.llm.connector_preferences import set_feature_preference
 
     pinned = _make_connector(db, dj_user, display_name="pinned")
     mru = _make_connector(db, dj_user, display_name="mru")
@@ -355,7 +358,9 @@ def test_feature_key_literal_matches_known_features():
     """FeatureKey (the OpenAPI enum) must stay in sync with KNOWN_FEATURES."""
     import typing
 
+    from app.models.llm_contracts import FEATURE_KEY_VALUES
     from app.schemas.llm import FeatureKey
 
     literal_values = set(typing.get_args(FeatureKey))
     assert literal_values == set(KNOWN_FEATURES)
+    assert literal_values == set(FEATURE_KEY_VALUES)

@@ -6,6 +6,27 @@ import { initSeenPages } from './help/seen-pages';
 
 export type UserRole = 'admin' | 'dj' | 'pending';
 
+class InvalidUserRoleError extends Error {
+  constructor() {
+    super('Authentication API returned an unknown user role');
+    this.name = 'InvalidUserRoleError';
+  }
+}
+
+function parseUserRole(role: string): UserRole {
+  if (role === 'admin' || role === 'dj' || role === 'pending') return role;
+  throw new InvalidUserRoleError();
+}
+
+async function endRejectedSession(): Promise<void> {
+  writeSessionHint(null);
+  try {
+    await api.endSession();
+  } catch {
+    // Keep the client logged out even if the server cannot clear the cookie.
+  }
+}
+
 interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
@@ -104,13 +125,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // visitor to /login, it just means "not signed in".
     api.getMe()
       .then((user) => {
+        const userRole = parseUserRole(user.role);
         initSeenPages(user.help_pages_seen ?? []);
         redirectToLoginOnUnauthorized();
         setIsAuthenticated(true);
-        setRole(user.role as UserRole);
+        setRole(userRole);
       })
-      .catch(() => {
-        writeSessionHint(null);
+      .catch(async (error: unknown) => {
+        if (error instanceof InvalidUserRoleError) await endRejectedSession();
+        else writeSessionHint(null);
       })
       .finally(() => setIsLoading(false));
   }, [redirectToLoginOnUnauthorized]);
@@ -135,8 +158,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     writeSessionHint(newSessionGeneration());
     redirectToLoginOnUnauthorized();
     const user = await api.getMe();
+    let userRole: UserRole;
+    try {
+      userRole = parseUserRole(user.role);
+    } catch (error) {
+      if (error instanceof InvalidUserRoleError) {
+        api.setUnauthorizedHandler(null);
+        await endRejectedSession();
+      }
+      throw error;
+    }
     initSeenPages(user.help_pages_seen ?? []);
-    setRole(user.role as UserRole);
+    setRole(userRole);
     setIsAuthenticated(true);
   };
 

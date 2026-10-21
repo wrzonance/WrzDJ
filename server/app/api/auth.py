@@ -37,7 +37,6 @@ from app.services.system_settings import get_system_settings
 from app.services.turnstile import verify_turnstile_token
 
 router = APIRouter()
-settings = get_settings()
 
 
 class MePreferencesUpdate(BaseModel):
@@ -45,7 +44,7 @@ class MePreferencesUpdate(BaseModel):
 
 
 @router.post("/login", response_model=Token)
-@limiter.limit(lambda: f"{settings.login_rate_limit_per_minute}/minute")
+@limiter.limit(lambda: f"{get_settings().login_rate_limit_per_minute}/minute")
 def login(
     request: Request,
     response: Response,
@@ -62,6 +61,7 @@ def login(
     """
     client_ip = get_client_ip(request)
     username = form_data.username
+    settings = get_settings()
 
     # Check lockout status
     if settings.is_lockout_enabled:
@@ -140,7 +140,7 @@ def get_me(
     request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> dict:
+) -> UserOut:
     pending = account_service.get_active_pending_email_change(db, current_user.id)
     data = UserOut.model_validate(current_user).model_dump()
     data["pending_email"] = pending.new_email if pending else None
@@ -169,7 +169,7 @@ def update_me_preferences(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
-):
+) -> UserOut:
     updated = account_service.update_preferences(
         db, current_user, frictionless_join_default=body.frictionless_join_default
     )
@@ -239,12 +239,12 @@ def get_public_settings(request: Request, db: Session = Depends(get_db)) -> Publ
     sys_settings = get_system_settings(db)
     return PublicSettings(
         registration_enabled=sys_settings.registration_enabled,
-        turnstile_site_key=settings.turnstile_site_key,
+        turnstile_site_key=get_settings().turnstile_site_key,
     )
 
 
 @router.post("/register", response_model=StatusMessageResponse)
-@limiter.limit(lambda: f"{settings.registration_rate_limit_per_minute}/minute")
+@limiter.limit(lambda: f"{get_settings().registration_rate_limit_per_minute}/minute")
 async def register(
     request: Request,
     reg_data: RegisterRequest,

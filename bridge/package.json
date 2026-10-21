@@ -1,9 +1,15 @@
 {
-  "name": "wrzdj-bridge",
+  "name": "@wrzdj/bridge",
   "version": "0.1.0",
-  "description": "StageLinQ bridge for WrzDJ - connects Denon DJ equipment to WrzDJ backend",
+  "description": "DJ equipment bridge for WrzDJ with StageLinQ, Pioneer Pro DJ Link, Serato, and Traktor integrations",
   "main": "dist/index.js",
   "type": "module",
+  "exports": {
+    "./electron": {
+      "types": "./src/electron-api.ts",
+      "import": "./src/electron-api.ts"
+    }
+  },
   "scripts": {
     "start": "node --env-file=.env --import tsx src/index.ts",
     "build": "tsc",

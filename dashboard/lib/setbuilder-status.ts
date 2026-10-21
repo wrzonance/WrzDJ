@@ -1,4 +1,4 @@
-import type { SetSummary } from './api-types';
+import type { SetSummary } from './api/types';
 
 /**
  * Canonical metadata for WrzDJSet set-lifecycle statuses.

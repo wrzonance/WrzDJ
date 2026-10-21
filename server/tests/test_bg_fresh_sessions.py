@@ -14,7 +14,8 @@ the request session.
 import pytest
 
 import app.api.collect as collect_module
-import app.api.events as events_module
+import app.api.events_collection as events_collection_module
+import app.api.events_requests as events_requests_module
 import app.api.requests as requests_module
 import app.services.sync.orchestrator as orchestrator_module
 from app.models.request import Request as SongRequest
@@ -49,23 +50,23 @@ def _patch_session_local(monkeypatch, module, spy: _SpySession) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# events.py helpers
+# event background helpers
 # --------------------------------------------------------------------------- #
 
 
 def test_enrich_helper_closes_session_on_success(monkeypatch):
     spy = _SpySession()
-    _patch_session_local(monkeypatch, events_module, spy)
+    _patch_session_local(monkeypatch, orchestrator_module, spy)
     monkeypatch.setattr(orchestrator_module, "enrich_request_metadata", lambda db, rid: None)
 
-    events_module._enrich_with_fresh_session(123)
+    orchestrator_module.enrich_with_fresh_session(123)
 
     assert spy.closed is True
 
 
 def test_enrich_helper_closes_session_on_exception(monkeypatch):
     spy = _SpySession()
-    _patch_session_local(monkeypatch, events_module, spy)
+    _patch_session_local(monkeypatch, orchestrator_module, spy)
 
     def boom(db, rid):
         raise RuntimeError("enrich failed")
@@ -75,7 +76,7 @@ def test_enrich_helper_closes_session_on_exception(monkeypatch):
     # Assert the error actually propagates — the helper must NOT swallow it — so
     # the regression also guards against a future try/except hiding failures.
     with pytest.raises(RuntimeError):
-        events_module._enrich_with_fresh_session(123)
+        orchestrator_module.enrich_with_fresh_session(123)
 
     assert spy.closed is True
 
@@ -102,14 +103,16 @@ def test_sync_collection_helper_passes_ids_and_closes(monkeypatch):
         return _Q()
 
     spy.query = fake_query
-    _patch_session_local(monkeypatch, events_module, spy)
+    _patch_session_local(monkeypatch, orchestrator_module, spy)
 
     def fake_sync(db, u, e, reqs):
         captured["args"] = (db, u, e, reqs)
 
-    monkeypatch.setattr(events_module, "sync_collection_requests_batch", fake_sync)
+    import app.services.providers.tidal_request_sync as tidal_module
 
-    events_module._sync_collection_requests_with_fresh_session(7, [1, 2])
+    monkeypatch.setattr(tidal_module, "sync_collection_requests_batch", fake_sync)
+
+    orchestrator_module.sync_collection_requests_with_fresh_session(7, [1, 2])
 
     assert spy.closed is True
     db_arg, user_arg, event_arg, reqs_arg = captured["args"]
@@ -124,14 +127,16 @@ def test_sync_collection_helper_noop_when_event_missing(monkeypatch):
     spy = _SpySession()
     called = {"sync": False}
     spy.get = lambda model, _id: None
-    _patch_session_local(monkeypatch, events_module, spy)
+    _patch_session_local(monkeypatch, orchestrator_module, spy)
+    import app.services.providers.tidal_request_sync as tidal_module
+
     monkeypatch.setattr(
-        events_module,
+        tidal_module,
         "sync_collection_requests_batch",
         lambda *a, **k: called.__setitem__("sync", True),
     )
 
-    events_module._sync_collection_requests_with_fresh_session(404, [1])
+    orchestrator_module.sync_collection_requests_with_fresh_session(404, [1])
 
     assert spy.closed is True
     assert called["sync"] is False
@@ -144,14 +149,14 @@ def test_remove_collection_tracks_helper_passes_ids_and_closes(monkeypatch):
     event_with_user = type("E", (), {"created_by": user})()
 
     spy.get = lambda model, _id: event_with_user
-    _patch_session_local(monkeypatch, events_module, spy)
+    _patch_session_local(monkeypatch, events_collection_module, spy)
 
     def fake_remove(db, u, e, track_ids):
         captured["args"] = (db, u, e, track_ids)
 
-    monkeypatch.setattr(events_module, "remove_collection_tracks_batch", fake_remove)
+    monkeypatch.setattr(events_collection_module, "remove_collection_tracks_batch", fake_remove)
 
-    events_module._remove_collection_tracks_with_fresh_session(7, ["t1", "t2"])
+    events_collection_module._remove_collection_tracks_with_fresh_session(7, ["t1", "t2"])
 
     assert spy.closed is True
     db_arg, user_arg, event_arg, track_ids = captured["args"]
@@ -171,7 +176,7 @@ def test_requests_enrich_helper_closes_session(monkeypatch):
     _patch_session_local(monkeypatch, requests_module, spy)
     monkeypatch.setattr(orchestrator_module, "enrich_request_metadata", lambda db, rid: None)
 
-    requests_module._enrich_with_fresh_session(5)
+    requests_module.enrich_with_fresh_session(5)
 
     assert spy.closed is True
 
@@ -246,10 +251,10 @@ def test_remove_collection_track_helper_requeries_and_closes(monkeypatch):
 
 def test_collect_enrich_helper_closes_session(monkeypatch):
     spy = _SpySession()
-    _patch_session_local(monkeypatch, collect_module, spy)
+    _patch_session_local(monkeypatch, orchestrator_module, spy)
     monkeypatch.setattr(orchestrator_module, "enrich_request_metadata", lambda db, rid: None)
 
-    collect_module._enrich_with_fresh_session(9)
+    collect_module.enrich_with_fresh_session(9)
 
     assert spy.closed is True
 
@@ -274,14 +279,16 @@ def test_collect_sync_collection_helper_requeries_and_closes(monkeypatch):
         return _Q()
 
     spy.query = fake_query
-    _patch_session_local(monkeypatch, collect_module, spy)
+    _patch_session_local(monkeypatch, orchestrator_module, spy)
 
     def fake_sync(db, u, e, reqs):
         captured["args"] = (db, u, e, reqs)
 
-    monkeypatch.setattr(collect_module, "sync_collection_requests_batch", fake_sync)
+    import app.services.providers.tidal_request_sync as tidal_module
 
-    collect_module._sync_collection_requests_with_fresh_session(7, [1])
+    monkeypatch.setattr(tidal_module, "sync_collection_requests_batch", fake_sync)
+
+    orchestrator_module.sync_collection_requests_with_fresh_session(7, [1])
 
     assert spy.closed is True
     db_arg, user_arg, event_arg, reqs_arg = captured["args"]
@@ -351,8 +358,12 @@ def test_bulk_review_schedules_ids_not_orm_objects(
     for func, args, kwargs in scheduled:
         _assert_no_orm_or_session(args, kwargs)
 
-    enrich_tasks = [s for s in scheduled if s[0] is events_module._enrich_with_fresh_session]
-    sync_tasks = [s for s in scheduled if s[0] is events_module._sync_requests_with_fresh_session]
+    enrich_tasks = [
+        s for s in scheduled if s[0] is events_collection_module.enrich_with_fresh_session
+    ]
+    sync_tasks = [
+        s for s in scheduled if s[0] is events_collection_module.sync_requests_with_fresh_session
+    ]
 
     # One enrich task per accepted row, each carrying a single int ID.
     assert len(enrich_tasks) == len(ids)
@@ -403,7 +414,7 @@ def test_patch_accept_schedules_request_id_not_orm(
 def test_submit_request_schedules_fresh_session_not_db(
     client, db, auth_headers, test_event, monkeypatch
 ):
-    """POST /requests enriches via _enrich_with_fresh_session(id) — never the
+    """POST /requests enriches via enrich_with_fresh_session(id) — never the
     request-scoped `db`/ORM row. #541 broadened this enqueue to complete
     submissions too; with Soundcharts enabled the task makes network calls, so it
     must not pin a pool connection (#505)."""
@@ -419,7 +430,9 @@ def test_submit_request_schedules_fresh_session_not_db(
     for func, args, kwargs in scheduled:
         _assert_no_orm_or_session(args, kwargs)
 
-    enrich_tasks = [s for s in scheduled if s[0] is events_module._enrich_with_fresh_session]
+    enrich_tasks = [
+        s for s in scheduled if s[0] is events_requests_module.enrich_with_fresh_session
+    ]
     assert len(enrich_tasks) == 1, "submit must schedule exactly one fresh-session enrich task"
     args = enrich_tasks[0][1]
     assert len(args) == 1 and isinstance(args[0], int)  # a single int request ID
@@ -449,7 +462,7 @@ def test_refresh_metadata_schedules_fresh_session(
     resp = client.post(f"/api/requests/{row.id}/refresh-metadata", headers=auth_headers)
     assert resp.status_code == 200, resp.text
 
-    enrich_tasks = [s for s in scheduled if s[0] is requests_module._enrich_with_fresh_session]
+    enrich_tasks = [s for s in scheduled if s[0] is requests_module.enrich_with_fresh_session]
     assert len(enrich_tasks) == 1
     _assert_no_orm_or_session(enrich_tasks[0][1], enrich_tasks[0][2])
     assert enrich_tasks[0][1] == (row.id,)
@@ -477,7 +490,9 @@ def test_enrich_all_schedules_fresh_session_per_incomplete(
     resp = client.post(f"/api/events/{test_event.code}/enrich-all", headers=auth_headers)
     assert resp.status_code == 200, resp.text
 
-    enrich_tasks = [s for s in scheduled if s[0] is events_module._enrich_with_fresh_session]
+    enrich_tasks = [
+        s for s in scheduled if s[0] is events_collection_module.enrich_with_fresh_session
+    ]
     assert len(enrich_tasks) == 3, "one fresh-session enrich task per incomplete request"
     for _func, args, kwargs in enrich_tasks:
         _assert_no_orm_or_session(args, kwargs)

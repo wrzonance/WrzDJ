@@ -1,5 +1,9 @@
 import type {
   AdminEvent,
+  AdminGuest,
+  AdminGuestFilter,
+  AdminGuestProfileUpdate,
+  AdminGuestUpdate,
   AdminUser,
   AIModelsResponse,
   AISettings,
@@ -117,6 +121,11 @@ import type {
 export type {
   ActivityLogEntry,
   AdminEvent,
+  AdminGuest,
+  AdminGuestEvent,
+  AdminGuestFilter,
+  AdminGuestProfileUpdate,
+  AdminGuestUpdate,
   AdminUser,
   AIModelInfo,
   AIModelsResponse,
@@ -1788,6 +1797,41 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ codes }),
     });
+  }
+
+  // ========== Admin guests (#862) ==========
+
+  async getAdminGuests(
+    page: number = 1,
+    limit: number = 20,
+    filter: AdminGuestFilter = 'all',
+    q?: string
+  ): Promise<PaginatedResponse<AdminGuest>> {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit), filter });
+    if (q) params.set('q', q);
+    return this.fetch(`/api/admin/guests?${params}`);
+  }
+
+  async updateAdminGuest(guestId: number, data: AdminGuestUpdate): Promise<AdminGuest> {
+    return this.fetch(`/api/admin/guests/${guestId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateAdminGuestProfile(
+    guestId: number,
+    eventId: number,
+    data: AdminGuestProfileUpdate
+  ): Promise<AdminGuest> {
+    return this.fetch(`/api/admin/guests/${guestId}/events/${eventId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteAdminGuest(guestId: number): Promise<void> {
+    await this.fetch(`/api/admin/guests/${guestId}`, { method: 'DELETE' });
   }
 
   async getAdminSettings(): Promise<SystemSettings> {

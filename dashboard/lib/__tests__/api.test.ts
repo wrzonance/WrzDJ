@@ -690,6 +690,75 @@ describe('ApiClient', () => {
       expect(options.method).toBe('POST');
     });
 
+    it('fetches admin guests with filter and search', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ items: [{ id: 7, nickname: 'Alice' }], total: 1, page: 1, limit: 20 }),
+      });
+
+      const result = await api.getAdminGuests(2, 50, 'shared', 'ali');
+      expect(result.items).toHaveLength(1);
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/admin/guests?');
+      expect(url).toContain('page=2');
+      expect(url).toContain('limit=50');
+      expect(url).toContain('filter=shared');
+      expect(url).toContain('q=ali');
+    });
+
+    it('omits q from the admin guests URL when not searching', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ items: [], total: 0, page: 1, limit: 20 }),
+      });
+
+      await api.getAdminGuests();
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('filter=all');
+      expect(url).not.toContain('q=');
+    });
+
+    it('revokes an admin guest email with PATCH', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 7, email_verified: false }),
+      });
+
+      const guest = await api.updateAdminGuest(7, { revoke_email: true });
+      expect(guest.email_verified).toBe(false);
+
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/admin/guests/7');
+      expect(options.method).toBe('PATCH');
+      expect(JSON.parse(options.body)).toEqual({ revoke_email: true });
+    });
+
+    it('updates an admin guest per-event nickname with PATCH', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 7, nickname: 'Zed' }),
+      });
+
+      const guest = await api.updateAdminGuestProfile(7, 3, { nickname: 'Zed' });
+      expect(guest.nickname).toBe('Zed');
+
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/admin/guests/7/events/3');
+      expect(options.method).toBe('PATCH');
+    });
+
+    it('deletes an admin guest', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, status: 204, json: async () => null });
+
+      await api.deleteAdminGuest(7);
+
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/admin/guests/7');
+      expect(options.method).toBe('DELETE');
+    });
+
     it('updates admin settings', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,

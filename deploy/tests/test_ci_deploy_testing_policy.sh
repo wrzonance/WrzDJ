@@ -28,9 +28,10 @@ printf 'APP_DOMAIN=%s API_DOMAIN=%s PORT_API=%s PORT_FRONTEND=%s VHOSTS_ONLY=%s\
 NGINX
 chmod +x "$scratch/repo/deploy/deploy-ghcr.sh" "$scratch/repo/deploy/setup-nginx.sh"
 printf 'base\n' > "$scratch/repo/app.txt"
+printf 'deploy/.env\n' > "$scratch/repo/.gitignore"
 cat > "$scratch/repo/deploy/.env" <<'ENV'
 PUBLIC_URL=https://testing.example.test
-NEXT_PUBLIC_API_URL=https://api-testing.example.test
+NEXT_PUBLIC_API_URL=https://testing-api.example.test
 PORT_API=8001
 PORT_FRONTEND=3001
 ENV
@@ -113,7 +114,7 @@ test ! -e "$scratch/repo/deploy/.ci-last-deployed"
 bash "$deploy" "$testing_sha" >"$scratch/success.log" 2>&1
 test "$(<"$scratch/repo/deploy/.ci-last-deployed")" = "$testing_sha"
 test "$(git -C "$scratch/repo" rev-parse HEAD)" = "$testing_sha"
-grep -Fq "sha-${testing_sha:0:7}" "$scratch/deploy.log"
+grep -Fq "testing-sha-${testing_sha:0:7}" "$scratch/deploy.log"
 test ! -e "$scratch/nginx.log"
 grep -Fq 'image prune -f' "$scratch/docker.log"
 
@@ -132,7 +133,7 @@ if WRZDJ_FAKE_NGINX_FAIL=1 bash "$deploy" "$nginx_sha" >"$scratch/nginx-failed.l
   exit 1
 fi
 test "$(<"$scratch/repo/deploy/.ci-last-deployed")" = "$testing_sha"
-grep -Fq 'APP_DOMAIN=testing.example.test API_DOMAIN=api-testing.example.test PORT_API=8001 PORT_FRONTEND=3001 VHOSTS_ONLY=1' \
+grep -Fq 'APP_DOMAIN=testing.example.test API_DOMAIN=testing-api.example.test PORT_API=8001 PORT_FRONTEND=3001 VHOSTS_ONLY=1' \
   "$scratch/nginx.log"
 
 SSH_ORIGINAL_COMMAND="$nginx_sha" bash "$deploy" >"$scratch/ssh-success.log" 2>&1
@@ -144,7 +145,26 @@ test "$(wc -l < "$scratch/nginx.log")" -eq 2
 # any override.
 bash "$deploy" "$base_sha" >"$scratch/older.log" 2>&1
 test "$(<"$scratch/repo/deploy/.ci-last-deployed")" = "$base_sha"
-grep -Fq "sha-${base_sha:0:7}" "$scratch/deploy.log"
+grep -Fq "testing-sha-${base_sha:0:7}" "$scratch/deploy.log"
+
+# A commit that carries deploy/.env would replace this stack's secrets on
+# checkout, so it is refused before anything moves.
+git -C "$scratch/repo" checkout -q testing
+operator_env="$(cat "$scratch/repo/deploy/.env")"
+printf 'JWT_SECRET=from-the-branch\n' > "$scratch/repo/deploy/.env"
+git -C "$scratch/repo" add -f deploy/.env
+git -C "$scratch/repo" commit -qm 'tracks env'
+git -C "$scratch/repo" push -q origin testing
+tracked_env_sha="$(git -C "$scratch/repo" rev-parse HEAD)"
+git -C "$scratch/repo" checkout -q --detach "$base_sha"
+printf '%s\n' "$operator_env" > "$scratch/repo/deploy/.env"
+deploys_before="$(wc -l < "$scratch/deploy.log")"
+expect_rejected 'commit that tracks deploy/.env' "$tracked_env_sha"
+grep -Fq 'tracks deploy/.env' "$scratch/rejected.log"
+test "$(wc -l < "$scratch/deploy.log")" -eq "$deploys_before"
+test "$(<"$scratch/repo/deploy/.ci-last-deployed")" = "$base_sha"
+test "$(<"$scratch/repo/deploy/.env")" = "$operator_env"
+git -C "$scratch/repo" push -q -f origin "$base_sha:refs/heads/testing"
 
 # A commit that was on testing but has since been rewritten away is refused:
 # the branch is the only trust anchor.

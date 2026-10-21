@@ -319,7 +319,7 @@ run_vhosts_only() {
   WRZDJ_NGINX_VHOSTS_ONLY=1 PATH="$bin_dir:$PATH" NGINX_ETC_DIR="$nginx_root" \
     LETSENCRYPT_DIR="$tmp_dir/letsencrypt" CERTIFICATE_CHECKER="$certificate_checker" \
     NGINX_INSTALLER="$nginx_installer" NGINX_CONFD_INSTALLER="$confd_installer" \
-    APP_DOMAIN=testing.example.test API_DOMAIN=api-testing.example.test \
+    APP_DOMAIN=testing.example.test API_DOMAIN=testing-api.example.test \
     PORT_API=8001 PORT_FRONTEND=3001 \
     bash "$repo_root/deploy/setup-nginx.sh" > "$tmp_dir/vhosts-only.log" 2>&1 || {
     cat "$tmp_dir/vhosts-only.log" >&2
@@ -328,7 +328,7 @@ run_vhosts_only() {
 }
 rm -f "$RELOAD_MARKER"
 run_vhosts_only
-for name in testing.example.test api-testing.example.test; do
+for name in testing.example.test testing-api.example.test; do
   test -f "$nginx_root/sites-available/$name"
   test -L "$nginx_root/sites-enabled/$name"
   if grep -Fq 'ssl_certificate' "$nginx_root/sites-available/$name"; then
@@ -343,8 +343,8 @@ if grep -Fq 'default.conf' "$tmp_dir/vhosts-only.log"; then
   exit 1
 fi
 
-for domain in testing.example.test api-testing.example.test \
-  testing.example.test-rsa api-testing.example.test-rsa; do
+for domain in testing.example.test testing-api.example.test \
+  testing.example.test-rsa testing-api.example.test-rsa; do
   mkdir -p "$tmp_dir/letsencrypt/live/$domain"
   openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
     -subj "/CN=$domain" \
@@ -352,11 +352,11 @@ for domain in testing.example.test api-testing.example.test \
     -out "$tmp_dir/letsencrypt/live/$domain/fullchain.pem" >/dev/null 2>&1
 done
 run_vhosts_only
-grep -Fq 'proxy_pass http://127.0.0.1:8001;' "$nginx_root/sites-available/api-testing.example.test"
+grep -Fq 'proxy_pass http://127.0.0.1:8001;' "$nginx_root/sites-available/testing-api.example.test"
 grep -Fq 'proxy_pass http://127.0.0.1:3001;' "$nginx_root/sites-available/testing.example.test"
-grep -Fq 'connect-src '"'"'self'"'"' https://api-testing.example.test' \
+grep -Fq 'connect-src '"'"'self'"'"' https://testing-api.example.test' \
   "$nginx_root/sites-available/testing.example.test"
 test "$(shared_manifest)" = "$shared_before"
-assert_nginx_config testing.example.test api-testing.example.test
+assert_nginx_config testing.example.test testing-api.example.test
 
 printf 'setup-nginx provisioning contract passed\n'

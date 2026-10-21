@@ -411,7 +411,7 @@ with the older tag.
 ## Testing environment (`testing` branch)
 
 A second, fully separate WrzDJ stack runs on the same host behind
-`testing.wrzdj.com` / `api-testing.wrzdj.com` (#844). It exists to run an
+`testing.wrzdj.com` / `testing-api.wrzdj.com` (#844). It exists to run an
 unproven branch in the wild — real TLS, real QR codes, real Turnstile, a real
 bridge connection — before that branch reaches `main`. Nothing is shared with
 production except the machine and nginx: the testing stack has its own git
@@ -422,15 +422,17 @@ and its own SSH deploy key that can run nothing but the testing entrypoint.
 
 **Flow.** Open the PR against `testing` (or retarget an existing one:
 `gh pr edit N --base testing`) and merge it. `docker-publish.yml` builds the
-`testing` and `sha-<commit>` images (amd64 only) and its `deploy-testing` job,
+`testing` and `testing-sha-<commit>` images (amd64 only, their own tag
+namespace: a testing build can never overwrite an image production deploys by) and its `deploy-testing` job,
 scoped to the `testing` GitHub environment, SSHes to the host with the commit
 sha. On the host `wrzdj-ci-deploy-testing` (the installed copy of
 `deploy/ci-deploy-testing.sh`) takes its own lock, re-verifies that the commit
-is on `origin/testing`, checks the testing clone out at it, runs
-`deploy-ghcr.sh sha-<commit>` under the testing `deploy/.env`, regenerates only
+is on `origin/testing`, checks the testing clone out at it (refusing a commit that tracks
+`deploy/.env`, which must stay the operator's file), runs
+`deploy-ghcr.sh testing-sha-<commit>` under the testing `deploy/.env`, regenerates only
 the two testing vhosts (`WRZDJ_NGINX_VHOSTS_ONLY=1`) if `deploy/nginx/` changed
 since the last successful testing deploy, records the commit and prunes
-dangling images. The job then polls `https://api-testing.wrzdj.com/health`.
+dangling images. The job then polls `https://testing-api.wrzdj.com/health`.
 
 **Promote.** When the branch holds up, open a PR from `testing` to `main` and
 merge it; release as usual with a tag. **Resync** `testing` to `main` whenever
@@ -456,7 +458,7 @@ The testing database starts empty; the bootstrap admin comes from the
 
 ### One-time setup
 
-1. **DNS.** `A` records for `testing.wrzdj.com` and `api-testing.wrzdj.com`
+1. **DNS.** `A` records for `testing.wrzdj.com` and `testing-api.wrzdj.com`
    pointing at the host (DreamHost panel → Websites → Manage Websites →
    wrzdj.com → DNS, for this deployment).
 
@@ -472,9 +474,9 @@ The testing database starts empty; the bootstrap admin comes from the
    #   PORT_API=8001
    #   PORT_FRONTEND=3001
    #   PUBLIC_URL=https://testing.wrzdj.com
-   #   NEXT_PUBLIC_API_URL=https://api-testing.wrzdj.com
+   #   NEXT_PUBLIC_API_URL=https://testing-api.wrzdj.com
    #   CORS_ORIGINS=https://testing.wrzdj.com
-   #   TIDAL_REDIRECT_URI / BEATPORT_REDIRECT_URI on api-testing.wrzdj.com
+   #   TIDAL_REDIRECT_URI / BEATPORT_REDIRECT_URI on testing-api.wrzdj.com
    install -m 0755 /root/WrzDJ-testing/deploy/ci-deploy-testing.sh /usr/local/bin/wrzdj-ci-deploy-testing
    ```
 
@@ -490,13 +492,13 @@ The testing database starts empty; the bootstrap admin comes from the
    ```bash
    cd /root/WrzDJ-testing
    WRZDJ_NGINX_VHOSTS_ONLY=1 PORT_API=8001 PORT_FRONTEND=3001 \
-     APP_DOMAIN=testing.wrzdj.com API_DOMAIN=api-testing.wrzdj.com ./deploy/setup-nginx.sh
-   for d in testing.wrzdj.com api-testing.wrzdj.com; do
+     APP_DOMAIN=testing.wrzdj.com API_DOMAIN=testing-api.wrzdj.com ./deploy/setup-nginx.sh
+   for d in testing.wrzdj.com testing-api.wrzdj.com; do
      certbot --nginx --non-interactive --agree-tos --email admin@wrzdj.com --cert-name "$d"     --key-type ecdsa -d "$d"
      certbot --nginx --non-interactive --agree-tos --email admin@wrzdj.com --cert-name "$d-rsa" --key-type rsa   -d "$d"
    done
    WRZDJ_NGINX_VHOSTS_ONLY=1 PORT_API=8001 PORT_FRONTEND=3001 \
-     APP_DOMAIN=testing.wrzdj.com API_DOMAIN=api-testing.wrzdj.com ./deploy/setup-nginx.sh
+     APP_DOMAIN=testing.wrzdj.com API_DOMAIN=testing-api.wrzdj.com ./deploy/setup-nginx.sh
    ```
 
 4. **A deploy key used for nothing else**, on your workstation, and lock it to
@@ -543,7 +545,7 @@ The testing database starts empty; the bootstrap admin comes from the
    gh secret set TESTING_DEPLOY_HOST        --env testing --body "HOST"
    gh secret set TESTING_DEPLOY_USER        --env testing --body "root"
    gh secret set TESTING_DEPLOY_KNOWN_HOSTS --env testing --body "$(ssh-keyscan -t ed25519 HOST 2>/dev/null)"
-   gh variable set TESTING_API_URL          --env testing --body "https://api-testing.wrzdj.com"
+   gh variable set TESTING_API_URL          --env testing --body "https://testing-api.wrzdj.com"
    shred -u wrzdj-ci-deploy-testing
    ```
 
@@ -567,7 +569,7 @@ The testing database starts empty; the bootstrap admin comes from the
      Until this is done, guests on testing cannot pass human verification.
    - **Tidal / Beatport** developer apps — add the `TIDAL_REDIRECT_URI` /
      `BEATPORT_REDIRECT_URI` values from the testing `deploy/.env` (on
-     `api-testing.wrzdj.com`) as allowed redirect URIs. Until then the DJ
+     `testing-api.wrzdj.com`) as allowed redirect URIs. Until then the DJ
      "connect" flows on testing fail at the provider; everything else works.
 
 ## Maintenance

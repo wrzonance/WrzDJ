@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # WrzDJ testing-environment deploy entrypoint — runs ON the host, next to the
 # production entrypoint (deploy/ci-deploy.sh) but for the separate testing stack
-# (testing.wrzdj.com / api-testing.wrzdj.com, #844).
+# (testing.wrzdj.com / testing-api.wrzdj.com, #844).
 #
 # Install it OUTSIDE the checkout and lock its own deploy key to that copy:
 #
@@ -24,8 +24,9 @@
 # "the commit is on origin/testing" instead of a release tag on main, and moving
 # backwards is allowed without an override, because resyncing `testing` from
 # `main` legitimately rewrites it. Everything else matches: host lock -> fetch
-# -> verify -> checkout -> deploy-ghcr.sh sha-<commit> under this checkout's own
-# deploy/.env (own compose project, ports and volumes) -> refresh ONLY this
+# -> verify -> checkout -> deploy-ghcr.sh testing-sha-<commit> (the testing
+# builds' own tag namespace) under this checkout's own deploy/.env (own compose
+# project, ports and volumes; a commit tracking that file is refused) -> refresh ONLY this
 # stack's nginx vhosts when the templates changed since the last successful
 # deploy -> record the deploy -> drop dangling images.
 set -euo pipefail
@@ -52,13 +53,14 @@ main() {
   previous="$(last_deployed_commit)"
   git fetch -q origin "$BRANCH"
   require_on_branch "$sha"
+  require_untracked_env "$sha"
 
   echo "==> Checking out ${sha:0:12} from $BRANCH (last successful deploy: ${previous:0:12})..."
   # -f: the checkout may legitimately overwrite modified or older tracked files.
   git checkout -q -f --detach "$sha"
 
-  echo "==> Deploying GHCR images sha-${sha:0:7} (built from $BRANCH)..."
-  "$REPO_DIR/deploy/deploy-ghcr.sh" "sha-${sha:0:7}"
+  echo "==> Deploying GHCR images testing-sha-${sha:0:7} (built from $BRANCH)..."
+  "$REPO_DIR/deploy/deploy-ghcr.sh" "testing-sha-${sha:0:7}"
 
   refresh_nginx_if_changed "$previous" "$sha"
 
@@ -129,6 +131,17 @@ require_on_branch() {
   fi
   if ! git merge-base --is-ancestor "$sha" "origin/$BRANCH"; then
     echo "ERROR: refusing to deploy ${sha:0:12}: commit is not on origin/$BRANCH" >&2
+    exit 1
+  fi
+}
+
+# deploy/.env holds this stack's secrets and is gitignored. `git checkout -f`
+# would replace it with a tracked copy if a commit ever carried one, so such a
+# commit never deploys: the file stays the operator's, not the branch's.
+require_untracked_env() {
+  local sha="$1"
+  if git ls-tree -r --name-only "$sha" -- deploy/.env | grep -qx 'deploy/.env'; then
+    echo "ERROR: refusing to deploy ${sha:0:12}: it tracks deploy/.env, which must stay untracked" >&2
     exit 1
   fi
 }

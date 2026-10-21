@@ -7,13 +7,14 @@ name: Docker Publish
 # testing environment (an amd64 host) and are never promoted.
 #
 # Image tags: `latest` and `main` follow HEAD of main (unreleased trunk);
-# `testing` follows HEAD of the protected testing branch; `vYYYY.MM.DD` and
-# `sha-<commit>` are built on a release tag push (`sha-<commit>` on every push),
+# `testing` and `testing-sha-<commit>` follow the protected testing branch (its
+# own namespace: never deployed by production); `vYYYY.MM.DD` and
+# `sha-<commit>` are built on a release tag push (`sha-<commit>` on main too),
 # and `stable` is promoted to the release only after BOTH images are pushed, so
 # a deployer on `stable` always gets a matching api/web pair from the newest
 # release. Release tags are validated (format, commit on main) before anything
-# is built. A push to `testing` additionally deploys `sha-<commit>` to the
-# testing stack (#844); only release tags ever reach production.
+# is built. A push to `testing` additionally deploys `testing-sha-<commit>` to
+# the testing stack (#844); only release tags ever reach production.
 on:
   push:
     branches: [main, testing]
@@ -38,6 +39,9 @@ env:
   # merge-to-testing deploy short. Everything published for main/releases
   # stays multi-arch.
   PLATFORMS: ${{ github.ref == 'refs/heads/testing' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+  # Testing builds get their own tag namespace so a merge to `testing` can never
+  # overwrite a `sha-<commit>` image that production deploys by.
+  SHA_TAG_PREFIX: ${{ github.ref == 'refs/heads/testing' && 'testing-sha-' || 'sha-' }}
 
 jobs:
   # Release tags must be well-formed and point at a commit on main. Skipped on
@@ -97,7 +101,7 @@ jobs:
             type=ref,event=tag
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=sha-,format=short
+            type=sha,prefix=${{ env.SHA_TAG_PREFIX }},format=short
             type=raw,value=latest,enable={{is_default_branch}}
           # latest=auto would also stamp `latest` on tag pushes, so re-publishing an
           # old release could move it; only the explicit main-only entry above may.
@@ -150,7 +154,7 @@ jobs:
             type=ref,event=tag
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=sha-,format=short
+            type=sha,prefix=${{ env.SHA_TAG_PREFIX }},format=short
             type=raw,value=latest,enable={{is_default_branch}}
           # latest=auto would also stamp `latest` on tag pushes, so re-publishing an
           # old release could move it; only the explicit main-only entry above may.

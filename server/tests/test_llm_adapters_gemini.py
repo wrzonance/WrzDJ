@@ -19,8 +19,6 @@ from app.services.llm.exceptions import (
     ToolTranslationError,
 )
 
-_HTTPX_PATH = "app.services.llm.adapters._httpx_openai.httpx.AsyncClient"
-_AZURE_HTTPX_PATH = "app.services.llm.adapters.azure_openai.httpx.AsyncClient"
 _GEMINI_HTTPX_PATH = "app.services.llm.adapters.gemini_apikey.httpx.AsyncClient"
 
 from tests.llm_adapter_test_helpers import (

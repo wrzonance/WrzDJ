@@ -1,6 +1,7 @@
 """Tests for app.core.config.Settings derived properties."""
 
 import base64
+import binascii
 import secrets
 
 import pytest
@@ -52,6 +53,12 @@ class TestEffectiveHumanCookieSecret:
     def test_invalid_base64_raises(self) -> None:
         s = _make_settings(human_cookie_secret="!!!not-base64!!!")
         with pytest.raises(Exception):  # noqa: B017,PT011
+            _ = s.effective_human_cookie_secret
+
+    def test_stray_characters_in_secret_raise(self) -> None:
+        # #856: a lenient decoder drops the "!!!!" and yields a plausible 32-byte key.
+        s = _make_settings(human_cookie_secret="A" * 40 + "!!!!" + "A" * 3)
+        with pytest.raises(binascii.Error):
             _ = s.effective_human_cookie_secret
 
     def test_dev_autogenerates_when_unset(self) -> None:

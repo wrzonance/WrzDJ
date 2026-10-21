@@ -426,13 +426,31 @@ and its own SSH deploy key that can run nothing but the testing entrypoint.
 namespace: a testing build can never overwrite an image production deploys by) and its `deploy-testing` job,
 scoped to the `testing` GitHub environment, SSHes to the host with the commit
 sha. On the host `wrzdj-ci-deploy-testing` (the installed copy of
-`deploy/ci-deploy-testing.sh`) takes its own lock, re-verifies that the commit
-is on `origin/testing`, checks the testing clone out at it (refusing a commit that tracks
-`deploy/.env`, which must stay the operator's file), runs
-`deploy-ghcr.sh testing-sha-<commit>` under the testing `deploy/.env`, regenerates only
-the two testing vhosts (`WRZDJ_NGINX_VHOSTS_ONLY=1`) if `deploy/nginx/` changed
-since the last successful testing deploy, records the commit and prunes
-dangling images. The job then polls `https://testing-api.wrzdj.com/health`.
+`deploy/ci-deploy-testing.sh`) first checks that the operator's `deploy/.env`
+really describes an isolated stack (`COMPOSE_PROJECT_NAME=wrzdj-testing`, ports
+other than production's `8000`/`3000`, no foreign `POSTGRES_VOLUME_NAME`), then
+waits for the host-wide deploy lock shared with production (a release deploy
+in progress makes it queue, up to 15 minutes), re-verifies that the commit is
+on `origin/testing`, checks the testing clone out at it (refusing a commit that
+tracks `deploy/.env`, which must stay the operator's file), runs
+`deploy-ghcr.sh testing-sha-<commit>` under the testing `deploy/.env` (which
+layers the resource budget in `docker-compose.testing.yml` on top of the
+Compose file through `WRZDJ_COMPOSE_OVERRIDE`), waits for the frontend as well
+as the API, regenerates only the two testing vhosts
+(`WRZDJ_NGINX_VHOSTS_ONLY=1`; a rendering that fails `nginx -t` is rolled back
+so production's next reload never meets it) if `deploy/nginx/` changed since
+the last successful testing deploy, records the commit and prunes dangling
+images. The job then polls `https://testing-api.wrzdj.com/health` and
+`https://testing.wrzdj.com/`.
+
+**Trust model.** Like production's entrypoint, the testing entrypoint runs the
+checked-out commit's own `deploy-ghcr.sh` / `setup-nginx.sh` as root, so a
+commit that reaches `testing` can run anything on the host. The control is the
+branch: `testing` only takes pull requests whose CI passed, and the entrypoint
+verifies the operator's isolation settings before any of that code runs. If
+untrusted contributors could ever merge to `testing`, add a required reviewer
+on the `testing` environment or move the stack to its own host; the entrypoint
+cannot make branch code safe to run.
 
 **Promote.** When the branch holds up, open a PR from `testing` to `main` and
 merge it; release as usual with a tag. **Resync** `testing` to `main` whenever
@@ -473,6 +491,7 @@ The testing database starts empty; the bootstrap admin comes from the
    #   COMPOSE_PROJECT_NAME=wrzdj-testing
    #   PORT_API=8001
    #   PORT_FRONTEND=3001
+   #   WRZDJ_COMPOSE_OVERRIDE=docker-compose.testing.yml   # memory/CPU budget next to production
    #   PUBLIC_URL=https://testing.wrzdj.com
    #   NEXT_PUBLIC_API_URL=https://testing-api.wrzdj.com
    #   CORS_ORIGINS=https://testing.wrzdj.com
@@ -482,8 +501,10 @@ The testing database starts empty; the bootstrap admin comes from the
 
    `COMPOSE_PROJECT_NAME` is what keeps the two stacks apart: without it both
    checkouts' `deploy/` directories resolve to the same Compose project and the
-   testing deploy would replace production's containers. Re-run the `install`
-   whenever `deploy/ci-deploy-testing.sh` changes; deploys never update it.
+   testing deploy would replace production's containers; the entrypoint refuses
+   to run until it, the ports and the override are set as above. Re-run the
+   `install` whenever `deploy/ci-deploy-testing.sh` changes; deploys never
+   update it.
 
 3. **nginx and certificates**, on the host. Vhosts-only mode leaves the shared
    `conf.d` includes and the catch-all (production's) untouched and installs

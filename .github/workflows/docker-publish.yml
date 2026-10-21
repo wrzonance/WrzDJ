@@ -282,8 +282,10 @@ jobs:
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes -o BatchMode=yes \
             -o ConnectTimeout=20 "$SSH_USER@$SSH_HOST" "$SHA"
 
-      - name: Verify the testing API is healthy
+      - name: Verify the testing API and frontend are reachable
         env:
           API_URL: ${{ vars.TESTING_API_URL }}
+          APP_URL: ${{ vars.TESTING_APP_URL }}
         run: |
           curl -sSf --retry 6 --retry-delay 5 --retry-all-errors "$API_URL/health"
+          curl -sSf -o /dev/null --retry 6 --retry-delay 5 --retry-all-errors "$APP_URL/"

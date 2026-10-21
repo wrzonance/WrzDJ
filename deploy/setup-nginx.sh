@@ -213,9 +213,21 @@ install_shared_configs() {
   install_confd_config "$TEMPLATE_DIR/tuning.conf" "wrzdj-tuning.conf"
 }
 
+# Snapshot of every vhost this run replaces, so a config that fails `nginx -t`
+# can be rolled back instead of staying installed: nginx keeps serving the old
+# config after a failed test, but the next reload, certificate renewal or
+# reboot would load the broken file and take every vhost on the host down.
+ROLLBACK_DIR="$(mktemp -d)"
+trap 'rm -rf "$ROLLBACK_DIR"' EXIT
+ROLLBACK_SITES=()
+
 # install_vhost_config FILE SITE_NAME: copy one rendered vhost and enable it.
 install_vhost_config() {
   local src="$1" site_name="$2"
+  if [ -f "$NGINX_SITES_AVAILABLE/$site_name" ]; then
+    cp -p "$NGINX_SITES_AVAILABLE/$site_name" "$ROLLBACK_DIR/$site_name"
+  fi
+  ROLLBACK_SITES+=("$site_name")
   if [ -n "$SUDO" ]; then
     # Use wrapper script (validates names, does cp + ln together)
     $SUDO "$NGINX_INSTALLER" "$src"
@@ -228,6 +240,48 @@ install_vhost_config() {
 }
 
 # Install to nginx if running as root / with sudo
+# Put back what this run replaced (or remove what it newly added) after a
+# failed `nginx -t`, then re-test so the restored tree is known good.
+rollback_vhosts() {
+  local site_name
+  echo "==> Restoring the previously installed vhosts"
+  for site_name in "${ROLLBACK_SITES[@]}"; do
+    if [ -f "$ROLLBACK_DIR/$site_name" ]; then
+      install_restored_vhost "$ROLLBACK_DIR/$site_name" "$site_name"
+      echo "    Restored: $NGINX_SITES_AVAILABLE/$site_name"
+    else
+      remove_vhost "$site_name"
+    fi
+  done
+  if $SUDO nginx -t >/dev/null 2>&1; then
+    echo "    Restored configuration passes nginx -t"
+  else
+    echo "ERROR: the restored configuration still fails nginx -t; inspect $NGINX_SITES_AVAILABLE by hand" >&2
+  fi
+}
+
+install_restored_vhost() {
+  local saved="$1" site_name="$2"
+  if [ -n "$SUDO" ]; then
+    # The install wrapper names the site after the file, so stage it as such.
+    cp "$saved" "$TEMPLATE_DIR/$site_name.conf"
+    $SUDO "$NGINX_INSTALLER" "$TEMPLATE_DIR/$site_name.conf"
+  else
+    cp "$saved" "$NGINX_SITES_AVAILABLE/$site_name"
+  fi
+}
+
+remove_vhost() {
+  local site_name="$1"
+  if [ -n "$SUDO" ]; then
+    echo "    Cannot remove the new vhost $site_name without root; remove it by hand:" >&2
+    echo "      sudo rm $NGINX_SITES_ENABLED/$site_name $NGINX_SITES_AVAILABLE/$site_name" >&2
+    return
+  fi
+  rm -f "$NGINX_SITES_ENABLED/$site_name" "$NGINX_SITES_AVAILABLE/$site_name"
+  echo "    Removed: $NGINX_SITES_AVAILABLE/$site_name (new this run)"
+}
+
 if [ -d "$NGINX_SITES_AVAILABLE" ]; then
   [ "$VHOSTS_ONLY" -eq 0 ] && install_shared_configs
 
@@ -257,6 +311,7 @@ if [ -d "$NGINX_SITES_AVAILABLE" ]; then
   else
     echo ""
     echo "ERROR: nginx config test failed. Fix the errors above before reloading."
+    rollback_vhosts
     exit 1
   fi
 else

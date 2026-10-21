@@ -23,18 +23,28 @@
 # Policy differs from production in two deliberate ways: the trust anchor is
 # "the commit is on origin/testing" instead of a release tag on main, and moving
 # backwards is allowed without an override, because resyncing `testing` from
-# `main` legitimately rewrites it. Everything else matches: host lock -> fetch
+# `main` legitimately rewrites it. Everything else matches: operator env
+# checked (own Compose project, non-production ports) -> shared host lock -> fetch
 # -> verify -> checkout -> deploy-ghcr.sh testing-sha-<commit> (the testing
 # builds' own tag namespace) under this checkout's own deploy/.env (own compose
-# project, ports and volumes; a commit tracking that file is refused) -> refresh ONLY this
-# stack's nginx vhosts when the templates changed since the last successful
-# deploy -> record the deploy -> drop dangling images.
+# project, ports and volumes; a commit tracking that file is refused) -> wait for
+# the frontend too -> refresh ONLY this stack's nginx vhosts when the templates
+# changed since the last successful deploy -> record the deploy -> drop dangling
+# images.
 set -euo pipefail
 
 REPO_DIR="${WRZDJ_REPO_DIR:-/root/WrzDJ-testing}"
 BRANCH="${WRZDJ_TESTING_BRANCH:-testing}"
-LOCK_FILE="${WRZDJ_DEPLOY_LOCK:-/run/lock/wrzdj-testing-deploy.lock}"
+# The same host-wide lock production uses: Docker restarts and nginx installs
+# on this box never interleave. Production takes it non-blocking; testing waits.
+LOCK_FILE="${WRZDJ_DEPLOY_LOCK:-/run/lock/wrzdj-deploy.lock}"
+LOCK_WAIT_SECONDS="${WRZDJ_DEPLOY_LOCK_WAIT:-900}"
+# What the operator's deploy/.env must say for this to be the testing stack.
+EXPECTED_PROJECT="${WRZDJ_TESTING_PROJECT:-wrzdj-testing}"
+PRODUCTION_PORTS='8000 3000'
+FRONTEND_WAIT_SECONDS="${WRZDJ_FRONTEND_WAIT:-90}"
 STATE_FILE="$REPO_DIR/deploy/.ci-last-deployed"
+ENV_FILE="$REPO_DIR/deploy/.env"
 SHA_PATTERN='^[0-9a-f]{40}$'
 
 main() {
@@ -45,6 +55,8 @@ main() {
     echo "ERROR: $REPO_DIR is not a WrzDJ checkout (set WRZDJ_REPO_DIR)" >&2
     exit 1
   fi
+
+  require_isolated_env
 
   acquire_lock
   cd "$REPO_DIR"
@@ -61,6 +73,7 @@ main() {
 
   echo "==> Deploying GHCR images testing-sha-${sha:0:7} (built from $BRANCH)..."
   "$REPO_DIR/deploy/deploy-ghcr.sh" "testing-sha-${sha:0:7}"
+  wait_for_frontend
 
   refresh_nginx_if_changed "$previous" "$sha"
 
@@ -99,14 +112,75 @@ requested_commit() {
   echo "$sha"
 }
 
-# One testing deploy at a time; separate from the production lock so a testing
-# push never makes a release deploy fail with "another deploy holds the lock".
-acquire_lock() {
-  exec 9>"$LOCK_FILE"
-  if ! flock -n 9; then
-    echo "ERROR: another testing deploy holds $LOCK_FILE; try again when it finishes" >&2
+# deploy/.env is the operator's file, not the branch's, and it is what keeps
+# this stack off production: the Compose project name decides the container
+# and volume names, the ports decide what nginx proxies to. A missing or
+# production-valued setting means deploy-ghcr.sh would stop and replace the
+# production containers, so it is checked before anything moves.
+require_isolated_env() {
+  if [ ! -f "$ENV_FILE" ]; then
+    echo "ERROR: $ENV_FILE is missing; the testing stack needs its own deploy/.env" >&2
     exit 1
   fi
+  local project port_api port_frontend volume_name
+  project="$(env_value COMPOSE_PROJECT_NAME)"
+  port_api="$(env_value PORT_API)"
+  port_frontend="$(env_value PORT_FRONTEND)"
+  volume_name="$(env_value POSTGRES_VOLUME_NAME)"
+  if [ "$project" != "$EXPECTED_PROJECT" ]; then
+    echo "ERROR: refusing to deploy: deploy/.env must set COMPOSE_PROJECT_NAME=$EXPECTED_PROJECT (got '${project:-unset}')" >&2
+    exit 1
+  fi
+  local port
+  for port in "$port_api" "$port_frontend"; do
+    if [[ ! "$port" =~ ^[0-9]+$ ]] || [[ " $PRODUCTION_PORTS " == *" $port "* ]]; then
+      echo "ERROR: refusing to deploy: deploy/.env must set PORT_API and PORT_FRONTEND to ports other than $PRODUCTION_PORTS (got '${port_api:-unset}' / '${port_frontend:-unset}')" >&2
+      exit 1
+    fi
+  done
+  if [ -n "$volume_name" ] && [[ "$volume_name" != "$EXPECTED_PROJECT"_* ]]; then
+    echo "ERROR: refusing to deploy: POSTGRES_VOLUME_NAME '$volume_name' does not belong to project $EXPECTED_PROJECT" >&2
+    exit 1
+  fi
+}
+
+# env_value KEY  ->  the last KEY=value line of deploy/.env, unquoted; "" if unset
+env_value() {
+  local line
+  line="$(grep -E "^$1=" "$ENV_FILE" | tail -n 1 || true)"
+  line="${line#*=}"
+  line="${line%\"}"; line="${line#\"}"
+  line="${line%\'}"; line="${line#\'}"
+  printf '%s' "$line"
+}
+
+# One host mutation at a time. Production's entrypoint fails fast if the lock is
+# held; a testing deploy is never urgent, so it queues (bounded) instead.
+acquire_lock() {
+  exec 9>"$LOCK_FILE"
+  if ! flock -w "$LOCK_WAIT_SECONDS" 9; then
+    echo "ERROR: another deploy held $LOCK_FILE for over ${LOCK_WAIT_SECONDS}s; giving up" >&2
+    exit 1
+  fi
+}
+
+# deploy-ghcr.sh only waits for the API. The frontend is what people actually
+# open, so a web container that dies after start must not be recorded as a
+# successful deploy.
+wait_for_frontend() {
+  local port elapsed=0
+  port="$(env_value PORT_FRONTEND)"
+  echo "==> Waiting for the frontend on 127.0.0.1:$port..."
+  while [ "$elapsed" -lt "$FRONTEND_WAIT_SECONDS" ]; do
+    if curl -sf -o /dev/null "http://127.0.0.1:$port/"; then
+      echo "    frontend up after ${elapsed}s"
+      return
+    fi
+    sleep 3
+    elapsed=$((elapsed + 3))
+  done
+  echo "ERROR: frontend on port $port did not answer within ${FRONTEND_WAIT_SECONDS}s" >&2
+  exit 1
 }
 
 # The commit that last fully deployed, falling back to HEAD on first use.

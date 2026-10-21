@@ -30,6 +30,7 @@ chmod +x "$scratch/repo/deploy/deploy-ghcr.sh" "$scratch/repo/deploy/setup-nginx
 printf 'base\n' > "$scratch/repo/app.txt"
 printf 'deploy/.env\n' > "$scratch/repo/.gitignore"
 cat > "$scratch/repo/deploy/.env" <<'ENV'
+COMPOSE_PROJECT_NAME=wrzdj-testing
 PUBLIC_URL=https://testing.example.test
 NEXT_PUBLIC_API_URL=https://testing-api.example.test
 PORT_API=8001
@@ -70,7 +71,15 @@ printf '%s\n' "$*" >> "$WRZDJ_FAKE_DOCKER_LOG"
 [ "$*" = 'image prune -f' ]
 DOCKER
 chmod +x "$scratch/bin/docker"
+cat > "$scratch/bin/curl" <<'CURL'
+#!/usr/bin/env bash
+printf '%s\n' "${@: -1}" >> "$WRZDJ_FAKE_CURL_LOG"
+[ "${WRZDJ_FAKE_FRONTEND_DOWN:-0}" != 1 ]
+CURL
+chmod +x "$scratch/bin/curl"
 export PATH="$scratch/bin:$PATH"
+export WRZDJ_FAKE_CURL_LOG="$scratch/curl.log"
+export WRZDJ_FRONTEND_WAIT=3
 export WRZDJ_REPO_DIR="$scratch/repo"
 export WRZDJ_DEPLOY_LOCK="$scratch/deploy.lock"
 export WRZDJ_FAKE_DEPLOY_LOG="$scratch/deploy.log"
@@ -105,14 +114,64 @@ fi
 test ! -e "$scratch/deploy.log"
 test ! -e "$scratch/repo/deploy/.ci-last-deployed"
 
+# The operator's deploy/.env must describe an isolated stack, or deploy-ghcr.sh
+# would resolve to the production Compose project / ports and replace it.
+expect_env_rejected() {
+  local description="$1" expected_message="$2"
+  shift 2
+  printf '%s\n' "$@" > "$scratch/repo/deploy/.env"
+  expect_rejected "$description" "$testing_sha"
+  grep -Fq "$expected_message" "$scratch/rejected.log"
+  test ! -e "$scratch/deploy.log"
+}
+operator_env="$(cat "$scratch/repo/deploy/.env")"
+expect_env_rejected 'env without COMPOSE_PROJECT_NAME' 'must set COMPOSE_PROJECT_NAME=wrzdj-testing' \
+  'PUBLIC_URL=https://testing.example.test' 'NEXT_PUBLIC_API_URL=https://testing-api.example.test' \
+  'PORT_API=8001' 'PORT_FRONTEND=3001'
+expect_env_rejected 'env naming the production project' 'must set COMPOSE_PROJECT_NAME=wrzdj-testing' \
+  'COMPOSE_PROJECT_NAME=deploy' 'PORT_API=8001' 'PORT_FRONTEND=3001'
+expect_env_rejected 'env on the production API port' 'ports other than 8000 3000' \
+  'COMPOSE_PROJECT_NAME=wrzdj-testing' 'PORT_API=8000' 'PORT_FRONTEND=3001'
+expect_env_rejected 'env without ports' 'ports other than 8000 3000' \
+  'COMPOSE_PROJECT_NAME=wrzdj-testing'
+expect_env_rejected 'env pointing at a foreign volume' "does not belong to project wrzdj-testing" \
+  'COMPOSE_PROJECT_NAME=wrzdj-testing' 'PORT_API=8001' 'PORT_FRONTEND=3001' \
+  'POSTGRES_VOLUME_NAME=deploy_postgres_data'
+rm -f "$scratch/repo/deploy/.env"
+expect_rejected 'missing deploy/.env' "$testing_sha"
+grep -Fq 'needs its own deploy/.env' "$scratch/rejected.log"
+test ! -e "$scratch/deploy.log"
+printf '%s\n' "$operator_env" > "$scratch/repo/deploy/.env"
+
+# Another deploy holding the host lock makes a testing deploy wait, then give
+# up without touching anything.
+exec 8>"$WRZDJ_DEPLOY_LOCK"
+flock 8
+if WRZDJ_DEPLOY_LOCK_WAIT=1 bash "$deploy" "$testing_sha" >"$scratch/locked.log" 2>&1; then
+  echo 'deploy proceeded while another deploy held the host lock' >&2
+  exit 1
+fi
+grep -Fq 'held' "$scratch/locked.log"
+test ! -e "$scratch/deploy.log"
+exec 8>&-
+
 if WRZDJ_FAKE_DEPLOY_FAIL=1 bash "$deploy" "$testing_sha" >"$scratch/failed-deploy.log" 2>&1; then
   echo 'failed GHCR deploy was treated as a successful testing deploy' >&2
   exit 1
 fi
 test ! -e "$scratch/repo/deploy/.ci-last-deployed"
 
+# A frontend that never answers is not a successful deploy either.
+if WRZDJ_FAKE_FRONTEND_DOWN=1 bash "$deploy" "$testing_sha" >"$scratch/frontend-down.log" 2>&1; then
+  echo 'a dead frontend was recorded as a successful testing deploy' >&2
+  exit 1
+fi
+grep -Fq 'frontend on port 3001 did not answer' "$scratch/frontend-down.log"
+test ! -e "$scratch/repo/deploy/.ci-last-deployed"
+
 bash "$deploy" "$testing_sha" >"$scratch/success.log" 2>&1
 test "$(<"$scratch/repo/deploy/.ci-last-deployed")" = "$testing_sha"
+grep -Fq 'http://127.0.0.1:3001/' "$scratch/curl.log"
 test "$(git -C "$scratch/repo" rev-parse HEAD)" = "$testing_sha"
 grep -Fq "testing-sha-${testing_sha:0:7}" "$scratch/deploy.log"
 test ! -e "$scratch/nginx.log"

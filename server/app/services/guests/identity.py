@@ -110,6 +110,31 @@ def _parse_ua(ua: str) -> tuple[str, str, str]:
     return family, platform, version
 
 
+_PLATFORM_LABELS = {
+    "ios": "iOS",
+    "android": "Android",
+    "windows": "Windows",
+    "macos": "macOS",
+    "linux": "Linux",
+}
+
+
+def browser_label(user_agent: str | None) -> str | None:
+    """Human-readable 'Safari · iOS' label for the admin Guests page (#862).
+
+    Returns None when the browser family is unknown; the platform alone is not
+    worth showing.
+    """
+    if not user_agent:
+        return None
+    family, platform, _version = _parse_ua(user_agent)
+    if family == "unknown":
+        return None
+    label = family.capitalize()
+    platform_label = _PLATFORM_LABELS.get(platform)
+    return f"{label} · {platform_label}" if platform_label else label
+
+
 def _extract_version(ua: str, prefix: str) -> str:
     """Extract major version number after a prefix like 'Chrome/'."""
     idx = ua.find(prefix)

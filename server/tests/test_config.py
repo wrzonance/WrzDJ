@@ -146,6 +146,7 @@ class TestValidateSettingsHumanCookieSecret:
         with pytest.raises(ValueError, match="HUMAN_COOKIE_SECRET is invalid"):
             validate_settings(self._prod_settings(secret))
         assert "HUMAN_COOKIE_SECRET is invalid" in caplog.text
+        assert secret not in caplog.text
 
     @pytest.mark.parametrize(
         "secret",

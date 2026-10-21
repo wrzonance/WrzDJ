@@ -1,4 +1,5 @@
 import base64
+import binascii
 import logging
 from functools import lru_cache
 from pathlib import Path
@@ -237,18 +238,25 @@ def _decode_human_cookie_secret(secret: str) -> bytes:
     normalized = secret.replace("-", "+").replace("_", "/")
     key = base64.b64decode(normalized + "=" * (-len(normalized) % 4), validate=True)
     if len(key) < HUMAN_COOKIE_SECRET_MIN_BYTES:
-        msg = f"must decode to at least {HUMAN_COOKIE_SECRET_MIN_BYTES} bytes, got {len(key)}"
+        msg = f"must decode to at least {HUMAN_COOKIE_SECRET_MIN_BYTES} bytes"
         raise ValueError(msg)
     return key
 
 
 def _human_cookie_secret_error(secret: str) -> str | None:
-    """Return a startup error for an unusable HUMAN_COOKIE_SECRET, else None."""
+    """Return a startup error for an unusable HUMAN_COOKIE_SECRET, else None.
+
+    The messages are fixed text: nothing derived from the secret reaches the log.
+    """
     try:
         _decode_human_cookie_secret(secret)
-    except ValueError as exc:  # binascii.Error is a ValueError
-        return f"HUMAN_COOKIE_SECRET is invalid ({exc}). {_HUMAN_COOKIE_KEY_HINT}"
-    return None
+    except binascii.Error:
+        reason = "not valid Base64"
+    except ValueError:
+        reason = f"must decode to at least {HUMAN_COOKIE_SECRET_MIN_BYTES} bytes"
+    else:
+        return None
+    return f"HUMAN_COOKIE_SECRET is invalid ({reason}). {_HUMAN_COOKIE_KEY_HINT}"
 
 
 _FERNET_KEY_HINT = (

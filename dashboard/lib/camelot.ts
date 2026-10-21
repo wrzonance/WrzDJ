@@ -3,9 +3,8 @@
  *
  * A parity port of server/app/services/recommendation/camelot.py `parse_key`,
  * including its Tidal bare-key handling, so the dashboard's in-memory `key` sort
- * orders rows identically to the backend. (lib/camelot-colors.ts has a partial
- * parser for the color badge but omits the Tidal bare-key path — this file owns
- * the parity-complete parser the sort needs.)
+ * orders rows identically to the backend. The key color badge uses this same parser
+ * so sorting and display agree on every supported key format.
  */
 
 export interface CamelotPosition {

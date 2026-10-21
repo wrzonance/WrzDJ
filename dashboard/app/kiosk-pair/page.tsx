@@ -10,6 +10,16 @@ type PairState = 'loading' | 'pairing' | 'expired' | 'error';
 const POLL_INTERVAL_MS = 2000;
 const SESSION_TOKEN_KEY = 'kiosk_session_token';
 const PAIR_CODE_KEY = 'kiosk_pair_code';
+const ASSIGNMENT_RETRY_MESSAGE = 'Could not verify this kiosk session. Check the connection and retry.';
+
+function clearStoredSession(): void {
+  localStorage.removeItem(SESSION_TOKEN_KEY);
+  localStorage.removeItem(PAIR_CODE_KEY);
+}
+
+function isDefinitiveAssignmentError(error: unknown): boolean {
+  return error instanceof ApiError && [401, 404, 410].includes(error.status);
+}
 
 function formatCode(code: string): string {
   if (code.length <= 3) return code;
@@ -20,6 +30,7 @@ export default function KioskPairPage() {
   const [pairCode, setPairCode] = useState('');
   const [state, setState] = useState<PairState>('loading');
   const [errorMsg, setErrorMsg] = useState('');
+  const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const router = useRouter();
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -48,8 +59,7 @@ export default function KioskPairPage() {
           // The event was deleted out from under this pairing (issue #474) —
           // dead session, re-pair with a fresh code.
           stopPolling();
-          localStorage.removeItem(SESSION_TOKEN_KEY);
-          localStorage.removeItem(PAIR_CODE_KEY);
+          clearStoredSession();
           createNewPairing();
         }
       } catch (err) {
@@ -67,48 +77,61 @@ export default function KioskPairPage() {
 
   const startAssignmentPolling = useCallback((token: string) => {
     stopPolling();
+    setAssignmentError(null);
     // Check immediately first
     api.getKioskAssignment(token).then((status) => {
       if (status.status === 'active' && status.event_join_code) {
+        setAssignmentError(null);
         router.push(`/e/${status.event_join_code}/display`);
         return;
       }
       // 'expired' = pair code timed out; 'unassigned' = the paired event was
       // deleted (issue #474). Both are dead sessions — clear and re-pair.
       if (status.status === 'expired' || status.status === 'unassigned') {
-        localStorage.removeItem(SESSION_TOKEN_KEY);
-        localStorage.removeItem(PAIR_CODE_KEY);
+        clearStoredSession();
         createNewPairing();
         return;
       }
+      setAssignmentError(null);
       // If not yet assigned, start interval polling
       pollRef.current = setInterval(async () => {
         try {
           const s = await api.getKioskAssignment(token);
           if (s.status === 'active' && s.event_join_code) {
             stopPolling();
+            setAssignmentError(null);
             router.push(`/e/${s.event_join_code}/display`);
           } else if (s.status === 'expired' || s.status === 'unassigned') {
             stopPolling();
-            localStorage.removeItem(SESSION_TOKEN_KEY);
-            localStorage.removeItem(PAIR_CODE_KEY);
+            clearStoredSession();
             createNewPairing();
+          } else {
+            setAssignmentError(null);
           }
-        } catch {
-          // Silently retry
+        } catch (error) {
+          if (isDefinitiveAssignmentError(error)) {
+            stopPolling();
+            clearStoredSession();
+            createNewPairing();
+          } else {
+            setAssignmentError(ASSIGNMENT_RETRY_MESSAGE);
+          }
         }
       }, POLL_INTERVAL_MS);
-    }).catch(() => {
-      // Token invalid, clear and create new pairing
-      localStorage.removeItem(SESSION_TOKEN_KEY);
-      localStorage.removeItem(PAIR_CODE_KEY);
-      createNewPairing();
+    }).catch((error: unknown) => {
+      if (isDefinitiveAssignmentError(error)) {
+        clearStoredSession();
+        createNewPairing();
+      } else {
+        setAssignmentError(ASSIGNMENT_RETRY_MESSAGE);
+      }
     });
   }, [router, stopPolling]);
 
   const createNewPairing = useCallback(async () => {
     setState('loading');
     setErrorMsg('');
+    setAssignmentError(null);
     try {
       const challenge = await api.getKioskPairChallenge();
       const result = await api.createKioskPairing(challenge.nonce);
@@ -141,8 +164,7 @@ export default function KioskPairPage() {
   useEffect(() => {
     if (state !== 'expired') return;
     const timer = setTimeout(() => {
-      localStorage.removeItem(SESSION_TOKEN_KEY);
-      localStorage.removeItem(PAIR_CODE_KEY);
+      clearStoredSession();
       createNewPairing();
     }, 3000);
     return () => clearTimeout(timer);
@@ -184,12 +206,12 @@ export default function KioskPairPage() {
       <h1 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '0.5rem' }}>
         Kiosk Setup
       </h1>
-      <p style={{ color: '#9ca3af', marginBottom: '2rem', textAlign: 'center', maxWidth: '400px' }}>
+      <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem', textAlign: 'center', maxWidth: '400px' }}>
         Scan the QR code with your phone to pair this display with an event
       </p>
 
       {state === 'loading' && (
-        <p style={{ color: '#9ca3af' }}>Generating pairing code...</p>
+        <p style={{ color: 'var(--text-secondary)' }}>Generating pairing code...</p>
       )}
 
       {state === 'pairing' && pairCode && (
@@ -213,7 +235,7 @@ export default function KioskPairPage() {
             {formatCode(pairCode)}
           </div>
 
-          <p style={{ color: '#9ca3af', fontSize: '0.875rem' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
             Enter this code or scan the QR code above
           </p>
 
@@ -235,13 +257,28 @@ export default function KioskPairPage() {
             }} />
             Waiting for pairing...
           </div>
+          {assignmentError && (
+            <div role="alert" style={{ marginTop: '1rem', textAlign: 'center' }}>
+              <p style={{ color: '#ef4444', marginBottom: '0.75rem' }}>{assignmentError}</p>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  const token = localStorage.getItem(SESSION_TOKEN_KEY);
+                  if (token) startAssignmentPolling(token);
+                }}
+              >
+                Retry session check
+              </button>
+            </div>
+          )}
         </>
       )}
 
       {state === 'expired' && (
         <div style={{ textAlign: 'center' }}>
           <p style={{ color: '#f59e0b' }}>Pairing code expired</p>
-          <p style={{ color: '#9ca3af', fontSize: '0.875rem', marginTop: '0.5rem' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: '0.5rem' }}>
             Generating new code...
           </p>
         </div>

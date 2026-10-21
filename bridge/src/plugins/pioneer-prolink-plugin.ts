@@ -12,34 +12,42 @@
  *     without one, isOnAir defaults to true (fader becomes a no-op)
  *   - Occupies one virtual CDJ slot (max 5 real CDJs when plugin is running)
  */
-import { EventEmitter } from "events";
-
+import type { PluginMeta } from "./plugin-registry.js";
 import { bringOnline, CDJStatus, DeviceType } from "alphatheta-connect";
 import type { Device, ProlinkNetwork } from "alphatheta-connect";
+import { TypedEventEmitter } from "../shared/typed-event-emitter.js";
 
 import type {
   EquipmentSourcePlugin,
   PluginCapabilities,
   PluginConfigOption,
   PluginInfo,
-} from "../plugin-types.js";
+  PluginEventMap,
+  PluginEventArguments,
+} from "./plugin-types.js";
 
-export class PioneerProlinkPlugin extends EventEmitter implements EquipmentSourcePlugin {
-  readonly info: PluginInfo = {
-    id: "pioneer-prolink",
-    name: "Pioneer PRO DJ LINK",
-    description: "Connects to Pioneer DJ equipment via PRO DJ LINK network",
+export class PioneerProlinkPlugin extends TypedEventEmitter<PluginEventArguments> implements EquipmentSourcePlugin {
+  static readonly metadata: PluginMeta = {
+    info: {
+      id: "pioneer-prolink",
+      name: "Pioneer PRO DJ LINK",
+      description: "Connects to Pioneer DJ equipment via PRO DJ LINK network",
+    },
+    capabilities: {
+      multiDeck: true,
+      playState: true,
+      faderLevel: true,
+      masterDeck: true,
+      albumMetadata: true,
+    },
+    configOptions: []
   };
 
-  readonly capabilities: PluginCapabilities = {
-    multiDeck: true,
-    playState: true,
-    faderLevel: true,
-    masterDeck: true,
-    albumMetadata: true,
-  };
+  readonly info: PluginInfo = structuredClone(PioneerProlinkPlugin.metadata.info);
 
-  readonly configOptions: readonly PluginConfigOption[] = [];
+  readonly capabilities: PluginCapabilities = structuredClone(PioneerProlinkPlugin.metadata.capabilities);
+
+  readonly configOptions: readonly PluginConfigOption[] = structuredClone(PioneerProlinkPlugin.metadata.configOptions);
 
   private running = false;
   private network: ProlinkNetwork | null = null;
@@ -62,11 +70,18 @@ export class PioneerProlinkPlugin extends EventEmitter implements EquipmentSourc
       throw new Error("Pioneer PRO DJ LINK plugin is already running");
     }
 
+    // A previous shutdown may have left the device network active. Retry that cleanup
+    // before acquiring another virtual device slot.
+    if (this.network) {
+      await this.disconnectNetwork(this.network);
+    }
+
     this.deckTrackIds.clear();
     this.abortAllFetches();
 
     this.emit("log", "Bringing PRO DJ LINK network online...");
     const network = await bringOnline();
+    this.network = network;
 
     try {
       this.emit("log", "Waiting for first CDJ to appear...");
@@ -75,42 +90,43 @@ export class PioneerProlinkPlugin extends EventEmitter implements EquipmentSourc
       this.emit("log", "Connecting as virtual device...");
       network.connect();
     } catch (err) {
-      try {
-        await network.disconnect()();
-      } catch {
-        // Best effort cleanup
-      }
+      await this.disconnectNetwork(network);
       throw err;
     }
 
-    this.network = network;
     this.running = true;
 
-    this.wireEvents();
+    this.wireProlinkEvents();
     this.emit("ready");
     this.emit("log", "Connected to PRO DJ LINK network");
   }
 
   async stop(): Promise<void> {
-    if (!this.running) return;
+    if (!this.running && !this.network) return;
 
     this.running = false;
     this.deckTrackIds.clear();
     this.abortAllFetches();
 
-    if (this.network) {
-      try {
-        await this.network.disconnect()();
-      } catch {
-        // Best effort on shutdown
-      }
-      this.network = null;
+    try {
+      if (this.network) await this.disconnectNetwork(this.network);
+    } finally {
+      this.removeAllListeners();
     }
-
-    this.removeAllListeners();
   }
 
-  private wireEvents(): void {
+  private async disconnectNetwork(network: ProlinkNetwork): Promise<void> {
+    try {
+      await network.disconnect()();
+      if (this.network === network) this.network = null;
+    } catch (cause) {
+      throw new Error("Failed to disconnect from PRO DJ LINK network; cleanup can be retried", {
+        cause,
+      });
+    }
+  }
+
+  private wireProlinkEvents(): void {
     if (!this.network) return;
 
     // Device discovery

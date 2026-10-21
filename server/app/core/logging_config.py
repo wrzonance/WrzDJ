@@ -2,6 +2,9 @@ import logging
 import logging.handlers
 import os
 
+MAX_LOG_FILE_BYTES = 10 * 1024 * 1024
+LOG_BACKUP_COUNT = 5
+
 # Mutable guard so repeat configure_logging() calls are no-ops.
 _state = {"configured": False}
 
@@ -63,8 +66,8 @@ def configure_logging() -> None:
             os.makedirs(log_dir, exist_ok=True)
             file_handler = logging.handlers.RotatingFileHandler(
                 os.path.join(log_dir, "app.log"),
-                maxBytes=10 * 1024 * 1024,
-                backupCount=5,
+                maxBytes=MAX_LOG_FILE_BYTES,
+                backupCount=LOG_BACKUP_COUNT,
                 encoding="utf-8",
             )
             file_handler.setFormatter(

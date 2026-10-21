@@ -7,11 +7,13 @@ custom OpenAI-compatible). The chunk / delta models themselves live in
 
 from __future__ import annotations
 
-from typing import Literal
-
-from app.services.llm.base import ChatResponseChunk, TokenUsage, ToolCallDelta
-
-CanonicalStopReason = Literal["end_turn", "tool_use", "max_tokens", "error"]
+from app.services.llm.base import (
+    CanonicalStopReason,
+    ChatResponseChunk,
+    TokenUsage,
+    ToolCallDelta,
+)
+from app.services.llm.exceptions import ToolTranslationError
 
 
 def _as_int(value: object, default: int = 0) -> int:
@@ -22,9 +24,13 @@ def _as_int(value: object, default: int = 0) -> int:
     want a malformed field to raise and abort an otherwise-usable stream, so fall
     back to ``default`` instead of letting ``int()`` raise.
     """
+    # JSON values can only be strings or numbers here; other provider values
+    # (including null, lists, and objects) are malformed and use the default.
+    if not isinstance(value, (str, int, float)):
+        return default
     try:
-        return int(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
         return default
 
 
@@ -47,17 +53,33 @@ def parse_openai_stream_event(payload: dict) -> ChatResponseChunk | None:
     role-only delta). The terminal event (``finish_reason`` set) returns a chunk
     with ``done=True``, the mapped ``stop_reason`` and (when present) token usage.
     """
+    if not isinstance(payload, dict):
+        raise ToolTranslationError("Upstream returned malformed streaming data")
+
     choices = payload.get("choices") or []
+    if not isinstance(choices, list):
+        raise ToolTranslationError("Upstream returned malformed streaming data")
     choice = choices[0] if choices else {}
+    if not isinstance(choice, dict):
+        raise ToolTranslationError("Upstream returned malformed streaming data")
     delta = choice.get("delta") or {}
+    if not isinstance(delta, dict):
+        raise ToolTranslationError("Upstream returned malformed streaming data")
 
     text_delta = delta.get("content") or ""
 
+    tool_calls = delta.get("tool_calls") or []
+    if not isinstance(tool_calls, list):
+        raise ToolTranslationError("Upstream returned malformed streaming data")
+
     tool_call_deltas: list[ToolCallDelta] = []
-    for tc in delta.get("tool_calls") or []:
+    for tc in tool_calls:
         if not isinstance(tc, dict):
             continue
-        fn = tc.get("function") if isinstance(tc.get("function"), dict) else {}
+        fn: dict = {}
+        function_payload = tc.get("function")
+        if isinstance(function_payload, dict):
+            fn = function_payload
         tool_call_deltas.append(
             ToolCallDelta(
                 index=_as_int(tc.get("index", 0)),
@@ -68,10 +90,15 @@ def parse_openai_stream_event(payload: dict) -> ChatResponseChunk | None:
         )
 
     finish_reason = choice.get("finish_reason")
-    done = finish_reason is not None
+    if finish_reason is None:
+        done = False
+    elif isinstance(finish_reason, str):
+        done = True
+    else:
+        raise ToolTranslationError("Upstream returned malformed streaming data")
 
     stop_reason: CanonicalStopReason | None = None
-    if done:
+    if isinstance(finish_reason, str):
         stop_reason = _FINISH_REASON_OPENAI.get(finish_reason, "error")
 
     # Usage can arrive on a *separate* terminal frame that carries no text/tool
@@ -80,6 +107,8 @@ def parse_openai_stream_event(payload: dict) -> ChatResponseChunk | None:
     # unconditionally (not just when ``done``) so token accounting survives.
     usage: TokenUsage | None = None
     usage_payload = payload.get("usage") or {}
+    if not isinstance(usage_payload, dict):
+        raise ToolTranslationError("Upstream returned malformed streaming data")
     if usage_payload:
         usage = TokenUsage(
             prompt=_as_int(usage_payload.get("prompt_tokens", 0)),

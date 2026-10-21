@@ -19,8 +19,11 @@
 
 set -euo pipefail
 
-readonly INITRAMFS_SCRIPT="/etc/initramfs-tools/scripts/overlay"
-readonly FSTAB_BAK="/etc/fstab.overlayfs-backup"
+readonly INITRAMFS_SCRIPT="${WRZDJ_INITRAMFS_SCRIPT:-/etc/initramfs-tools/scripts/overlay}"
+readonly FSTAB_BAK="${WRZDJ_FSTAB_BACKUP:-/etc/fstab.overlayfs-backup}"
+readonly FSTAB="${WRZDJ_FSTAB:-/etc/fstab}"
+readonly BOOT_FIRMWARE_CMDLINE="${WRZDJ_BOOT_FIRMWARE_CMDLINE:-/boot/firmware/cmdline.txt}"
+readonly BOOT_CMDLINE="${WRZDJ_BOOT_CMDLINE:-/boot/cmdline.txt}"
 
 info()  { printf '\033[1;34m[INFO]\033[0m  %s\n' "$*"; }
 warn()  { printf '\033[1;33m[WARN]\033[0m  %s\n' "$*"; }
@@ -32,12 +35,24 @@ check_root() {
 }
 
 is_overlayfs_enabled() {
-    grep -q 'boot=overlay' /boot/firmware/cmdline.txt 2>/dev/null ||
-    grep -q 'boot=overlay' /boot/cmdline.txt 2>/dev/null
+    local cmdline="$1"
+    grep -Eq '(^|[[:space:]])boot=overlay([[:space:]]|$)' "$cmdline" 2>/dev/null
+}
+
+boot_cmdline_file() {
+    if [ -f "$BOOT_FIRMWARE_CMDLINE" ]; then
+        printf '%s\n' "$BOOT_FIRMWARE_CMDLINE"
+    elif [ -f "$BOOT_CMDLINE" ]; then
+        printf '%s\n' "$BOOT_CMDLINE"
+    else
+        return 1
+    fi
 }
 
 enable_overlayfs() {
-    if is_overlayfs_enabled; then
+    local cmdline
+    cmdline="$(boot_cmdline_file)" || die "No boot command line file found"
+    if is_overlayfs_enabled "$cmdline"; then
         info "OverlayFS is already enabled"
         return
     fi
@@ -86,14 +101,11 @@ OVERLAY_SCRIPT
 
     # Back up fstab
     if [ ! -f "$FSTAB_BAK" ]; then
-        cp /etc/fstab "$FSTAB_BAK"
+        cp "$FSTAB" "$FSTAB_BAK"
     fi
 
     # Add boot=overlay to kernel command line
-    local cmdline="/boot/firmware/cmdline.txt"
-    [ -f "$cmdline" ] || cmdline="/boot/cmdline.txt"
-
-    if [ -f "$cmdline" ] && ! grep -q 'boot=overlay' "$cmdline"; then
+    if ! grep -Eq '(^|[[:space:]])boot=overlay([[:space:]]|$)' "$cmdline"; then
         sed -i 's/$/ boot=overlay/' "$cmdline"
     fi
 
@@ -106,25 +118,25 @@ OVERLAY_SCRIPT
 }
 
 disable_overlayfs() {
-    if ! is_overlayfs_enabled; then
+    local cmdline
+    cmdline="$(boot_cmdline_file)" || die "No boot command line file found"
+    if ! is_overlayfs_enabled "$cmdline"; then
         info "OverlayFS is already disabled"
         return
     fi
 
     # Remove boot=overlay from cmdline
-    local cmdline="/boot/firmware/cmdline.txt"
-    [ -f "$cmdline" ] || cmdline="/boot/cmdline.txt"
-
-    if [ -f "$cmdline" ]; then
-        sed -i 's/ boot=overlay//g' "$cmdline"
-    fi
+    sed -i -E \
+        -e 's/(^|[[:space:]])boot=overlay([[:space:]]|$)/\1\2/g' \
+        -e 's/^[[:space:]]+//' \
+        -e 's/[[:space:]]+$//' "$cmdline"
 
     # Remove initramfs script
     rm -f "$INITRAMFS_SCRIPT"
 
     # Restore fstab if backup exists
     if [ -f "$FSTAB_BAK" ]; then
-        cp "$FSTAB_BAK" /etc/fstab
+        cp "$FSTAB_BAK" "$FSTAB"
     fi
 
     # Rebuild initramfs
@@ -135,7 +147,9 @@ disable_overlayfs() {
 }
 
 show_status() {
-    if is_overlayfs_enabled; then
+    local cmdline
+    cmdline="$(boot_cmdline_file)" || die "No boot command line file found"
+    if is_overlayfs_enabled "$cmdline"; then
         info "OverlayFS: ENABLED (cmdline has boot=overlay)"
     else
         info "OverlayFS: DISABLED"
@@ -149,13 +163,17 @@ show_status() {
     fi
 }
 
-# ---------- main ----------
+main() {
+    check_root
 
-check_root
+    case "${1:-status}" in
+        enable)  enable_overlayfs ;;
+        disable) disable_overlayfs ;;
+        status)  show_status ;;
+        *)       die "Usage: $0 {enable|disable|status}" ;;
+    esac
+}
 
-case "${1:-status}" in
-    enable)  enable_overlayfs ;;
-    disable) disable_overlayfs ;;
-    status)  show_status ;;
-    *)       die "Usage: $0 {enable|disable|status}" ;;
-esac
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

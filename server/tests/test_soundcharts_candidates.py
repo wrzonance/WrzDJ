@@ -3,13 +3,14 @@
 from unittest.mock import MagicMock, patch
 
 from app.schemas.tidal import TidalSearchResult
+from app.services.providers.soundcharts import SoundchartsTrack
 from app.services.recommendation.scorer import EventProfile
 from app.services.recommendation.soundcharts_candidates import (
     BPM_RANGE_OFFSET,
     related_candidates_from_seeds,
     search_candidates_via_soundcharts,
 )
-from app.services.soundcharts import SoundchartsTrack
+from app.services.tracks.profile_mappers import tidal_result_to_profile
 
 
 def _make_user():
@@ -32,17 +33,18 @@ def _make_tidal_result(title="Song", artist="Artist", track_id="123"):
 
 
 class TestSearchCandidatesViaSoundcharts:
-    @patch("app.services.tidal.search_tidal_tracks")
+    @patch("app.services.providers.tidal_search.search_tidal_tracks")
     @patch("app.services.recommendation.soundcharts_candidates.discover_songs")
     def test_full_pipeline(self, mock_discover, mock_tidal_search):
         mock_discover.return_value = [
             SoundchartsTrack(title="Country Roads", artist="John Denver", soundcharts_uuid="a"),
             SoundchartsTrack(title="Jolene", artist="Dolly Parton", soundcharts_uuid="b"),
         ]
-        mock_tidal_search.side_effect = [
-            [_make_tidal_result("Country Roads", "John Denver", "111")],
-            [_make_tidal_result("Jolene", "Dolly Parton", "222")],
+        tidal_results = [
+            _make_tidal_result("Country Roads", "John Denver", "111"),
+            _make_tidal_result("Jolene", "Dolly Parton", "222"),
         ]
+        mock_tidal_search.side_effect = [[result] for result in tidal_results]
 
         db = MagicMock()
         user = _make_user()
@@ -63,6 +65,9 @@ class TestSearchCandidatesViaSoundcharts:
         assert candidates[0].genre == "Country"
         assert candidates[1].title == "Jolene"
         assert candidates[1].genre == "Country"
+        assert candidates == [
+            tidal_result_to_profile(result, inferred_genre="Country") for result in tidal_results
+        ]
 
         # Verify discover_songs was called with correct args
         mock_discover.assert_called_once_with(
@@ -73,7 +78,7 @@ class TestSearchCandidatesViaSoundcharts:
             limit=25,
         )
 
-    @patch("app.services.tidal.search_tidal_tracks")
+    @patch("app.services.providers.tidal_search.search_tidal_tracks")
     @patch("app.services.recommendation.soundcharts_candidates.discover_songs")
     def test_tidal_not_found_skipped(self, mock_discover, mock_tidal_search):
         mock_discover.return_value = [
@@ -113,7 +118,7 @@ class TestSearchCandidatesViaSoundcharts:
         assert candidates == []
         assert total_searched == 0
 
-    @patch("app.services.tidal.search_tidal_tracks")
+    @patch("app.services.providers.tidal_search.search_tidal_tracks")
     @patch("app.services.recommendation.soundcharts_candidates.discover_songs")
     def test_bpm_range_calculation(self, mock_discover, mock_tidal_search):
         mock_discover.return_value = []
@@ -132,7 +137,7 @@ class TestSearchCandidatesViaSoundcharts:
         assert call_kwargs.kwargs["bpm_min"] == 100.0 - BPM_RANGE_OFFSET
         assert call_kwargs.kwargs["bpm_max"] == 100.0 + BPM_RANGE_OFFSET
 
-    @patch("app.services.tidal.search_tidal_tracks")
+    @patch("app.services.providers.tidal_search.search_tidal_tracks")
     @patch("app.services.recommendation.soundcharts_candidates.discover_songs")
     def test_no_bpm_sends_none(self, mock_discover, mock_tidal_search):
         mock_discover.return_value = []
@@ -150,7 +155,7 @@ class TestSearchCandidatesViaSoundcharts:
         assert call_kwargs.kwargs["bpm_min"] is None
         assert call_kwargs.kwargs["bpm_max"] is None
 
-    @patch("app.services.tidal.search_tidal_tracks")
+    @patch("app.services.providers.tidal_search.search_tidal_tracks")
     @patch("app.services.recommendation.soundcharts_candidates.discover_songs")
     def test_key_filter_passed(self, mock_discover, mock_tidal_search):
         mock_discover.return_value = []
@@ -168,7 +173,7 @@ class TestSearchCandidatesViaSoundcharts:
         call_kwargs = mock_discover.call_args
         assert call_kwargs.kwargs["keys"] == ["D Minor", "G Major"]
 
-    @patch("app.services.tidal.search_tidal_tracks")
+    @patch("app.services.providers.tidal_search.search_tidal_tracks")
     @patch("app.services.recommendation.soundcharts_candidates.discover_songs")
     def test_genre_propagated_from_profile(self, mock_discover, mock_tidal_search):
         """Candidates get genre inferred from the profile's dominant genre."""
@@ -190,7 +195,7 @@ class TestSearchCandidatesViaSoundcharts:
         assert len(candidates) == 1
         assert candidates[0].genre == "House"
 
-    @patch("app.services.tidal.search_tidal_tracks")
+    @patch("app.services.providers.tidal_search.search_tidal_tracks")
     @patch("app.services.recommendation.soundcharts_candidates.discover_songs")
     def test_no_keys_sends_none(self, mock_discover, mock_tidal_search):
         mock_discover.return_value = []

@@ -1,0 +1,369 @@
+/* ------------------------------------------------------------------ */
+/* Pool panel (issue #388)                                            */
+
+.poolPanel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  font-size: 0.8125rem;
+}
+
+.poolHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.poolTitle {
+  font-family: var(--font-display), sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.poolCount {
+  display: inline-block;
+  min-width: 1.2em;
+  padding: 0 0.35em;
+  border-radius: 8px;
+  background: var(--surface-raised, rgba(255, 255, 255, 0.06));
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  text-align: center;
+}
+
+.popoverMenu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 40;
+  min-width: 230px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.35rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.popoverLabel {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.6563rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary, var(--text-secondary));
+}
+
+.popoverItem {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.45rem 0.5rem;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.popoverItem:hover {
+  background: var(--surface-raised, rgba(255, 255, 255, 0.06));
+}
+
+.popoverItemTitle {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.popoverItemSub {
+  display: block;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+.poolSources {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.poolEnrichment {
+  padding: 8px 10px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(50, 215, 160, 0.08);
+}
+
+.poolEnrichmentHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+  font-size: 12px;
+}
+
+.poolEnrichmentText {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.poolEnrichmentMeta {
+  color: var(--text-secondary);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.poolEnrichmentBar {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.poolEnrichmentFill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-primary);
+  transition: width 180ms ease;
+}
+
+.sourcesToggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.45rem 0.75rem;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+}
+
+.sourcesCaret {
+  font-size: 0.625rem;
+}
+
+.sourcesClearFilter {
+  font-size: 0.6563rem;
+  color: var(--color-primary, #8b5cf6);
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.sourceRow {
+  display: flex;
+  align-items: center;
+  padding-right: 0.5rem;
+}
+
+.sourceRow:hover {
+  background: var(--surface-raised, rgba(255, 255, 255, 0.04));
+}
+
+.sourceRowActive {
+  background: var(--surface-raised, rgba(255, 255, 255, 0.07));
+}
+
+.sourceRowMain {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0.4rem 0.75rem;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.sourceInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.sourceLabel {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sourceMeta {
+  display: block;
+  font-size: 0.6563rem;
+  color: var(--text-secondary);
+}
+
+.sourceCount {
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.sourceRemove {
+  visibility: hidden;
+  background: none;
+  border: none;
+  color: var(--color-danger, #ef4444);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  line-height: 1;
+}
+
+.sourceRow:hover .sourceRemove {
+  visibility: visible;
+}
+
+.sourcesEmpty {
+  padding: 0.6rem 0.75rem;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+.poolTabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border-subtle);
+  overflow-x: auto;
+}
+
+.poolTab {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.poolTabActive {
+  border-color: var(--border);
+  background: var(--surface-raised, rgba(255, 255, 255, 0.06));
+  color: var(--text);
+}
+
+.poolSearch {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.poolList {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.poolTrack {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.9rem 0.45rem 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: default;
+}
+
+.poolTrack:hover {
+  background: var(--surface-raised, rgba(255, 255, 255, 0.04));
+}
+
+.poolTrackSelected {
+  background: var(--surface-raised, rgba(139, 92, 246, 0.12));
+}
+
+.trackInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.trackTitle {
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trackArtist {
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trackMetaRow {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.2rem;
+}
+
+.srcChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.625rem;
+  max-width: 9rem;
+  overflow: hidden;
+}
+
+.srcChipLabel {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.poolTrackStripe {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+}
+
+.selectFooter {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.6rem;
+  border-top: 1px solid var(--border);
+  background: var(--card);
+}
+
+.poolToast {
+  position: absolute;
+  left: 50%;
+  bottom: 0.75rem;
+  transform: translateX(-50%);
+  z-index: 50;
+  padding: 0.45rem 0.9rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  color: var(--text);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
+}

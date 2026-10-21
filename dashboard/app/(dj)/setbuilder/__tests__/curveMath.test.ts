@@ -12,7 +12,7 @@ import {
   fmtTime,
   VIBE_PRESETS,
   REPLACE_PROMPT_THRESHOLD,
-} from '../components/curveMath';
+} from '../components/curve/curveMath';
 import type { SlotView, TrackView } from '../components/types';
 import { slotViewFromApi, effectiveTarget } from '../components/types';
 

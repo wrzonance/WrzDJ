@@ -21,7 +21,8 @@ server {
 }
 
 server {
-    listen 443 ssl http2;
+    listen 443 ssl${HTTP2_LISTEN_OPTION};
+    ${HTTP2_DIRECTIVE}
     server_name ${API_DOMAIN};
 
     access_log /var/log/nginx/${API_DOMAIN}.access.log json_analytics;

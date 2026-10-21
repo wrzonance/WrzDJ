@@ -37,6 +37,7 @@ quoted_volume="${quoted_project}_postgres_data"
 quoted_backup_volume="${quoted_volume}_pg16_backup"
 quoted_legacy="${quoted_project}-legacy"
 quoted_override="$scratch/quoted-role.yml"
+test_networks=()
 
 # Dummy values for every required variable in the production Compose files.
 export COMPOSE_PROJECT_NAME="$project"
@@ -47,6 +48,19 @@ export NEXT_PUBLIC_API_URL=http://localhost:8000
 unset POSTGRES_VOLUME_NAME
 
 compose() { docker compose -f "$compose_file" "$@"; }
+
+create_compose_test_network() { # PROJECT SUBNET
+  local name=$1 subnet=$2 network="${1}_default"
+  docker network create --driver bridge --subnet "$subnet" \
+    --label "com.docker.compose.project=$name" \
+    --label com.docker.compose.network=default "$network" >/dev/null
+  test_networks+=("$network")
+}
+
+if [ -n "${WRZDJ_TEST_SUBNET:-}" ]; then
+  : "${WRZDJ_TEST_LEGACY_SUBNET:?Set WRZDJ_TEST_LEGACY_SUBNET with WRZDJ_TEST_SUBNET}"
+  : "${WRZDJ_TEST_QUOTED_SUBNET:?Set WRZDJ_TEST_QUOTED_SUBNET with WRZDJ_TEST_SUBNET}"
+fi
 
 cleanup() {
   status=$?
@@ -72,10 +86,18 @@ cleanup() {
   docker volume rm "$legacy_volume" "$backup_volume" "$directory_volume" "$directory_backup_volume" \
     "$probe_volume" "$quoted_volume" "$quoted_backup_volume" >/dev/null 2>&1 || true
   docker network rm "$legacy_network" >/dev/null 2>&1 || true
+  for network in "${test_networks[@]}"; do
+    docker network rm "$network" >/dev/null 2>&1 || true
+  done
   rm -rf "$scratch"
   exit "$status"
 }
 trap cleanup EXIT
+
+if [ -n "${WRZDJ_TEST_SUBNET:-}" ]; then
+  create_compose_test_network "$project" "$WRZDJ_TEST_SUBNET"
+  create_compose_test_network "$quoted_project" "$WRZDJ_TEST_QUOTED_SUBNET"
+fi
 
 fail() {
   echo "FAIL: $*" >&2
@@ -192,7 +214,11 @@ docker volume rm "$probe_volume" >/dev/null
 echo 'The preflight fails closed on unrecognised volume contents.'
 
 # --- 2. Build a real PostgreSQL 16 deployment volume --------------------------
-docker network create --internal "$legacy_network" >/dev/null
+if [ -n "${WRZDJ_TEST_SUBNET:-}" ]; then
+  docker network create --internal --subnet "$WRZDJ_TEST_LEGACY_SUBNET" "$legacy_network" >/dev/null
+else
+  docker network create --internal "$legacy_network" >/dev/null
+fi
 docker volume create "$legacy_volume" >/dev/null
 start_legacy_db
 docker run --detach --name "$legacy_api" --network "$legacy_network" \
@@ -400,6 +426,9 @@ YAML
   [ "$(quoted_compose exec -T db psql -U "$quoted_user" -d appdb -At -c 'SHOW server_version_num' | cut -c1-2)" = 18 ] ||
     fail 'quoted-role upgrade did not produce PostgreSQL 18 data'
   quoted_compose down --volumes --remove-orphans >/dev/null
+  if [ -n "${WRZDJ_TEST_SUBNET:-}" ]; then
+    create_compose_test_network "$quoted_project" "$WRZDJ_TEST_QUOTED_SUBNET"
+  fi
   docker volume rm "$quoted_backup_volume" >/dev/null
   echo "Application role $quoted_user restores successfully and preserves role-like table data."
 done

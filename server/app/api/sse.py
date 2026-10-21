@@ -55,7 +55,7 @@ async def _event_generator(
 
 @router.get("/events/{code}/stream")
 @limiter.limit("10/minute")
-async def event_stream(
+def event_stream(
     code: str,
     request: Request,
 ) -> EventSourceResponse:
@@ -73,6 +73,9 @@ async def event_stream(
     request-scoped ``get_db`` session across the stream lifetime — doing so
     pinned one pooled connection per open stream and exhausted the QueuePool
     (size 5 + overflow 10 = 15 connections) under modest guest load.
+
+    This route stays synchronous so FastAPI dispatches the synchronous SQLAlchemy
+    lookup to its worker threadpool. The long-lived stream body remains async.
 
     Event types:
     - request_created: New request submitted

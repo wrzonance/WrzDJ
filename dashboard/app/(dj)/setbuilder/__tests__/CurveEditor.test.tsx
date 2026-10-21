@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import CurveEditor from '../components/CurveEditor';
+import CurveEditor from '../components/curve/CurveEditor';
 import type { SlotView, VibeWindowView } from '../components/types';
 
 beforeAll(() => {

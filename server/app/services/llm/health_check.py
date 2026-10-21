@@ -42,7 +42,7 @@ from app.models.llm_connector import (
     LlmConnector,
 )
 from app.schemas.llm import ConnectorTestResult
-from app.services.llm.connector_storage import audit_event
+from app.services.llm.connector_telemetry import audit_event
 from app.services.llm.exceptions import (
     AuthInvalid,
     ProviderUnavailable,

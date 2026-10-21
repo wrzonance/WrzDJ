@@ -44,9 +44,8 @@ class TestProdSafety:
 
     def test_bypass_in_production_refuses_to_boot(self, caplog):
         s = self._prod_settings(dev_auth_bypass=True)
-        with pytest.raises(SystemExit) as exc:
+        with pytest.raises(ValueError, match="DEV_AUTH_BYPASS must NOT be set in production"):
             validate_settings(s)
-        assert exc.value.code == 1
         assert "DEV_AUTH_BYPASS must NOT be set in production" in caplog.text
 
     def test_clean_production_still_boots(self):
@@ -142,6 +141,27 @@ class TestLeakedDevGuestCannotBackdoorProd:
         _dev_bypass_guest_id(db)
         g = db.query(Guest).filter(Guest.token == _DEV_BYPASS_GUEST_TOKEN).first()
         assert g.verified_email is None and g.email_verified_at is None
+
+    def test_get_guest_id_does_not_commit_callers_pending_work(self, db):
+        """Resolving the dev identity must leave transaction ownership with its caller."""
+        from app.core.rate_limit import get_guest_id
+        from app.models.user import User
+
+        pending_user = User(
+            username="pending-before-dev-guest",
+            password_hash="not-a-real-password-hash",
+            role="dj",
+        )
+        db.add(pending_user)
+        bypass = Settings(env="development", dev_auth_bypass=True)
+
+        with patch("app.core.config.get_settings", lambda: bypass):
+            guest_id = get_guest_id(self._req(), db)
+
+        assert guest_id is not None
+        assert db.is_active
+        db.rollback()
+        assert db.query(User).filter(User.username == "pending-before-dev-guest").first() is None
 
     def test_identify_cannot_claim_leaked_dev_row(self, client, db):
         """/guest/identify must not let an attacker claim or re-tokenize a leaked dev

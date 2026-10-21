@@ -10,7 +10,7 @@ import type {
   LlmAdminUsage,
   LlmConnector,
   LlmDjStatus,
-} from '@/lib/api-types';
+} from '@/lib/api/types';
 
 vi.mock('@/lib/auth', () => ({
   useAuth: () => ({
@@ -217,7 +217,9 @@ describe('AdminAISettingsPage', () => {
     );
     expect(screen.getByText('Per-DJ connectors')).toBeInTheDocument();
     expect(screen.getByText('someDJ')).toBeInTheDocument();
-    expect(screen.getByText(/Usage — last 30 days/)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByText(/Usage — last 30 days/)).toBeInTheDocument(),
+    );
   });
 
   // -------- org-scoped house connector --------
@@ -389,10 +391,10 @@ describe('AdminAISettingsPage', () => {
     await waitFor(() =>
       expect(screen.getByText('Audit trail')).toBeInTheDocument(),
     );
-    expect(screen.getByText('connector_created')).toBeInTheDocument();
-    expect(screen.getByText('My OpenAI')).toBeInTheDocument();
+    expect(await screen.findByText('connector_created')).toBeInTheDocument();
+    expect(await screen.findByText('My OpenAI')).toBeInTheDocument();
     // someDJ appears in the audit row (no connectors table rows to collide)
-    expect(screen.getByText('someDJ')).toBeInTheDocument();
+    expect(await screen.findByText('someDJ')).toBeInTheDocument();
     // Filter + export controls
     expect(screen.getByLabelText('Event type')).toBeInTheDocument();
     expect(screen.getByText('Export CSV')).toBeInTheDocument();
@@ -408,6 +410,12 @@ describe('AdminAISettingsPage', () => {
     const createObjectURL = vi.fn(() => 'blob:mock');
     const revokeObjectURL = vi.fn();
     vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL });
+    const downloadedFiles: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      downloadedFiles.push(this.download);
+    });
 
     try {
       render(<AdminAISettingsPage />);
@@ -432,6 +440,9 @@ describe('AdminAISettingsPage', () => {
           expect.objectContaining({ event_type: 'connector_credentials_rotated' }),
         ),
       );
+      await waitFor(() => expect(downloadedFiles).toEqual(['llm-audit-events.csv']));
+      expect(createObjectURL).toHaveBeenCalledOnce();
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock');
     } finally {
       // Guarantee the URL stub is restored even if an assertion fails early,
       // so it can't leak into later tests.

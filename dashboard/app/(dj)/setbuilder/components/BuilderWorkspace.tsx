@@ -6,11 +6,11 @@
  * the builder page in place of the Phase 0 placeholders.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
-import type { SetDocumentSnapshot } from '@/lib/api-types';
-import CurvePanel from './CurvePanel';
-import TimelinePanel, { type ScrollRequest } from './TimelinePanel';
+import type { SetDocumentSnapshot } from '@/lib/api/types';
+import CurvePanel from './curve/CurvePanel';
+import TimelinePanel, { type ScrollRequest } from './timeline/TimelinePanel';
 import TransportBar from './TransportBar';
 import type { ConfirmAction } from './ConfirmActionDialog';
 import {
@@ -18,7 +18,7 @@ import {
   projectTarget,
   type TargetProjection,
   type TargetSettings,
-} from './targetMath';
+} from './curve/targetMath';
 import type { SlotView, TrackView } from './types';
 import { slotViewFromApi, trackViewFromPool } from './types';
 import type { BuilderCommit } from './useSetDocumentHistory';
@@ -28,9 +28,10 @@ import {
   slotIndexAtPosition,
   slotStartSec,
   totalDuration,
-} from './transportMath';
+} from './timeline/transportMath';
 import { buildMovedIds, buildReorderedIds } from './reorderMath';
 import { insertPoolTrackIntoDocument, lockSlotsInDocument } from './documentMath';
+import { getUnlockedSlotIdsBeforePlayhead } from './playheadLock';
 import sbStyles from '../setbuilder.module.css';
 
 const SCRUB_KEY = 'wrzdj.transport.scrubEnabled';
@@ -43,12 +44,11 @@ function readScrubSetting(): boolean {
   }
 }
 
-interface JumpSlotEvent extends Event {
-  detail?: { idx?: number };
-}
-
 interface BuilderWorkspaceProps {
   setId: number;
+  jumpSlotRequest?: { idx: number; requestId: number } | null;
+  onOpenPairings?: (pairingId?: number | null) => void;
+  onPairingsChanged?: () => void;
   refreshToken?: number;
   snapshot?: SetDocumentSnapshot | null;
   snapshotVersion?: number;
@@ -110,6 +110,9 @@ function TimelineSummary({
 
 export default function BuilderWorkspace({
   setId,
+  jumpSlotRequest = null,
+  onOpenPairings,
+  onPairingsChanged,
   refreshToken = 0,
   snapshot,
   snapshotVersion = 0,
@@ -134,6 +137,9 @@ export default function BuilderWorkspace({
     active_source: null as string | null,
     device_name: null as string | null,
   });
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
+  const loadSequence = useRef(0);
 
   const totalSec = useMemo(() => totalDuration(slots), [slots]);
   const projection = useMemo(
@@ -141,58 +147,49 @@ export default function BuilderWorkspace({
     [slots, targetSettings],
   );
 
-  const loadSlots = useCallback(() => {
-    return Promise.all([api.getSetSlots(setId), api.getPool(setId)])
-      .then(([rows, poolState]) => {
-        const poolByTrackId = new Map<string, (typeof poolState.tracks)[number]>();
-        for (const track of poolState.tracks) {
-          if (track.track_id) poolByTrackId.set(track.track_id, track);
-          poolByTrackId.set(`pool:${track.id}`, track);
-        }
-        setPool(poolState.tracks.map(trackViewFromPool));
-        setSlots(rows.map((slot) => slotViewFromApi(slot, poolByTrackId.get(slot.track_id ?? '') ?? null)));
-      })
-      .catch(() => {
-        setPool([]);
-        setSlots([]);
-      });
+  const loadSlots = useCallback(async (): Promise<boolean> => {
+    const sequence = ++loadSequence.current;
+    setWorkspaceLoading(true);
+    setWorkspaceError(null);
+    try {
+      const [rows, poolState] = await Promise.all([api.getSetSlots(setId), api.getPool(setId)]);
+      if (sequence !== loadSequence.current) return false;
+      const poolByTrackId = new Map<string, (typeof poolState.tracks)[number]>();
+      for (const track of poolState.tracks) {
+        if (track.track_id) poolByTrackId.set(track.track_id, track);
+        poolByTrackId.set(`pool:${track.id}`, track);
+      }
+      setPool(poolState.tracks.map(trackViewFromPool));
+      setSlots(rows.map((slot) => slotViewFromApi(slot, poolByTrackId.get(slot.track_id ?? '') ?? null)));
+      setWorkspaceLoading(false);
+      return true;
+    } catch {
+      if (sequence === loadSequence.current) {
+        setWorkspaceError('Could not load set. Your current workspace is still available.');
+        setWorkspaceLoading(false);
+      }
+      return false;
+    }
   }, [setId]);
 
   useEffect(() => {
-    let cancelled = false;
-    loadSlots().catch(() => {
-      if (!cancelled) setSlots([]);
-    });
+    loadSlots();
     return () => {
-      cancelled = true;
+      loadSequence.current += 1;
     };
   }, [loadSlots, refreshToken, snapshotVersion]);
 
   useEffect(() => {
-    const onPairingsChanged = () => {
-      loadSlots().catch(() => {});
-    };
-    const onJumpSlot = (event: Event) => {
-      const idx = (event as JumpSlotEvent).detail?.idx;
-      if (typeof idx !== 'number') return;
-      setScrollRequest((prev) => ({ idx, n: (prev?.n ?? 0) + 1 }));
-    };
-    window.addEventListener('wrzdj:setbuilder-pairings-changed', onPairingsChanged);
-    window.addEventListener('wrzdj:setbuilder-jump-slot', onJumpSlot);
-    return () => {
-      window.removeEventListener('wrzdj:setbuilder-pairings-changed', onPairingsChanged);
-      window.removeEventListener('wrzdj:setbuilder-jump-slot', onJumpSlot);
-    };
-  }, [loadSlots]);
+    if (!jumpSlotRequest) return;
+    setScrollRequest((previous) => ({ idx: jumpSlotRequest.idx, n: (previous?.n ?? 0) + 1 }));
+  }, [jumpSlotRequest]);
 
   const handlePairingAction = async (idx: number) => {
     const from = slots[idx];
     const into = slots[idx + 1];
     if (!from || !into) return;
     if (from.nextIsDjPairing && from.nextPairingId) {
-      window.dispatchEvent(
-        new CustomEvent('wrzdj:open-pairings', { detail: { pairingId: from.nextPairingId } }),
-      );
+      onOpenPairings?.(from.nextPairingId);
       return;
     }
     const saved = await api.savePairing(setId, {
@@ -203,10 +200,8 @@ export default function BuilderWorkspace({
       tags: [],
       increment_use_count: true,
     });
-    window.dispatchEvent(new CustomEvent('wrzdj:setbuilder-pairings-changed'));
-    window.dispatchEvent(
-      new CustomEvent('wrzdj:open-pairings', { detail: { pairingId: saved.id } }),
-    );
+    onPairingsChanged?.();
+    onOpenPairings?.(saved.id);
   };
 
   useEffect(() => {
@@ -335,9 +330,17 @@ export default function BuilderWorkspace({
       try {
         const run = commit ? commit('Insert pool track', save) : save();
         await run;
-        await loadSlots();
+        const loaded = await loadSlots();
+        if (!loaded) {
+          setWorkspaceError('Track was saved, but the timeline could not refresh. Reload before trying again.');
+        }
       } catch {
-        // Keep the visible timeline unchanged if the document mutation fails.
+        const reconciled = await loadSlots();
+        setWorkspaceError(
+          reconciled
+            ? 'Could not confirm the insert. The timeline was reloaded from saved data; check it before trying again.'
+            : 'Could not confirm the insert or reload the timeline. Reload before trying again.',
+        );
       }
     },
     [commit, loadSlots, setId, slots],
@@ -401,12 +404,7 @@ export default function BuilderWorkspace({
   );
 
   const handleLockBeforePlayhead = useCallback(async () => {
-    let startSec = 0;
-    const ids: number[] = [];
-    for (const slot of slots) {
-      if (startSec < positionSec && !slot.locked) ids.push(slot.id);
-      startSec += slot.track.durationSec;
-    }
+    const ids = getUnlockedSlotIdsBeforePlayhead(slots, positionSec);
     await handleSlotLockChange(ids, true, 'Lock slots before playhead');
   }, [handleSlotLockChange, positionSec, slots]);
 
@@ -416,6 +414,20 @@ export default function BuilderWorkspace({
 
   return (
     <>
+      {workspaceError && (
+        <div role="alert" className={sbStyles.panel}>
+          <span>{workspaceError}</span>{' '}
+          <button
+            type="button"
+            className="btn btn-sm"
+            data-testid="workspace-retry"
+            onClick={() => void loadSlots()}
+            disabled={workspaceLoading}
+          >
+            {workspaceLoading ? 'Retrying…' : 'Retry'}
+          </button>
+        </div>
+      )}
       <section className={`${sbStyles.panel} ${sbStyles.panelCurve}`} aria-label="Curve">
         <div className={sbStyles.panelHeader}>Curve</div>
         <CurvePanel

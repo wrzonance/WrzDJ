@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.services.llm.base import ChatResponse, TokenUsage, ToolCall
+from app.services.recommendation.context import RecommendationContext
 from app.services.recommendation.llm_client import call_llm
 from app.services.recommendation.scorer import EventProfile
 
@@ -58,16 +59,9 @@ GATEWAY_RESPONSE = ChatResponse(
 )
 
 
-def _legacy_anthropic_response():
-    """Return a mock that mimics the Anthropic SDK response shape."""
-    from types import SimpleNamespace
-
-    tool_block = SimpleNamespace(
-        type="tool_use",
-        name="search_queries",
-        input=GATEWAY_RESPONSE.tool_calls[0].input,
-    )
-    return SimpleNamespace(content=[tool_block])
+def _canonical_gateway_response():
+    """Return the canonical response shape shared by gateway and parser."""
+    return GATEWAY_RESPONSE
 
 
 def test_parse_tool_response_propagates_provider_model():
@@ -120,16 +114,16 @@ async def test_gateway_path_matches_canonical_parse(db, test_user, event_profile
         new=AsyncMock(return_value=GATEWAY_RESPONSE),
     ):
         gateway_result = await call_llm(
-            event_profile,
+            RecommendationContext(event_profile),
             "deeper progressive house",
             db=db,
             actor=test_user,
         )
 
-    # Canonical parse of the equivalent Anthropic-SDK-shaped response.
-    canonical_result = _parse_tool_response(_legacy_anthropic_response())
+    # Canonical parse of the same gateway response.
+    canonical_result = _parse_tool_response(_canonical_gateway_response())
 
-    # Identical structured output regardless of response shape.
+    # The API path and direct parsing produce identical structured output.
     assert len(gateway_result.queries) == len(canonical_result.queries) == 2
     for gq, cq in zip(gateway_result.queries, canonical_result.queries):
         assert gq.search_query == cq.search_query
@@ -143,8 +137,8 @@ async def test_gateway_path_matches_canonical_parse(db, test_user, event_profile
 async def test_call_llm_requires_db(event_profile):
     """The legacy no-``db`` env-var fallback is gone (#343): callers must supply a
     db session so the gateway can resolve a connector."""
-    with pytest.raises(ValueError, match="requires a db session"):
-        await call_llm(event_profile, "anything")
+    with pytest.raises(TypeError, match="db"):
+        await call_llm(RecommendationContext(event_profile), "anything")
 
 
 @pytest.mark.asyncio
@@ -172,7 +166,7 @@ async def test_gateway_routes_gemini_connector(db, test_user, event_profile):
         new=AsyncMock(return_value=GATEWAY_RESPONSE),
     ):
         result = await call_llm(
-            event_profile,
+            RecommendationContext(event_profile),
             "deeper progressive house",
             db=db,
             actor=test_user,

@@ -6,7 +6,7 @@ registers via :func:`register_adapter` must pass every test here.
 
 The contract intentionally tests structural and exception-mapping invariants
 only — it never makes network calls. Provider-specific HTTP and parsing
-behaviour belongs in per-adapter test files (e.g. ``test_llm_adapters.py``,
+behaviour belongs in per-adapter test files (e.g. ``test_llm_adapters_anthropic.py``,
 ``test_llm_bedrock_adapter.py``).
 
 If you are adding a new adapter:

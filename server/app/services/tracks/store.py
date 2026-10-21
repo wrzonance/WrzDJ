@@ -7,8 +7,8 @@ from datetime import datetime
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.track_ids import normalize_isrc
 from app.models.track import Track
-from app.services.track_normalizer import normalize_isrc
 from app.services.tracks.provenance import KNOWN_SOURCES, FieldProvenance, should_overwrite
 
 logger = logging.getLogger(__name__)

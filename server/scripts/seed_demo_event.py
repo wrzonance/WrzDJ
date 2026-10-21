@@ -5,7 +5,10 @@ Also seeds a verified guest + per-event profile so Playwright fixtures can drop 
 """
 
 import hashlib
+import secrets
 from datetime import timedelta
+
+from sqlalchemy.orm import Session
 
 from app.core.time import utcnow
 from app.db.session import SessionLocal
@@ -15,12 +18,40 @@ from app.models.guest_profile import GuestProfile
 from app.models.request import Request as SongRequest
 from app.models.user import User
 
-DEMO_GUEST_TOKEN = "demoguest0000000000000000000000000000000000000000000000000demo"
 DEMO_GUEST_NICKNAME = "Marcus"
 
 
 def _dedupe_key(artist: str, title: str) -> str:
-    return hashlib.sha1(f"{artist.lower()}|{title.lower()}".encode()).hexdigest()
+    return hashlib.sha1(
+        f"{artist.lower()}|{title.lower()}".encode(), usedforsecurity=False
+    ).hexdigest()
+
+
+def reset_demo_guest(db: Session, event_id: int) -> Guest:
+    """Create or refresh the local screenshot guest with a fresh bearer token."""
+    profile = (
+        db.query(GuestProfile)
+        .filter(
+            GuestProfile.event_id == event_id,
+            GuestProfile.nickname == DEMO_GUEST_NICKNAME,
+        )
+        .first()
+    )
+    guest = db.get(Guest, profile.guest_id) if profile and profile.guest_id else None
+    token = secrets.token_urlsafe(32)
+    if guest is None:
+        guest = Guest(token=token)
+        db.add(guest)
+    else:
+        # The guest token is a bearer credential used by screenshot fixtures.
+        # Rotate it on every seed run instead of keeping a public, predictable value.
+        guest.token = token
+    guest.email_verified_at = utcnow()
+    guest.nickname = DEMO_GUEST_NICKNAME
+    if profile is not None:
+        profile.guest_id = guest.id
+    db.flush()
+    return guest
 
 
 def main() -> None:
@@ -61,18 +92,7 @@ def main() -> None:
         ]
 
         # Verified demo guest needs to exist before requests so we can link Marcus's pick.
-        guest = db.query(Guest).filter(Guest.token == DEMO_GUEST_TOKEN).first()
-        if guest is None:
-            guest = Guest(
-                token=DEMO_GUEST_TOKEN,
-                nickname=DEMO_GUEST_NICKNAME,
-                email_verified_at=utcnow(),
-            )
-            db.add(guest)
-            db.flush()
-        else:
-            guest.email_verified_at = utcnow()
-            guest.nickname = DEMO_GUEST_NICKNAME
+        guest = reset_demo_guest(db, event.id)
 
         for artist, title, genre, bpm, key, nick, votes in seeds:
             req = SongRequest(
@@ -115,8 +135,7 @@ def main() -> None:
 
         db.commit()
         print(
-            f"seeded event '{event.name}' code={event.code} id={event.id} "
-            f"guest_token={DEMO_GUEST_TOKEN}"
+            f"seeded event '{event.name}' code={event.code} id={event.id} guest_token={guest.token}"
         )
     finally:
         db.close()

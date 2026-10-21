@@ -5,8 +5,9 @@ import json
 import pytest
 
 from app.models.provider_connection import UserProviderConnection
-from app.services import apple_music_catalog, apple_music_tokens
-from app.services.setbuilder.export_common import ExportTrack
+from app.services.apple_music import catalog as apple_music_catalog
+from app.services.apple_music import tokens as apple_music_tokens
+from app.services.setbuilder.exports.export_common import ExportTrack
 
 VALID_TOKEN = "music-user-token-1234567890"
 
@@ -361,11 +362,17 @@ def test_public_playlist_rejects_non_catalog_pagination_links(monkeypatch):
         raise AssertionError("malicious pagination URL was accepted")
 
 
-def test_search_rejects_invalid_storefront(monkeypatch):
+@pytest.mark.parametrize("storefront", ["GB", "g", "usa", "us\n", "éu"])
+def test_search_rejects_invalid_storefront_without_calling_apple(monkeypatch, storefront):
     monkeypatch.setattr(apple_music_tokens, "create_developer_token", lambda: ("dev-token", 100))
+    monkeypatch.setattr(
+        apple_music_tokens,
+        "apple_get",
+        lambda *_args, **_kwargs: pytest.fail("invalid storefront reached the Apple API"),
+    )
 
     with pytest.raises(apple_music_tokens.AppleMusicError):
-        apple_music_catalog.search_catalog(None, "GB", "The Example Night Drive")
+        apple_music_catalog.search_catalog(None, storefront, "The Example Night Drive")
 
 
 def test_title_search_ignores_malformed_songs_response(monkeypatch):

@@ -10,9 +10,9 @@ from app.models.set import Set
 from app.models.set_pool import SetPoolSource, SetPoolTrack
 from app.models.user import User
 from app.services.setbuilder import pool
-from app.services.setbuilder.agent_display import _tool_display_summary
-from app.services.setbuilder.agent_tools_imports import _resolve_one
-from app.services.setbuilder.pass2_agent import (
+from app.services.setbuilder.agent.agent_display import _tool_display_summary
+from app.services.setbuilder.agent.agent_tools_imports import _resolve_one
+from app.services.setbuilder.agent.pass2_agent import (
     MUTATION_TOOLS,
     AgentToolError,
     apply_tool_call,
@@ -223,7 +223,7 @@ def test_import_from_tidal_resolves_and_imports(db: Session, test_user: User, mo
     set_obj = _mk_set(db, test_user)
     _connect(db, test_user, tidal=True)
     monkeypatch.setattr(
-        "app.services.tidal.list_user_playlists",
+        "app.services.providers.tidal.list_user_playlists",
         lambda d, u: [
             SimpleNamespace(id="pl-1", name="Peak Hours"),
             SimpleNamespace(id="pl-2", name="Warmup"),
@@ -256,12 +256,12 @@ def test_import_from_tidal_not_connected_errors(db: Session, test_user: User):
 def test_import_from_tidal_fetch_error_maps_to_tool_error(
     db: Session, test_user: User, monkeypatch
 ):
-    from app.services.tidal import TidalFetchError
+    from app.services.providers.tidal import TidalFetchError
 
     set_obj = _mk_set(db, test_user)
     _connect(db, test_user, tidal=True)
     monkeypatch.setattr(
-        "app.services.tidal.list_user_playlists",
+        "app.services.providers.tidal.list_user_playlists",
         lambda d, u: [SimpleNamespace(id="pl-1", name="Peak Hours")],
     )
 
@@ -280,7 +280,7 @@ def test_import_from_beatport_resolves_and_imports(db: Session, test_user: User,
     set_obj = _mk_set(db, test_user)
     _connect(db, test_user, beatport=True)
     monkeypatch.setattr(
-        "app.services.beatport.list_user_playlists",
+        "app.services.setbuilder.agent.agent_tools_imports.list_user_playlists",
         lambda d, u: [SimpleNamespace(id="bp-9", name="Tech House")],
     )
     monkeypatch.setattr(
@@ -299,7 +299,7 @@ def test_import_from_beatport_empty_fetch_errors(db: Session, test_user: User, m
     set_obj = _mk_set(db, test_user)
     _connect(db, test_user, beatport=True)
     monkeypatch.setattr(
-        "app.services.beatport.list_user_playlists",
+        "app.services.setbuilder.agent.agent_tools_imports.list_user_playlists",
         lambda d, u: [SimpleNamespace(id="bp-9", name="Tech House")],
     )
     monkeypatch.setattr(
@@ -316,7 +316,7 @@ def test_import_playlist_tools_in_mutation_tools():
 def test_import_from_tidal_no_playlists_errors(db: Session, test_user: User, monkeypatch):
     set_obj = _mk_set(db, test_user)
     _connect(db, test_user, tidal=True)
-    monkeypatch.setattr("app.services.tidal.list_user_playlists", lambda d, u: [])
+    monkeypatch.setattr("app.services.providers.tidal.list_user_playlists", lambda d, u: [])
     with pytest.raises(AgentToolError, match="No Tidal playlists found"):
         apply_tool_call(db, set_obj, "import_from_tidal", {"playlist": "x", "rationale": "r"})
 
@@ -341,7 +341,9 @@ def test_import_from_url_resolves_and_imports(db: Session, test_user: User, monk
             pool.PoolCandidate(title="U2", artist="A2"),
         ]
 
-    monkeypatch.setattr("app.services.setbuilder.pool.candidates_from_public_url", fake_candidates)
+    monkeypatch.setattr(
+        "app.services.setbuilder.pool_sources.candidates_from_public_url", fake_candidates
+    )
 
     result, positions = apply_tool_call(
         db, set_obj, "import_from_url", {"url": _SPOTIFY_URL, "rationale": "Pull the public set."}
@@ -375,7 +377,9 @@ def test_import_from_url_imports_apple_music_catalog_playlist(
         calls.append((provider, pid, storefront))
         return "Apple Playlist", [pool.PoolCandidate(title="A1", artist="Artist")]
 
-    monkeypatch.setattr("app.services.setbuilder.pool.candidates_from_public_url", fake_candidates)
+    monkeypatch.setattr(
+        "app.services.setbuilder.pool_sources.candidates_from_public_url", fake_candidates
+    )
     result, _ = apply_tool_call(
         db,
         set_obj,
@@ -394,7 +398,7 @@ def test_import_from_url_fetch_error_maps_to_tool_error(db: Session, test_user: 
     def boom(d, u, provider, pid):
         raise pool.PoolImportError("Couldn't fetch that Spotify playlist — is it public?")
 
-    monkeypatch.setattr("app.services.setbuilder.pool.candidates_from_public_url", boom)
+    monkeypatch.setattr("app.services.setbuilder.pool_sources.candidates_from_public_url", boom)
     with pytest.raises(AgentToolError, match="Couldn't fetch that Spotify"):
         apply_tool_call(db, set_obj, "import_from_url", {"url": _SPOTIFY_URL, "rationale": "r"})
 
@@ -402,7 +406,7 @@ def test_import_from_url_fetch_error_maps_to_tool_error(db: Session, test_user: 
 def test_import_from_url_empty_errors(db: Session, test_user: User, monkeypatch):
     set_obj = _mk_set(db, test_user)
     monkeypatch.setattr(
-        "app.services.setbuilder.pool.candidates_from_public_url",
+        "app.services.setbuilder.pool_sources.candidates_from_public_url",
         lambda d, u, provider, pid: ("Empty Playlist", []),
     )
     with pytest.raises(AgentToolError, match="no importable tracks"):

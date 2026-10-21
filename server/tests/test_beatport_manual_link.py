@@ -4,7 +4,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 from app.schemas.beatport import BeatportSearchResult
-from app.services.beatport import manual_link_beatport_track
+from app.services.providers.beatport import manual_link_beatport_track
 
 
 def test_manual_link_stores_in_sync_results_json():

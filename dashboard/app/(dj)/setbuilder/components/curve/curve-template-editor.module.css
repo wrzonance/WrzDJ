@@ -1,0 +1,210 @@
+/* Template editor overlay */
+.overlayWrap {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.overlayBackdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--color-overlay);
+}
+
+.overlayShell {
+  position: relative;
+  z-index: 1;
+  width: min(940px, calc(100vw - 32px));
+  height: min(620px, calc(100vh - 48px));
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.overlayHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.overlayEyebrow {
+  font-size: 0.5625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+}
+
+.overlayNameInput {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px dashed var(--border);
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 0.15rem 0;
+  outline: none;
+}
+
+.overlayBody {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.overlayCanvasCol {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem 1rem 1.5rem 1rem;
+  min-width: 0;
+}
+
+.overlayHelp {
+  font-size: 0.625rem;
+  color: var(--text-tertiary);
+  margin-bottom: 0.5rem;
+}
+
+.overlayCanvas {
+  position: relative;
+  flex: 1;
+  margin-left: 32px;
+  margin-bottom: 16px;
+}
+
+.overlaySide {
+  width: 280px;
+  border-left: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.overlaySideHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.pointsList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.4rem;
+}
+
+.pointRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.4rem;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.pointRowSelected {
+  border-color: #00f5d4;
+  background: rgba(0, 245, 212, 0.06);
+}
+
+.pointNum {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.625rem;
+  color: var(--text-tertiary);
+  width: 18px;
+}
+
+.pointLabelInput {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text);
+  font-size: 0.6875rem;
+  padding: 0.1rem 0;
+  outline: none;
+}
+
+.pointT {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.625rem;
+  color: var(--text-secondary);
+}
+
+.pointT input {
+  width: 38px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 0.625rem;
+  padding: 0.1rem 0.2rem;
+}
+
+.pointE {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.625rem;
+  color: var(--text-secondary);
+}
+
+.pointE input[type='range'] {
+  width: 56px;
+}
+
+.pointDel {
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 0.15rem;
+}
+
+.pointDel:hover {
+  color: var(--color-danger);
+}
+
+.overlayFootnote {
+  font-size: 0.5625rem;
+  color: var(--text-tertiary);
+  padding: 0.5rem 0.75rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.overlayFooter {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.readonlyBadge {
+  font-size: 0.5625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-warning);
+  border: 1px solid var(--color-warning);
+  border-radius: 4px;
+  padding: 0.15rem 0.4rem;
+  white-space: nowrap;
+}

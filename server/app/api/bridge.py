@@ -24,9 +24,9 @@ from app.schemas.now_playing import (
 )
 from app.services.bridge_integration import (
     clear_now_playing,
-    handle_now_playing_update,
     poll_commands,
     queue_command,
+    sync_now_playing_from_bridge,
     update_bridge_status,
 )
 from app.services.event import (
@@ -82,7 +82,7 @@ def post_now_playing(
     sys_settings = get_system_settings(db)
     if not sys_settings.bridge_enabled:
         raise HTTPException(status_code=503, detail="Bridge integration is currently unavailable")
-    result = handle_now_playing_update(
+    result = sync_now_playing_from_bridge(
         db,
         payload.event_code,
         payload.title,

@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.models.user import User
-from app.services.recommendation.scorer import TrackProfile
+from app.services.tracks.profile import TrackProfile
 
 # ============================================================
 # Tidal playlist listing
@@ -21,11 +21,11 @@ from app.services.recommendation.scorer import TrackProfile
 
 
 class TestTidalListPlaylists:
-    @patch("app.services.tidal.get_tidal_session")
+    @patch("app.services.providers.tidal_catalog.get_tidal_session")
     def test_returns_playlists_with_correct_fields(
         self, mock_session_fn, db: Session, test_user: User
     ):
-        from app.services.tidal import list_user_playlists
+        from app.services.providers.tidal import list_user_playlists
 
         mock_playlist = MagicMock()
         mock_playlist.id = "abc-123"
@@ -48,11 +48,11 @@ class TestTidalListPlaylists:
         assert p.cover_url == "https://img.tidal.com/cover.jpg"
         assert p.source == "tidal"
 
-    @patch("app.services.tidal.get_tidal_session")
+    @patch("app.services.providers.tidal_catalog.get_tidal_session")
     def test_returns_empty_list_when_no_playlists(
         self, mock_session_fn, db: Session, test_user: User
     ):
-        from app.services.tidal import list_user_playlists
+        from app.services.providers.tidal import list_user_playlists
 
         session = MagicMock()
         session.user.playlists.return_value = []
@@ -60,18 +60,18 @@ class TestTidalListPlaylists:
 
         assert list_user_playlists(db, test_user) == []
 
-    @patch("app.services.tidal.get_tidal_session")
+    @patch("app.services.providers.tidal_catalog.get_tidal_session")
     def test_returns_empty_list_on_session_failure(
         self, mock_session_fn, db: Session, test_user: User
     ):
-        from app.services.tidal import list_user_playlists
+        from app.services.providers.tidal import list_user_playlists
 
         mock_session_fn.return_value = None
         assert list_user_playlists(db, test_user) == []
 
-    @patch("app.services.tidal.get_tidal_session")
+    @patch("app.services.providers.tidal_catalog.get_tidal_session")
     def test_handles_missing_cover_art(self, mock_session_fn, db: Session, test_user: User):
-        from app.services.tidal import list_user_playlists
+        from app.services.providers.tidal import list_user_playlists
 
         mock_playlist = MagicMock()
         mock_playlist.id = "xyz-456"
@@ -95,12 +95,12 @@ class TestTidalListPlaylists:
 
 
 class TestBeatportListPlaylists:
-    @patch("app.services.beatport._refresh_token_if_needed")
-    @patch("app.services.beatport.httpx.Client")
+    @patch("app.services.providers.beatport_playlists.ensure_beatport_token")
+    @patch("app.services.providers.beatport_playlists.httpx.Client")
     def test_returns_playlists_with_correct_fields(
         self, mock_client_cls, mock_refresh, db: Session, test_user: User
     ):
-        from app.services.beatport import list_user_playlists
+        from app.services.providers.beatport import list_user_playlists
 
         mock_refresh.return_value = True
         test_user.beatport_access_token = "fake_token"
@@ -135,12 +135,12 @@ class TestBeatportListPlaylists:
         assert p.cover_url == "https://bp.com/img.jpg"
         assert p.source == "beatport"
 
-    @patch("app.services.beatport._refresh_token_if_needed")
-    @patch("app.services.beatport.httpx.Client")
+    @patch("app.services.providers.beatport_playlists.ensure_beatport_token")
+    @patch("app.services.providers.beatport_playlists.httpx.Client")
     def test_returns_empty_when_no_playlists(
         self, mock_client_cls, mock_refresh, db: Session, test_user: User
     ):
-        from app.services.beatport import list_user_playlists
+        from app.services.providers.beatport import list_user_playlists
 
         mock_refresh.return_value = True
         test_user.beatport_access_token = "fake_token"
@@ -157,21 +157,21 @@ class TestBeatportListPlaylists:
 
         assert list_user_playlists(db, test_user) == []
 
-    @patch("app.services.beatport._refresh_token_if_needed")
+    @patch("app.services.providers.beatport_playlists.ensure_beatport_token")
     def test_returns_empty_on_token_failure(self, mock_refresh, db: Session, test_user: User):
-        from app.services.beatport import list_user_playlists
+        from app.services.providers.beatport import list_user_playlists
 
         mock_refresh.return_value = False
         assert list_user_playlists(db, test_user) == []
 
-    @patch("app.services.beatport._refresh_token_if_needed")
-    @patch("app.services.beatport.httpx.Client")
+    @patch("app.services.providers.beatport_playlists.ensure_beatport_token")
+    @patch("app.services.providers.beatport_playlists.httpx.Client")
     def test_returns_empty_on_http_error(
         self, mock_client_cls, mock_refresh, db: Session, test_user: User
     ):
         import httpx
 
-        from app.services.beatport import list_user_playlists
+        from app.services.providers.beatport import list_user_playlists
 
         mock_refresh.return_value = True
         test_user.beatport_access_token = "fake_token"
@@ -193,20 +193,21 @@ class TestBeatportListPlaylists:
 class TestTidalPlaylistToTrackProfiles:
     @patch("app.services.recommendation.template.tidal_get_playlist_tracks")
     def test_extracts_bpm_and_key(self, mock_get_tracks, db: Session, test_user: User):
+        from app.schemas.tidal import TidalSearchResult
         from app.services.recommendation.template import tracks_from_tidal_playlist
 
-        track = MagicMock()
-        track.name = "Strobe"
-        track.artist.name = "Deadmau5"
-        track.bpm = 128
-        track.audio_modes = ["STEREO"]
-        track.id = "111"
-        track.duration = 420
-        track.album.name = "For Lack"
-        track.album.image.return_value = "https://img.tidal.com/strobe.jpg"
-        # tidalapi may store key as a string attribute
-        track.key = "A minor"
-        mock_get_tracks.return_value = [track]
+        mock_get_tracks.return_value = [
+            TidalSearchResult(
+                track_id="111",
+                title="Strobe",
+                artist="Deadmau5",
+                bpm=128,
+                key="A minor",
+                duration_seconds=420,
+                cover_url="https://img.tidal.com/strobe.jpg",
+                tidal_url="https://tidal.com/browse/track/111",
+            )
+        ]
 
         profiles = tracks_from_tidal_playlist(db, test_user, "playlist-id")
         assert len(profiles) == 1
@@ -220,17 +221,14 @@ class TestTidalPlaylistToTrackProfiles:
 
     @patch("app.services.recommendation.template.tidal_get_playlist_tracks")
     def test_handles_missing_bpm_key(self, mock_get_tracks, db: Session, test_user: User):
+        from app.schemas.tidal import TidalSearchResult
         from app.services.recommendation.template import tracks_from_tidal_playlist
 
-        track = MagicMock()
-        track.name = "Unknown"
-        track.artist.name = "Unknown Artist"
-        track.bpm = None
-        track.key = None
-        track.id = "222"
-        track.duration = 300
-        track.album = None
-        mock_get_tracks.return_value = [track]
+        mock_get_tracks.return_value = [
+            TidalSearchResult(
+                track_id="222", title="Unknown", artist="Unknown Artist", duration_seconds=300
+            )
+        ]
 
         profiles = tracks_from_tidal_playlist(db, test_user, "playlist-id")
         assert len(profiles) == 1
@@ -239,22 +237,23 @@ class TestTidalPlaylistToTrackProfiles:
 
     @patch("app.services.recommendation.template.tidal_get_playlist_tracks")
     def test_caps_at_max_template_tracks(self, mock_get_tracks, db: Session, test_user: User):
+        from app.schemas.tidal import TidalSearchResult
         from app.services.recommendation.template import (
             MAX_TEMPLATE_TRACKS,
             tracks_from_tidal_playlist,
         )
 
-        tracks = []
-        for i in range(100):
-            t = MagicMock()
-            t.name = f"Track {i}"
-            t.artist.name = f"Artist {i}"
-            t.bpm = 120 + i
-            t.key = "8A"
-            t.id = str(i)
-            t.duration = 300
-            t.album = None
-            tracks.append(t)
+        tracks = [
+            TidalSearchResult(
+                track_id=str(i),
+                title=f"Track {i}",
+                artist=f"Artist {i}",
+                bpm=120 + i,
+                key="8A",
+                duration_seconds=300,
+            )
+            for i in range(100)
+        ]
         mock_get_tracks.return_value = tracks
 
         profiles = tracks_from_tidal_playlist(db, test_user, "playlist-id")

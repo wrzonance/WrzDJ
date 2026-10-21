@@ -174,7 +174,7 @@ class TestListenBrainzGate:
     """Tests for the ListenBrainz popularity gate integration."""
 
     @patch("app.services.recommendation.mb_verify.check_artist_exists")
-    @patch("app.services.listenbrainz.fetch_artist_popularity")
+    @patch("app.services.providers.listenbrainz.fetch_artist_popularity")
     def test_lb_backfill_only_for_verified_with_mbid_and_no_lb_data(self, mock_lb, mock_check, db):
         """LB backfill should only query artists that are verified, have mbid, and no lb data."""
         mock_check.return_value = (True, "mbid-real")
@@ -192,7 +192,7 @@ class TestListenBrainzGate:
         assert cached.lb_listen_count == 5000
 
     @patch("app.services.recommendation.mb_verify.check_artist_exists")
-    @patch("app.services.listenbrainz.fetch_artist_popularity")
+    @patch("app.services.providers.listenbrainz.fetch_artist_popularity")
     def test_lb_failure_passes_through(self, mock_lb, mock_check, db):
         """LB API failure → lb_user_count stays None → artist passes through."""
         mock_check.return_value = (True, "mbid-123")
@@ -206,7 +206,7 @@ class TestListenBrainzGate:
         assert cached.lb_user_count is None  # Not set
 
     @patch("app.services.recommendation.mb_verify.check_artist_exists")
-    @patch("app.services.listenbrainz.fetch_artist_popularity")
+    @patch("app.services.providers.listenbrainz.fetch_artist_popularity")
     def test_lb_zero_listeners_rejects(self, mock_lb, mock_check, db):
         """Artist confirmed with 0 LB listeners should be rejected."""
         mock_check.return_value = (True, "mbid-stock")
@@ -229,7 +229,7 @@ class TestListenBrainzGate:
         assert result2["Stock Producer"] is False
 
     @patch("app.services.recommendation.mb_verify.check_artist_exists")
-    @patch("app.services.listenbrainz.fetch_artist_popularity")
+    @patch("app.services.providers.listenbrainz.fetch_artist_popularity")
     def test_lb_below_threshold_rejects(self, mock_lb, mock_check, db):
         """Artist with lb_user_count below threshold should be rejected."""
         mock_check.return_value = (True, "mbid-low")
@@ -242,7 +242,7 @@ class TestListenBrainzGate:
         assert result["Low Pop Artist"] is False
 
     @patch("app.services.recommendation.mb_verify.check_artist_exists")
-    @patch("app.services.listenbrainz.fetch_artist_popularity")
+    @patch("app.services.providers.listenbrainz.fetch_artist_popularity")
     def test_lb_at_threshold_passes(self, mock_lb, mock_check, db):
         """Artist with lb_user_count exactly at threshold should pass."""
         mock_check.return_value = (True, "mbid-ok")
@@ -255,7 +255,7 @@ class TestListenBrainzGate:
         assert result["OK Artist"] is True
 
     @patch("app.services.recommendation.mb_verify.check_artist_exists")
-    @patch("app.services.listenbrainz.fetch_artist_popularity")
+    @patch("app.services.providers.listenbrainz.fetch_artist_popularity")
     def test_cached_lb_data_not_refetched(self, mock_lb, mock_check, db):
         """Artists with existing lb_user_count should not trigger LB API calls."""
         db.add(
@@ -276,7 +276,7 @@ class TestListenBrainzGate:
         mock_check.assert_not_called()
 
     @patch("app.services.recommendation.mb_verify.check_artist_exists")
-    @patch("app.services.listenbrainz.fetch_artist_popularity")
+    @patch("app.services.providers.listenbrainz.fetch_artist_popularity")
     def test_unverified_artists_skip_lb(self, mock_lb, mock_check, db):
         """Artists that failed MB verification should not be queried against LB."""
         mock_check.return_value = (False, None)
@@ -287,7 +287,7 @@ class TestListenBrainzGate:
         mock_lb.assert_not_called()
 
     @patch("app.services.recommendation.mb_verify.check_artist_exists")
-    @patch("app.services.listenbrainz.fetch_artist_popularity")
+    @patch("app.services.providers.listenbrainz.fetch_artist_popularity")
     def test_mbid_absent_from_lb_response_stores_zero(self, mock_lb, mock_check, db):
         """MBIDs present in request but absent from LB response should get 0 stored."""
         mock_check.return_value = (True, "mbid-unknown")

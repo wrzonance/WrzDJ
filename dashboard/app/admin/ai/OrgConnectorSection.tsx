@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { api } from '@/lib/api';
-import type { LlmConnector, LlmConnectorCreate } from '@/lib/api-types';
+import type { LlmConnector, LlmConnectorCreate } from '@/lib/api/types';
 
 export const TYPE_LABELS: Record<string, string> = {
   openai_apikey: 'OpenAI',

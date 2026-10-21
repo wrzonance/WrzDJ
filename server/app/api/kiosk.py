@@ -5,7 +5,7 @@ import secrets
 import time
 from threading import Lock
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -13,7 +13,7 @@ from app.api.deps import get_current_active_user, get_db
 from app.core.rate_limit import get_client_ip, limiter
 from app.models.event import Event
 from app.models.kiosk import Kiosk
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.kiosk import (
     KioskAssignRequest,
     KioskCompletePairingRequest,
@@ -99,7 +99,7 @@ def _assert_caller_owns_event(event: Event, user: User) -> None:
     reassign a kiosk to an event owned by another DJ by supplying the
     victim's event code. See docs/security/audit-2026-04-08.md.
     """
-    if user.role == "admin":
+    if user.role == UserRole.ADMIN.value:
         return
     if event.created_by_user_id != user.id:
         raise HTTPException(status_code=403, detail="You do not own this event")
@@ -127,7 +127,7 @@ def get_pair_challenge(request: Request) -> KioskPairChallengeResponse:
 
 @public_router.post("/pair", response_model=KioskPairResponse)
 @limiter.limit("3/minute")
-def create_pairing(request: Request, db: Session = Depends(get_db)):
+def create_pairing(request: Request, db: Session = Depends(get_db)) -> KioskPairResponse:
     """Create a new kiosk pairing session.
 
     Requires a valid X-Pair-Nonce header obtained from /pair-challenge,
@@ -161,7 +161,9 @@ def create_pairing(request: Request, db: Session = Depends(get_db)):
 
 @public_router.get("/pair/{pair_code}/status", response_model=KioskPairStatusResponse)
 @limiter.limit("180/minute")
-def get_pair_status(pair_code: str, request: Request, db: Session = Depends(get_db)):
+def get_pair_status(
+    pair_code: str, request: Request, db: Session = Depends(get_db)
+) -> KioskPairStatusResponse:
     """Poll the status of a pairing code."""
     kiosk = get_kiosk_by_pair_code(db, pair_code)
     if not kiosk:
@@ -182,7 +184,7 @@ def get_pair_status(pair_code: str, request: Request, db: Session = Depends(get_
 
 @public_router.get("/session/assignment", response_model=KioskSessionResponse)
 @limiter.limit("60/minute")
-def get_session_assignment(request: Request, db: Session = Depends(get_db)):
+def get_session_assignment(request: Request, db: Session = Depends(get_db)) -> KioskSessionResponse:
     """Poll the kiosk's current event assignment. Updates last_seen_at.
 
     Session token must be sent in the X-Kiosk-Session header (not in the URL path)
@@ -224,7 +226,7 @@ def complete_kiosk_pairing(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
-):
+) -> KioskOut:
     """Complete a kiosk pairing by assigning an event."""
     kiosk = get_kiosk_by_pair_code(db, pair_code)
     if not kiosk:
@@ -266,7 +268,7 @@ def list_my_kiosks(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
-):
+) -> list[KioskOut]:
     """List all kiosks paired by the current user."""
     kiosks = get_kiosks_for_user(db, current_user.id)
     out = []
@@ -305,7 +307,7 @@ def assign_kiosk(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
-):
+) -> KioskOut:
     """Change which event a kiosk displays."""
     kiosk = _get_owned_kiosk(db, kiosk_id, current_user)
 
@@ -337,7 +339,7 @@ def rename_kiosk_endpoint(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
-):
+) -> KioskOut:
     """Rename a kiosk."""
     kiosk = _get_owned_kiosk(db, kiosk_id, current_user)
     rename_kiosk(db, kiosk, body.name)
@@ -361,7 +363,8 @@ def delete_kiosk_endpoint(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
-):
+) -> Response:
     """Unpair and delete a kiosk."""
     kiosk = _get_owned_kiosk(db, kiosk_id, current_user)
     delete_kiosk(db, kiosk)
+    return Response(status_code=204)

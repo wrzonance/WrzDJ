@@ -89,10 +89,16 @@ def resolve_genre_id(genre_name: str) -> int | None:
     if lower in _GENRE_NAME_TO_ID:
         return _GENRE_NAME_TO_ID[lower]
 
-    # Substring match: check if any known genre name is contained in the input
-    # (handles "Trance (Main Floor)" matching "trance")
-    for known, gid in _GENRE_NAME_TO_ID.items():
-        if known in lower or lower in known:
-            return gid
+    # Prefer the most specific known genre contained in an extended profile
+    # label (e.g. "Tech House (Peak Time)" should beat the broader "House").
+    contained = [(known, gid) for known, gid in _GENRE_NAME_TO_ID.items() if known in lower]
+    if contained:
+        return max(contained, key=lambda match: len(match[0]))[1]
+
+    # For short partial labels, choose the closest known name rather than the
+    # first broader entry in the mapping.
+    partial = [(known, gid) for known, gid in _GENRE_NAME_TO_ID.items() if lower in known]
+    if partial:
+        return min(partial, key=lambda match: len(match[0]))[1]
 
     return None

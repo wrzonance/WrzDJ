@@ -5,7 +5,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-IMAGES_DIR="$REPO_ROOT/docs/images"
+IMAGES_DIR="${WRZDJ_SCREENSHOT_IMAGES_DIR:-$REPO_ROOT/docs/images}"
 
 if ! command -v cwebp >/dev/null 2>&1; then
   echo "cwebp not found — install libwebp-tools (Manjaro: 'pacman -S libwebp', macOS: 'brew install webp')" >&2

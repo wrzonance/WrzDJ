@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import ChatPanelBody, { PersonaToggle } from './ChatPanelBody';
-import { useAgentChat } from './useAgentChat';
+import ChatPanelBody, { PersonaToggle } from './chat/ChatPanelBody';
+import { useAgentChat } from './chat/useAgentChat';
 import type { BuilderCommit } from './useSetDocumentHistory';
 import styles from '../setbuilder.module.css';
+import chatStyles from '../setbuilder-chat.module.css';
 
 /**
  * Mobile agent surface: a floating "Agent" FAB (carrying the critique grade)
@@ -53,13 +54,13 @@ export default function MobileAgentOverlay({
     return (
       <button
         ref={triggerRef}
-        className={styles.agentFab}
+        className={chatStyles.agentFab}
         aria-label="Open agent chat"
         onClick={() => setOpen(true)}
       >
-        <span className={styles.agentFabLabel}>Agent</span>
+        <span className={chatStyles.agentFabLabel}>Agent</span>
         {grade && (
-          <span className={styles.agentFabGrade} data-testid="agent-fab-grade">
+          <span className={chatStyles.agentFabGrade} data-testid="agent-fab-grade">
             {grade}
           </span>
         )}
@@ -68,18 +69,18 @@ export default function MobileAgentOverlay({
   }
 
   return (
-    <div className={styles.agentOverlay} role="dialog" aria-modal="true" aria-label="Agent chat">
-      <div className={styles.agentOverlayHeader}>
+    <div className={chatStyles.agentOverlay} role="dialog" aria-modal="true" aria-label="Agent chat">
+      <div className={chatStyles.agentOverlayHeader}>
         <button
           ref={closeRef}
-          className={styles.agentOverlayBack}
+          className={chatStyles.agentOverlayBack}
           aria-label="Close agent chat"
           onClick={() => setOpen(false)}
         >
           <span aria-hidden="true">←</span>
         </button>
         <div className={styles.panelHeaderInline}>Agent</div>
-        {grade && <span className={styles.chatCollapsedGrade}>{grade}</span>}
+        {grade && <span className={chatStyles.chatCollapsedGrade}>{grade}</span>}
         <PersonaToggle persona={chat.persona} onChange={chat.setPersona} />
       </div>
       <ChatPanelBody chat={chat} />

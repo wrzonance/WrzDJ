@@ -1,13 +1,16 @@
 /** @type {import('next').NextConfig} */
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// The browser's local fallback uses its current hostname. Both loopback names
+// refer to the same local API; configured deployments allow only their API URL.
+const apiConnectSources = process.env.NEXT_PUBLIC_API_URL
+  || 'http://localhost:8000 http://127.0.0.1:8000';
 
 const csp = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' https://js-cdn.music.apple.com",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
-  `connect-src 'self' ${apiUrl} https://api.music.apple.com`,
+  `connect-src 'self' ${apiConnectSources} https://api.music.apple.com`,
   "font-src 'self'",
   "frame-ancestors 'none'",
 ].join('; ');
@@ -62,7 +65,7 @@ const nextConfig = {
               "script-src 'self' 'unsafe-inline'",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https:",
-              `connect-src 'self' ${apiUrl}`,
+              `connect-src 'self' ${apiConnectSources}`,
               "font-src 'self'",
               "frame-ancestors *",
             ].join('; '),

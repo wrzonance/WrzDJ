@@ -8,14 +8,14 @@ from app.models.set import Set, SetSlot
 from app.models.set_pool import SetPoolSource, SetPoolTrack
 from app.models.user import User
 from app.services.llm.base import ChatResponse, ToolCall
-from app.services.setbuilder.agent_display import _tool_display_summary
-from app.services.setbuilder.document_snapshot import build_snapshot, restore_snapshot
-from app.services.setbuilder.pass2_agent import (
+from app.services.setbuilder.agent.agent_display import _tool_display_summary
+from app.services.setbuilder.agent.pass2_agent import (
     MUTATION_TOOLS,
     AgentToolError,
     apply_tool_call,
     chat_with_agent,
 )
+from app.services.setbuilder.document_snapshot import build_snapshot, restore_snapshot
 
 
 def _mk_set(db: Session, user: User, *, n_tracks: int, n_slots: int, duration: int) -> Set:
@@ -141,7 +141,7 @@ async def test_autobuild_then_failing_tool_rolls_back_whole_turn(
             ],
         )
 
-    monkeypatch.setattr("app.services.setbuilder.pass2_agent.Gateway.dispatch", fake_dispatch)
+    monkeypatch.setattr("app.services.setbuilder.agent.pass2_agent.Gateway.dispatch", fake_dispatch)
 
     with pytest.raises(AgentToolError):
         await chat_with_agent(db, test_user, set_obj, message="Rebuild then break")
@@ -492,7 +492,7 @@ def test_fill_to_duration_stops_when_pool_exhausted(db: Session, test_user: User
 
 def test_fill_to_duration_respects_insert_cap(monkeypatch, db: Session, test_user: User):
     set_obj = _mk_set(db, test_user, n_tracks=6, n_slots=1, duration=99 * 210)
-    monkeypatch.setattr("app.services.setbuilder.agent_tools_structural.MAX_FILL_INSERTS", 2)
+    monkeypatch.setattr("app.services.setbuilder.agent.agent_tools_structural.MAX_FILL_INSERTS", 2)
 
     result, _ = apply_tool_call(db, set_obj, "fill_to_duration", {"rationale": "Bounded fill."})
 
@@ -602,7 +602,7 @@ def test_fill_to_duration_display_summary_is_human_readable():
 
 
 def test_duration_for_falls_back_to_average_when_missing():
-    from app.services.setbuilder.agent_tools_structural import (
+    from app.services.setbuilder.agent.agent_tools_structural import (
         AVG_TRACK_LENGTH_SEC,
         _duration_for,
     )

@@ -1,7 +1,7 @@
 'use client';
 
 import { ReactNode } from 'react';
-import type { HumanVerificationState } from '../lib/useHumanVerification';
+import type { HumanVerificationState } from '../lib/use-human-verification';
 
 interface Props {
   state: HumanVerificationState;

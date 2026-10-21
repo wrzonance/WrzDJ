@@ -6,8 +6,7 @@ from datetime import UTC, datetime
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-# Re-export normalizer functions for backward compatibility
-from app.services.track_normalizer import (  # noqa: F401
+from app.services.track_normalizer import (
     artist_match_score,
     fuzzy_match_score,
     normalize_artist,
@@ -27,7 +26,7 @@ from app.models.now_playing import NowPlaying
 from app.models.play_history import PlayHistory
 from app.models.request import Request, RequestStatus
 from app.models.user import User
-from app.services.spotify import _call_spotify_api
+from app.services.providers.spotify import search_spotify_api
 
 # --- Play history (previously in play_history_service.py) ---
 
@@ -162,7 +161,7 @@ def set_now_playing_visibility(db: Session, event_id: int, hidden: bool) -> bool
     When hiding (hidden=True):
     - Set manual_hide_now_playing = True
 
-    Returns True on success, False if no now_playing record exists.
+    Creates a placeholder record when none exists and returns True after commit.
     """
     now_playing = get_now_playing(db, event_id)
 
@@ -260,7 +259,7 @@ def lookup_spotify_album_art(title: str, artist: str) -> dict | None:
     """
     try:
         query = f"track:{title} artist:{artist}"
-        results = _call_spotify_api(query)
+        results = search_spotify_api(query)
         if results:
             best = results[0]
             return {
@@ -282,7 +281,7 @@ def lookup_tidal_album_art(db: Session, owner: User, title: str, artist: str) ->
     non-critical — never let it break a now-playing update).
     """
     try:
-        from app.services.tidal import search_track
+        from app.services.providers.tidal_search import search_track
 
         result = search_track(db, owner, artist, title)
         if result and result.cover_url:

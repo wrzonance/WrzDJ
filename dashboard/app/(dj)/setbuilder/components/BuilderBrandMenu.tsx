@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import styles from '../setbuilder.module.css';
+import historyStyles from '../setbuilder-history.module.css';
 
 function formatAgo(date: Date | null, now: number): string {
   if (!date) return 'just now';
@@ -70,35 +71,35 @@ export default function BuilderBrandMenu({
   };
 
   return (
-    <div className={styles.brandMenuWrap} ref={ref}>
+    <div className={historyStyles.brandMenuWrap} ref={ref}>
       <button
         type="button"
-        className={styles.brandButton}
+        className={historyStyles.brandButton}
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
       >
         <span className={styles.brandTitle}>{name}</span>
-        <span className={`${styles.saveDot} ${dirty ? styles.saveDotDirty : ''}`} />
+        <span className={`${historyStyles.saveDot} ${dirty ? historyStyles.saveDotDirty : ''}`} />
       </button>
       {open && (
-        <div className={styles.brandMenu} role="menu">
+        <div className={historyStyles.brandMenu} role="menu">
           <button
             type="button"
-            className={`${styles.brandMenuItem} ${styles.brandSaveRow}`}
+            className={`${historyStyles.brandMenuItem} ${historyStyles.brandSaveRow}`}
             onClick={save}
             disabled={isSaving}
             role="menuitem"
           >
-            <span className={`${styles.saveDot} ${dirty ? styles.saveDotDirty : ''}`} />
+            <span className={`${historyStyles.saveDot} ${dirty ? historyStyles.saveDotDirty : ''}`} />
             <span>
-              <span className={styles.saveLabel}>{label}</span>
-              <span className={styles.saveSub}>{sublabel}</span>
+              <span className={historyStyles.saveLabel}>{label}</span>
+              <span className={historyStyles.saveSub}>{sublabel}</span>
             </span>
           </button>
           <button
             type="button"
-            className={styles.brandMenuItem}
+            className={historyStyles.brandMenuItem}
             onClick={() => {
               setOpen(false);
               onSettings();

@@ -1,8 +1,13 @@
+import type { CircuitState, DeckStateType, LogLevel } from '@wrzdj/bridge/electron';
+
+export type { LogLevel, PluginCapabilities, PluginConfigOption, PluginMeta } from '@wrzdj/bridge/electron';
+
 /** Authentication state shared between main and renderer */
 export interface AuthState {
   readonly isAuthenticated: boolean;
   readonly username: string | null;
   readonly apiUrl: string;
+  readonly verificationError: string | null;
 }
 
 /** Bridge operational status */
@@ -20,7 +25,7 @@ export interface BridgeStatus {
   /** Network warnings (e.g. subnet conflicts) detected at bridge start */
   readonly networkWarnings: readonly string[];
   /** Circuit breaker state (CLOSED, OPEN, HALF_OPEN) */
-  readonly circuitBreakerState: string;
+  readonly circuitBreakerState: CircuitState;
   /** Number of tracks buffered for replay */
   readonly bufferSize: number;
   /** Number of active decks */
@@ -43,7 +48,7 @@ export interface TrackDisplay {
 /** Per-deck display state */
 export interface DeckDisplay {
   readonly deckId: string;
-  readonly state: string;
+  readonly state: DeckStateType;
   readonly trackTitle: string | null;
   readonly trackArtist: string | null;
   readonly isPlaying: boolean;
@@ -61,33 +66,6 @@ export interface BridgeSettings {
   readonly useFaderDetection: boolean;
   readonly masterDeckPriority: boolean;
   readonly minPlaySeconds: number;
-}
-
-/** Describes a user-configurable option exposed by a plugin */
-export interface PluginConfigOption {
-  readonly key: string;
-  readonly label: string;
-  readonly type: 'number' | 'string' | 'boolean';
-  readonly default: number | string | boolean;
-  readonly description?: string;
-  readonly min?: number;
-  readonly max?: number;
-}
-
-/** Plugin capabilities (what data it can provide) */
-export interface PluginCapabilities {
-  readonly multiDeck: boolean;
-  readonly playState: boolean;
-  readonly faderLevel: boolean;
-  readonly masterDeck: boolean;
-  readonly albumMetadata: boolean;
-}
-
-/** Serializable plugin metadata for IPC */
-export interface PluginMeta {
-  readonly info: { readonly id: string; readonly name: string; readonly description: string };
-  readonly capabilities: PluginCapabilities;
-  readonly configOptions: readonly PluginConfigOption[];
 }
 
 /** Event info from the backend */
@@ -109,9 +87,6 @@ export interface BridgeRunnerConfig {
   readonly eventCode: string;
   readonly settings: BridgeSettings;
 }
-
-/** Log severity level (matches bridge Logger levels) */
-export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 /** Structured log message sent over IPC */
 export interface IpcLogMessage {

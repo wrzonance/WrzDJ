@@ -6,7 +6,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import type { PlaybackReport, ApplyPairingFeedback } from '@/lib/api-types';
+import type { PlaybackReport, ApplyPairingFeedback } from '@/lib/api/types';
 import PlaybackReportOverlay from '../PlaybackReportOverlay';
 
 const mockApi = vi.hoisted(() => ({

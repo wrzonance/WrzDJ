@@ -108,7 +108,7 @@ All config lives in `.env` at the repo root. Key variables:
 | `.venv/bin/ruff format --check .` | Format check (CI) |
 | `.venv/bin/bandit -r app -c pyproject.toml -q` | Security scan |
 | `.venv/bin/pytest --tb=short -q` | Run tests (85% coverage min) |
-| `.venv/bin/pytest tests/test_requests.py -v` | Run single test file |
+| `.venv/bin/pytest tests/request_endpoints/test_submissions.py -v` | Run single test file |
 | `alembic upgrade head` | Apply migrations |
 | `alembic revision --autogenerate -m "desc"` | Generate migration |
 
@@ -159,7 +159,10 @@ npm test -- --run         # Vitest
 ### CI also runs (not typically needed locally)
 
 - `pip-audit` — Python dependency vulnerability scan
-- `npm audit --audit-level=high` — npm dependency vulnerability scan
+- `node ../scripts/npm-audit-gate.cjs` from each package directory — npm dependency scan. High
+  and critical advisories block CI unless the repository-root `.npm-audit-ignore.json` contains
+  that advisory ID with a non-empty reason and an expiry date. An ignore remains active through
+  its expiry date; remove it or renew it when that date passes.
 
 ## Testing
 
@@ -173,7 +176,7 @@ npm test -- --run         # Vitest
 
 ### Frontend (vitest)
 
-- Config: `dashboard/vitest.config.ts`
+- Config: `dashboard/vitest.config.mts`
 - Environment: jsdom
 - API client tests: `dashboard/lib/__tests__/api.test.ts`
 - Display page tests: `dashboard/app/e/[code]/display/page.test.tsx`

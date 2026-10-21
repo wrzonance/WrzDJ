@@ -15,9 +15,12 @@ from app.services.llm.adapters.openai_apikey import OpenAIApiKeyAdapter
 from app.services.llm.base import ChatRequest, ChatResponse, Message, TokenUsage
 from app.services.llm.exceptions import (
     AuthInvalid,
+    LlmError,
     NoLlmConfigured,
     ProviderUnavailable,
+    QuotaExceeded,
     RateLimited,
+    ToolTranslationError,
 )
 from app.services.llm.gateway import Gateway
 
@@ -161,6 +164,34 @@ async def test_provider_unavailable_logs_and_raises(db, dj_user, gateway_request
 
     log = db.query(LlmCallLog).one()
     assert log.status == "provider_unavailable"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "status", "error_code"),
+    [
+        (RateLimited("slow", retry_after_seconds=12), "rate_limited", "12"),
+        (QuotaExceeded("quota"), "quota_exceeded", "402"),
+        (ProviderUnavailable("offline"), "provider_unavailable", "ProviderUnavailable"),
+        (ToolTranslationError("invalid tool"), "tool_translation_error", "translation"),
+        (LlmError("failed"), "error", "llm_error"),
+    ],
+)
+async def test_typed_failures_write_one_call_record_before_reraising(
+    db, dj_user, gateway_request, error, status, error_code
+):
+    _make_connector(db, dj_user)
+    with _patch_chat(AsyncMock(side_effect=error)):
+        with pytest.raises(type(error)):
+            await Gateway.dispatch(db, dj_user, gateway_request, purpose="test")
+
+    from app.models.llm_connector import LlmCallLog
+
+    rows = db.query(LlmCallLog).all()
+    assert len(rows) == 1
+    assert rows[0].status == status
+    assert rows[0].error_code == error_code
+    assert rows[0].latency_ms >= 0
 
 
 @pytest.mark.asyncio
@@ -560,7 +591,7 @@ class TestOrgScopedResolution:
         the per-DJ chain: the pin-validity branch requires scope='user', so the
         pinned org connector is skipped, and with the org fallback blocked by
         llm_enabled=False the dispatch raises NoLlmConfigured."""
-        from app.services.llm.connector_storage import set_feature_preference
+        from app.services.llm.connector_preferences import set_feature_preference
 
         org = _make_connector(db, None, scope=SCOPE_ORG, display_name="only-org")
         _wire_system_default(db, org)

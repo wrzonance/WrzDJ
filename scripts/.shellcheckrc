@@ -1,0 +1,3 @@
+# Analyze repository fixtures referenced by source directives.
+external-sources=true
+source-path=SCRIPTDIR

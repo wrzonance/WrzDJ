@@ -29,7 +29,7 @@ export function PreviewPlayer({ data }: { data: PreviewData }) {
           alignItems: 'center',
           gap: '0.25rem',
           fontSize: '0.7rem',
-          color: '#9ca3af',
+          color: 'var(--text-secondary)',
           textDecoration: 'none',
           marginTop: '0.375rem',
         }}
@@ -57,7 +57,7 @@ export function PreviewPlayer({ data }: { data: PreviewData }) {
           background: 'none',
           border: '1px solid #374151',
           borderRadius: '0.375rem',
-          color: '#9ca3af',
+          color: 'var(--text-secondary)',
           fontSize: '0.7rem',
           padding: '0.125rem 0.5rem',
           cursor: 'pointer',
@@ -75,7 +75,7 @@ export function PreviewPlayer({ data }: { data: PreviewData }) {
             borderRadius: '0.5rem',
             overflow: 'hidden',
             marginTop: '0.5rem',
-            backgroundColor: '#1a1a1a',
+            backgroundColor: 'var(--card)',
           }}
         >
           <iframe

@@ -2,20 +2,30 @@
 
 import { useEffect, useState } from 'react';
 import { api, AdminUser } from '@/lib/api';
-import { useAdminPage } from '@/lib/useAdminPage';
+import type { UserRole } from '@/lib/auth';
+import { useAdminPage } from '@/lib/use-admin-page';
 import { HelpSpot } from '@/components/help/HelpSpot';
 import { HelpButton } from '@/components/help/HelpButton';
 import { OnboardingOverlay } from '@/components/help/OnboardingOverlay';
 
 const PAGE_ID = 'admin-users';
+const USER_ROLES: readonly UserRole[] = ['admin', 'dj', 'pending'];
+
+function isUserRole(role: string): role is UserRole {
+  return USER_ROLES.some((supportedRole) => supportedRole === role);
+}
 
 export default function AdminUsersPage() {
   const [page, setPage] = useState(1);
-  const [roleFilter, setRoleFilter] = useState<string | undefined>();
+  const [roleFilter, setRoleFilter] = useState<UserRole | undefined>();
   const [showCreate, setShowCreate] = useState(false);
   const [editUser, setEditUser] = useState<AdminUser | null>(null);
-  const [formData, setFormData] = useState({ username: '', password: '', role: 'dj' });
-  const [editData, setEditData] = useState({ role: '', is_active: true, password: '' });
+  const [formData, setFormData] = useState<{ username: string; password: string; role: UserRole }>({
+    username: '', password: '', role: 'dj',
+  });
+  const [editData, setEditData] = useState<{ role: UserRole; is_active: boolean; password: string }>({
+    role: 'dj', is_active: true, password: '',
+  });
   const [error, setError] = useState('');
   const limit = 20;
 
@@ -49,7 +59,7 @@ export default function AdminUsersPage() {
     if (!editUser) return;
     setError('');
     try {
-      const update: Record<string, unknown> = {};
+      const update: { role?: UserRole; is_active?: boolean; password?: string } = {};
       if (editData.role !== editUser.role) update.role = editData.role;
       if (editData.is_active !== editUser.is_active) update.is_active = editData.is_active;
       if (editData.password) update.password = editData.password;
@@ -72,6 +82,10 @@ export default function AdminUsersPage() {
   };
 
   const openEdit = (user: AdminUser) => {
+    if (!isUserRole(user.role)) {
+      setError('Cannot edit user with an unsupported role.');
+      return;
+    }
     setEditUser(user);
     setEditData({ role: user.role, is_active: user.is_active, password: '' });
     setError('');
@@ -79,7 +93,7 @@ export default function AdminUsersPage() {
 
   const totalPages = Math.ceil(total / limit);
 
-  const roleFilters = [
+  const roleFilters: Array<{ label: string; value: UserRole | undefined }> = [
     { label: 'All', value: undefined },
     { label: 'Admins', value: 'admin' },
     { label: 'DJs', value: 'dj' },
@@ -153,7 +167,7 @@ export default function AdminUsersPage() {
                   id="new-role"
                   className="input"
                   value={formData.role}
-                  onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, role: e.target.value as UserRole })}
                 >
                   <option value="dj">DJ</option>
                   <option value="admin">Admin</option>
@@ -182,7 +196,7 @@ export default function AdminUsersPage() {
                   id="edit-role"
                   className="input"
                   value={editData.role}
-                  onChange={(e) => setEditData({ ...editData, role: e.target.value })}
+                  onChange={(e) => setEditData({ ...editData, role: e.target.value as UserRole })}
                 >
                   <option value="admin">Admin</option>
                   <option value="dj">DJ</option>

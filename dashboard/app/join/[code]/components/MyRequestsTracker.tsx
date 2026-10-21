@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import type { MyRequestInfo } from '@/lib/api-types';
+import type { MyRequestInfo } from '@/lib/api/types';
 import { api } from '@/lib/api';
 
 interface MyRequestsTrackerProps {
@@ -28,14 +28,17 @@ export default function MyRequestsTracker({
   const [myRequests, setMyRequests] = useState<MyRequestInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [collapsed, setCollapsed] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const loadMyRequests = useCallback(async () => {
+    setLoading(true);
+    setLoadFailed(false);
     try {
       const data = await api.getMyRequests(eventCode);
       setMyRequests(data.requests);
       onRequestIdsLoaded(new Set(data.requests.map((r) => r.id)));
     } catch {
-      // Silently fail — tracker is a nice-to-have
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -52,10 +55,22 @@ export default function MyRequestsTracker({
     }
   }, [refreshKey, loadMyRequests]);
 
-  if (loading || myRequests.length === 0) return null;
+  if (loading && myRequests.length === 0) return null;
+  if (!loading && myRequests.length === 0 && !loadFailed) return null;
 
   return (
     <div className="my-requests-tracker">
+      {loadFailed && (
+        <div role="alert" className="my-requests-error">
+          <span>Couldn't load your requests.</span>{' '}
+          <button type="button" onClick={loadMyRequests} disabled={loading}>
+            Retry loading your requests
+          </button>
+        </div>
+      )}
+      {loading && myRequests.length === 0 ? (
+        <p>Loading your requests…</p>
+      ) : myRequests.length === 0 ? null : <>
       <button
         className="my-requests-header"
         onClick={() => setCollapsed(!collapsed)}
@@ -106,6 +121,7 @@ export default function MyRequestsTracker({
           })}
         </div>
       )}
+      </>}
     </div>
   );
 }

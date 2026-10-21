@@ -7,28 +7,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.models.llm_feature_preference import KNOWN_FEATURES
+from app.models.llm_contracts import (
+    FEATURE_KEY_VALUES,
+    ConnectorType,
+    FeatureKey,
+)
 
-# Feature keys a DJ may pin a connector to (issue #337). ``FeatureKey`` is the
-# static Literal used in the request/response schemas (so the OpenAPI spec
-# emits a proper enum and FastAPI rejects unknown values at the boundary).
-# ``KNOWN_FEATURE_VALUES`` is the sorted runtime tuple returned to the
-# frontend so the picker is deterministic. A test
-# (``test_feature_key_literal_matches_known_features``) guards that the Literal
-# and ``KNOWN_FEATURES`` never drift apart.
-FeatureKey = Literal["recommendation", "set_builder"]
-KNOWN_FEATURE_VALUES = tuple(sorted(KNOWN_FEATURES))
-
-ConnectorType = Literal[
-    "openai_apikey",
-    "anthropic_apikey",
-    "openai_compatible",
-    "openrouter_apikey",
-    "xai_apikey",
-    "bedrock",
-    "azure_openai",
-    "gemini_apikey",
-]
+KNOWN_FEATURE_VALUES = FEATURE_KEY_VALUES
 ConnectorStatus = Literal["active", "auth_invalid", "disabled"]
 
 
@@ -106,7 +91,7 @@ class ConnectorCreate(BaseModel):
       ``azure_deployment_name`` and ``azure_api_version`` all required.
 
     The combination is enforced by :meth:`_require_credentials_for_type`.
-    See ``build_create_payload`` in ``services/llm/connector_storage.py``
+    See ``build_create_payload`` in ``services/llm/connector_payloads.py``
     for the full validation flow (including key shape checks).
     """
 
@@ -186,8 +171,10 @@ class ConnectorCredentialsRotate(BaseModel):
     """Rotation payload — at least one credential field must be supplied.
 
     Field semantics mirror :class:`ConnectorCreate`. The actual field required
-    depends on the connector being rotated (validated in ``rotate_credentials``).
+    depends on the connector being rotated (validated by connector payload builders).
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     api_key: str | None = Field(default=None, max_length=512)
     base_url: str | None = Field(default=None, max_length=512)

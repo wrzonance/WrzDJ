@@ -8,9 +8,10 @@ import pytest
 from app.models.provider_connection import UserProviderConnection
 from app.models.set import Set
 from app.models.set_pool import SetPoolSource, SetPoolTrack
-from app.services import apple_music_catalog, apple_music_tokens
-from app.services.setbuilder import export_apple_music
-from app.services.setbuilder.export_common import ExportTrack
+from app.services.apple_music import catalog as apple_music_catalog
+from app.services.apple_music import tokens as apple_music_tokens
+from app.services.setbuilder.exports import export_apple_music
+from app.services.setbuilder.exports.export_common import ExportTrack
 
 MUSIC_USER_TOKEN = "music-user-token-1234567890"
 

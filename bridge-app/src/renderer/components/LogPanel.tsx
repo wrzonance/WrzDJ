@@ -17,11 +17,11 @@ function formatTime(timestamp: number): string {
   return `${h}:${m}:${s}.${ms}`;
 }
 
-const LEVEL_STYLES: Record<LogLevel, { color: string; label: string }> = {
-  debug: { color: '#666', label: 'DBG' },
-  info: { color: '#5b9bd5', label: 'INF' },
-  warn: { color: '#e5a00d', label: 'WRN' },
-  error: { color: '#e55', label: 'ERR' },
+const LEVEL_LABELS: Record<LogLevel, string> = {
+  debug: 'DBG',
+  info: 'INF',
+  warn: 'WRN',
+  error: 'ERR',
 };
 
 export function LogPanel({ entries, onClear }: LogPanelProps) {
@@ -37,8 +37,9 @@ export function LogPanel({ entries, onClear }: LogPanelProps) {
         setExportStatus('Report saved');
         setTimeout(() => setExportStatus(null), 3000);
       }
-    } catch {
-      setExportStatus('Export failed');
+    } catch (error) {
+      const reason = error instanceof Error && error.message.trim() ? `: ${error.message}` : '';
+      setExportStatus(`Export failed${reason}`);
       setTimeout(() => setExportStatus(null), 3000);
     }
   }, []);
@@ -66,7 +67,7 @@ export function LogPanel({ entries, onClear }: LogPanelProps) {
         <span>
           Diagnostic Log
           {entries.length > 0 && (
-            <span style={{ fontWeight: 400, fontSize: '0.7rem', marginLeft: '0.5rem', color: '#666' }}>
+            <span style={{ fontWeight: 400, fontSize: '0.7rem', marginLeft: '0.5rem', color: 'var(--color-log-debug)' }}>
               ({entries.length})
             </span>
           )}
@@ -78,7 +79,7 @@ export function LogPanel({ entries, onClear }: LogPanelProps) {
         <div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: '0.5rem', gap: '0.5rem' }}>
             {exportStatus && (
-              <span style={{ fontSize: '0.7rem', color: '#5b9bd5' }}>{exportStatus}</span>
+              <span style={{ fontSize: '0.7rem', color: 'var(--color-log-info)' }}>{exportStatus}</span>
             )}
             <button
               className="btn btn-ghost btn-sm"
@@ -103,15 +104,11 @@ export function LogPanel({ entries, onClear }: LogPanelProps) {
               <div className="log-empty">No log entries yet. Start the bridge to see diagnostic output.</div>
             ) : (
               entries.map((entry) => {
-                const levelStyle = LEVEL_STYLES[entry.level];
                 return (
                   <div key={entry.id} className="log-entry">
                     <span className="log-timestamp">{formatTime(entry.timestamp)}</span>
-                    <span className="log-level" style={{ color: levelStyle.color }}>{levelStyle.label}</span>
-                    <span
-                      className="log-message"
-                      style={entry.level === 'error' ? { color: '#e55' } : entry.level === 'warn' ? { color: '#d4a' } : undefined}
-                    >
+                    <span className={`log-level log-level-${entry.level}`}>{LEVEL_LABELS[entry.level]}</span>
+                    <span className={`log-message log-message-${entry.level}`}>
                       {entry.message}
                     </span>
                   </div>

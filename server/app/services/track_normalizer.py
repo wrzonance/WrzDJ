@@ -9,6 +9,9 @@ import statistics
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 
+from app.core.track_ids import normalize_isrc as normalize_isrc
+from app.core.track_ids import valid_isrc as valid_isrc
+
 # Generic mix suffixes that guests almost never include in requests.
 # These get stripped before fuzzy comparison so "Banana (Original Mix)" matches "Banana".
 # Named remixes, Instrumental, Acoustic, Live, VIP, Dub Mix, A Cappella are preserved.
@@ -266,36 +269,3 @@ def normalize_track(title: str, artist: str) -> NormalizedTrack:
         remix_type=remix_type,
         has_named_remix=remix_artist is not None,
     )
-
-
-def normalize_isrc(isrc: str | None) -> str | None:
-    """Uppercase, trim, and strip hyphens/spaces so an ISRC matches as a key.
-
-    Args:
-        isrc: Raw ISRC string (e.g., "us-um7-1900764" or "  USUM71900764 ")
-
-    Returns:
-        Normalized ISRC in uppercase with no hyphens/spaces, or None if empty.
-    """
-    if not isrc:
-        return None
-    cleaned = isrc.strip().upper().replace("-", "").replace(" ", "")
-    return cleaned or None
-
-
-# Normalized ISRC shape (ISO 3901): 2-letter country + 3-char alphanumeric
-# registrant + 7 digits (2-digit year + 5-digit designation) = 12 chars.
-_ISRC_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$")
-
-
-def valid_isrc(isrc: str | None) -> str | None:
-    """Normalize an ISRC and return it ONLY if it matches the ISO 3901 shape, else None.
-
-    Validates untrusted submitted ISRCs before they are stored or used as a
-    cache/provider lookup key (#552): a malformed value is dropped (treated as no
-    ISRC) rather than mistaken for an authoritative recording identity or sent to a
-    provider's by-ISRC endpoint."""
-    normalized = normalize_isrc(isrc)
-    if normalized and _ISRC_RE.match(normalized):
-        return normalized
-    return None

@@ -8,8 +8,6 @@ from app.core.config import get_settings
 from app.models.user import User
 from app.schemas.auth import TokenData
 
-settings = get_settings()
-
 # SECURITY (CRIT-1): JWT algorithm is a security invariant and must NEVER be
 # sourced from config. Hardcoding prevents an `alg=none` confusion attack via
 # env-var manipulation. See docs/security/audit-2026-04-08.md CRIT-1.
@@ -25,6 +23,7 @@ def get_password_hash(password: str) -> str:
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
+    settings = get_settings()
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.now(UTC) + expires_delta
@@ -36,6 +35,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
 
 
 def decode_token(token: str) -> TokenData | None:
+    settings = get_settings()
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=[_JWT_ALGORITHM])
         username: str = payload.get("sub")

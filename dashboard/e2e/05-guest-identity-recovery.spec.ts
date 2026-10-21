@@ -122,7 +122,7 @@ test.describe('Guest identity recovery flow', () => {
   test('passive recovery button visible on /collect/{code}', async ({ page }) => {
     await mockCollectApis(page, { reconcileHint: false });
     await page.goto(`/collect/${eventCode}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     // The passive variant renders "Already have an account?" text
     await expect(page.getByText(/already have an account/i)).toBeVisible({ timeout: 8000 });
@@ -131,7 +131,7 @@ test.describe('Guest identity recovery flow', () => {
   test('emphasized banner appears when reconcile_hint=true', async ({ page }) => {
     await mockCollectApis(page, { reconcileHint: true });
     await page.goto(`/collect/${eventCode}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     await expect(
       page.getByText(/looks like you might be a returning guest/i),
@@ -141,7 +141,7 @@ test.describe('Guest identity recovery flow', () => {
   test('clicking the recovery button opens the dialog', async ({ page }) => {
     await mockCollectApis(page, { reconcileHint: false });
     await page.goto(`/collect/${eventCode}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     // Passive state: the inline link button is labelled "Verify email"
     await page.getByRole('button', { name: /^verify email$/i }).first().click();
@@ -151,7 +151,7 @@ test.describe('Guest identity recovery flow', () => {
   test('ESC closes the recovery modal', async ({ page }) => {
     await mockCollectApis(page, { reconcileHint: false });
     await page.goto(`/collect/${eventCode}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     await page.getByRole('button', { name: /^verify email$/i }).first().click();
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 5000 });
@@ -197,7 +197,7 @@ test.describe('Guest identity recovery flow', () => {
     );
 
     await page.goto(`/collect/${eventCode}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     // Open the recovery modal via the passive "Verify email" button
     await page.getByRole('button', { name: /^verify email$/i }).first().click();

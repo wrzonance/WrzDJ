@@ -22,7 +22,7 @@ COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 
 # ── 1. Detect LAN IP ──────────────────────────────────────────────────────────
 
-LAN_IP=$(ip -4 addr show | grep -oP '(?<=inet\s)192\.168\.\d+\.\d+' | head -1)
+LAN_IP=$(ip -4 addr show | grep -oP '(?<=inet\s)192\.168\.\d+\.\d+' | head -1 || true)
 
 if [ -z "$LAN_IP" ]; then
     echo "[warn] Could not detect a 192.168.x.x LAN IP, falling back to 127.0.0.1"
@@ -49,7 +49,8 @@ done
 REGEN_CERTS=false
 if [ ! -f "$CERTS_DIR/cert.pem" ] || [ ! -f "$CERTS_DIR/key.pem" ]; then
     REGEN_CERTS=true
-elif ! openssl x509 -in "$CERTS_DIR/cert.pem" -noout -ext subjectAltName 2>/dev/null | grep -q "$LAN_IP"; then
+elif ! openssl verify -trusted "$CERTS_DIR/cert.pem" -partial_chain \
+    -verify_ip "$LAN_IP" "$CERTS_DIR/cert.pem" >/dev/null 2>&1; then
     echo "[certs] LAN IP changed — regenerating certs to include $LAN_IP"
     REGEN_CERTS=true
 fi
@@ -66,7 +67,7 @@ if [ "$REGEN_CERTS" = true ]; then
         2>/dev/null
     echo "[certs] Created $CERTS_DIR/cert.pem and $CERTS_DIR/key.pem"
 else
-    echo "[certs] Self-signed certs already exist with correct SANs, skipping"
+    echo "[certs] Existing certificate matches the LAN IP, skipping"
 fi
 
 # ── 4. /etc/hosts entries ─────────────────────────────────────────────────────

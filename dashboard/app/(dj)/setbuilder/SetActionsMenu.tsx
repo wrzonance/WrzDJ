@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
-import type { SetDetail } from '@/lib/api-types';
+import type { SetDetail } from '@/lib/api/types';
 import ShareDialog from './ShareDialog';
 import SaveAsTemplateDialog from './SaveAsTemplateDialog';
 import ExportModal from './components/ExportModal';

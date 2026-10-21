@@ -1,4 +1,5 @@
-import styles from '../setbuilder.module.css';
+
+import historyStyles from '../setbuilder-history.module.css';
 
 interface HistoryControlsProps {
   undoDepth: number;
@@ -22,30 +23,30 @@ export default function HistoryControls({
   isSaving,
 }: HistoryControlsProps) {
   return (
-    <span className={styles.historyControls}>
+    <span className={historyStyles.historyControls}>
       <button
         type="button"
-        className={styles.historyIconButton}
+        className={historyStyles.historyIconButton}
         onClick={onUndo}
         disabled={!undoDepth || isSaving}
         title={nextUndoLabel ? `Undo: ${nextUndoLabel}` : 'Undo'}
         aria-label={nextUndoLabel ? `Undo: ${nextUndoLabel}` : 'Undo'}
       >
-        ↶ <span className={styles.depthBadge}>{undoDepth}</span>
+        ↶ <span className={historyStyles.depthBadge}>{undoDepth}</span>
       </button>
       <button
         type="button"
-        className={styles.historyIconButton}
+        className={historyStyles.historyIconButton}
         onClick={onRedo}
         disabled={!redoDepth || isSaving}
         title={nextRedoLabel ? `Redo: ${nextRedoLabel}` : 'Redo'}
         aria-label={nextRedoLabel ? `Redo: ${nextRedoLabel}` : 'Redo'}
       >
-        ↷ <span className={styles.depthBadge}>{redoDepth}</span>
+        ↷ <span className={historyStyles.depthBadge}>{redoDepth}</span>
       </button>
       <button
         type="button"
-        className={styles.historyIconButton}
+        className={historyStyles.historyIconButton}
         onClick={onSettings}
         aria-label="Open builder settings"
         title="Builder settings"

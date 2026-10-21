@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [ "$#" -ne 0 ]; then
+  echo "Usage: $0" >&2
+  exit 2
+fi
+
 # WrzDJ Dedicated Deploy User Setup
 # Creates a 'wrzdj' user with minimal privileges for running the application.
 #
@@ -15,6 +20,7 @@ set -euo pipefail
 USERNAME="wrzdj"
 DEPLOY_DIR="/opt/wrzdj"
 SUDOERS_FILE="/etc/sudoers.d/$USERNAME"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 # ---------- Validation mode (non-root) ----------
 
@@ -112,177 +118,14 @@ fi
 
 # 3. Install wrapper scripts (prevents wildcard privilege escalation)
 echo "    Installing wrapper scripts to /usr/local/bin/"
-
-cat > /usr/local/bin/wrzdj-nginx-install << 'WRAPPER'
-#!/bin/bash
-set -euo pipefail
-# Install an nginx config file safely (no path traversal, no arbitrary source)
-ALLOWED_DIR="/opt/wrzdj/deploy/nginx"
-
-src="$(realpath "$1")"
-name="$(basename "$1" .conf)"
-
-# Validate source is under the allowed directory
-if [[ "$src" != "$ALLOWED_DIR"/* ]]; then
-  echo "ERROR: Source file must be under $ALLOWED_DIR (got: $src)" >&2
-  exit 1
-fi
-
-# Validate destination name (no slashes, dots-only, etc.)
-if [[ ! "$name" =~ ^[a-zA-Z0-9.-]+$ ]]; then
-  echo "ERROR: Invalid config name: $name" >&2
-  exit 1
-fi
-
-cp -- "$src" "/etc/nginx/sites-available/$name"
-ln -sf "/etc/nginx/sites-available/$name" "/etc/nginx/sites-enabled/$name"
-echo "Installed: /etc/nginx/sites-available/$name"
-WRAPPER
-chmod 750 /usr/local/bin/wrzdj-nginx-install
-chown root:wrzdj /usr/local/bin/wrzdj-nginx-install
-
-cat > /usr/local/bin/wrzdj-certbot << 'WRAPPER'
-#!/bin/bash
-set -euo pipefail
-# Run certbot with restricted operations (no hooks allowed)
-case "${1:-}" in
-  --nginx)
-    shift
-    domains=()
-    domain_values=()
-    certbot_args=()
-    cert_name=""
-    while [ $# -gt 0 ]; do
-      if [ "$1" = "-d" ] && [ $# -gt 1 ]; then
-        domain="$2"
-        if [[ ! "$domain" =~ ^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$ ]]; then
-          echo "ERROR: Invalid domain: $domain" >&2
-          exit 1
-        fi
-        domains+=("-d" "$domain")
-        domain_values+=("$domain")
-        shift 2
-      elif [ "$1" = "--cert-name" ] && [ $# -gt 1 ]; then
-        cert_name="$2"
-        if [[ ! "$cert_name" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]; then
-          echo "ERROR: Invalid certificate name: $cert_name" >&2
-          exit 1
-        fi
-        certbot_args+=("--cert-name" "$cert_name")
-        shift 2
-      elif [ "$1" = "--agree-tos" ]; then
-        certbot_args+=("--agree-tos")
-        shift
-      elif [ "$1" = "--email" ] && [ $# -gt 1 ]; then
-        email="$2"
-        if [[ ! "$email" =~ ^[^[:space:]@]+@[^[:space:]@]+$ ]]; then
-          echo "ERROR: Invalid email address: $email" >&2
-          exit 1
-        fi
-        certbot_args+=("--email" "$email")
-        shift 2
-      elif [ "$1" = "--register-unsafely-without-email" ]; then
-        certbot_args+=("--register-unsafely-without-email")
-        shift
-      elif [ "$1" = "--key-type" ] && [ $# -gt 1 ]; then
-        key_type="$2"
-        if [ "$key_type" != "ecdsa" ] && [ "$key_type" != "rsa" ]; then
-          echo "ERROR: Invalid key type: $key_type" >&2
-          exit 1
-        fi
-        certbot_args+=("--key-type" "$key_type")
-        shift 2
-      else
-        echo "ERROR: Unexpected argument: $1" >&2
-        exit 1
-      fi
-    done
-    if [ ${#domains[@]} -eq 0 ]; then
-      echo "Usage: wrzdj-certbot --nginx -d domain1 [-d domain2 ...]" >&2
-      exit 1
-    fi
-    if [ -n "$cert_name" ]; then
-      for domain in "${domain_values[@]}"; do
-        if [ "$cert_name" != "$domain" ] && [ "$cert_name" != "$domain-rsa" ]; then
-          echo "ERROR: Certificate name must match its domain or domain-rsa: $cert_name" >&2
-          exit 1
-        fi
-      done
-    fi
-    exec /usr/bin/certbot --nginx --non-interactive "${certbot_args[@]}" "${domains[@]}"
-    ;;
-  renew)
-    if [ "${2:-}" = "--dry-run" ]; then
-      exec /usr/bin/certbot renew --dry-run
-    fi
-    exec /usr/bin/certbot renew
-    ;;
-  *)
-    echo "Usage: wrzdj-certbot {--nginx -d domain [...] | renew [--dry-run]}" >&2
-    exit 1
-    ;;
-esac
-WRAPPER
-chmod 750 /usr/local/bin/wrzdj-certbot
-chown root:wrzdj /usr/local/bin/wrzdj-certbot
-
-cat > /usr/local/bin/wrzdj-certificates-ready << 'WRAPPER'
-#!/bin/bash
-set -euo pipefail
-domain="${1:-}"
-if [ $# -ne 1 ] || [[ ! "$domain" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]; then
-  echo "Usage: wrzdj-certificates-ready domain" >&2
-  exit 1
-fi
-live_dir="/etc/letsencrypt/live/$domain"
-if [ ! -d "$live_dir" ]; then
-  exit 1
-fi
-if [ ! -r "$live_dir" ]; then
-  exit 2
-fi
-for filename in fullchain.pem privkey.pem; do
-  path="$live_dir/$filename"
-  if [ -L "$path" ] && [ ! -e "$path" ]; then
-    exit 2
-  fi
-  if [ ! -e "$path" ]; then
-    exit 1
-  fi
-  if [ ! -r "$path" ] || [ ! -s "$path" ]; then
-    exit 2
-  fi
+for wrapper in \
+  wrzdj-nginx-install \
+  wrzdj-certbot \
+  wrzdj-certificates-ready \
+  wrzdj-nginx-confd-install; do
+  install -o root -g "$USERNAME" -m 0750 \
+    "$SCRIPT_DIR/wrappers/$wrapper" "/usr/local/bin/$wrapper"
 done
-WRAPPER
-chmod 750 /usr/local/bin/wrzdj-certificates-ready
-chown root:wrzdj /usr/local/bin/wrzdj-certificates-ready
-
-cat > /usr/local/bin/wrzdj-nginx-confd-install << 'WRAPPER'
-#!/bin/bash
-set -euo pipefail
-# Install an nginx config file to conf.d/ safely (http-level configs like log formats)
-ALLOWED_DIR="/opt/wrzdj/deploy/nginx"
-
-src="$(realpath "$1")"
-name="$(basename "$1")"
-
-# Validate source is under the allowed directory
-if [[ "$src" != "$ALLOWED_DIR"/* ]]; then
-  echo "ERROR: Source file must be under $ALLOWED_DIR (got: $src)" >&2
-  exit 1
-fi
-
-# Validate filename (no slashes, dots-only, etc.)
-if [[ ! "$name" =~ ^[a-zA-Z0-9._-]+\.conf$ ]]; then
-  echo "ERROR: Invalid config name: $name (must end in .conf)" >&2
-  exit 1
-fi
-
-cp -- "$src" "/etc/nginx/conf.d/wrzdj-$name"
-echo "Installed: /etc/nginx/conf.d/wrzdj-$name"
-WRAPPER
-chmod 750 /usr/local/bin/wrzdj-nginx-confd-install
-chown root:wrzdj /usr/local/bin/wrzdj-nginx-confd-install
 
 echo "    Installed nginx, certificate, and certbot wrapper scripts"
 

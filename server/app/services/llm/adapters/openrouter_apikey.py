@@ -15,18 +15,9 @@ request/response + error-mapping pipeline. It differs only in:
 
 from __future__ import annotations
 
-import logging
-
-from app.services.llm.adapters._httpx_openai import (
-    build_healthcheck_request,
-    call_openai_chat,
-)
 from app.services.llm.adapters._shared import extract_fixed_base_credentials
 from app.services.llm.adapters.openai_compatible import OpenAICompatibleAdapter
-from app.services.llm.base import ChatRequest, ChatResponse
 from app.services.llm.registry import register_adapter
-
-logger = logging.getLogger(__name__)
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # OpenRouter model ids are namespaced ("provider/model"). This cheap, broadly
@@ -38,25 +29,7 @@ class OpenRouterApiKeyAdapter(OpenAICompatibleAdapter):
     """OpenRouter connector — OpenAI-compatible with a fixed base URL."""
 
     connector_type = "openrouter_apikey"
-
-    async def chat(self, request: ChatRequest) -> ChatResponse:
-        base_url, bearer = self._extract_credentials()
-        return await call_openai_chat(
-            base_url=base_url,
-            api_key=bearer,
-            request=request,
-            fallback_model=self.connector.model_hint or DEFAULT_MODEL,
-        )
-
-    async def health_check(self) -> None:
-        base_url, bearer = self._extract_credentials()
-        ping = build_healthcheck_request()
-        await call_openai_chat(
-            base_url=base_url,
-            api_key=bearer,
-            request=ping,
-            fallback_model=self.connector.model_hint or DEFAULT_MODEL,
-        )
+    default_model = DEFAULT_MODEL
 
     def _extract_credentials(self) -> tuple[str, str | None]:
         """Return (fixed base_url, api-key bearer).

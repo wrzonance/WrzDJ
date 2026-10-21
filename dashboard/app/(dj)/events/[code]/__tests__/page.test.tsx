@@ -1,11 +1,21 @@
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { registerPageErrorsAndSettings } from './page-errors-and-settings.cases';
+import { registerPageActions } from './page-actions.cases';
+import { registerProviderAndDisplay } from './page-provider-and-display.cases';
+import { registerRequestList } from './page-request-list.cases';
+import type { EventPageTestContext } from './page-test-context';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock next/navigation
 const mockPush = vi.fn();
+const eventPageTestState = {
+  mockEventCode: 'TEST', mockIsAuthenticated: true, mockIsLoading: false, mockRole: 'dj',
+  capturedSongTabProps: {} as Record<string, unknown>, capturedManageTabProps: {} as Record<string, unknown>,
+};
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
-  useParams: () => ({ code: 'TEST' }),
+  useParams: () => ({ code: eventPageTestState.mockEventCode }),
 }));
 
 // Mock next/link
@@ -52,42 +62,49 @@ vi.mock('@/components/ThemeToggle', () => ({
 vi.mock('@/lib/tab-title', () => ({
   useTabTitle: () => {},
 }));
-
-// Variable-based auth mock
-let mockIsAuthenticated = true;
-let mockIsLoading = false;
 vi.mock('@/lib/auth', () => ({
   useAuth: () => ({
-    isAuthenticated: mockIsAuthenticated,
-    isLoading: mockIsLoading,
+    isAuthenticated: eventPageTestState.mockIsAuthenticated,
+    isLoading: eventPageTestState.mockIsLoading,
+    role: eventPageTestState.mockRole,
   }),
 }));
 
-// Capture props from child components
-let capturedSongTabProps: Record<string, unknown> = {};
-let capturedManageTabProps: Record<string, unknown> = {};
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- used inside vi.mock factory
-let capturedQueueProps: Record<string, unknown> = {};
-
-vi.mock('../components/SongManagementTab', () => ({
+vi.mock('../components/requests/SongManagementTab', () => ({
   SongManagementTab: (props: Record<string, unknown>) => {
-    capturedSongTabProps = props;
+    const requestQueue = props.requestQueue as Record<string, unknown>;
+    eventPageTestState.capturedSongTabProps = {
+      ...props,
+      requestQueue: {
+        ...requestQueue,
+        ...(requestQueue.toolbar as Record<string, unknown>),
+        ...(requestQueue.rowActions as Record<string, unknown>),
+      },
+    };
     return <div data-testid="song-tab">SongTab</div>;
   },
 }));
-vi.mock('../components/EventManagementTab', () => ({
+vi.mock('../components/management/EventManagementTab', () => ({
   EventManagementTab: (props: Record<string, unknown>) => {
-    capturedManageTabProps = props;
+    eventPageTestState.capturedManageTabProps = {
+      ...props,
+      ...(props.kiosk as Record<string, unknown>),
+      ...(props.providers as Record<string, unknown>),
+      ...(props.customization as Record<string, unknown>),
+      ...(props.preEvent as Record<string, unknown>),
+    };
     return <div data-testid="manage-tab">ManageTab</div>;
   },
 }));
-vi.mock('../components/RequestQueueSection', () => ({
-  RequestQueueSection: (props: Record<string, unknown>) => {
-    capturedQueueProps = props;
-    return <div data-testid="queue-section">Queue</div>;
-  },
+vi.mock('../components/voting/PreEventVotingTab', () => ({
+  default: ({ event }: { event: { phase: string } }) => (
+    <div data-testid="pre-event-tab">phase:{event.phase}</div>
+  ),
 }));
-vi.mock('../components/PlayHistorySection', () => ({
+vi.mock('../components/requests/RequestQueueSection', () => ({
+  RequestQueueSection: () => <div data-testid="queue-section">Queue</div>,
+}));
+vi.mock('../components/requests/PlayHistorySection', () => ({
   PlayHistorySection: (props: { onExport: () => void }) => (
     <div data-testid="play-history">
       History
@@ -95,7 +112,7 @@ vi.mock('../components/PlayHistorySection', () => ({
     </div>
   ),
 }));
-vi.mock('../components/DeleteEventModal', () => ({
+vi.mock('../components/management/DeleteEventModal', () => ({
   DeleteEventModal: (props: { onConfirm: () => void; onCancel: () => void }) => (
     <div data-testid="delete-modal">
       <button onClick={props.onConfirm}>Confirm Delete</button>
@@ -103,17 +120,17 @@ vi.mock('../components/DeleteEventModal', () => ({
     </div>
   ),
 }));
-vi.mock('../components/NowPlayingBadge', () => ({
+vi.mock('../components/requests/NowPlayingBadge', () => ({
   NowPlayingBadge: () => <div data-testid="now-playing-badge">NP</div>,
 }));
-vi.mock('../components/TidalLoginModal', () => ({
+vi.mock('../components/providers/TidalLoginModal', () => ({
   TidalLoginModal: (props: { onCancel: () => void }) => (
     <div data-testid="tidal-login-modal">
       <button onClick={props.onCancel}>Cancel Tidal</button>
     </div>
   ),
 }));
-vi.mock('../components/BeatportLoginModal', () => ({
+vi.mock('../components/providers/BeatportLoginModal', () => ({
   BeatportLoginModal: (props: { onSubmit: (u: string, p: string) => Promise<void>; onCancel: () => void }) => (
     <div data-testid="beatport-login-modal">
       <button onClick={() => props.onSubmit('user', 'pass')}>Submit BP Login</button>
@@ -121,7 +138,7 @@ vi.mock('../components/BeatportLoginModal', () => ({
     </div>
   ),
 }));
-vi.mock('../components/ServiceTrackPickerModal', () => ({
+vi.mock('../components/providers/ServiceTrackPickerModal', () => ({
   ServiceTrackPickerModal: () => <div data-testid="track-picker-modal">Picker</div>,
 }));
 vi.mock('@/components/EventErrorCard', () => ({
@@ -140,6 +157,7 @@ vi.mock('@/lib/api', () => ({
     getRequests: vi.fn(),
     getPlayHistory: vi.fn(),
     getDisplaySettings: vi.fn(),
+    getCollectionSettings: vi.fn(),
     getTidalStatus: vi.fn(),
     getBeatportStatus: vi.fn(),
     getNowPlaying: vi.fn(),
@@ -187,7 +205,7 @@ vi.mock('@/lib/api', () => ({
 }));
 
 import { api, ApiError } from '@/lib/api';
-import type { SongRequest, RequestListResponse } from '@/lib/api';
+import type { Event, SongRequest, RequestListResponse } from '@/lib/api';
 import EventQueuePage from '../page';
 
 function mockEvent(overrides = {}) {
@@ -206,6 +224,16 @@ function mockEvent(overrides = {}) {
     archived_at: null, request_count: null, status: null,
     ...overrides,
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
 
 function mockRequest(overrides: Partial<SongRequest> = {}): SongRequest {
@@ -236,6 +264,19 @@ function mockRequestList(
   };
 }
 
+function mockCollectionSettings(phase: 'pre_announce' | 'collection' | 'live' | 'closed' = 'collection') {
+  return {
+    collection_opens_at: null,
+    collection_phase_override: null,
+    live_starts_at: null,
+    phase,
+    submission_cap_per_guest: 15,
+    tidal_collection_bidirectional: false,
+    tidal_collection_playlist_id: null,
+    tidal_sync_enabled: false,
+  };
+}
+
 function setupDefaultMocks() {
   vi.mocked(api.getEvent).mockResolvedValue(mockEvent());
   vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([]));
@@ -244,6 +285,7 @@ function setupDefaultMocks() {
     status: 'ok', now_playing_hidden: false, now_playing_auto_hide_minutes: 10,
     requests_open: true, kiosk_display_only: false,
   });
+  vi.mocked(api.getCollectionSettings).mockReset().mockResolvedValue(mockCollectionSettings());
   vi.mocked(api.getTidalStatus).mockResolvedValue({
     linked: false, user_id: null, expires_at: null, integration_enabled: true,
   });
@@ -263,14 +305,21 @@ function setupDefaultMocks() {
   });
 }
 
+
+const eventPageTestContext: EventPageTestContext = {
+  eventPageTestState, mockPush, api, ApiError, EventQueuePage, mockEvent, deferred, mockRequest,
+  mockRequestList, mockCollectionSettings, setupDefaultMocks,
+};
 describe('EventQueuePage', () => {
+
   beforeEach(() => {
     vi.clearAllMocks();
-    mockIsAuthenticated = true;
-    mockIsLoading = false;
-    capturedSongTabProps = {};
-    capturedManageTabProps = {};
-    capturedQueueProps = {};
+    eventPageTestState.mockEventCode = 'TEST';
+    eventPageTestState.mockIsAuthenticated = true;
+    eventPageTestState.mockIsLoading = false;
+    eventPageTestState.mockRole = 'dj';
+    eventPageTestState.capturedSongTabProps = {};
+    eventPageTestState.capturedManageTabProps = {};
   });
 
   afterEach(() => {
@@ -278,10 +327,11 @@ describe('EventQueuePage', () => {
     vi.restoreAllMocks();
   });
 
+
   describe('Initial loading and auth guard', () => {
     it('redirects to /login when not authenticated', () => {
-      mockIsAuthenticated = false;
-      mockIsLoading = false;
+      eventPageTestState.mockIsAuthenticated = false;
+      eventPageTestState.mockIsLoading = false;
       setupDefaultMocks();
 
       render(<EventQueuePage />);
@@ -289,9 +339,18 @@ describe('EventQueuePage', () => {
       expect(mockPush).toHaveBeenCalledWith('/login');
     });
 
+    it('redirects pending users to /pending', () => {
+      eventPageTestState.mockRole = 'pending';
+      setupDefaultMocks();
+
+      render(<EventQueuePage />);
+
+      expect(mockPush).toHaveBeenCalledWith('/pending');
+    });
+
     it('shows Loading while auth is resolving', () => {
-      mockIsLoading = true;
-      mockIsAuthenticated = false;
+      eventPageTestState.mockIsLoading = true;
+      eventPageTestState.mockIsAuthenticated = false;
       setupDefaultMocks();
 
       render(<EventQueuePage />);
@@ -328,6 +387,161 @@ describe('EventQueuePage', () => {
       await screen.findByText('Test Event');
     });
 
+  // Regression for baseline 57cfcdc6867f: an old route request could overwrite the event after A→B navigation.
+  it('keeps event B when event A finishes after the route changes', async () => {
+    vi.mocked(api.getEvent).mockReset();
+    setupDefaultMocks();
+    const eventA = deferred<Event>();
+    vi.mocked(api.getEvent).mockReturnValueOnce(eventA.promise);
+    vi.mocked(api.getEvent)
+      .mockResolvedValueOnce(
+        mockEvent({ code: 'NEXT', join_code: 'NEXTJO', name: 'Event B' }) as Event,
+      );
+
+    const view = render(<EventQueuePage />);
+    expect(screen.getByText('Loading event...')).toBeInTheDocument();
+    eventPageTestState.mockEventCode = 'NEXT';
+    view.rerender(<EventQueuePage />);
+
+    await screen.findByText('Event B');
+    await act(async () => {
+      eventA.resolve(mockEvent({ name: 'Event A' }) as Event);
+      await eventA.promise;
+    });
+
+    expect(screen.getByText('Event B')).toBeInTheDocument();
+    expect(screen.queryByText('Event A')).not.toBeInTheDocument();
+  });
+
+  // Regression for baseline 57cfcdc6867f: stale request failure/finally could clear the new route's loading state.
+  it('keeps the new route loading when the old route fails, then renders the new event', async () => {
+    vi.mocked(api.getEvent).mockReset();
+    setupDefaultMocks();
+    const eventA = deferred<Event>();
+    const eventB = deferred<Event>();
+    vi.mocked(api.getEvent)
+      .mockReturnValueOnce(eventA.promise)
+      .mockReturnValueOnce(eventB.promise);
+
+    const view = render(<EventQueuePage />);
+    eventPageTestState.mockEventCode = 'NEXT';
+    view.rerender(<EventQueuePage />);
+    await waitFor(() => expect(api.getEvent).toHaveBeenCalledWith('NEXT'));
+    expect(api.getEvent).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      eventA.reject(new Error('stale route failed'));
+      await eventA.promise.catch(() => undefined);
+    });
+    expect(screen.getByText('Loading event...')).toBeInTheDocument();
+
+    await act(async () => {
+      eventB.resolve(mockEvent({ code: 'NEXT', join_code: 'NEXTJO', name: 'Event B' }) as Event);
+      await eventB.promise;
+    });
+    expect(await screen.findByText('Event B')).toBeInTheDocument();
+    expect(screen.queryByTestId('error-card')).not.toBeInTheDocument();
+  });
+
+  // Regression for baseline 57cfcdc6867f: changing the route must not start protected requests for pending accounts.
+  it('does not load event or provider data for a pending user after the route changes', () => {
+    vi.mocked(api.getEvent).mockReset();
+    vi.mocked(api.getTidalStatus).mockReset();
+    vi.mocked(api.getBeatportStatus).mockReset();
+    eventPageTestState.mockRole = 'pending';
+    const view = render(<EventQueuePage />);
+
+    eventPageTestState.mockEventCode = 'NEXT';
+    view.rerender(<EventQueuePage />);
+
+    expect(api.getEvent).not.toHaveBeenCalled();
+    expect(api.getTidalStatus).not.toHaveBeenCalled();
+    expect(api.getBeatportStatus).not.toHaveBeenCalled();
+  });
+
+  // Regression for baseline 57cfcdc6867f: a delayed archived-event lookup from route A could report its error on route B.
+  it('ignores an archived lookup failure after the route changes', async () => {
+    vi.mocked(api.getEvent).mockReset();
+    setupDefaultMocks();
+    const archivedEvents = deferred<Awaited<ReturnType<typeof api.getArchivedEvents>>>();
+    vi.mocked(api.getEvent)
+      .mockRejectedValueOnce(new ApiError('Expired', 410))
+      .mockResolvedValueOnce(mockEvent({ code: 'NEXT', join_code: 'NEXTJO', name: 'Event B' }) as Event);
+    vi.mocked(api.getArchivedEvents).mockReturnValueOnce(archivedEvents.promise);
+
+    const view = render(<EventQueuePage />);
+    await waitFor(() => expect(api.getArchivedEvents).toHaveBeenCalled());
+    eventPageTestState.mockEventCode = 'NEXT';
+    view.rerender(<EventQueuePage />);
+    expect(await screen.findByText('Event B')).toBeInTheDocument();
+
+    await act(async () => {
+      archivedEvents.reject(new Error('Old archived lookup failed'));
+      await archivedEvents.promise.catch(() => undefined);
+    });
+    expect(screen.getByText('Event B')).toBeInTheDocument();
+    expect(screen.queryByTestId('error-card')).not.toBeInTheDocument();
+  });
+
+  // Regression for baseline 57cfcdc6867f: a previous route's loaded flag hid a new route's initial failure.
+  it('does not keep showing event A after event B fails to load', async () => {
+    vi.mocked(api.getEvent).mockReset();
+    setupDefaultMocks();
+    const view = render(<EventQueuePage />);
+    await screen.findByText('Test Event');
+    eventPageTestState.mockEventCode = 'NEXT';
+    vi.mocked(api.getEvent).mockRejectedValueOnce(new Error('Event B unavailable'));
+    view.rerender(<EventQueuePage />);
+
+    await waitFor(() => expect(api.getEvent).toHaveBeenCalledWith('NEXT'));
+    expect(await screen.findByTestId('error-card')).toBeInTheDocument();
+    expect(screen.queryByText('Test Event')).not.toBeInTheDocument();
+  });
+
+  // Regression for baseline 57cfcdc6867f: old join-code live data could overwrite the current event's status.
+  it('discards event A live-status responses after event B loads', async () => {
+    vi.mocked(api.getEvent).mockReset();
+    vi.mocked(api.getPlayHistory).mockReset();
+    vi.mocked(api.getNowPlaying).mockReset();
+    vi.mocked(api.getBridgeStatus).mockReset();
+    setupDefaultMocks();
+    const historyA = deferred<Awaited<ReturnType<typeof api.getPlayHistory>>>();
+    const nowPlayingA = deferred<Awaited<ReturnType<typeof api.getNowPlaying>>>();
+    const bridgeA = deferred<Awaited<ReturnType<typeof api.getBridgeStatus>>>();
+    vi.mocked(api.getPlayHistory).mockReturnValueOnce(historyA.promise);
+    vi.mocked(api.getNowPlaying).mockReturnValueOnce(nowPlayingA.promise);
+    vi.mocked(api.getBridgeStatus).mockReturnValueOnce(bridgeA.promise);
+    vi.mocked(api.getEvent)
+      .mockResolvedValueOnce(mockEvent() as Event)
+      .mockResolvedValueOnce(
+        mockEvent({ code: 'NEXT', join_code: 'NEXTJO', name: 'Event B' }) as Event,
+      );
+
+    const view = render(<EventQueuePage />);
+    await screen.findByText('Test Event');
+    eventPageTestState.mockEventCode = 'NEXT';
+    view.rerender(<EventQueuePage />);
+    await screen.findByText('Event B');
+    await waitFor(() => expect(api.getBridgeStatus).toHaveBeenCalledWith('NEXTJO'));
+    await act(async () => Promise.resolve());
+
+    await act(async () => {
+      historyA.resolve({ items: [], total: 0 });
+      nowPlayingA.resolve({ title: 'Stale A track' } as Awaited<ReturnType<typeof api.getNowPlaying>>);
+      bridgeA.resolve({
+        connected: true, device_name: 'A deck', last_seen: null,
+        circuit_breaker_state: null, buffer_size: 2, plugin_id: 'a',
+        deck_count: 1, uptime_seconds: 10,
+      });
+      await Promise.all([historyA.promise, nowPlayingA.promise, bridgeA.promise]);
+    });
+
+    expect(screen.getByText('Event B')).toBeInTheDocument();
+    expect(screen.queryByTestId('now-playing-badge')).not.toBeInTheDocument();
+    expect((eventPageTestState.capturedManageTabProps.bridge as { connected: boolean }).connected).toBe(false);
+    expect((eventPageTestState.capturedSongTabProps.playHistory as { items: unknown[] }).items).toEqual([]);
+  });
+
     it('renders QR code', async () => {
       setupDefaultMocks();
 
@@ -355,955 +569,8 @@ describe('EventQueuePage', () => {
       expect(qr.getAttribute('data-value')).not.toContain('/join/TEST');
     });
   });
-
-  describe('Error states', () => {
-    it('shows error card on 404', async () => {
-      vi.mocked(api.getEvent).mockRejectedValue(new ApiError('Not found', 404));
-      vi.mocked(api.getRequests).mockRejectedValue(new ApiError('Not found', 404));
-      vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
-      vi.mocked(api.getDisplaySettings).mockResolvedValue({
-        status: 'ok', now_playing_hidden: false, now_playing_auto_hide_minutes: 10,
-        requests_open: true, kiosk_display_only: false,
-      });
-      vi.mocked(api.getTidalStatus).mockResolvedValue({
-        linked: false, user_id: null, expires_at: null, integration_enabled: true,
-      });
-      vi.mocked(api.getBeatportStatus).mockResolvedValue({
-        linked: false, expires_at: null, configured: false, subscription: null, integration_enabled: true,
-      });
-      vi.mocked(api.getNowPlaying).mockResolvedValue(null);
-
-      render(<EventQueuePage />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId('error-card')).toBeInTheDocument();
-        expect(screen.getByText('Not Found')).toBeInTheDocument();
-      });
-    });
-
-    it('shows expired state on 410 with archived data', async () => {
-      vi.mocked(api.getEvent).mockRejectedValue(new ApiError('Expired', 410));
-      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
-      vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
-      vi.mocked(api.getDisplaySettings).mockResolvedValue({
-        status: 'ok', now_playing_hidden: false, now_playing_auto_hide_minutes: 10,
-        requests_open: true, kiosk_display_only: false,
-      });
-      vi.mocked(api.getTidalStatus).mockResolvedValue({
-        linked: false, user_id: null, expires_at: null, integration_enabled: true,
-      });
-      vi.mocked(api.getBeatportStatus).mockResolvedValue({
-        linked: false, expires_at: null, configured: false, subscription: null, integration_enabled: true,
-      });
-      vi.mocked(api.getNowPlaying).mockResolvedValue(null);
-      vi.mocked(api.getArchivedEvents).mockResolvedValue([{
-        ...mockEvent(), status: 'expired' as const, request_count: 1, archived_at: null,
-      }]);
-
-      render(<EventQueuePage />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Test Event')).toBeInTheDocument();
-        expect(screen.getByText('expired')).toBeInTheDocument();
-      });
-    });
-
-    it('shows error card on 410 without archived match', async () => {
-      vi.mocked(api.getEvent).mockRejectedValue(new ApiError('Expired', 410));
-      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([]));
-      vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
-      vi.mocked(api.getDisplaySettings).mockResolvedValue({
-        status: 'ok', now_playing_hidden: false, now_playing_auto_hide_minutes: 10,
-        requests_open: true, kiosk_display_only: false,
-      });
-      vi.mocked(api.getTidalStatus).mockResolvedValue({
-        linked: false, user_id: null, expires_at: null, integration_enabled: true,
-      });
-      vi.mocked(api.getBeatportStatus).mockResolvedValue({
-        linked: false, expires_at: null, configured: false, subscription: null, integration_enabled: true,
-      });
-      vi.mocked(api.getNowPlaying).mockResolvedValue(null);
-      vi.mocked(api.getArchivedEvents).mockResolvedValue([]); // No match
-
-      render(<EventQueuePage />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId('error-card')).toBeInTheDocument();
-      });
-    });
-  });
-
-  describe('Polling loop', () => {
-    it('polls every 3 seconds', async () => {
-      vi.useFakeTimers();
-      setupDefaultMocks();
-
-      render(<EventQueuePage />);
-      await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-      expect(api.getEvent).toHaveBeenCalledTimes(1);
-
-      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
-      expect(api.getEvent).toHaveBeenCalledTimes(2);
-
-      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
-      expect(api.getEvent).toHaveBeenCalledTimes(3);
-    });
-
-    it('stops on 404', async () => {
-      vi.useFakeTimers();
-      vi.mocked(api.getEvent).mockRejectedValue(new ApiError('Not found', 404));
-      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([]));
-      vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
-      vi.mocked(api.getDisplaySettings).mockResolvedValue({
-        status: 'ok', now_playing_hidden: false, now_playing_auto_hide_minutes: 10,
-        requests_open: true, kiosk_display_only: false,
-      });
-      vi.mocked(api.getTidalStatus).mockResolvedValue({
-        linked: false, user_id: null, expires_at: null, integration_enabled: true,
-      });
-      vi.mocked(api.getBeatportStatus).mockResolvedValue({
-        linked: false, expires_at: null, configured: false, subscription: null, integration_enabled: true,
-      });
-      vi.mocked(api.getNowPlaying).mockResolvedValue(null);
-
-      render(<EventQueuePage />);
-      await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-      const callCount = vi.mocked(api.getEvent).mock.calls.length;
-
-      await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
-      expect(api.getEvent).toHaveBeenCalledTimes(callCount);
-    });
-
-    it('continues on transient error', async () => {
-      vi.useFakeTimers();
-      setupDefaultMocks();
-      vi.mocked(api.getEvent)
-        .mockResolvedValueOnce(mockEvent())
-        .mockRejectedValueOnce(new Error('Transient'))
-        .mockResolvedValue(mockEvent());
-
-      render(<EventQueuePage />);
-      await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-      expect(api.getEvent).toHaveBeenCalledTimes(1);
-
-      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
-      expect(api.getEvent).toHaveBeenCalledTimes(2);
-
-      // Should still poll after transient error
-      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
-      expect(api.getEvent).toHaveBeenCalledTimes(3);
-    });
-  });
-
-  describe('Tab switching', () => {
-    it('defaults to songs tab', async () => {
-      setupDefaultMocks();
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      expect(screen.getByTestId('song-tab')).toBeInTheDocument();
-    });
-
-    it('switches to manage tab', async () => {
-      setupDefaultMocks();
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      fireEvent.click(screen.getByText('Event Management'));
-
-      expect(screen.getByTestId('manage-tab')).toBeInTheDocument();
-    });
-
-    it('switches back to songs tab', async () => {
-      setupDefaultMocks();
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      fireEvent.click(screen.getByText('Event Management'));
-      fireEvent.click(screen.getByText('Song Management'));
-
-      expect(screen.getByTestId('song-tab')).toBeInTheDocument();
-    });
-  });
-
-  describe('Compact mode', () => {
-    it('toggles via button and persists to localStorage', async () => {
-      setupDefaultMocks();
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      const container = screen.getByText('Test Event').closest('.container');
-      expect(container?.classList.contains('compact')).toBe(false);
-
-      fireEvent.click(screen.getByLabelText('Compact mode off'));
-
-      expect(container?.classList.contains('compact')).toBe(true);
-
-      // Toggle back
-      fireEvent.click(screen.getByLabelText('Compact mode on'));
-
-      expect(container?.classList.contains('compact')).toBe(false);
-    });
-  });
-
-  describe('Action error auto-dismiss', () => {
-    it('auto-dismisses after 5s', async () => {
-      vi.useFakeTimers();
-      setupDefaultMocks();
-      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
-      vi.mocked(api.updateRequestStatus).mockRejectedValue(new ApiError('Status error', 400));
-
-      render(<EventQueuePage />);
-      await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-
-      // Trigger an error via the update handler
-      const onUpdateStatus = capturedSongTabProps.onUpdateStatus as (id: number, s: string) => Promise<void>;
-      await act(async () => { await onUpdateStatus(1, 'accepted'); });
-
-      expect(screen.getByText('Status error')).toBeInTheDocument();
-
-      // Advance 5s — error should dismiss
-      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
-      expect(screen.queryByText('Status error')).not.toBeInTheDocument();
-    });
-  });
-
-  describe('Request status actions', () => {
-    it('passes onUpdateStatus to SongTab', async () => {
-      setupDefaultMocks();
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      expect(typeof capturedSongTabProps.onUpdateStatus).toBe('function');
-    });
-
-    it('calls updateRequestStatus via handler', async () => {
-      setupDefaultMocks();
-      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
-      vi.mocked(api.updateRequestStatus).mockResolvedValue(mockRequest({ status: 'accepted' }));
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      const onUpdateStatus = capturedSongTabProps.onUpdateStatus as (id: number, s: string) => Promise<void>;
-      await act(async () => { await onUpdateStatus(1, 'accepted'); });
-
-      expect(api.updateRequestStatus).toHaveBeenCalledWith(1, 'accepted');
-    });
-
-    it('shows error on status update failure', async () => {
-      setupDefaultMocks();
-      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
-      vi.mocked(api.updateRequestStatus).mockRejectedValue(new ApiError('Invalid transition', 400));
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      const onUpdateStatus = capturedSongTabProps.onUpdateStatus as (id: number, s: string) => Promise<void>;
-      await act(async () => { await onUpdateStatus(1, 'played'); });
-
-      expect(screen.getByText('Invalid transition')).toBeInTheDocument();
-    });
-  });
-
-  describe('Accept all requests', () => {
-    it('calls acceptAllRequests', async () => {
-      setupDefaultMocks();
-      vi.mocked(api.acceptAllRequests).mockResolvedValue({ status: 'ok', accepted_count: 1 });
-      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest({ status: 'accepted' })]));
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      const onAcceptAll = capturedSongTabProps.onAcceptAll as () => Promise<void>;
-      await act(async () => { await onAcceptAll(); });
-
-      expect(api.acceptAllRequests).toHaveBeenCalledWith('TEST');
-    });
-
-    it('shows error on failure', async () => {
-      setupDefaultMocks();
-      vi.mocked(api.acceptAllRequests).mockRejectedValue(new ApiError('No requests', 400));
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      const onAcceptAll = capturedSongTabProps.onAcceptAll as () => Promise<void>;
-      await act(async () => { await onAcceptAll(); });
-
-      expect(screen.getByText('No requests')).toBeInTheDocument();
-    });
-  });
-
-  describe('Edit expiry', () => {
-    it('shows edit form on click', async () => {
-      setupDefaultMocks();
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-
-      expect(screen.getByDisplayValue(/2026/)).toBeInTheDocument();
-    });
-
-    it('saves new expiry', async () => {
-      setupDefaultMocks();
-      vi.mocked(api.updateEvent).mockResolvedValue(mockEvent({ expires_at: '2027-06-01T00:00:00Z' }));
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-      fireEvent.change(screen.getByDisplayValue(/2026/), {
-        target: { value: '2027-06-01T00:00' },
-      });
-      await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-      });
-
-      expect(api.updateEvent).toHaveBeenCalledWith('TEST', expect.objectContaining({
-        expires_at: expect.stringContaining('2027'),
-      }));
-    });
-
-    it('cancels editing', async () => {
-      setupDefaultMocks();
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-      expect(screen.getByDisplayValue(/2026/)).toBeInTheDocument();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-      expect(screen.queryByDisplayValue(/2026-12/)).not.toBeInTheDocument();
-      expect(api.updateEvent).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('Delete event', () => {
-    it('shows delete modal', async () => {
-      setupDefaultMocks();
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
-
-      expect(screen.getByTestId('delete-modal')).toBeInTheDocument();
-    });
-
-    it('deletes and redirects on confirm', async () => {
-      setupDefaultMocks();
-      vi.mocked(api.deleteEvent).mockResolvedValue(undefined);
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
-      await act(async () => {
-        fireEvent.click(screen.getByText('Confirm Delete'));
-      });
-
-      expect(api.deleteEvent).toHaveBeenCalledWith('TEST');
-      expect(mockPush).toHaveBeenCalledWith('/dashboard');
-    });
-
-    it('shows error on failure', async () => {
-      setupDefaultMocks();
-      vi.mocked(api.deleteEvent).mockRejectedValue(new ApiError('Cannot delete', 400));
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
-      await act(async () => {
-        fireEvent.click(screen.getByText('Confirm Delete'));
-      });
-
-      expect(screen.getByText('Cannot delete')).toBeInTheDocument();
-      expect(mockPush).not.toHaveBeenCalledWith('/events');
-    });
-  });
-
-  describe('CSV export', () => {
-    it('calls exportEventCsv', async () => {
-      setupDefaultMocks();
-      // Force expired state to show export button
-      vi.mocked(api.getEvent).mockRejectedValue(new ApiError('Expired', 410));
-      vi.mocked(api.getArchivedEvents).mockResolvedValue([{
-        ...mockEvent(), status: 'expired' as const, request_count: 1, archived_at: null,
-      }]);
-      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
-      vi.mocked(api.exportEventCsv).mockResolvedValue(true);
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
-      });
-
-      expect(api.exportEventCsv).toHaveBeenCalledWith('TEST');
-      expect(screen.getByRole('status')).toHaveTextContent(
-        'This CSV contains the first 10,000 requests only.'
-      );
-    });
-
-    it('shows when play history export is truncated', async () => {
-      setupDefaultMocks();
-      vi.mocked(api.getEvent).mockRejectedValue(new ApiError('Expired', 410));
-      vi.mocked(api.getArchivedEvents).mockResolvedValue([{
-        ...mockEvent(), status: 'expired' as const, request_count: 0, archived_at: null,
-      }]);
-      vi.mocked(api.exportPlayHistoryCsv).mockResolvedValue(true);
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: 'Export Play History' }));
-      });
-
-      expect(screen.getByRole('status')).toHaveTextContent(
-        'This CSV contains the first 10,000 play history entries only.'
-      );
-    });
-
-    it('warns when export truncation status cannot be read', async () => {
-      setupDefaultMocks();
-      vi.mocked(api.getEvent).mockRejectedValue(new ApiError('Expired', 410));
-      vi.mocked(api.getArchivedEvents).mockResolvedValue([{
-        ...mockEvent(), status: 'expired' as const, request_count: 0, archived_at: null,
-      }]);
-      vi.mocked(api.exportEventCsv).mockResolvedValue(null);
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
-      });
-
-      expect(screen.getByRole('status')).toHaveTextContent(
-        'The download did not include a truncation status. Verify it is complete before relying on it.'
-      );
-    });
-
-    it('keeps a history warning when a concurrent request export completes without truncation', async () => {
-      setupDefaultMocks();
-      vi.mocked(api.getEvent).mockRejectedValue(new ApiError('Expired', 410));
-      vi.mocked(api.getArchivedEvents).mockResolvedValue([{
-        ...mockEvent(), status: 'expired' as const, request_count: 0, archived_at: null,
-      }]);
-
-      let resolveRequest!: (truncated: boolean | null) => void;
-      let resolveHistory!: (truncated: boolean | null) => void;
-      vi.mocked(api.exportEventCsv).mockImplementation(() => new Promise((resolve) => {
-        resolveRequest = resolve;
-      }));
-      vi.mocked(api.exportPlayHistoryCsv).mockImplementation(() => new Promise((resolve) => {
-        resolveHistory = resolve;
-      }));
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: 'Export Play History' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
-      });
-
-      await act(async () => {
-        resolveHistory(true);
-        await Promise.resolve();
-      });
-      const warning = 'This CSV contains the first 10,000 play history entries only.';
-      expect(screen.getByRole('status')).toHaveTextContent(warning);
-
-      await act(async () => {
-        resolveRequest(false);
-        await Promise.resolve();
-      });
-
-      expect(screen.getByRole('status')).toHaveTextContent(warning);
-    });
-  });
-
-  describe('Display settings via ManageTab', () => {
-    it('passes toggle handlers to ManageTab', async () => {
-      setupDefaultMocks();
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      fireEvent.click(screen.getByText('Event Management'));
-
-      expect(typeof capturedManageTabProps.onToggleRequests).toBe('function');
-      expect(typeof capturedManageTabProps.onToggleNowPlaying).toBe('function');
-      expect(typeof capturedManageTabProps.onToggleDisplayOnly).toBe('function');
-      expect(typeof capturedManageTabProps.onBannerSelect).toBe('function');
-    });
-
-    it('onToggleRequests calls setRequestsOpen', async () => {
-      setupDefaultMocks();
-      vi.mocked(api.setRequestsOpen).mockResolvedValue(undefined as never);
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-      fireEvent.click(screen.getByText('Event Management'));
-
-      const onToggleRequests = capturedManageTabProps.onToggleRequests as () => Promise<void>;
-      await act(async () => { await onToggleRequests(); });
-
-      expect(api.setRequestsOpen).toHaveBeenCalledWith('TEST', false);
-    });
-
-    it('onToggleNowPlaying calls setNowPlayingVisibility', async () => {
-      setupDefaultMocks();
-      vi.mocked(api.setNowPlayingVisibility).mockResolvedValue(undefined as never);
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-      fireEvent.click(screen.getByText('Event Management'));
-
-      const onToggleNowPlaying = capturedManageTabProps.onToggleNowPlaying as () => Promise<void>;
-      await act(async () => { await onToggleNowPlaying(); });
-
-      expect(api.setNowPlayingVisibility).toHaveBeenCalledWith('TEST', true);
-    });
-
-    it('onToggleDisplayOnly calls setKioskDisplayOnly', async () => {
-      setupDefaultMocks();
-      vi.mocked(api.setKioskDisplayOnly).mockResolvedValue(undefined as never);
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-      fireEvent.click(screen.getByText('Event Management'));
-
-      const onToggleDisplayOnly = capturedManageTabProps.onToggleDisplayOnly as () => Promise<void>;
-      await act(async () => { await onToggleDisplayOnly(); });
-
-      expect(api.setKioskDisplayOnly).toHaveBeenCalledWith('TEST', true);
-    });
-  });
-
-  describe('Tidal auth flow', () => {
-    it('starts auth and shows modal', async () => {
-      setupDefaultMocks();
-      vi.mocked(api.startTidalAuth).mockResolvedValue({
-        verification_url: 'https://tidal.com/device',
-        user_code: 'ABCD1234',
-        message: 'ok',
-      });
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-      fireEvent.click(screen.getByText('Event Management'));
-
-      const onConnectTidal = capturedManageTabProps.onConnectTidal as () => Promise<void>;
-      await act(async () => { await onConnectTidal(); });
-
-      expect(api.startTidalAuth).toHaveBeenCalled();
-      expect(screen.getByTestId('tidal-login-modal')).toBeInTheDocument();
-    });
-
-    it('polls checkTidalAuth every 2s', async () => {
-      vi.useFakeTimers();
-      setupDefaultMocks();
-      vi.mocked(api.startTidalAuth).mockResolvedValue({
-        verification_url: 'https://tidal.com/device',
-        user_code: 'ABCD1234',
-        message: 'ok',
-      });
-      vi.mocked(api.checkTidalAuth).mockResolvedValue({ complete: false });
-
-      render(<EventQueuePage />);
-      await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-      fireEvent.click(screen.getByText('Event Management'));
-
-      const onConnectTidal = capturedManageTabProps.onConnectTidal as () => Promise<void>;
-      await act(async () => { await onConnectTidal(); });
-
-      // Advance 2s for first poll
-      await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
-      expect(api.checkTidalAuth).toHaveBeenCalledTimes(1);
-
-      // Advance 2s for second poll
-      await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
-      expect(api.checkTidalAuth).toHaveBeenCalledTimes(2);
-    });
-
-    it('cancels auth', async () => {
-      setupDefaultMocks();
-      vi.mocked(api.startTidalAuth).mockResolvedValue({
-        verification_url: 'https://tidal.com/device',
-        user_code: 'ABCD1234',
-        message: 'ok',
-      });
-      vi.mocked(api.cancelTidalAuth).mockResolvedValue({ status: 'ok', message: 'cancelled' });
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-      fireEvent.click(screen.getByText('Event Management'));
-
-      const onConnectTidal = capturedManageTabProps.onConnectTidal as () => Promise<void>;
-      await act(async () => { await onConnectTidal(); });
-
-      await act(async () => {
-        fireEvent.click(screen.getByText('Cancel Tidal'));
-      });
-
-      expect(api.cancelTidalAuth).toHaveBeenCalled();
-    });
-  });
-
-  describe('Beatport auth flow', () => {
-    it('opens login modal', async () => {
-      setupDefaultMocks();
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-      fireEvent.click(screen.getByText('Event Management'));
-
-      const onConnectBeatport = capturedManageTabProps.onConnectBeatport as () => void;
-      act(() => { onConnectBeatport(); });
-
-      expect(screen.getByTestId('beatport-login-modal')).toBeInTheDocument();
-    });
-
-    it('calls loginBeatport', async () => {
-      setupDefaultMocks();
-      vi.mocked(api.loginBeatport).mockResolvedValue({ status: 'ok', message: 'logged in' });
-      vi.mocked(api.getBeatportStatus).mockResolvedValue({
-        linked: true, expires_at: null, configured: true, subscription: 'pro', integration_enabled: true,
-      });
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-      fireEvent.click(screen.getByText('Event Management'));
-
-      const onConnectBeatport = capturedManageTabProps.onConnectBeatport as () => void;
-      act(() => { onConnectBeatport(); });
-
-      await act(async () => {
-        fireEvent.click(screen.getByText('Submit BP Login'));
-      });
-
-      expect(api.loginBeatport).toHaveBeenCalledWith('user', 'pass');
-    });
-  });
-
-  describe('Banner upload', () => {
-    it('passes onBannerSelect to ManageTab', async () => {
-      setupDefaultMocks();
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-      fireEvent.click(screen.getByText('Event Management'));
-
-      expect(typeof capturedManageTabProps.onBannerSelect).toBe('function');
-    });
-
-    it('onBannerSelect calls uploadEventBanner with file', async () => {
-      setupDefaultMocks();
-      vi.mocked(api.uploadEventBanner).mockResolvedValue(mockEvent({
-        banner_url: '/uploads/banners/test.webp',
-        banner_kiosk_url: '/uploads/banners/test_kiosk.webp',
-      }) as never);
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-      fireEvent.click(screen.getByText('Event Management'));
-
-      const file = new File(['fake-image'], 'banner.png', { type: 'image/png' });
-      const onBannerSelect = capturedManageTabProps.onBannerSelect as (
-        e: React.ChangeEvent<HTMLInputElement>,
-      ) => Promise<void>;
-      await act(async () => {
-        await onBannerSelect({
-          target: { files: [file] },
-        } as unknown as React.ChangeEvent<HTMLInputElement>);
-      });
-
-      expect(api.uploadEventBanner).toHaveBeenCalledWith('TEST', file);
-    });
-  });
-
-  describe('Now playing badge', () => {
-    it('shows badge when bridge has now-playing', async () => {
-      setupDefaultMocks();
-      vi.mocked(api.getNowPlaying).mockResolvedValue({
-        title: 'Track', artist: 'Artist', album: null, album_art_url: null,
-        spotify_uri: null, started_at: new Date().toISOString(),
-        source: 'stagelinq', matched_request_id: null, bridge_connected: true,
-      });
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      expect(screen.getByTestId('now-playing-badge')).toBeInTheDocument();
-    });
-
-    it('hides badge when expired', async () => {
-      vi.mocked(api.getEvent).mockRejectedValue(new ApiError('Expired', 410));
-      vi.mocked(api.getArchivedEvents).mockResolvedValue([{
-        ...mockEvent(), status: 'expired' as const, request_count: 0, archived_at: null,
-      }]);
-      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([]));
-      vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
-      vi.mocked(api.getDisplaySettings).mockResolvedValue({
-        status: 'ok', now_playing_hidden: false, now_playing_auto_hide_minutes: 10,
-        requests_open: true, kiosk_display_only: false,
-      });
-      vi.mocked(api.getTidalStatus).mockResolvedValue({
-        linked: false, user_id: null, expires_at: null, integration_enabled: true,
-      });
-      vi.mocked(api.getBeatportStatus).mockResolvedValue({
-        linked: false, expires_at: null, configured: false, subscription: null, integration_enabled: true,
-      });
-      vi.mocked(api.getNowPlaying).mockResolvedValue({
-        title: 'Track', artist: 'Artist', album: null, album_art_url: null,
-        spotify_uri: null, started_at: new Date().toISOString(),
-        source: 'stagelinq', matched_request_id: null, bridge_connected: true,
-      });
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      expect(screen.queryByTestId('now-playing-badge')).not.toBeInTheDocument();
-    });
-  });
-
-  describe('Expired event features', () => {
-    it('shows RequestQueueSection directly for expired events', async () => {
-      vi.mocked(api.getEvent).mockRejectedValue(new ApiError('Expired', 410));
-      vi.mocked(api.getArchivedEvents).mockResolvedValue([{
-        ...mockEvent(), status: 'expired' as const, request_count: 1, archived_at: null,
-      }]);
-      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
-      vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
-      vi.mocked(api.getDisplaySettings).mockResolvedValue({
-        status: 'ok', now_playing_hidden: false, now_playing_auto_hide_minutes: 10,
-        requests_open: true, kiosk_display_only: false,
-      });
-      vi.mocked(api.getTidalStatus).mockResolvedValue({
-        linked: false, user_id: null, expires_at: null, integration_enabled: true,
-      });
-      vi.mocked(api.getBeatportStatus).mockResolvedValue({
-        linked: false, expires_at: null, configured: false, subscription: null, integration_enabled: true,
-      });
-      vi.mocked(api.getNowPlaying).mockResolvedValue(null);
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      // Expired events show queue section directly, no tabs
-      expect(screen.getByTestId('queue-section')).toBeInTheDocument();
-      expect(screen.getByTestId('play-history')).toBeInTheDocument();
-      expect(screen.queryByText('Song Management')).not.toBeInTheDocument();
-    });
-
-    it('hides QR code for expired events', async () => {
-      vi.mocked(api.getEvent).mockRejectedValue(new ApiError('Expired', 410));
-      vi.mocked(api.getArchivedEvents).mockResolvedValue([{
-        ...mockEvent(), status: 'expired' as const, request_count: 0, archived_at: null,
-      }]);
-      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([]));
-      vi.mocked(api.getPlayHistory).mockResolvedValue({ items: [], total: 0 });
-      vi.mocked(api.getDisplaySettings).mockResolvedValue({
-        status: 'ok', now_playing_hidden: false, now_playing_auto_hide_minutes: 10,
-        requests_open: true, kiosk_display_only: false,
-      });
-      vi.mocked(api.getTidalStatus).mockResolvedValue({
-        linked: false, user_id: null, expires_at: null, integration_enabled: true,
-      });
-      vi.mocked(api.getBeatportStatus).mockResolvedValue({
-        linked: false, expires_at: null, configured: false, subscription: null, integration_enabled: true,
-      });
-      vi.mocked(api.getNowPlaying).mockResolvedValue(null);
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      expect(screen.queryByTestId('qr-code')).not.toBeInTheDocument();
-    });
-  });
-
-  describe('Delete request', () => {
-    it('calls deleteRequest via handler', async () => {
-      setupDefaultMocks();
-      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
-      vi.mocked(api.deleteRequest).mockResolvedValue(undefined);
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      const onDeleteRequest = capturedSongTabProps.onDeleteRequest as (id: number) => Promise<void>;
-      await act(async () => { await onDeleteRequest(1); });
-
-      expect(api.deleteRequest).toHaveBeenCalledWith(1);
-    });
-  });
-
-  describe('Refresh metadata', () => {
-    it('calls refreshRequestMetadata via handler', async () => {
-      setupDefaultMocks();
-      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([mockRequest()]));
-      vi.mocked(api.refreshRequestMetadata).mockResolvedValue(
-        mockRequest({ genre: 'Electronic', bpm: 128 }),
-      );
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      const onRefreshMetadata = capturedSongTabProps.onRefreshMetadata as (id: number) => Promise<void>;
-      await act(async () => { await onRefreshMetadata(1); });
-
-      expect(api.refreshRequestMetadata).toHaveBeenCalledWith(1);
-    });
-  });
-
-  describe('Reject all', () => {
-    it('calls rejectAllRequests via handler', async () => {
-      setupDefaultMocks();
-      vi.mocked(api.rejectAllRequests).mockResolvedValue({ status: 'ok', count: 0 });
-      vi.mocked(api.getRequests).mockResolvedValue(mockRequestList([]));
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      const onRejectAll = capturedSongTabProps.onRejectAll as () => Promise<void>;
-      await act(async () => { await onRejectAll(); });
-
-      expect(api.rejectAllRequests).toHaveBeenCalledWith('TEST');
-    });
-  });
-
-  describe('Back link', () => {
-    it('shows back link to events', async () => {
-      setupDefaultMocks();
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      const backLink = screen.getByText(/Back to Dashboard/);
-      expect(backLink.closest('a')).toHaveAttribute('href', '/dashboard');
-    });
-  });
-
-  describe('Live-display polls use join_code, not collection code', () => {
-    it('polls now-playing / bridge-status / history by join_code', async () => {
-      setupDefaultMocks();
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-
-      // These three endpoints resolve strictly by join_code (post-#324/#328
-      // public-URL contract). This route is keyed on the collection code 'TEST',
-      // but the live polls must use the event's join_code 'TSETJO' or the API
-      // 404s in a polling loop. Regression for the production console-spam bug.
-      expect(api.getNowPlaying).toHaveBeenCalledWith('TSETJO');
-      expect(api.getBridgeStatus).toHaveBeenCalledWith('TSETJO');
-      expect(api.getPlayHistory).toHaveBeenCalledWith('TSETJO');
-      expect(api.getNowPlaying).not.toHaveBeenCalledWith('TEST');
-      expect(api.getBridgeStatus).not.toHaveBeenCalledWith('TEST');
-      expect(api.getPlayHistory).not.toHaveBeenCalledWith('TEST');
-
-      // DJ-owned endpoints still resolve by the collection code.
-      expect(api.getEvent).toHaveBeenCalledWith('TEST');
-      expect(api.getRequests).toHaveBeenCalledWith('TEST', expect.anything());
-    });
-  });
-
-  describe('Client-side status filter + status counts (issue #489)', () => {
-    it('computes tab counts from the in-memory set, not server status_counts', async () => {
-      setupDefaultMocks();
-      // The whole event loads client-side; counts come from the loaded rows'
-      // statuses (server `status_counts` is ignored).
-      vi.mocked(api.getRequests).mockResolvedValue(
-        mockRequestList(
-          [
-            mockRequest({ id: 1, status: 'new' }),
-            mockRequest({ id: 2, status: 'new' }),
-            mockRequest({ id: 3, status: 'accepted' }),
-          ],
-          { status_counts: { all: 999, new: 999, accepted: 999, playing: 9, played: 9, rejected: 9 } },
-        ),
-      );
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-      await waitFor(() =>
-        expect((capturedSongTabProps.statusCounts as Record<string, number>).all).toBe(3),
-      );
-
-      expect(capturedSongTabProps.statusCounts).toEqual({
-        all: 3, new: 2, accepted: 1, playing: 0, played: 0, rejected: 0,
-      });
-    });
-
-    it('changes the filter without a server re-fetch (in-memory)', async () => {
-      setupDefaultMocks();
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-      vi.mocked(api.getRequests).mockClear();
-
-      const onFilterChange = capturedSongTabProps.onFilterChange as (f: string) => void;
-      await act(async () => { onFilterChange('accepted'); });
-
-      // The filter prop updates, but no new request fetch is triggered.
-      expect(capturedSongTabProps.filter).toBe('accepted');
-      expect(api.getRequests).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('Client-side sort (issue #489)', () => {
-    it('changes a simple sort field without a server re-fetch', async () => {
-      setupDefaultMocks();
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-      vi.mocked(api.getRequests).mockClear();
-
-      const onSortFieldChange = capturedSongTabProps.onSortFieldChange as (f: string) => void;
-      await act(async () => { onSortFieldChange('upvotes'); });
-
-      // upvotes is a client-sorted field — instant, no network.
-      expect(capturedSongTabProps.sortField).toBe('upvotes');
-      expect(api.getRequests).not.toHaveBeenCalled();
-    });
-
-    it('toggles sort direction without a server re-fetch', async () => {
-      setupDefaultMocks();
-
-      render(<EventQueuePage />);
-      await screen.findByText('Test Event');
-      vi.mocked(api.getRequests).mockClear();
-
-      const onSortDirectionToggle = capturedSongTabProps.onSortDirectionToggle as () => void;
-      await act(async () => { onSortDirectionToggle(); });
-
-      expect(capturedSongTabProps.sortDirection).toBe('asc');
-      expect(api.getRequests).not.toHaveBeenCalled();
-    });
-
-    it('does not double-fetch on the initial mount', async () => {
-      vi.useFakeTimers();
-      setupDefaultMocks();
-
-      render(<EventQueuePage />);
-      await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-
-      // Exactly one initial load from the request hook.
-      expect(api.getRequests).toHaveBeenCalledTimes(1);
-    });
-  });
+  registerPageErrorsAndSettings(eventPageTestContext);
+  registerPageActions(eventPageTestContext);
+  registerProviderAndDisplay(eventPageTestContext);
+  registerRequestList(eventPageTestContext);
 });

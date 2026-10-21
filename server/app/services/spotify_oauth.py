@@ -19,6 +19,7 @@ AUTH_URL = "https://accounts.spotify.com/authorize"
 OAUTH_EXCHANGE_URL = "https://accounts.spotify.com/api/token"
 SCOPES = "playlist-modify-private user-library-modify"
 HTTP_TIMEOUT = 15.0
+MAX_TOKEN_LIFETIME_SECONDS = 24 * 60 * 60
 
 
 class SpotifyOAuthError(Exception):
@@ -65,7 +66,7 @@ def _token_expiry(token_data: dict) -> datetime:
         expires_in = int(token_data.get("expires_in", 3600))
     except (ValueError, TypeError) as exc:
         raise SpotifyOAuthError("Spotify returned an invalid token expiry") from exc
-    if not 1 <= expires_in <= 86400:
+    if not 1 <= expires_in <= MAX_TOKEN_LIFETIME_SECONDS:
         raise SpotifyOAuthError("Spotify returned an invalid token expiry")
     return datetime.now(UTC) + timedelta(seconds=expires_in)
 

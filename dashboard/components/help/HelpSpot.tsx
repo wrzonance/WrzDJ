@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { useHelp } from '@/lib/help/HelpContext';
-import { useTooltipPosition } from '@/lib/useTooltipPosition';
+import { useTooltipPosition } from '@/lib/use-tooltip-position';
 
 interface HelpSpotProps {
   spotId: string;

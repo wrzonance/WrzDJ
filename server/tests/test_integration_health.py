@@ -104,9 +104,9 @@ class TestGetAllIntegrationStatuses:
             assert "password" not in serialized.lower()
 
     def test_disabled_integration_reflected(self, db: Session):
-        from app.services.system_settings import update_system_settings
+        from app.services.system_settings import SystemSettingsPatch, update_system_settings
 
-        update_system_settings(db, spotify_enabled=False)
+        update_system_settings(db, SystemSettingsPatch(spotify_enabled=False))
         statuses = get_all_integration_statuses(db)
         spotify = next(s for s in statuses if s.service == "spotify")
         assert spotify.enabled is False
@@ -185,7 +185,7 @@ class TestCheckSpotifyCapabilities:
         assert caps.catalog_search == CapabilityStatus.NOT_CONFIGURED
 
     @patch("app.services.integration_health.get_settings")
-    @patch("app.services.spotify._get_spotify_client")
+    @patch("app.services.providers.spotify.get_spotify_client")
     def test_configured_and_search_success(self, mock_sp, mock_settings):
         mock_obj = MagicMock()
         mock_obj.spotify_client_id = "test_id"
@@ -200,7 +200,7 @@ class TestCheckSpotifyCapabilities:
         assert caps.catalog_search == CapabilityStatus.YES
 
     @patch("app.services.integration_health.get_settings")
-    @patch("app.services.spotify._get_spotify_client")
+    @patch("app.services.providers.spotify.get_spotify_client")
     def test_configured_but_search_exception(self, mock_sp, mock_settings):
         mock_obj = MagicMock()
         mock_obj.spotify_client_id = "test_id"

@@ -23,7 +23,10 @@ Request-body schemas (EventCreate, EventUpdate, etc.) keep their original
 from __future__ import annotations
 
 import json
+import os
+import stat
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -85,6 +88,30 @@ def _promote_response_fields_to_required(spec: dict[str, Any]) -> None:
             schema["required"] = sorted(properties.keys())
 
 
+def _write_atomically(path: Path, contents: str) -> None:
+    """Replace an artifact only after its complete temporary file is written."""
+    temporary_path: Path | None = None
+    descriptor: int | None = None
+    try:
+        mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o644
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+        )
+        temporary_path = Path(temporary_name)
+        os.fchmod(descriptor, mode)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as temporary_file:
+            descriptor = None
+            temporary_file.write(contents)
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+        os.replace(temporary_path, path)
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
 def export() -> Path:
     from app.main import app
 
@@ -95,7 +122,7 @@ def export() -> Path:
     app.openapi_schema = None
     spec = app.openapi()
     _promote_response_fields_to_required(spec)
-    output.write_text(json.dumps(spec, indent=2, sort_keys=True) + "\n")
+    _write_atomically(output, json.dumps(spec, indent=2, sort_keys=True) + "\n")
     return output
 
 

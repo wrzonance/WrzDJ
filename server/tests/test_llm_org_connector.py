@@ -5,9 +5,15 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import text
 
-from app.models.llm_connector import SCOPE_ORG, SCOPE_USER, STATUS_ACTIVE, LlmConnector
+from app.models.llm_connector import (
+    SCOPE_ORG,
+    SCOPE_USER,
+    STATUS_ACTIVE,
+    LlmAuditEvent,
+    LlmConnector,
+)
+from app.services.llm.connector_payloads import CreateConnectorPayload
 from app.services.llm.connector_storage import (
-    CreateConnectorPayload,
     audit_event,
     create_connector,
     get_user_label,
@@ -45,6 +51,11 @@ def test_create_user_connector_defaults_to_user_scope(db, test_user):
     db.commit()
     assert row.scope == SCOPE_USER
     assert row.user_id == test_user.id
+
+
+def test_create_connector_rejects_mismatched_org_scope_and_user_id(db, test_user):
+    with pytest.raises(ValueError, match="org scope requires user_id=None"):
+        create_connector(db, user_id=test_user.id, payload=_payload(), scope=SCOPE_ORG)
 
 
 def test_db_rejects_unknown_scope(db, test_user):
@@ -312,6 +323,28 @@ def test_org_connector_rotate_invalid_key_returns_400(client, admin_headers, db)
         headers=admin_headers,
     )
     assert resp.status_code == 400
+
+
+def test_org_connector_rotation_rejects_irrelevant_fields_without_mutation(
+    client, admin_headers, db
+):
+    # Regression for baseline 57cfcdc6867f: irrelevant null fields were silently ignored.
+    org = _mk_org_connector(db, name="House Stable")
+    audit_count = db.query(LlmAuditEvent).count()
+    original_credentials = org.credentials
+
+    response = client.put(
+        f"/api/admin/llm/org-connectors/{org.id}/credentials",
+        json={"api_key": "sk-ant-rotated7890abcdef1234567890abcdef1234567890", "aws_region": None},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 400
+    db.refresh(org)
+    assert org.credentials == original_credentials
+    assert org.display_name == "House Stable"
+    assert org.status == STATUS_ACTIVE
+    assert db.query(LlmAuditEvent).count() == audit_count
 
 
 def test_org_connector_test_endpoint(client, admin_headers, db):

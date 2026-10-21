@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from app.services import tidal as tidal_service
+from app.services.providers import tidal as tidal_service
 from app.services.sync.base import PlaylistSyncAdapter, TrackMatch
 from app.services.track_normalizer import fuzzy_match_score
 from app.services.version_filter import is_unwanted_version

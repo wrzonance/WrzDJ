@@ -33,6 +33,7 @@ bridge-app/index.html
 # IDE
 .idea/
 .vscode/
+.ropeproject/
 *.swp
 *.swo
 *~
@@ -79,6 +80,8 @@ llm-plans*.md
 # Development notes (feature brainstorms, scratch)
 notes/
 .gitnexus
+.desloppify/
+.agents/
 .aider*
 .claude/
 .superpowers/

@@ -19,31 +19,31 @@ vi.mock('qrcode.react', () => ({
 }));
 
 // Mock complex child components to prevent deep rendering
-vi.mock('../components/SongManagementTab', () => ({
+vi.mock('../components/requests/SongManagementTab', () => ({
   SongManagementTab: () => <div data-testid="song-tab">SongTab</div>,
 }));
 
-vi.mock('../components/EventManagementTab', () => ({
+vi.mock('../components/management/EventManagementTab', () => ({
   EventManagementTab: () => <div data-testid="manage-tab">ManageTab</div>,
 }));
 
-vi.mock('../components/DeleteEventModal', () => ({
+vi.mock('../components/management/DeleteEventModal', () => ({
   DeleteEventModal: () => null,
 }));
 
-vi.mock('../components/NowPlayingBadge', () => ({
+vi.mock('../components/requests/NowPlayingBadge', () => ({
   NowPlayingBadge: () => null,
 }));
 
-vi.mock('../components/TidalLoginModal', () => ({
+vi.mock('../components/providers/TidalLoginModal', () => ({
   TidalLoginModal: () => null,
 }));
 
-vi.mock('../components/BeatportLoginModal', () => ({
+vi.mock('../components/providers/BeatportLoginModal', () => ({
   BeatportLoginModal: () => null,
 }));
 
-vi.mock('../components/ServiceTrackPickerModal', () => ({
+vi.mock('../components/providers/ServiceTrackPickerModal', () => ({
   ServiceTrackPickerModal: () => null,
 }));
 
@@ -55,11 +55,11 @@ vi.mock('@/lib/tab-title', () => ({
   useTabTitle: () => {},
 }));
 
-vi.mock('../components/RequestQueueSection', () => ({
+vi.mock('../components/requests/RequestQueueSection', () => ({
   RequestQueueSection: () => null,
 }));
 
-vi.mock('../components/PlayHistorySection', () => ({
+vi.mock('../components/requests/PlayHistorySection', () => ({
   PlayHistorySection: () => null,
 }));
 

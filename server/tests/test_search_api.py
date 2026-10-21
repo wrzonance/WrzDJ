@@ -13,7 +13,7 @@ from app.models.user import User
 class TestSearchEndpoint:
     """Tests for GET /api/search."""
 
-    @patch("app.services.tidal.search_tidal_tracks")
+    @patch("app.services.providers.tidal.search_tidal_tracks")
     def test_search_tidal_primary(
         self, mock_tidal, client: TestClient, auth_headers: dict, test_user: User, db: Session
     ):
@@ -42,8 +42,8 @@ class TestSearchEndpoint:
         assert data[0]["popularity"] == 80
         mock_tidal.assert_called_once()
 
-    @patch("app.services.spotify.search_songs")
-    @patch("app.services.tidal.search_tidal_tracks")
+    @patch("app.services.providers.spotify.search_songs")
+    @patch("app.services.providers.tidal.search_tidal_tracks")
     def test_search_spotify_fallback(
         self,
         mock_tidal,
@@ -76,7 +76,7 @@ class TestSearchEndpoint:
         assert len(data) == 1
         assert data[0]["source"] == "spotify"
 
-    @patch("app.services.spotify.search_songs")
+    @patch("app.services.providers.spotify.search_songs")
     def test_search_spotify_only_no_tidal(
         self, mock_search, client: TestClient, auth_headers: dict
     ):
@@ -107,7 +107,7 @@ class TestSearchEndpoint:
         response = client.get("/api/search?q=", headers=auth_headers)
         assert response.status_code == 422
 
-    @patch("app.services.spotify.search_songs")
+    @patch("app.services.providers.spotify.search_songs")
     def test_search_returns_empty_list(self, mock_search, client: TestClient, auth_headers: dict):
         mock_search.return_value = []
 

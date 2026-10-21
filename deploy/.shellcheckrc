@@ -1,0 +1,3 @@
+# Resolve source-relative helper imports and analyze their definitions.
+external-sources=true
+source-path=SCRIPTDIR

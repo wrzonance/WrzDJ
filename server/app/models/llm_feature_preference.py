@@ -13,13 +13,14 @@ from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, 
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
+from app.models.llm_contracts import FEATURE_KEY_VALUES
 
 # Allowlist of feature keys a DJ may pin. These mirror the gateway ``purpose``
 # strings. ``recommendation`` is the only purpose dispatched today;
 # ``set_builder`` is reserved for the upcoming set-builder feature (issue spec
 # §11.8). Validation of API input against this set lives in ``schemas/llm.py``
 # (the ``FeatureKey`` Literal must stay in sync — guarded by a test).
-KNOWN_FEATURES = frozenset({"recommendation", "set_builder"})
+KNOWN_FEATURES = frozenset(FEATURE_KEY_VALUES)
 
 
 class LlmFeaturePreference(Base):

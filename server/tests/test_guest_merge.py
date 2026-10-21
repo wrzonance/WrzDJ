@@ -11,7 +11,7 @@ from app.models.guest_profile import GuestProfile
 from app.models.request import Request, RequestStatus
 from app.models.request_vote import RequestVote
 from app.models.user import User
-from app.services.guest_merge import merge_guests
+from app.services.guests.merge import merge_guests
 
 
 def _make_guest(db: Session, token_prefix: str) -> Guest:

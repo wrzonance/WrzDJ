@@ -16,9 +16,9 @@
     "declarationMap": true,
     "sourceMap": true,
     "paths": {
-      "@bridge/*": ["../bridge/src/*"]
+      "@wrzdj/bridge/electron": ["../bridge/src/electron-api.ts"]
     }
   },
-  "include": ["src/**/*", "../bridge/src/**/*", "*.config.ts"],
+  "include": ["src/**/*", "*.config.ts", "*.config.mts", "*.config.cts"],
   "exclude": ["node_modules", "dist", "out"]
 }

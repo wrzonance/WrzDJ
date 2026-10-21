@@ -1,8 +1,12 @@
+import { registerSearchAndSubmission } from './page-search-submission.cases';
+import { registerVoteTests } from './page-votes.cases';
+import { registerFrictionlessTests } from './page-frictionless.cases';
+import type { JoinPageTestContext } from './page-test-context';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 
 // Use vi.hoisted so mock objects are available before vi.mock factory runs
-const { mockApi, MockApiError, MockHumanVerificationRequiredError, nicknameGateRenderSpy } =
+const { mockApi, MockApiError, MockHumanVerificationRequiredError, nicknameGateRenderSpy, testControls } =
   vi.hoisted(() => {
   class MockApiError extends Error {
     status: number;
@@ -29,6 +33,7 @@ const { mockApi, MockApiError, MockHumanVerificationRequiredError, nicknameGateR
     getMyRequests: vi.fn(),
     submitRequest: vi.fn(),
     publicVoteRequest: vi.fn(),
+    publicUnvoteRequest: vi.fn(),
     eventSearch: vi.fn(),
     search: vi.fn(),
     getJoinConfig: vi.fn(),
@@ -38,8 +43,14 @@ const { mockApi, MockApiError, MockHumanVerificationRequiredError, nicknameGateR
   // Tracks every NicknameGate mock render so tests can assert it never even
   // transiently mounted (final-DOM absence alone misses a mount/unmount flash).
   const nicknameGateRenderSpy = vi.fn();
+  const testControls = {
+    gateAutoCompletes: true,
+    eventStreamHandlers: null as null | {
+      onRequestCreated?: (data: { request_id: number; title: string; artist: string }) => void;
+    },
+  };
 
-  return { mockApi, MockApiError, MockHumanVerificationRequiredError, nicknameGateRenderSpy };
+  return { mockApi, MockApiError, MockHumanVerificationRequiredError, nicknameGateRenderSpy, testControls };
 });
 
 vi.mock('next/navigation', () => ({
@@ -65,17 +76,33 @@ vi.mock('@/components/EmailRecoveryModal', () => ({
 }));
 
 vi.mock('@/lib/use-event-stream', () => ({
-  useEventStream: vi.fn(),
+  useEventStream: vi.fn((_: string | null, handlers: typeof testControls.eventStreamHandlers) => {
+    testControls.eventStreamHandlers = handlers;
+  }),
 }));
 
-vi.mock('@/components/NicknameGate', () => ({
-  NicknameGate: ({ onComplete }: { onComplete: (r: unknown) => void }) => {
-    nicknameGateRenderSpy();
-    onComplete({ nickname: 'TestUser', emailVerified: false, submissionCount: 0, submissionCap: 5 });
-    return <div data-testid="nickname-gate" />;
-  },
-  GateResult: {},
-}));
+vi.mock('@/components/NicknameGate', async () => {
+  const { useEffect } = await vi.importActual<typeof import('react')>('react');
+  return {
+    NicknameGate: ({ onComplete }: { onComplete: (r: unknown) => void }) => {
+      nicknameGateRenderSpy();
+      useEffect(() => {
+        if (testControls.gateAutoCompletes) {
+          onComplete({ nickname: 'TestUser', emailVerified: false, submissionCount: 0, submissionCap: 5 });
+        }
+      }, [onComplete]);
+      return (
+        <button
+          data-testid="nickname-gate"
+          onClick={() => onComplete({ nickname: 'TestUser', emailVerified: false, submissionCount: 0, submissionCap: 5 })}
+        >
+          Complete nickname gate
+        </button>
+      );
+    },
+    GateResult: {},
+  };
+});
 
 vi.mock('@/components/IdentityBar', () => ({
   IdentityBar: ({ nickname }: { nickname: string }) => (
@@ -90,7 +117,7 @@ vi.mock('@/lib/api', () => ({
   PUBLIC_PAGE_MAX: 500,
 }));
 
-vi.mock('@/lib/useHumanVerification', () => {
+vi.mock('@/lib/use-human-verification', () => {
   class MockHumanVerificationFailedError extends Error {
     constructor() {
       super('human_verification_failed');
@@ -113,6 +140,10 @@ vi.mock('@/lib/useHumanVerification', () => {
 import JoinEventPage from '../page';
 
 function setupDefaultMocks() {
+  testControls.gateAutoCompletes = true;
+  testControls.eventStreamHandlers = null;
+  mockApi.eventSearch.mockReset().mockResolvedValue([]);
+  mockApi.search.mockReset().mockResolvedValue([]);
   mockApi.getEvent.mockResolvedValue({
     id: 1,
     code: 'TEST01',
@@ -157,6 +188,10 @@ function setupDefaultMocks() {
   mockApi.ensureGuestName.mockResolvedValue({ nickname: 'AutoName', auto_generated: true });
 }
 
+
+const joinPageTestContext: JoinPageTestContext = { JoinEventPage, mockApi, MockApiError, MockHumanVerificationRequiredError, nicknameGateRenderSpy, testControls, setupDefaultMocks };
+
+
 describe('JoinEventPage — NicknameGate wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -168,6 +203,17 @@ describe('JoinEventPage — NicknameGate wiring', () => {
     await waitFor(() => {
       expect(screen.getByText('Test Event')).toBeInTheDocument();
     });
+  });
+
+  it('loads the guest event only after the nickname gate completes', async () => {
+    testControls.gateAutoCompletes = false;
+    render(<JoinEventPage />);
+
+    await screen.findByTestId('nickname-gate');
+    expect(mockApi.getPublicEvent).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Complete nickname gate' }));
+    await waitFor(() => expect(mockApi.getPublicEvent).toHaveBeenCalledWith('TEST01'));
   });
 
   it('shows IdentityBar with gate nickname after gate completes', async () => {
@@ -185,6 +231,7 @@ describe('JoinEventPage — NicknameGate wiring', () => {
     await waitFor(() => expect(mockApi.getPublicEvent).toHaveBeenCalledWith('TEST01'));
     expect(mockApi.getEvent).not.toHaveBeenCalled();
   });
+
 });
 
 describe('JoinEventPage — error states', () => {
@@ -288,6 +335,59 @@ describe('JoinEventPage — request list view', () => {
     });
   });
 
+  // Regression for baseline 57cfcdc6867f: each request feed tab must show its
+  // own source/order while MINE excludes requests from other guests.
+  it('filters MINE and preserves recent versus leaderboard order', async () => {
+    mockApi.getPublicRequests.mockResolvedValue({
+      requests: [
+        { id: 31, title: 'Recent First', artist: 'Band A', status: 'new', vote_count: 2, artwork_url: null, nickname: null },
+        { id: 32, title: 'Highest Votes', artist: 'Band B', status: 'new', vote_count: 9, artwork_url: null, nickname: null },
+        { id: 33, title: 'My Request', artist: 'Band C', status: 'new', vote_count: 4, artwork_url: null, nickname: null },
+      ],
+      now_playing: null,
+    });
+    mockApi.getMyRequests.mockResolvedValue({ requests: [{ id: 33 }] });
+    const { container } = render(<JoinEventPage />);
+
+    await screen.findByText('Recent First');
+    await waitFor(() => expect(container.querySelectorAll('.gst-tower-row')).toHaveLength(3));
+    const feedTitles = () => Array.from(container.querySelectorAll('.gst-tower-row'))
+      .map((row) => row.textContent ?? '');
+
+    // LEADERBOARD sorts the returned rows by vote count, descending.
+    expect(feedTitles()[0]).toContain('Highest Votes');
+    expect(feedTitles()[1]).toContain('My Request');
+
+    // The API's recent order is retained on RECENT.
+    fireEvent.click(screen.getByRole('button', { name: 'RECENT' }));
+    expect(feedTitles()[0]).toContain('Recent First');
+    expect(feedTitles()[1]).toContain('Highest Votes');
+
+    // MINE keeps only the current guest's request.
+    fireEvent.click(screen.getByRole('button', { name: 'MINE' }));
+    await waitFor(() => expect(container.querySelectorAll('.gst-tower-row')).toHaveLength(1));
+    expect(feedTitles()[0]).toContain('My Request');
+    expect(screen.queryByText('Recent First')).not.toBeInTheDocument();
+    expect(screen.queryByText('Highest Votes')).not.toBeInTheDocument();
+  });
+
+  it('shows the empty-MINE state when the guest has no requests', async () => {
+    mockApi.getPublicRequests.mockResolvedValue({
+      requests: [
+        { id: 41, title: 'Another Guest Request', artist: 'Band', status: 'new', vote_count: 1, artwork_url: null, nickname: null },
+      ],
+      now_playing: null,
+    });
+    mockApi.getMyRequests.mockResolvedValue({ requests: [] });
+    render(<JoinEventPage />);
+
+    await screen.findByText('Another Guest Request');
+    fireEvent.click(screen.getByRole('button', { name: 'MINE' }));
+
+    expect(await screen.findByText('No requests from you yet.')).toBeInTheDocument();
+    expect(screen.queryByText('Another Guest Request')).not.toBeInTheDocument();
+  });
+
   it('shows now playing section when now_playing is provided', async () => {
     mockApi.getPublicRequests.mockResolvedValue({
       requests: [],
@@ -302,6 +402,37 @@ describe('JoinEventPage — request list view', () => {
       expect(screen.getByText('Now Playing')).toBeInTheDocument();
       expect(screen.getByText('Playing Song')).toBeInTheDocument();
     });
+  });
+
+  it('refreshes the request list when the event stream reports a new request', async () => {
+    mockApi.getPublicRequests
+      .mockResolvedValueOnce({
+        requests: [
+          { id: 20, title: 'First Song', artist: 'Band', status: 'new', vote_count: 0, artwork_url: null, nickname: null },
+        ],
+        now_playing: null,
+      })
+      .mockResolvedValueOnce({
+        requests: [
+          { id: 20, title: 'First Song', artist: 'Band', status: 'new', vote_count: 0, artwork_url: null, nickname: null },
+          { id: 21, title: 'New Song', artist: 'Other Band', status: 'new', vote_count: 0, artwork_url: null, nickname: null },
+        ],
+        now_playing: null,
+      });
+
+    render(<JoinEventPage />);
+    await screen.findByText('First Song');
+
+    act(() => {
+      testControls.eventStreamHandlers?.onRequestCreated?.({
+        request_id: 21,
+        title: 'New Song',
+        artist: 'Other Band',
+      });
+    });
+
+    expect(await screen.findByText('New Song')).toBeInTheDocument();
+    expect(mockApi.getPublicRequests).toHaveBeenCalledTimes(2);
   });
 
   it('shows now playing with artwork when album_art_url is provided', async () => {
@@ -439,428 +570,6 @@ describe('JoinEventPage — request list view', () => {
     });
   });
 });
-
-describe('JoinEventPage — search and submission flow', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    setupDefaultMocks();
-  });
-
-  it('shows search form after gate completes', async () => {
-    render(<JoinEventPage />);
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText(/search for a song/i)).toBeInTheDocument();
-    });
-  });
-
-  it('shows search results after successful search', async () => {
-    mockApi.eventSearch.mockResolvedValue([
-      { title: 'Found Song', artist: 'Found Artist', popularity: 80, source: 'spotify', url: 'spotify://track/1', album_art: null, album: null, spotify_id: '1', genre: null, bpm: null, key: null },
-    ]);
-    render(<JoinEventPage />);
-    await waitFor(() => screen.getByPlaceholderText(/search for a song/i));
-
-    fireEvent.change(screen.getByPlaceholderText(/search for a song/i), { target: { value: 'Found' } });
-    fireEvent.submit(screen.getByRole('button', { name: /search/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText('Found Song')).toBeInTheDocument();
-    });
-  });
-
-  it('falls back to generic search when event search fails', async () => {
-    mockApi.eventSearch.mockRejectedValue(new Error('Not found'));
-    mockApi.search.mockResolvedValue([
-      { title: 'Generic Song', artist: 'Generic Artist', popularity: 50, source: 'spotify', url: null, album_art: null, album: null, spotify_id: '2', genre: null, bpm: null, key: null },
-    ]);
-    render(<JoinEventPage />);
-    await waitFor(() => screen.getByPlaceholderText(/search for a song/i));
-
-    fireEvent.change(screen.getByPlaceholderText(/search for a song/i), { target: { value: 'Generic' } });
-    fireEvent.submit(screen.getByRole('button', { name: /search/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText('Generic Song')).toBeInTheDocument();
-    });
-  });
-
-  it('does not search when query is empty', async () => {
-    render(<JoinEventPage />);
-    await waitFor(() => screen.getByPlaceholderText(/search for a song/i));
-
-    fireEvent.submit(screen.getByRole('button', { name: /search/i }));
-    expect(mockApi.eventSearch).not.toHaveBeenCalled();
-  });
-
-  it('shows confirm request page when song is selected', async () => {
-    mockApi.eventSearch.mockResolvedValue([
-      { title: 'Select Me', artist: 'Pick Band', popularity: 70, source: 'spotify', url: null, album_art: null, album: 'My Album', spotify_id: '3', genre: null, bpm: null, key: null },
-    ]);
-    render(<JoinEventPage />);
-    await waitFor(() => screen.getByPlaceholderText(/search for a song/i));
-
-    fireEvent.change(screen.getByPlaceholderText(/search for a song/i), { target: { value: 'Select' } });
-    fireEvent.submit(screen.getByRole('button', { name: /search/i }));
-
-    await waitFor(() => screen.getByText('Select Me'));
-    fireEvent.click(screen.getByText('Select Me'));
-
-    await waitFor(() => {
-      expect(screen.getByText('Confirm Request')).toBeInTheDocument();
-      expect(screen.getByText('Select Me')).toBeInTheDocument();
-    });
-  });
-
-  it('shows beatport icon for beatport source results', async () => {
-    mockApi.eventSearch.mockResolvedValue([
-      { title: 'BP Track', artist: 'BP Artist', popularity: 90, source: 'beatport', url: 'https://beatport.com/track/1', album_art: null, album: null, spotify_id: null, genre: 'Techno', bpm: 130, key: '4A' },
-    ]);
-    render(<JoinEventPage />);
-    await waitFor(() => screen.getByPlaceholderText(/search for a song/i));
-
-    fireEvent.change(screen.getByPlaceholderText(/search for a song/i), { target: { value: 'BP' } });
-    fireEvent.submit(screen.getByRole('button', { name: /search/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText('BP Track')).toBeInTheDocument();
-      expect(screen.getByTitle('Beatport')).toBeInTheDocument();
-    });
-  });
-
-  it('shows album art in search result when provided', async () => {
-    mockApi.eventSearch.mockResolvedValue([
-      { title: 'Art Song', artist: 'Art Band', popularity: 60, source: 'spotify', url: null, album_art: 'https://example.com/cover.jpg', album: 'Great Album', spotify_id: '4', genre: null, bpm: null, key: null },
-    ]);
-    render(<JoinEventPage />);
-    await waitFor(() => screen.getByPlaceholderText(/search for a song/i));
-
-    fireEvent.change(screen.getByPlaceholderText(/search for a song/i), { target: { value: 'Art' } });
-    fireEvent.submit(screen.getByRole('button', { name: /search/i }));
-
-    await waitFor(() => {
-      expect(screen.getByAltText('Great Album')).toBeInTheDocument();
-    });
-  });
-
-  it('back button from confirm screen goes back to search results', async () => {
-    mockApi.eventSearch.mockResolvedValue([
-      { title: 'Back Song', artist: 'Back Band', popularity: 50, source: 'spotify', url: null, album_art: null, album: null, spotify_id: '5', genre: null, bpm: null, key: null },
-    ]);
-    render(<JoinEventPage />);
-    await waitFor(() => screen.getByPlaceholderText(/search for a song/i));
-
-    fireEvent.change(screen.getByPlaceholderText(/search for a song/i), { target: { value: 'Back' } });
-    fireEvent.submit(screen.getByRole('button', { name: /search/i }));
-    await waitFor(() => screen.getByText('Back Song'));
-    fireEvent.click(screen.getByText('Back Song'));
-
-    await waitFor(() => screen.getByText('Confirm Request'));
-    fireEvent.click(screen.getByRole('button', { name: /back/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText('Back Song')).toBeInTheDocument();
-    });
-  });
-
-  it('submits request and shows success state', async () => {
-    mockApi.eventSearch.mockResolvedValue([
-      { title: 'Submit Me', artist: 'Submit Band', popularity: 75, source: 'spotify', url: null, album_art: null, album: null, spotify_id: '6', genre: null, bpm: null, key: null },
-    ]);
-    mockApi.submitRequest.mockResolvedValue({ id: 100, is_duplicate: false, vote_count: 1 });
-
-    render(<JoinEventPage />);
-    await waitFor(() => screen.getByPlaceholderText(/search for a song/i));
-
-    fireEvent.change(screen.getByPlaceholderText(/search for a song/i), { target: { value: 'Submit' } });
-    fireEvent.submit(screen.getByRole('button', { name: /search/i }));
-    await waitFor(() => screen.getByText('Submit Me'));
-    fireEvent.click(screen.getByText('Submit Me'));
-
-    await waitFor(() => screen.getByText('Confirm Request'));
-    fireEvent.click(screen.getByRole('button', { name: /submit request/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText('Request Submitted!')).toBeInTheDocument();
-    });
-  });
-
-  it('shows "Vote Added!" when submission is a duplicate', async () => {
-    mockApi.eventSearch.mockResolvedValue([
-      { title: 'Dupe Song', artist: 'Dupe Band', popularity: 60, source: 'spotify', url: null, album_art: null, album: null, spotify_id: '7', genre: null, bpm: null, key: null },
-    ]);
-    mockApi.submitRequest.mockResolvedValue({ id: 101, is_duplicate: true, vote_count: 5 });
-
-    render(<JoinEventPage />);
-    await waitFor(() => screen.getByPlaceholderText(/search for a song/i));
-
-    fireEvent.change(screen.getByPlaceholderText(/search for a song/i), { target: { value: 'Dupe' } });
-    fireEvent.submit(screen.getByRole('button', { name: /search/i }));
-    await waitFor(() => screen.getByText('Dupe Song'));
-    fireEvent.click(screen.getByText('Dupe Song'));
-
-    await waitFor(() => screen.getByText('Confirm Request'));
-    fireEvent.click(screen.getByRole('button', { name: /submit request/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText('Vote Added!')).toBeInTheDocument();
-    });
-  });
-
-  it('shows error when submission fails with generic error', async () => {
-    mockApi.eventSearch.mockResolvedValue([
-      { title: 'Error Song', artist: 'Error Band', popularity: 55, source: 'spotify', url: null, album_art: null, album: null, spotify_id: '8', genre: null, bpm: null, key: null },
-    ]);
-    mockApi.submitRequest.mockRejectedValue(new Error('Server fail'));
-
-    render(<JoinEventPage />);
-    await waitFor(() => screen.getByPlaceholderText(/search for a song/i));
-
-    fireEvent.change(screen.getByPlaceholderText(/search for a song/i), { target: { value: 'Error' } });
-    fireEvent.submit(screen.getByRole('button', { name: /search/i }));
-    await waitFor(() => screen.getByText('Error Song'));
-    fireEvent.click(screen.getByText('Error Song'));
-
-    await waitFor(() => screen.getByText('Confirm Request'));
-    fireEvent.click(screen.getByRole('button', { name: /submit request/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText('Failed to submit request. Please try again.')).toBeInTheDocument();
-    });
-  });
-
-  it('closes requests when submission returns 403', async () => {
-    mockApi.eventSearch.mockResolvedValue([
-      { title: 'Locked Song', artist: 'Locked Band', popularity: 40, source: 'spotify', url: null, album_art: null, album: null, spotify_id: '9', genre: null, bpm: null, key: null },
-    ]);
-    mockApi.submitRequest.mockRejectedValue(new MockApiError('Forbidden', 403));
-
-    render(<JoinEventPage />);
-    await waitFor(() => screen.getByPlaceholderText(/search for a song/i));
-
-    fireEvent.change(screen.getByPlaceholderText(/search for a song/i), { target: { value: 'Locked' } });
-    fireEvent.submit(screen.getByRole('button', { name: /search/i }));
-    await waitFor(() => screen.getByText('Locked Song'));
-    fireEvent.click(screen.getByText('Locked Song'));
-
-    await waitFor(() => screen.getByText('Confirm Request'));
-    fireEvent.click(screen.getByRole('button', { name: /submit request/i }));
-
-    await waitFor(() => {
-      // After 403, goes back to search — request closed for this event
-      expect(screen.getByText('Requests are closed for this event')).toBeInTheDocument();
-    });
-  });
-
-  it('shows album art on confirm request screen when present', async () => {
-    mockApi.eventSearch.mockResolvedValue([
-      { title: 'Art Confirm', artist: 'Art Confirm Band', popularity: 65, source: 'spotify', url: null, album_art: 'https://example.com/art2.jpg', album: 'Art Album', spotify_id: '10', genre: null, bpm: null, key: null },
-    ]);
-    render(<JoinEventPage />);
-    await waitFor(() => screen.getByPlaceholderText(/search for a song/i));
-
-    fireEvent.change(screen.getByPlaceholderText(/search for a song/i), { target: { value: 'Art' } });
-    fireEvent.submit(screen.getByRole('button', { name: /search/i }));
-    await waitFor(() => screen.getByText('Art Confirm'));
-    fireEvent.click(screen.getByText('Art Confirm'));
-
-    await waitFor(() => {
-      const img = screen.getByAltText('Art Album');
-      expect(img).toHaveAttribute('src', 'https://example.com/art2.jpg');
-    });
-  });
-});
-
-describe('JoinEventPage — vote flow', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    setupDefaultMocks();
-    mockApi.checkHasRequested.mockResolvedValue({ has_requested: true });
-  });
-
-  it('votes on a request and updates vote count', async () => {
-    mockApi.getPublicRequests.mockResolvedValue({
-      requests: [
-        { id: 10, title: 'Vote Song', artist: 'Vote Band', status: 'new', vote_count: 2, artwork_url: null, nickname: null },
-      ],
-      now_playing: null,
-    });
-    mockApi.publicVoteRequest.mockResolvedValue({ vote_count: 3 });
-
-    render(<JoinEventPage />);
-    await waitFor(() => screen.getByText('Vote Song'));
-
-    // Vote button has ▲ symbol (▲ = &#9650; = ▲) — find the button in the request item
-    const voteBtn = screen.getAllByRole('button').find((btn) =>
-      btn.textContent?.includes('▲') || btn.textContent?.includes('2')
-    );
-    expect(voteBtn).toBeTruthy();
-    fireEvent.click(voteBtn!);
-
-    await waitFor(() => {
-      expect(mockApi.publicVoteRequest).toHaveBeenCalledWith(10, expect.any(Function));
-    });
-  });
-
-  it('handles already-voted error gracefully (marks as voted locally)', async () => {
-    mockApi.getPublicRequests.mockResolvedValue({
-      requests: [
-        { id: 11, title: 'Already Voted', artist: 'Band', status: 'new', vote_count: 1, artwork_url: null, nickname: null },
-      ],
-      now_playing: null,
-    });
-    mockApi.publicVoteRequest.mockRejectedValue(new MockApiError('Already voted', 400));
-
-    render(<JoinEventPage />);
-    await waitFor(() => screen.getByText('Already Voted'));
-
-    const voteBtn = screen.getAllByRole('button').find((btn) =>
-      btn.textContent?.includes('▲') || btn.textContent?.includes('1')
-    );
-    expect(voteBtn).toBeTruthy();
-    fireEvent.click(voteBtn!);
-
-    await waitFor(() => {
-      expect(mockApi.publicVoteRequest).toHaveBeenCalled();
-    });
-  });
-
-  it('handles rate limited vote gracefully', async () => {
-    mockApi.getPublicRequests.mockResolvedValue({
-      requests: [
-        { id: 12, title: 'Rate Limited Song', artist: 'Band', status: 'new', vote_count: 0, artwork_url: null, nickname: null },
-      ],
-      now_playing: null,
-    });
-    mockApi.publicVoteRequest.mockRejectedValue(new MockApiError('Rate limit', 429));
-
-    render(<JoinEventPage />);
-    await waitFor(() => screen.getByText('Rate Limited Song'));
-
-    // The vote button shows ▲ symbol with no count (vote_count is 0)
-    const voteBtn = screen.getAllByRole('button').find((btn) =>
-      btn.closest('.guest-request-item') !== null
-    );
-    expect(voteBtn).toBeTruthy();
-    fireEvent.click(voteBtn!);
-
-    await waitFor(() => {
-      expect(mockApi.publicVoteRequest).toHaveBeenCalled();
-    });
-  });
-});
-
-describe('JoinEventPage — frictionless join', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    setupDefaultMocks();
-  });
-
-  it('auto-names after a 403-then-verified retry without flashing NicknameGate', async () => {
-    mockApi.getJoinConfig.mockResolvedValue({ frictionless_join: true });
-    mockApi.getPublicEvent.mockResolvedValue({
-      name: 'Party',
-      collection_code: 'TEST01',
-      requests_open: true,
-      frictionless_join: true,
-      phase: 'live',
-      submission_cap_per_guest: 5,
-      banner_url: null,
-      banner_colors: null,
-    });
-    let reverifyAwaited = false;
-    mockApi.ensureGuestName.mockImplementation(
-      async (_code: string, reverify?: () => Promise<void>) => {
-        // Simulate withHumanRetry under enforcement: first attempt 403s, the
-        // wrapper awaits reverify (resolves once the cookie is set), retries.
-        await reverify?.();
-        reverifyAwaited = true;
-        return { nickname: 'VerifiedOtter', auto_generated: true };
-      },
-    );
-
-    render(<JoinEventPage />);
-
-    await waitFor(() => expect(screen.getByText(/VerifiedOtter/)).toBeInTheDocument());
-    expect(reverifyAwaited).toBe(true);
-    // Not just absent from the final DOM — the gate must never have mounted at all.
-    expect(nicknameGateRenderSpy).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('nickname-gate')).not.toBeInTheDocument();
-  });
-
-  it('shows the verification overlay, not NicknameGate, when verification cannot complete', async () => {
-    mockApi.getJoinConfig.mockResolvedValue({ frictionless_join: true });
-    mockApi.ensureGuestName.mockRejectedValue(new MockHumanVerificationRequiredError());
-
-    render(<JoinEventPage />);
-
-    await waitFor(() =>
-      expect(screen.getByText(/Verification didn.t go through/i)).toBeInTheDocument(),
-    );
-    expect(nicknameGateRenderSpy).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('nickname-gate')).not.toBeInTheDocument();
-  });
-
-  it('also holds the overlay when reverify rejects with HumanVerificationFailedError', async () => {
-    const { HumanVerificationFailedError } = await import('@/lib/useHumanVerification');
-    mockApi.getJoinConfig.mockResolvedValue({ frictionless_join: true });
-    mockApi.ensureGuestName.mockRejectedValue(new HumanVerificationFailedError());
-
-    render(<JoinEventPage />);
-
-    await waitFor(() =>
-      expect(screen.getByText(/Verification didn.t go through/i)).toBeInTheDocument(),
-    );
-    expect(nicknameGateRenderSpy).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('nickname-gate')).not.toBeInTheDocument();
-  });
-
-  it('still falls back to NicknameGate on non-verification errors (e.g. frictionless_disabled)', async () => {
-    mockApi.getJoinConfig.mockResolvedValue({ frictionless_join: true });
-    mockApi.ensureGuestName.mockRejectedValue(new MockApiError('frictionless_disabled', 403));
-
-    render(<JoinEventPage />);
-
-    // The NicknameGate mock auto-completes with TestUser — proof the gate path ran.
-    await waitFor(() => expect(screen.getByTestId('identity-bar')).toHaveTextContent('TestUser'));
-  });
-
-  it('skips NicknameGate and auto-names when frictionless_join is on', async () => {
-    mockApi.getJoinConfig.mockResolvedValue({ frictionless_join: true });
-    mockApi.ensureGuestName.mockResolvedValue({ nickname: 'DancingPanda', auto_generated: true });
-    mockApi.getEvent.mockResolvedValue({
-      id: 1, code: 'TEST01', join_code: 'TEST01', name: 'Party', requests_open: true,
-      frictionless_join: true,
-    } as never);
-    mockApi.getPublicEvent.mockResolvedValue({
-      name: 'Party',
-      collection_code: 'TEST01',
-      requests_open: true,
-      frictionless_join: true,
-      phase: 'live',
-      submission_cap_per_guest: 5,
-      banner_url: null,
-      banner_colors: null,
-    });
-    mockApi.checkHasRequested.mockResolvedValue({ has_requested: false } as never);
-    render(<JoinEventPage />);
-    // No "What's your nickname?" gate; the auto-name shows in the identity bar.
-    await waitFor(() => expect(screen.getByText(/DancingPanda/)).toBeInTheDocument());
-    expect(screen.queryByText(/What's your nickname/i)).not.toBeInTheDocument();
-  });
-});
-
-describe('JoinEventPage — checkHasRequested failure', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    setupDefaultMocks();
-    mockApi.checkHasRequested.mockRejectedValue(new Error('Network error'));
-  });
-
-  it('falls back gracefully when checkHasRequested fails', async () => {
-    render(<JoinEventPage />);
-    await waitFor(() => {
-      expect(screen.getByText('Test Event')).toBeInTheDocument();
-    });
-    expect(screen.getByPlaceholderText(/search for a song/i)).toBeInTheDocument();
-  });
-});
+registerSearchAndSubmission(joinPageTestContext);
+registerVoteTests(joinPageTestContext);
+registerFrictionlessTests(joinPageTestContext);

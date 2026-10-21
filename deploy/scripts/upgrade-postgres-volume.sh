@@ -58,7 +58,7 @@ on_volumes() { # SNIPPET MOUNT...
 # Reads the volume name and credentials from a container created from the db
 # service itself, so they are exactly what Compose resolves (project name,
 # POSTGRES_VOLUME_NAME, deploy/.env), never a second guess from this shell.
-read_service() {
+resolve_database_service_settings() {
   local id environment
   id=$(compose run --detach --no-deps --entrypoint sleep db 60)
   STRAY_ID=$id
@@ -201,7 +201,7 @@ restart_previous() {
   compose start $RUNNING >/dev/null || echo "WARNING: could not restart: $RUNNING" >&2
 }
 
-set_names() { # OLD_MAJOR
+prepare_legacy_upgrade() { # OLD_MAJOR
   OLD_MAJOR=$1
   [[ "$OLD_MAJOR" =~ ^[0-9]+$ ]] || die "unexpected PostgreSQL version '$OLD_MAJOR'"
   if [ "$OLD_MAJOR" = 16 ]; then
@@ -216,14 +216,14 @@ set_names() { # OLD_MAJOR
 }
 
 # --- 1. Read-only checks; the current stack keeps serving ---------------------
-read_service
+resolve_database_service_settings
 STATUS=0
 "$SCRIPT_DIR/check-postgres-volume.sh" "${COMPOSE_FILES[@]}" || STATUS=$?
 
 if [ "$STATUS" -eq 4 ]; then
   # A previous run was killed mid-upgrade. Put the old files back, then go on.
   echo "==> Recovering from an interrupted PostgreSQL upgrade..."
-  set_names "$(compose run --rm --no-deps -T --entrypoint cat db "/var/lib/postgresql/$MARKER")"
+  prepare_legacy_upgrade "$(compose run --rm --no-deps -T --entrypoint cat db "/var/lib/postgresql/$MARKER")"
   compose stop db >/dev/null 2>&1 || true
   # Whatever is in the volume now may include data written after the
   # interruption (a database started by hand). Set it aside; never delete it.
@@ -243,7 +243,7 @@ fi
 [ "$STATUS" -ne 0 ] || exit 0
 [ "$STATUS" -eq 3 ] || exit 1
 
-set_names "$(compose run --rm --no-deps -T --entrypoint cat db /var/lib/postgresql/PG_VERSION)"
+prepare_legacy_upgrade "$(compose run --rm --no-deps -T --entrypoint cat db /var/lib/postgresql/PG_VERSION)"
 # shellcheck disable=SC2016 # expanded by the container's shell
 NEW_MAJOR=$(compose run --rm --no-deps -T --entrypoint sh db -c 'echo "$PG_MAJOR"')
 

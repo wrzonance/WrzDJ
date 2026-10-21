@@ -26,6 +26,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.encryption import EncryptedText
 from app.models.base import Base
+from app.models.llm_contracts import CONNECTOR_TYPE_VALUES
 
 # Valid connector types — keep in sync with services/llm/registry.py
 CONNECTOR_TYPE_OPENAI_APIKEY = "openai_apikey"
@@ -37,18 +38,7 @@ CONNECTOR_TYPE_BEDROCK = "bedrock"
 CONNECTOR_TYPE_OPENROUTER_APIKEY = "openrouter_apikey"
 CONNECTOR_TYPE_XAI_APIKEY = "xai_apikey"
 
-VALID_CONNECTOR_TYPES = frozenset(
-    {
-        CONNECTOR_TYPE_OPENAI_APIKEY,
-        CONNECTOR_TYPE_ANTHROPIC_APIKEY,
-        CONNECTOR_TYPE_OPENAI_COMPATIBLE,
-        CONNECTOR_TYPE_GEMINI_APIKEY,
-        CONNECTOR_TYPE_AZURE_OPENAI,
-        CONNECTOR_TYPE_BEDROCK,
-        CONNECTOR_TYPE_OPENROUTER_APIKEY,
-        CONNECTOR_TYPE_XAI_APIKEY,
-    }
-)
+VALID_CONNECTOR_TYPES = frozenset(CONNECTOR_TYPE_VALUES)
 
 # Connector statuses
 STATUS_ACTIVE = "active"

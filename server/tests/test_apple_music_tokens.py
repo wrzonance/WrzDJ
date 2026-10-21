@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
 from app.core.config import Settings
-from app.services import apple_music_tokens as apple_music
+from app.services.apple_music import tokens as apple_music
 
 
 @pytest.fixture
@@ -155,7 +155,7 @@ def test_playlist_post_distinguishes_uncertain_writes_from_definite_rejections(
 
 def test_api_developer_token_reports_clear_not_configured(client, auth_headers, monkeypatch):
     monkeypatch.setattr(
-        "app.services.apple_music_tokens.get_settings",
+        "app.services.apple_music.tokens.get_settings",
         lambda: Settings(
             apple_music_team_id="",
             apple_music_key_id="",
@@ -171,7 +171,7 @@ def test_api_developer_token_reports_clear_not_configured(client, auth_headers, 
 
 
 def test_api_developer_token_is_not_cached(client, auth_headers, monkeypatch, apple_settings):
-    monkeypatch.setattr("app.services.apple_music_tokens.get_settings", lambda: apple_settings)
+    monkeypatch.setattr("app.services.apple_music.tokens.get_settings", lambda: apple_settings)
 
     response = client.get("/api/apple-music/developer-token", headers=auth_headers)
 

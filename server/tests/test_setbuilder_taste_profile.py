@@ -17,8 +17,8 @@ from app.models.track_vibe import (
     TrackVibeOverride,
 )
 from app.models.user import User
+from app.services.setbuilder.agent.agent_context import build_set_context
 from app.services.setbuilder.pass1_deterministic import build_set, recompute_transition_scores
-from app.services.setbuilder.pass2_agent import _set_context
 from app.services.setbuilder.taste_profile import (
     ENERGY_ADJUSTMENT_CAP,
     MIN_TASTE_SAMPLES,
@@ -284,7 +284,7 @@ def test_pass2_context_includes_compact_taste_summary(db: Session, test_user: Us
     for idx in range(MIN_TASTE_SAMPLES):
         _override(db, test_user.id, idx, energy=8, energy_was=6, mood="Peak")
 
-    context = json.loads(_set_context(db, set_obj))
+    context = json.loads(build_set_context(db, set_obj))
 
     assert context["taste_profile"]["active"] is True
     assert context["taste_profile"]["sample_count"] == MIN_TASTE_SAMPLES
@@ -295,11 +295,11 @@ def test_pass2_context_includes_compact_taste_summary(db: Session, test_user: Us
 def test_pass2_context_continues_when_profile_read_fails(monkeypatch, db: Session, test_user: User):
     set_obj = _mk_set(db, test_user)
     monkeypatch.setattr(
-        "app.services.setbuilder.pass2_agent.build_taste_profile",
+        "app.services.setbuilder.agent.agent_context.build_taste_profile",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("profile unavailable")),
     )
 
-    context = json.loads(_set_context(db, set_obj))
+    context = json.loads(build_set_context(db, set_obj))
 
     assert context["taste_profile"]["active"] is False
     assert context["taste_profile"]["sample_count"] == 0

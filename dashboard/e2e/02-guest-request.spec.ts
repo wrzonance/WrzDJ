@@ -67,7 +67,7 @@ async function mockSearchApi(page: import('@playwright/test').Page) {
 test.describe('Guest Request Flow', () => {
   test('guest sees event name and search form', async ({ page }) => {
     await page.goto(`/join/${eventCode}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     const searchInput = page.locator('input[placeholder*="Search for a song or artist"]');
     await expect(searchInput).toBeVisible({ timeout: 10000 });
@@ -79,7 +79,7 @@ test.describe('Guest Request Flow', () => {
   test('search returns results', async ({ page }) => {
     await mockSearchApi(page);
     await page.goto(`/join/${eventCode}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     await page.fill('input[placeholder*="Search for a song or artist"]', 'Queen');
     await page.click('button:has-text("Search")');
@@ -92,7 +92,7 @@ test.describe('Guest Request Flow', () => {
   test('selecting a song shows confirmation form', async ({ page }) => {
     await mockSearchApi(page);
     await page.goto(`/join/${eventCode}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     await page.fill('input[placeholder*="Search for a song or artist"]', 'Queen');
     await page.click('button:has-text("Search")');
@@ -114,7 +114,7 @@ test.describe('Guest Request Flow', () => {
 
     await mockSearchApi(page);
     await page.goto(`/join/${submitEvent.code}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     await page.fill('input[placeholder*="Search for a song or artist"]', 'Queen');
     await page.click('button:has-text("Search")');
@@ -137,7 +137,7 @@ test.describe('Guest Request Flow', () => {
 
     await mockSearchApi(page);
     await page.goto(`/join/${listEvent.code}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     await page.fill('input[placeholder*="Search for a song or artist"]', 'Queen');
     await page.click('button:has-text("Search")');

@@ -6,7 +6,8 @@ import pytest
 from sqlalchemy import select, text, update
 
 from app.models.provider_connection import UserProviderConnection
-from app.services import apple_music_accounts, apple_music_tokens
+from app.services.apple_music import accounts as apple_music_accounts
+from app.services.apple_music import tokens as apple_music_tokens
 
 VALID_TOKEN = "music-user-token-1234567890"
 NEW_TOKEN = "music-user-token-0987654321"
@@ -362,6 +363,21 @@ def test_malformed_storefront_response_does_not_revoke_the_saved_user_token(
     assert connection.connection_state == "connected"
     assert json.loads(connection.credential_payload)["music_user_token"] == VALID_TOKEN
     assert json.loads(connection.metadata_json) == {"storefront": "us"}
+
+
+@pytest.mark.parametrize("storefront", ["GB", "g", "usa", "us\n", "éu"])
+def test_apple_storefront_response_requires_two_lowercase_ascii_letters(monkeypatch, storefront):
+    monkeypatch.setattr(
+        apple_music_tokens,
+        "apple_get",
+        lambda *_args, **_kwargs: {"data": [{"id": storefront}]},
+    )
+
+    with pytest.raises(
+        apple_music_tokens.AppleMusicError,
+        match="Apple Music returned an invalid storefront",
+    ):
+        apple_music_accounts.fetch_user_storefront("music-user-token", "developer-token")
 
 
 def test_api_status_returns_reconnect_state_for_malformed_stored_data(

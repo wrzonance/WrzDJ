@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
-import type { BuilderPlaylists, PoolImportResult, SearchResult } from '@/lib/api-types';
+import type { BuilderPlaylists, PoolImportResult, SearchResult } from '@/lib/api/types';
 import ImportModal from '../ImportModal';
 import type { BuilderCommit } from '../useSetDocumentHistory';
 
@@ -135,9 +135,14 @@ describe('ImportModal — event flow', () => {
     expect(await screen.findByText('No events yet.')).toBeTruthy();
   });
 
-  it('treats getEvents failure as an empty list', async () => {
+  it('distinguishes event loading failure from an empty list and allows retry', async () => {
     mockApi.getEvents.mockRejectedValue(new Error('boom'));
     render(<ImportModal kind="event" {...baseProps} />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load events.');
+    expect(screen.queryByText('No events yet.')).not.toBeInTheDocument();
+
+    mockApi.getEvents.mockResolvedValueOnce([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByText('No events yet.')).toBeTruthy();
   });
 
@@ -306,6 +311,39 @@ describe('ImportModal — event flow', () => {
 });
 
 describe('ImportModal — playlist flows', () => {
+  // Regression for baseline 57cfcdc6867f: a discovery failure must be visible and retryable,
+  // while keeping the selected provider flow available after recovery.
+  it('surfaces playlist discovery failure safely and retries the selected provider flow', async () => {
+    mockApi.getBuilderPlaylists
+      .mockRejectedValueOnce(new Error('private provider response'))
+      .mockResolvedValueOnce(PLAYLISTS);
+    mockApi.importPoolTidal.mockResolvedValue(IMPORT_RESULT);
+    const onImported = vi.fn();
+    render(<ImportModal kind="tidal" {...baseProps} onImported={onImported} />);
+
+    const failure = await screen.findByRole('alert');
+    expect(failure).toHaveTextContent('Could not load playlists.');
+    expect(failure).not.toHaveTextContent('private provider response');
+    expect(screen.queryByText('Loading playlists…')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry playlist discovery' }));
+    expect(await screen.findByText('Friday Warmup')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Friday Warmup'));
+    fireEvent.click(screen.getByText('Import playlist'));
+
+    await waitFor(() => expect(mockApi.importPoolTidal).toHaveBeenCalledWith(1, 'pl-1', 'Friday Warmup'));
+    expect(onImported).toHaveBeenCalledWith(IMPORT_RESULT);
+  });
+
+  it('shows a successful empty playlist result separately from discovery failure', async () => {
+    mockApi.getBuilderPlaylists.mockResolvedValue({ ...PLAYLISTS, tidal: [] });
+    render(<ImportModal kind="tidal" {...baseProps} />);
+
+    expect(await screen.findByText('No Tidal playlists found.')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByText('Loading playlists…')).not.toBeInTheDocument();
+  });
+
   it('lists Tidal playlists, marks imported ones, and imports the pick', async () => {
     mockApi.getBuilderPlaylists.mockResolvedValue(PLAYLISTS);
     mockApi.importPoolTidal.mockResolvedValue(IMPORT_RESULT);

@@ -22,8 +22,7 @@ from app.schemas.tidal import (
     TidalStatus,
     TidalSyncResult,
 )
-from app.services.system_settings import get_system_settings
-from app.services.tidal import (
+from app.services.providers.tidal import (
     cancel_device_login,
     check_device_login,
     disconnect_tidal,
@@ -32,8 +31,7 @@ from app.services.tidal import (
     start_device_login,
     sync_request_to_tidal,
 )
-
-settings = get_settings()
+from app.services.system_settings import get_system_settings
 
 router = APIRouter()
 
@@ -70,7 +68,7 @@ def check_auth(
     request: Request,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
-) -> dict:
+) -> TidalAuthCheckResponse:
     """Check if device login is complete.
 
     Returns:
@@ -129,10 +127,10 @@ def disconnect(
 
 
 @router.get("/search", response_model=list[TidalSearchResult])
-@limiter.limit(lambda: f"{settings.search_rate_limit_per_minute}/minute")
+@limiter.limit(lambda: f"{get_settings().search_rate_limit_per_minute}/minute")
 def search(
     request: Request,
-    q: str = Query(..., min_length=1),
+    q: str = Query(..., min_length=1, max_length=200),
     limit: int = Query(default=10, ge=1, le=50),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),

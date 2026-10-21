@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
-import type { SetDocumentSnapshot } from '@/lib/api-types';
+import type { SetDocumentSnapshot } from '@/lib/api/types';
 
 const AUTOSAVE_KEY = 'wrzdj.setbuilder.autosave';
 

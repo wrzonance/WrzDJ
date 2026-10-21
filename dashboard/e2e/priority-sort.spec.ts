@@ -33,7 +33,7 @@ test.describe('Priority Sort', () => {
   test('Best Match toggle is visible on event page', async ({ page }) => {
     await setupAuth(page, testApi.jwt);
     await page.goto(`/events/${eventCode}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     // The "Best Match" checkbox label should be visible
     const toggle = page.locator('label', { hasText: 'Best Match' });
@@ -47,7 +47,7 @@ test.describe('Priority Sort', () => {
   test('toggling Best Match sends sort=priority API call', async ({ page }) => {
     await setupAuth(page, testApi.jwt);
     await page.goto(`/events/${eventCode}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     // Intercept the next requests API call
     const requestPromise = page.waitForRequest((req) =>
@@ -68,7 +68,7 @@ test.describe('Priority Sort', () => {
   test('priority score badges appear when Best Match is active', async ({ page }) => {
     await setupAuth(page, testApi.jwt);
     await page.goto(`/events/${eventCode}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     // Before toggling: no score badges should exist
     const scoreBadgesBefore = page.locator('[title*="Priority score"]');
@@ -106,7 +106,7 @@ test.describe('Priority Sort', () => {
   test('toggling Best Match off removes score badges', async ({ page }) => {
     await setupAuth(page, testApi.jwt);
     await page.goto(`/events/${eventCode}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     // Toggle on
     const toggle = page.locator('label', { hasText: 'Best Match' });
@@ -142,7 +142,7 @@ test.describe('Priority Sort', () => {
     // Don't clear sort prefs — we need them to persist across reload
     await setupAuth(page, testApi.jwt, { clearSortPrefs: false });
     await page.goto(`/events/${eventCode}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     // Toggle Best Match on
     const toggle = page.locator('label', { hasText: 'Best Match' });
@@ -157,7 +157,7 @@ test.describe('Priority Sort', () => {
 
     // Reload the page
     await page.reload();
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     // The toggle should still be checked (persisted in localStorage)
     const toggleAfter = page.locator('label', { hasText: 'Best Match' });
@@ -177,7 +177,7 @@ test.describe('Priority Sort', () => {
   test('priority sort changes request order', async ({ page }) => {
     await setupAuth(page, testApi.jwt);
     await page.goto(`/events/${eventCode}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     // Get request titles in chronological order
     const getTitles = async () => {
@@ -218,7 +218,7 @@ test.describe('Priority Sort', () => {
   test('score badges have correct color coding', async ({ page }) => {
     await setupAuth(page, testApi.jwt);
     await page.goto(`/events/${eventCode}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     // Toggle Best Match on
     const toggle = page.locator('label', { hasText: 'Best Match' });

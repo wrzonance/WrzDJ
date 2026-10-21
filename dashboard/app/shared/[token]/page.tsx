@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
-import type { SharedSetView } from '@/lib/api-types';
+import type { SharedSetView } from '@/lib/api/types';
 
 /** Format seconds as "1h 05m" / "45m". */
 function formatDuration(totalSec: number): string {

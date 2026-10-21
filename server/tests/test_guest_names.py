@@ -1,7 +1,7 @@
 from app.models.event import Event
 from app.models.guest import Guest
 from app.models.guest_profile import GuestProfile
-from app.services.guest_names import generate_unique_nickname
+from app.services.guests.names import generate_unique_nickname
 
 
 def test_generates_titlecased_no_hyphen(db, test_event: Event):
@@ -28,7 +28,7 @@ def test_avoids_existing_nickname_in_event(db, test_event: Event, monkeypatch):
             return "taken"  # always collides at 2 words
         return "unique-three-words"  # 3-word fallback
 
-    monkeypatch.setattr("app.services.guest_names.generate_slug", fake_slug)
+    monkeypatch.setattr("app.services.guests.names.generate_slug", fake_slug)
     nick = generate_unique_nickname(db, event_id=test_event.id, max_attempts=3)
     # Either a digit-suffixed "Taken##" or the 3-word fallback; never bare "Taken".
     assert nick.lower() != "taken"
@@ -54,7 +54,7 @@ def test_last_resort_when_two_and_three_word_both_collide(db, test_event: Event,
     def fake_slug(n):
         return "-".join(["collide"] * n)  # collides at both 2 and 3 words
 
-    monkeypatch.setattr("app.services.guest_names.generate_slug", fake_slug)
+    monkeypatch.setattr("app.services.guests.names.generate_slug", fake_slug)
     nick = generate_unique_nickname(db, event_id=test_event.id, max_attempts=1)
     assert nick.startswith("Guest")
     assert not nick.startswith("CollideCollide")

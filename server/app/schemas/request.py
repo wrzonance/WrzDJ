@@ -3,10 +3,10 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.core.track_ids import valid_isrc
 from app.core.validation import contains_profanity, normalize_single_line, normalize_text
 from app.models.request import RequestSource, RequestStatus
 from app.schemas.common import BaseSchema, IsoDatetime
-from app.services.track_normalizer import valid_isrc
 
 ALLOWED_URL_SCHEMES = {"http", "https", "spotify"}
 

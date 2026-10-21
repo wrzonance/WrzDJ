@@ -1,0 +1,142 @@
+/* Import modal */
+
+.importModal {
+  position: relative;
+  width: min(480px, calc(100vw - 2rem));
+  max-height: min(620px, calc(100vh - 4rem));
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.imHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.imHeaderIcon {
+  display: inline-flex;
+}
+
+.imTitle {
+  font-family: var(--font-display), sans-serif;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.imSubtitle {
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+.imBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.85rem 1rem;
+}
+
+.imList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.imListItem {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  background: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.imListItem:hover:not(:disabled) {
+  background: var(--surface-raised, rgba(255, 255, 255, 0.05));
+}
+
+.imListItem:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.imPicked {
+  border-color: var(--color-primary, #8b5cf6);
+  background: var(--surface-raised, rgba(139, 92, 246, 0.1));
+}
+
+.imListInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.imListTitle {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.imListSub {
+  display: block;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+.imImported {
+  font-weight: 400;
+  font-size: 0.6563rem;
+  color: var(--text-secondary);
+}
+
+.imFootnote {
+  margin-top: 0.75rem;
+  font-size: 0.6563rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.imFooter {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 1rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.imPreviewCard {
+  margin-bottom: 0.6rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.imPreviewRow {
+  display: flex;
+  gap: 0.6rem;
+  font-size: 0.6875rem;
+}
+
+.imPreviewLabel {
+  width: 4.5rem;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  font-size: 0.625rem;
+  letter-spacing: 0.05em;
+  line-height: 1.6;
+}

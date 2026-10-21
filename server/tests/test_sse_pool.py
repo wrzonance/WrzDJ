@@ -119,13 +119,13 @@ def test_event_stream_returns_with_pool_checked_in(pooled_engine):
     assert engine.pool.checkedout() == 0
 
     req = _make_request("POOLJN")
-    asyncio.run(event_stream(code="POOLJN", request=req))
+    event_stream(code="POOLJN", request=req)
 
     # EventSourceResponse created, generator not yet iterated.
     assert engine.pool.checkedout() == 0
 
 
-def test_n_concurrent_idle_streams_hold_zero_pool_connections(pooled_engine):
+def test_n_concurrent_idle_streams_hold_zero_pool_connections(pooled_engine, monkeypatch):
     """N concurrent open (idle) SSE streams must hold ~0 pooled connections.
 
     Open N generators (past pool_size + max_overflow = 15), prime each one
@@ -137,18 +137,39 @@ def test_n_concurrent_idle_streams_hold_zero_pool_connections(pooled_engine):
 
     engine, _ = pooled_engine
     n = 25  # well past pool capacity (15)
+    from app.services.event_bus import get_event_bus
+
+    bus = get_event_bus()
+    original_subscribe = bus.subscribe
+    waiting_streams = 0
+    all_streams_waiting = asyncio.Event()
+
+    def observed_subscribe(event_code):
+        queue = original_subscribe(event_code)
+        original_get = queue.get
+
+        async def observed_get():
+            nonlocal waiting_streams
+            waiting_streams += 1
+            if waiting_streams == n:
+                all_streams_waiting.set()
+            return await original_get()
+
+        queue.get = observed_get
+        return queue
+
+    monkeypatch.setattr(bus, "subscribe", observed_subscribe)
 
     async def drive():
         generators = []
         for _ in range(n):
             req = _make_request("POOLJN")
-            resp = await event_stream(code="POOLJN", request=req)
+            resp = event_stream(code="POOLJN", request=req)
             generators.append(resp.body_iterator)
 
-        # Prime each generator one step so it subscribes and suspends on
-        # queue.get(); give the event loop a tick to settle.
+        # Prime each generator and wait until each one has entered its queue wait.
         primer_tasks = [asyncio.ensure_future(g.__anext__()) for g in generators]
-        await asyncio.sleep(0.05)
+        await asyncio.wait_for(all_streams_waiting.wait(), timeout=2)
 
         # Sanity-check that streams are actually suspended (not instantly
         # exited). If receive() returns http.disconnect immediately, every
@@ -190,5 +211,5 @@ def test_event_stream_preserves_404_for_unknown_event(pooled_engine):
 
     req = _make_request("NOEXIS")
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(event_stream(code="NOEXIS", request=req))
+        event_stream(code="NOEXIS", request=req)
     assert exc.value.status_code == 404

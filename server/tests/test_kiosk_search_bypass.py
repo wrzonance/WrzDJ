@@ -69,7 +69,7 @@ def _make_kiosk(
 
 
 class TestKioskSessionBypassesHumanGate:
-    @patch("app.services.spotify.search_songs")
+    @patch("app.services.providers.spotify.search_songs")
     def test_search_with_active_kiosk_session_bypasses_enforced_gate(
         self, mock_search, client: TestClient, db: Session, test_event: Event
     ):
@@ -114,7 +114,7 @@ class TestKioskSessionBypassesHumanGate:
 class TestKioskBypassIsScoped:
     """The bypass must not become a blanket hole in the human gate."""
 
-    @patch("app.services.spotify.search_songs")
+    @patch("app.services.providers.spotify.search_songs")
     def test_search_unknown_kiosk_token_still_403(
         self, mock_search, client: TestClient, db: Session, test_event: Event
     ):
@@ -129,7 +129,7 @@ class TestKioskBypassIsScoped:
         assert response.status_code == 403
         assert response.json()["detail"]["code"] == "human_verification_required"
 
-    @patch("app.services.spotify.search_songs")
+    @patch("app.services.providers.spotify.search_songs")
     def test_search_kiosk_paired_to_other_event_still_403(
         self, mock_search, client: TestClient, db: Session, test_event: Event
     ):
@@ -144,7 +144,7 @@ class TestKioskBypassIsScoped:
 
         assert response.status_code == 403
 
-    @patch("app.services.spotify.search_songs")
+    @patch("app.services.providers.spotify.search_songs")
     def test_search_pairing_status_kiosk_still_403(
         self, mock_search, client: TestClient, db: Session, test_event: Event
     ):

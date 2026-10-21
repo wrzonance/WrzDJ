@@ -38,9 +38,8 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
-vi.mock('@/lib/auth', () => ({
-  useAuth: () => ({ isAuthenticated: true, isLoading: false, role: 'dj' }),
-}));
+const mockAuth = { isAuthenticated: true, isLoading: false, role: 'dj' as string };
+vi.mock('@/lib/auth', () => ({ useAuth: () => mockAuth }));
 
 // ThemeToggle renders inline here (the (dj) layout's floating toggle is
 // suppressed on /setbuilder routes to avoid overlapping the topbar actions).
@@ -51,6 +50,9 @@ vi.mock('@/components/ThemeToggle', () => ({
 describe('SetbuilderPage', () => {
   beforeEach(() => {
     mockPush.mockReset();
+    mockAuth.isAuthenticated = true;
+    mockAuth.isLoading = false;
+    mockAuth.role = 'dj';
     mockListSets.mockReset();
     mockRenameSet.mockReset();
     mockDuplicateSet.mockReset();
@@ -73,6 +75,18 @@ describe('SetbuilderPage', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  // Regression for baseline 57cfcdc6867f: redirecting does not prevent protected requests.
+  it('does not load protected sets or taste data for a pending user', async () => {
+    mockAuth.role = 'pending';
+    mockListSets.mockResolvedValue([]);
+    mockGetTasteProfile.mockResolvedValue(null);
+    render(<SetbuilderPage />);
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/pending'));
+    expect(mockListSets).not.toHaveBeenCalled();
+    expect(mockGetTasteProfile).not.toHaveBeenCalled();
   });
 
   it('renders the empty state when there are no sets', async () => {

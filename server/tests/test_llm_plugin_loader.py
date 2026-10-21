@@ -14,6 +14,8 @@ tests pin its documented behaviour:
 from __future__ import annotations
 
 import logging
+import os
+import subprocess
 import sys
 
 import pytest
@@ -49,6 +51,24 @@ def _write_plugin(dir_path, name: str, body: str) -> None:
 def test_no_env_var_loads_nothing(monkeypatch):
     monkeypatch.delenv(plugin_loader.ENV_VAR, raising=False)
     assert plugin_loader.load_plugins_from_env() == []
+
+
+def test_importing_registry_does_not_execute_configured_plugins(tmp_path):
+    marker = tmp_path / "plugin-imported"
+    plugin_dir = tmp_path / "plugins"
+    plugin_dir.mkdir()
+    (plugin_dir / "side_effect.py").write_text(
+        f"from pathlib import Path\nPath({str(marker)!r}).write_text('loaded')\n"
+    )
+    env = os.environ | {plugin_loader.ENV_VAR: str(plugin_dir)}
+
+    subprocess.run(
+        [sys.executable, "-c", "import app.services.llm.registry"],
+        check=True,
+        env=env,
+    )
+
+    assert not marker.exists()
 
 
 def test_nonexistent_directory_is_skipped_with_warning(monkeypatch, tmp_path, caplog):

@@ -91,6 +91,13 @@ describe('getCamelotColor', () => {
     expect(result.bg).toBeTruthy();
   });
 
+  // Regression for 57cfcdc: Tidal bare keys were accepted by the sorter but not by badge colors.
+  it('matches canonical Camelot parsing for Tidal bare key names', () => {
+    expect(getCamelotColor('Eb').camelotCode).toBe('5B');
+    expect(getCamelotColor('CSharp').camelotCode).toBe('3B');
+    expect(getCamelotColor('FSharp').camelotCode).toBe('2B');
+  });
+
   it('parses abbreviated key names', () => {
     expect(getCamelotColor('Am').camelotCode).toBe('8A');
     expect(getCamelotColor('Cmaj').camelotCode).toBe('8B');

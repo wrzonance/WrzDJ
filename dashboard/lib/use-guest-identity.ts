@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getApiUrl } from "./api";
 
 interface GuestIdentity {
   guestId: number | null;
@@ -10,8 +11,6 @@ interface GuestIdentity {
   error: string | null;
   refresh: () => Promise<void>;
 }
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
 let cachedIdentity: { guestId: number; isReturning: boolean; reconcileHint: boolean } | null = null;
 
@@ -32,7 +31,7 @@ export function useGuestIdentity(): GuestIdentity {
       // Fingerprints are reconciled by WrzDJ; never send upstream telemetry.
       const fp = await getThumbmark({ logging: false, collect_beacon: false });
 
-      const resp = await fetch(`${API_URL}/api/public/guest/identify`, {
+      const resp = await fetch(`${getApiUrl()}/api/public/guest/identify`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

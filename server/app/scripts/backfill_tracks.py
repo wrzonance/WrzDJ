@@ -14,16 +14,24 @@ Run with: ``python -m app.scripts.backfill_tracks``
 """
 
 import logging
+from typing import TypedDict
 
 from sqlalchemy.orm import Session
 
 from app.core.time import utcnow
 from app.db.session import SessionLocal
 from app.models.request import Request
-from app.services.setbuilder.pool import dedupe_signature
+from app.services.tracks.identity import dedupe_signature
 from app.services.tracks.store import TrackIdentity, upsert_track
 
 logger = logging.getLogger(__name__)
+
+
+class BackfillSummary(TypedDict):
+    scanned: int
+    upserted: int
+    errors: int
+
 
 # Request column -> Track column. Request.musical_key and Track.musical_key share
 # the name, as do genre/bpm; mapping is 1:1 but kept explicit for clarity.
@@ -34,7 +42,7 @@ _FIELD_MAP: dict[str, str] = {
 }
 
 
-def backfill_tracks(db: Session) -> dict:
+def backfill_tracks(db: Session) -> BackfillSummary:
     """Copy genre/bpm/musical_key from Request rows into the master tracks store.
 
     Streams every Request with at least one of those fields populated (so memory

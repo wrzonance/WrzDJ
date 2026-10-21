@@ -13,10 +13,15 @@ from sqlalchemy.orm import Session
 from app.core.time import utcnow
 from app.models.now_playing import NowPlaying
 from app.models.request import Request, RequestStatus
-
-# `archive_to_history` is imported lazily inside the handlers below to avoid a
-# circular import with now_playing.py, which re-exports the bridge update
-# helpers at module bottom (legacy compatibility shim).
+from app.services import activity_log
+from app.services.now_playing import (
+    archive_to_history,
+    fuzzy_match_pending_request,
+    get_event_by_code_for_bridge,
+    get_now_playing,
+    lookup_spotify_album_art,
+    lookup_tidal_album_art,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +75,7 @@ def clear_all() -> None:
         _commands.clear()
 
 
-def handle_now_playing_update(
+def sync_now_playing_from_bridge(
     db: Session,
     event_code: str,
     title: str,
@@ -88,25 +93,15 @@ def handle_now_playing_update(
     4. Upsert now_playing with the new track + resolved art
     5. Link the fuzzy-matched request -> "playing"
     """
-    from app.services.now_playing import (
-        archive_to_history,
-        fuzzy_match_pending_request,
-        get_event_by_code_for_bridge,
-        get_now_playing,
-        lookup_spotify_album_art,
-        lookup_tidal_album_art,
-    )
-
     event = get_event_by_code_for_bridge(db, event_code)
     if not event:
-        logger.warning(f"Event not found for code: {event_code}")
+        logger.warning(
+            "Event not found for code: %s",
+            event_code.replace("\r", " ").replace("\n", " "),
+        )
         return None
 
-    # Resolve the match and album art BEFORE staging any DB writes.
-    # lookup_tidal_album_art can refresh the owner's Tidal OAuth token, which
-    # commits the session; doing it here — while nothing of ours is staged —
-    # keeps that refresh from prematurely committing this handler's bridge
-    # mutations, which are committed together at the end.
+    # Resolve the match and album art before staging bridge state changes.
     matched_request = fuzzy_match_pending_request(db, event.id, title, artist)
 
     # Album-art precedence: the matched request's already-resolved art (guest
@@ -195,8 +190,6 @@ def update_bridge_status(
     device_name: str | None = None,
 ) -> bool:
     """Update bridge connection status for an event."""
-    from app.services.now_playing import get_event_by_code_for_bridge, get_now_playing
-
     event = get_event_by_code_for_bridge(db, event_code)
     if not event:
         return False
@@ -219,30 +212,25 @@ def update_bridge_status(
         db.add(now_playing)
 
     # Log bridge connection/disconnection
-    try:
-        from app.services.activity_log import log_activity
-
-        if connected:
-            device_info = f" ({device_name})" if device_name else ""
-            log_activity(
-                db,
-                "info",
-                "bridge",
-                f"Bridge connected{device_info}",
-                event_code=event_code,
-                user_id=event.created_by_user_id,
-            )
-        else:
-            log_activity(
-                db,
-                "warning",
-                "bridge",
-                "Bridge disconnected",
-                event_code=event_code,
-                user_id=event.created_by_user_id,
-            )
-    except Exception:
-        pass  # nosec B110
+    if connected:
+        device_info = f" ({device_name})" if device_name else ""
+        activity_log.log_activity(
+            db,
+            "info",
+            "bridge",
+            f"Bridge connected{device_info}",
+            event_code=event_code,
+            user_id=event.created_by_user_id,
+        )
+    else:
+        activity_log.log_activity(
+            db,
+            "warning",
+            "bridge",
+            "Bridge disconnected",
+            event_code=event_code,
+            user_id=event.created_by_user_id,
+        )
 
     db.commit()
     return True
@@ -250,12 +238,6 @@ def update_bridge_status(
 
 def clear_now_playing(db: Session, event_code: str) -> bool:
     """Clear now_playing for an event (bridge disconnect or deck cleared)."""
-    from app.services.now_playing import (
-        archive_to_history,
-        get_event_by_code_for_bridge,
-        get_now_playing,
-    )
-
     event = get_event_by_code_for_bridge(db, event_code)
     if not event:
         return False

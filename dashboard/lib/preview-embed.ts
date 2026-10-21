@@ -7,7 +7,6 @@
  * Beatport does not offer embeddable players — tracks from Beatport
  * can only link out to the external page.
  *
- * This module is the groundwork for issue #128.
  */
 
 export type EmbeddableSource = 'spotify' | 'tidal';

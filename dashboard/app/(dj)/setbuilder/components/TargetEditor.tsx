@@ -7,7 +7,7 @@ import {
   formatTimecode,
   type TargetProjection,
   type TargetSettings,
-} from './targetMath';
+} from './curve/targetMath';
 import styles from '../setbuilder.module.css';
 
 interface TargetEditorProps {

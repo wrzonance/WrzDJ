@@ -28,7 +28,7 @@ from app.services.track_normalizer import normalize_track
 logger = logging.getLogger(__name__)
 
 
-def _enrich_with_fresh_session(request_id: int) -> None:
+def enrich_with_fresh_session(request_id: int) -> None:
     """Run request enrichment in its OWN DB session — the single shared scheduler.
 
     FastAPI tears down the ``yield``-based ``get_db`` only after background tasks
@@ -46,6 +46,38 @@ def _enrich_with_fresh_session(request_id: int) -> None:
     session = SessionLocal()
     try:
         enrich_request_metadata(session, request_id)
+    finally:
+        session.close()
+
+
+def sync_collection_requests_with_fresh_session(event_id: int, request_ids: list[int]) -> None:
+    """Sync collection rows in a fresh database session after reloading by ID."""
+    from app.db.session import SessionLocal
+    from app.models.event import Event
+    from app.models.request import Request as SongRequest
+    from app.services.providers.tidal_request_sync import sync_collection_requests_batch
+
+    session = SessionLocal()
+    try:
+        event = session.get(Event, event_id)
+        if event is None:
+            return
+        rows = session.query(SongRequest).filter(SongRequest.id.in_(request_ids)).all()
+        if rows:
+            sync_collection_requests_batch(session, event.created_by, event, rows)
+    finally:
+        session.close()
+
+
+def sync_requests_with_fresh_session(request_ids: list[int]) -> None:
+    """Sync request IDs in a short-lived database session."""
+    from app.db.session import SessionLocal
+
+    session = SessionLocal()
+    try:
+        rows = session.query(Request).filter(Request.id.in_(request_ids)).all()
+        if rows:
+            sync_requests_batch(session, rows)
     finally:
         session.close()
 
@@ -115,8 +147,9 @@ def sync_request_to_services(db: Session, request: Request) -> MultiSyncResult:
     for result in multi_result.results:
         _persist_sync_result(request, result)
         if result.status in (SyncStatus.NOT_FOUND, SyncStatus.ERROR):
+            # Activity logging is a best-effort side effect; it must not fail the sync result.
             try:
-                from app.services.activity_log import log_activity
+                from app.services.activity_log import log_activity_in_fresh_session
 
                 level = "warning" if result.status == SyncStatus.NOT_FOUND else "error"
                 msg = (
@@ -125,16 +158,19 @@ def sync_request_to_services(db: Session, request: Request) -> MultiSyncResult:
                 )
                 if result.error:
                     msg += f" ({result.error})"
-                log_activity(
-                    db,
+                log_activity_in_fresh_session(
                     level,
                     result.service,
                     msg[:500],
                     event_code=event.code,
                     user_id=user.id,
                 )
-            except Exception:
-                pass  # nosec B110
+            except Exception as exc:
+                logger.warning(
+                    "Sync activity logging failed for %s (%s)",
+                    result.service,
+                    type(exc).__name__,
+                )
 
     db.commit()
     return multi_result
@@ -217,7 +253,11 @@ def sync_requests_batch(db: Session, requests: list[Request]) -> None:
                 success = adapter.add_tracks_to_playlist(db, user, playlist_id, track_ids)
             except Exception as e:
                 success = False
-                logger.error(f"Batch add failed for {adapter.service_name}: {e}")
+                logger.error(
+                    "Batch add failed for %s (%s)",
+                    adapter.service_name,
+                    type(e).__name__,
+                )
 
             for request, match in found:
                 _persist_sync_result(

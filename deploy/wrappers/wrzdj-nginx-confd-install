@@ -1,0 +1,28 @@
+#!/bin/bash
+set -euo pipefail
+
+if [ "$#" -ne 1 ]; then
+  echo "Usage: $0 <nginx-confd-file.conf>" >&2
+  exit 2
+fi
+
+# Install an nginx config file to conf.d/ safely (http-level configs like log formats)
+ALLOWED_DIR="/opt/wrzdj/deploy/nginx"
+
+src="$(realpath "$1")"
+name="$(basename "$1")"
+
+# Validate source is under the allowed directory
+if [[ "$src" != "$ALLOWED_DIR"/* ]]; then
+  echo "ERROR: Source file must be under $ALLOWED_DIR (got: $src)" >&2
+  exit 1
+fi
+
+# Validate filename (no slashes, dots-only, etc.)
+if [[ ! "$name" =~ ^[a-zA-Z0-9._-]+\.conf$ ]]; then
+  echo "ERROR: Invalid config name: $name (must end in .conf)" >&2
+  exit 1
+fi
+
+cp -- "$src" "/etc/nginx/conf.d/wrzdj-$name"
+echo "Installed: /etc/nginx/conf.d/wrzdj-$name"

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { api } from '@/lib/api';
-import type { SetSummary } from '@/lib/api-types';
+import type { SetSummary } from '@/lib/api/types';
 
 interface ShareDialogProps {
   set: SetSummary;

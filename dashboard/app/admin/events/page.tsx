@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { api, AdminEvent } from '@/lib/api';
-import { useAdminPage } from '@/lib/useAdminPage';
+import { useAdminPage } from '@/lib/use-admin-page';
+import { useBulkEventDeletion } from '@/lib/useBulkEventDeletion';
 import { HelpSpot } from '@/components/help/HelpSpot';
 import { HelpButton } from '@/components/help/HelpButton';
 import { OnboardingOverlay } from '@/components/help/OnboardingOverlay';
@@ -15,8 +16,6 @@ export default function AdminEventsPage() {
   const [editName, setEditName] = useState('');
   const [error, setError] = useState('');
   const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedEvents, setSelectedEvents] = useState<Set<string>>(new Set());
-  const [deletingSelected, setDeletingSelected] = useState(false);
   const limit = 20;
 
   const { data: paginated, error: loadError, loading, reload } = useAdminPage({
@@ -27,10 +26,23 @@ export default function AdminEventsPage() {
   const events = paginated?.items ?? [];
   const total = paginated?.total ?? 0;
 
+  const {
+    selectedEvents,
+    deletingSelected,
+    toggleEvent,
+    toggleEvents,
+    clearSelection,
+    deleteSelected: handleBulkDelete,
+  } = useBulkEventDeletion({
+    deleteEvents: api.bulkDeleteAdminEvents,
+    refreshEvents: () => { void reload(); },
+    onError: setError,
+  });
+
   useEffect(() => {
-    setSelectedEvents(new Set());
+    clearSelection();
     reload();
-  }, [page, reload]);
+  }, [page, reload, clearSelection]);
 
   const handleEdit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,42 +64,6 @@ export default function AdminEventsPage() {
       reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete event');
-    }
-  };
-
-  const toggleSelection = (code: string) => {
-    setSelectedEvents((prev) => {
-      const next = new Set(prev);
-      if (next.has(code)) {
-        next.delete(code);
-      } else {
-        next.add(code);
-      }
-      return next;
-    });
-  };
-
-  const toggleSelectAll = () => {
-    if (selectedEvents.size === events.length) {
-      setSelectedEvents(new Set());
-    } else {
-      setSelectedEvents(new Set(events.map((e) => e.code)));
-    }
-  };
-
-  const handleBulkDelete = async () => {
-    if (selectedEvents.size === 0) return;
-    if (!window.confirm(`Delete ${selectedEvents.size} event${selectedEvents.size === 1 ? '' : 's'}? This cannot be undone.`)) return;
-
-    setDeletingSelected(true);
-    try {
-      await api.bulkDeleteAdminEvents([...selectedEvents]);
-      setSelectedEvents(new Set());
-      reload();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete events');
-    } finally {
-      setDeletingSelected(false);
     }
   };
 
@@ -151,7 +127,7 @@ export default function AdminEventsPage() {
                 checked={selectionMode}
                 onChange={(e) => {
                   setSelectionMode(e.target.checked);
-                  if (!e.target.checked) setSelectedEvents(new Set());
+                  if (!e.target.checked) clearSelection();
                 }}
                 style={{ accentColor: 'var(--color-accent-checkbox)' }}
                 aria-label="Advanced"
@@ -178,7 +154,7 @@ export default function AdminEventsPage() {
                       <input
                         type="checkbox"
                         checked={selectedEvents.size === events.length && events.length > 0}
-                        onChange={toggleSelectAll}
+                        onChange={() => toggleEvents(events.map((e) => e.code))}
                         style={{ accentColor: 'var(--color-accent-checkbox)' }}
                         aria-label="Select All"
                       />
@@ -205,7 +181,7 @@ export default function AdminEventsPage() {
                         <input
                           type="checkbox"
                           checked={selectedEvents.has(event.code)}
-                          onChange={() => toggleSelection(event.code)}
+                          onChange={() => toggleEvent(event.code)}
                           style={{ accentColor: 'var(--color-accent-checkbox)' }}
                           aria-label={`Select event ${event.code}`}
                         />

@@ -1,9 +1,9 @@
 'use client';
 
-import { fmtTime } from './curveMath';
-import { localPositionSec, totalDuration } from './transportMath';
+import { fmtTime } from './curve/curveMath';
+import { localPositionSec, totalDuration } from './timeline/transportMath';
 import type { SlotView } from './types';
-import styles from './curve.module.css';
+import styles from './curve/transport.module.css';
 
 interface TransportStatus {
   connected: boolean;

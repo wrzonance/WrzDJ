@@ -227,15 +227,19 @@ def _migrate_env_var_anthropic_key() -> None:
             model_hint = "claude-haiku-4-5-20251001"
 
         now = datetime.now(UTC).replace(tzinfo=None)
+        insert_statement = sa.text(
+            "INSERT INTO llm_connectors "
+            "(user_id, connector_type, display_name, status, credentials, "
+            "model_hint, created_at, updated_at) "
+            "VALUES (:uid, :ctype, :name, :status, :creds, "
+            ":mhint, :created, :updated) "
+            "RETURNING id"
+        ).bindparams(
+            sa.bindparam("created", type_=sa.DateTime()),
+            sa.bindparam("updated", type_=sa.DateTime()),
+        )
         result = session.execute(
-            sa.text(
-                "INSERT INTO llm_connectors "
-                "(user_id, connector_type, display_name, status, credentials, "
-                "model_hint, created_at, updated_at) "
-                "VALUES (:uid, :ctype, :name, :status, :creds, "
-                ":mhint, :created, :updated) "
-                "RETURNING id"
-            ),
+            insert_statement,
             {
                 "uid": admin_id,
                 "ctype": "anthropic_apikey",
@@ -286,7 +290,7 @@ def _migrate_env_var_anthropic_key() -> None:
                 "INSERT INTO llm_audit_event "
                 "(actor_user_id, target_connector_id, event_type, created_at) "
                 "VALUES (:uid, :cid, :etype, :created)"
-            ),
+            ).bindparams(sa.bindparam("created", type_=sa.DateTime())),
             {
                 "uid": admin_id,
                 "cid": connector_id,

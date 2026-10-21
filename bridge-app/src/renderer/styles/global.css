@@ -1,3 +1,17 @@
+:root {
+  --color-text: #ededed;
+  --color-border: #444;
+  --color-input-background: #2a2a2a;
+  --color-warning: #f59e0b;
+  --color-warning-background: #2a2000;
+  --color-text-muted: #9ca3af;
+  --color-log-debug: #666;
+  --color-log-info: #5b9bd5;
+  --color-log-warning: #e5a00d;
+  --color-log-message-warning: #d4a;
+  --color-log-error: #e55;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -452,9 +466,17 @@ body {
   min-width: 2.2em;
 }
 
+.log-level-debug { color: var(--color-log-debug); }
+.log-level-info { color: var(--color-log-info); }
+.log-level-warn { color: var(--color-log-warning); }
+.log-level-error { color: var(--color-log-error); }
+
 .log-message {
   color: #b0b0b0;
 }
+
+.log-message-warn { color: var(--color-log-message-warning); }
+.log-message-error { color: var(--color-log-error); }
 
 /* Network warning banner */
 .network-warning {

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type { AuthState, BridgeSettings, BridgeStatus, EventInfo, IpcLogMessage, PluginMeta } from '../shared/types.js';
+import type { BridgeApi } from '../shared/bridge-api.js';
 import { IPC_CHANNELS } from '../shared/types.js';
 
 const bridgeApi = {
@@ -72,8 +73,6 @@ const bridgeApi = {
     ipcRenderer.on(IPC_CHANNELS.AUTH_CHANGED, listener);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.AUTH_CHANGED, listener);
   },
-};
+} satisfies BridgeApi;
 
 contextBridge.exposeInMainWorld('bridgeApi', bridgeApi);
-
-export type BridgeApi = typeof bridgeApi;

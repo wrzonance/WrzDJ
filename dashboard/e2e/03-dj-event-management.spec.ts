@@ -26,17 +26,16 @@ test.describe('DJ Event Management', () => {
   test('event page shows request list with correct count', async ({ page }) => {
     await setupAuth(page, testApi.jwt);
     await page.goto(`/events/${eventCode}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     // The "All" tab should show the total count
     const allTab = page.locator('button.tab', { hasText: 'All' });
     await expect(allTab).toBeVisible();
-    const tabText = await allTab.textContent();
-    expect(tabText).toContain(`${TEST_TRACKS.length}`);
+    await expect(allTab).toContainText(String(TEST_TRACKS.length));
 
     // Request items should be listed
     const items = page.locator('.request-item');
-    expect(await items.count()).toBe(TEST_TRACKS.length);
+    await expect(items).toHaveCount(TEST_TRACKS.length);
   });
 
   test('accept request changes status badge', async ({ page }) => {
@@ -46,7 +45,7 @@ test.describe('DJ Event Management', () => {
 
     await setupAuth(page, testApi.jwt);
     await page.goto(`/events/${acceptEvent.code}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     // Get the first request item's ID to track it after status change
     const firstItem = page.locator('.request-item').first();
@@ -68,7 +67,7 @@ test.describe('DJ Event Management', () => {
 
     await setupAuth(page, testApi.jwt);
     await page.goto(`/events/${rejectEvent.code}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     // Get the first request item's ID
     const firstItem = page.locator('.request-item').first();
@@ -92,7 +91,7 @@ test.describe('DJ Event Management', () => {
 
     await setupAuth(page, testApi.jwt);
     await page.goto(`/events/${playingEvent.code}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     // Find the accepted request and capture its DOM ID before clicking
     const acceptedItem = page.locator('.request-item').filter({ has: page.locator('.badge-accepted') }).first();
@@ -114,20 +113,17 @@ test.describe('DJ Event Management', () => {
 
     await setupAuth(page, testApi.jwt);
     await page.goto(`/events/${freshEvent.code}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     // Click "Accept All" button
     const acceptAllBtn = page.locator('button:has-text("Accept All")');
-    await expect(acceptAllBtn).toBeVisible();
+    await expect(acceptAllBtn).toHaveText(`Accept All (${TEST_TRACKS.length})`);
     await acceptAllBtn.click();
-
-    // Wait for all requests to be accepted
-    await page.waitForTimeout(2000);
 
     // The "New" tab count should now be 0
     const newTab = page.locator('button.tab', { hasText: 'New' });
-    const newTabText = await newTab.textContent();
-    expect(newTabText).toContain('0');
+    await expect(newTab).toContainText('0');
+    await expect(page.locator('.request-item .badge-accepted')).toHaveCount(TEST_TRACKS.length);
   });
 
   test('filter tabs show correct filtered results', async ({ page }) => {
@@ -142,22 +138,22 @@ test.describe('DJ Event Management', () => {
 
     await setupAuth(page, testApi.jwt);
     await page.goto(`/events/${filterEvent.code}`);
-    await waitForPage(page, 2000);
+    await waitForPage(page);
 
     // "Accepted" tab should show 2
     const acceptedTab = page.locator('button.tab', { hasText: 'Accepted' });
     await acceptedTab.click();
-    await page.waitForTimeout(500);
+    await expect(acceptedTab).toHaveClass(/active/);
 
     const acceptedItems = page.locator('.request-item');
-    expect(await acceptedItems.count()).toBe(2);
+    await expect(acceptedItems).toHaveCount(2);
 
     // "New" tab should show remaining 2
     const newTab = page.locator('button.tab', { hasText: 'New' });
     await newTab.click();
-    await page.waitForTimeout(500);
+    await expect(newTab).toHaveClass(/active/);
 
     const newItems = page.locator('.request-item');
-    expect(await newItems.count()).toBe(2);
+    await expect(newItems).toHaveCount(2);
   });
 });

@@ -24,7 +24,11 @@ from app.services.setbuilder.vibe_resolver import (
     is_low_confidence,
     resolve_vibe,
 )
-from app.services.system_settings import get_system_settings, update_system_settings
+from app.services.system_settings import (
+    SystemSettingsPatch,
+    get_system_settings,
+    update_system_settings,
+)
 
 
 class TestVibeConsensusSettings:
@@ -34,7 +38,10 @@ class TestVibeConsensusSettings:
         assert s.vibe_consensus_max_stddev == 1.5
 
     def test_update(self, db):
-        s = update_system_settings(db, vibe_consensus_min_sample=5, vibe_consensus_max_stddev=2.0)
+        s = update_system_settings(
+            db,
+            SystemSettingsPatch(vibe_consensus_min_sample=5, vibe_consensus_max_stddev=2.0),
+        )
         assert s.vibe_consensus_min_sample == 5
         assert s.vibe_consensus_max_stddev == 2.0
 

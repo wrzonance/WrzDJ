@@ -11,6 +11,7 @@ from app.services.llm.adapters._httpx_openai import (
     call_openai_chat,
     stream_openai_chat,
 )
+from app.services.llm.adapters._shared import DEFAULT_OPENAI_MODEL as DEFAULT_MODEL
 from app.services.llm.base import ChatRequest, ChatResponse, ChatResponseChunk, LlmAdapter
 from app.services.llm.exceptions import AuthInvalid
 from app.services.llm.registry import register_adapter
@@ -18,11 +19,10 @@ from app.services.llm.url_validator import InvalidBaseUrlError, validate_compati
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gpt-5-mini"
-
 
 class OpenAICompatibleAdapter(LlmAdapter):
     connector_type = "openai_compatible"
+    default_model = DEFAULT_MODEL
 
     def _extract_credentials(self) -> tuple[str, str | None]:
         """Return (base_url, bearer-or-None)."""
@@ -55,7 +55,7 @@ class OpenAICompatibleAdapter(LlmAdapter):
             base_url=base_url,
             api_key=bearer,
             request=request,
-            fallback_model=self.connector.model_hint or DEFAULT_MODEL,
+            fallback_model=self.connector.model_hint or self.default_model,
         )
 
     async def health_check(self) -> None:
@@ -65,7 +65,7 @@ class OpenAICompatibleAdapter(LlmAdapter):
             base_url=base_url,
             api_key=bearer,
             request=ping,
-            fallback_model=self.connector.model_hint or DEFAULT_MODEL,
+            fallback_model=self.connector.model_hint or self.default_model,
         )
 
     async def stream(self, request: ChatRequest) -> AsyncIterator[ChatResponseChunk]:
@@ -74,7 +74,7 @@ class OpenAICompatibleAdapter(LlmAdapter):
             base_url=base_url,
             api_key=bearer,
             request=request,
-            fallback_model=self.connector.model_hint or DEFAULT_MODEL,
+            fallback_model=self.connector.model_hint or self.default_model,
         ):
             yield chunk
 

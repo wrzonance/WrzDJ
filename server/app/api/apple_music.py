@@ -9,7 +9,9 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_active_user, get_db
 from app.core.rate_limit import limiter
 from app.models.user import User
-from app.services import apple_music_accounts, apple_music_tokens
+from app.schemas.common import StatusMessageResponse
+from app.services.apple_music import accounts as apple_music_accounts
+from app.services.apple_music import tokens as apple_music_tokens
 
 router = APIRouter()
 
@@ -85,12 +87,12 @@ def link_account(
     return AppleMusicStatusOut(**apple_music_accounts.linked_account_status(connection))
 
 
-@router.post("/disconnect", response_model=dict[str, str])
+@router.post("/disconnect", response_model=StatusMessageResponse)
 @limiter.limit("10/minute")
 def disconnect_account(
     request: Request,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
-) -> dict[str, str]:
+) -> StatusMessageResponse:
     apple_music_accounts.disconnect_account(db, current_user)
-    return {"status": "ok"}
+    return StatusMessageResponse(status="ok", message="Apple Music account disconnected")

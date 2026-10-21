@@ -9,7 +9,7 @@ import {
   slotTimeRanges,
   visibleBlocksFromSlots,
   zoomPxPerSecond,
-} from '../components/curveViewport';
+} from '../components/curve/curveViewport';
 
 function mkSlot(idx: number, durationSec = 200): SlotView {
   return {

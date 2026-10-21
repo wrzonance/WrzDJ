@@ -127,16 +127,15 @@ class TestValidateSettingsFernetShape:
             token_encryption_keys=token_keys,
         )
 
-    def test_hex_token_key_exits(self, caplog) -> None:
+    def test_hex_token_key_raises_validation_error(self, caplog) -> None:
         s = self._prod_settings(token_key=secrets.token_hex(32))
-        with pytest.raises(SystemExit) as excinfo:
+        with pytest.raises(ValueError, match="TOKEN_ENCRYPTION_KEY is not a valid Fernet key"):
             validate_settings(s)
-        assert excinfo.value.code == 1
         assert "TOKEN_ENCRYPTION_KEY is not a valid Fernet key" in caplog.text
 
     def test_valid_fernet_token_key_passes(self) -> None:
         s = self._prod_settings(token_key=Fernet.generate_key().decode())
-        # Should not raise SystemExit.
+        # Valid production settings should pass without raising.
         validate_settings(s)
 
     def test_rotation_only_valid_passes(self) -> None:
@@ -145,16 +144,15 @@ class TestValidateSettingsFernetShape:
         s = self._prod_settings(token_keys=Fernet.generate_key().decode())
         validate_settings(s)
 
-    def test_rotation_with_bad_entry_exits(self, caplog) -> None:
+    def test_rotation_with_bad_entry_raises_validation_error(self, caplog) -> None:
         keys = f"{Fernet.generate_key().decode()},{secrets.token_hex(32)}"
         s = self._prod_settings(token_keys=keys)
-        with pytest.raises(SystemExit) as excinfo:
+        with pytest.raises(ValueError, match="TOKEN_ENCRYPTION_KEYS entry 2"):
             validate_settings(s)
-        assert excinfo.value.code == 1
         assert "TOKEN_ENCRYPTION_KEYS entry 2" in caplog.text
 
-    def test_neither_key_set_exits(self, caplog) -> None:
+    def test_neither_key_set_raises_validation_error(self, caplog) -> None:
         s = self._prod_settings()
-        with pytest.raises(SystemExit):
+        with pytest.raises(ValueError, match="TOKEN_ENCRYPTION_KEY"):
             validate_settings(s)
         assert "TOKEN_ENCRYPTION_KEY" in caplog.text

@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from app.api.deps import get_current_active_user
 from app.core.rate_limit import limiter
 from app.models.user import User
-from app.services import apple_music_tokens
+from app.services.apple_music import tokens as apple_music_tokens
 
 router = APIRouter()
 

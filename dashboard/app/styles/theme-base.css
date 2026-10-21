@@ -1,0 +1,418 @@
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+/* Theme defaults — overridden by ThemeProvider at runtime */
+:root {
+  /* Tier 1 — surfaces & structure */
+  --bg: #0a0a0a;
+  --card: #1a1a1a;
+  --surface-raised: #111111;
+  --text: #ededed;
+  --text-on-bright-accent: #000;
+  --text-on-status-accepted: #000;
+  --text-on-primary: #000;
+  --text-on-warning: #000;
+  --text-on-priority-score: #000;
+  --text-on-status-danger: #000;
+  --text-on-status-archived: #fff;
+  --text-secondary: #9ca3af;
+  --text-tertiary: #6b7280;
+  --border: #333333;
+  --border-subtle: #222222;
+  --color-overlay: rgba(0,0,0,0.7);
+
+  /* Tier 2 — semantic actions */
+  --color-primary: #3b82f6;
+  --color-primary-hover: #2563eb;
+  --color-primary-subtle: rgba(59,130,246,0.12);
+  --color-danger: #ef4444;
+  --color-danger-hover: #dc2626;
+  --color-danger-subtle: rgba(239,68,68,0.12);
+  --color-success: #22c55e;
+  --color-success-hover: #16a34a;
+  --color-success-subtle: rgba(34,197,94,0.12);
+  --color-warning: #f59e0b;
+  --color-warning-hover: #d97706;
+  --color-warning-subtle: rgba(245,158,11,0.12);
+  --color-admin: #6b21a8;
+  --color-admin-subtle: rgba(107,33,168,0.15);
+
+  /* Tier 3 — named UI roles */
+  --color-link: #60a5fa;
+  --color-nickname-accent: #a78bfa;
+  --color-code-accent: #3b82f6;
+  --color-focus-ring: rgba(59,130,246,0.4);
+  --color-scrollbar: #444444;
+  --color-log-info-bg: #1e3a5f;
+  --color-log-info-text: #60a5fa;
+  --color-log-warning-bg: #78350f;
+  --color-log-warning-text: #fbbf24;
+  --color-log-error-bg: #7f1d1d;
+  --color-log-error-text: #f87171;
+  --color-accent-checkbox: #3b82f6;
+  --color-live-badge: #ef4444;
+  --color-status-accepted: #8b5cf6;
+  --color-curve-accent: #00f5d4;
+  --text-on-accent: #fff;
+}
+
+html,
+body {
+  max-width: 100vw;
+  font-family: var(--font-body, 'DM Sans'), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.card {
+  background: var(--card);
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+  overflow: hidden;
+}
+
+/* Default background matters: without it, bare `.btn` buttons fall back to the
+   browser's light ButtonFace background under near-white --text — effectively
+   invisible in dark themes (same failure mode documented on .btn-secondary). */
+.btn {
+  display: inline-block;
+  padding: 0.75rem 1.5rem;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 500;
+  background: var(--surface-raised);
+  color: var(--text);
+  transition: background 0.2s;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--color-primary);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: var(--color-primary-hover);
+}
+
+/* Secondary action — was referenced (e.g. NicknameGate "Skip"/"Back") but never
+   defined, so buttons fell back to the browser's light default background with
+   near-white --text on top (~1:1 contrast, effectively invisible). Give them a
+   visible dark surface + border for legible contrast. */
+.btn-secondary {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btn-secondary:hover {
+  background: var(--surface-raised);
+}
+
+.btn-success {
+  background: var(--color-success);
+  color: white;
+}
+
+.btn-success:hover {
+  background: var(--color-success-hover);
+}
+
+.btn-warning {
+  background: var(--color-warning);
+  color: white;
+}
+
+.btn-warning:hover {
+  background: var(--color-warning-hover);
+}
+
+.btn-danger {
+  background: var(--color-danger);
+  color: white;
+}
+
+.btn-danger:hover {
+  background: var(--color-danger-hover);
+}
+
+.btn-sm {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+}
+
+.input {
+  width: 100%;
+  padding: 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.badge-new {
+  background: var(--color-primary);
+  color: white;
+}
+
+.badge-accepted {
+  background: var(--color-status-accepted);
+  color: white;
+}
+
+.badge-playing {
+  background: var(--color-success);
+  color: white;
+  animation: badge-pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes badge-pulse-glow {
+  0%, 100% { box-shadow: 0 0 4px rgba(34, 197, 94, 0.4); }
+  50% { box-shadow: 0 0 14px rgba(34, 197, 94, 0.8); }
+}
+
+.badge-played {
+  background: var(--text-tertiary);
+  color: var(--bg);
+}
+
+.badge-rejected {
+  background: var(--color-danger);
+  color: white;
+}
+
+/* WrzDJSet set-lifecycle badges — subtle, theme-token based (compose with .badge) */
+.badge-set-draft {
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.badge-set-locked {
+  background: var(--color-warning-subtle);
+  color: var(--color-warning);
+  border: 1px solid transparent;
+}
+
+.badge-set-exported {
+  background: var(--color-success-subtle);
+  color: var(--color-success);
+  border: 1px solid transparent;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.header h1 {
+  font-size: 1.5rem;
+}
+
+.request-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.request-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 1rem;
+  background: var(--card);
+  border-radius: 8px;
+  color: inherit;
+}
+
+.request-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.request-info h3 {
+  font-size: 1.125rem;
+  margin-bottom: 0.25rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.request-info p {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.request-nickname {
+  margin-top: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--color-nickname-accent);
+}
+
+.request-nickname .nickname-icon {
+  font-style: normal;
+}
+
+.request-info .note {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: var(--bg);
+  border-radius: 4px;
+  font-style: italic;
+}
+
+.request-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.event-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem;
+}
+
+.event-card {
+  background: var(--card);
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.event-card h3 {
+  font-size: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.event-card .code {
+  font-family: monospace;
+  font-size: 1.5rem;
+  color: var(--color-code-accent);
+  margin-bottom: 1rem;
+}
+
+.qr-container {
+  background: white;
+  padding: 1rem;
+  border-radius: 8px;
+  display: inline-block;
+  margin: 1rem 0;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.tab {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.tab.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+  color: var(--text-secondary);
+}
+
+/* Scrollable list utility */
+.scrollable-list {
+  max-height: 680px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-scrollbar) transparent;
+}
+
+.scrollable-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scrollable-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollable-list::-webkit-scrollbar-thumb {
+  background: var(--color-scrollbar);
+  border-radius: 3px;
+}
+
+.scrollable-list::-webkit-scrollbar-thumb:hover {
+  background: var(--color-scrollbar);
+}
+
+/* Fade-out animation for confirmation card */
+@keyframes fade-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-10px); }
+}
+
+.fade-out {
+  animation: fade-out 0.5s ease-out forwards;
+}

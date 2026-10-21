@@ -49,10 +49,8 @@ def is_registered(connector_type: str) -> bool:
     return connector_type in _REGISTRY
 
 
-# Eagerly import adapters to populate the registry. This avoids callers needing
-# to remember an explicit "register" step.
-def _bootstrap() -> None:
-    # Local imports keep the registry module dependency-free at import time.
+def _register_builtin_adapters() -> None:
+    """Import built-in adapters so their decorators populate the registry."""
     from app.services.llm.adapters import (  # noqa: F401
         anthropic_apikey,
         azure_openai,
@@ -64,15 +62,17 @@ def _bootstrap() -> None:
         xai_apikey,
     )
 
-    # Optional third-party plug-in load: if LLM_PLUGIN_DIR is set, import every
-    # .py file in that directory. Built-in adapters are loaded first so a
-    # plug-in can never shadow a built-in (the registry refuses
-    # double-registration, surfacing a clear startup error instead of silently
-    # overriding the production adapter). Plug-in load failures are logged but
-    # never crash the backend — see app.services.llm.plugin_loader.
+
+def initialize_adapters() -> list[str]:
+    """Load optional third-party adapters after application configuration.
+
+    Built-ins are registered at module import. Plugin imports are deferred to
+    application startup so registry lookups never execute configured files.
+    Built-ins load first, preventing plugins from shadowing production adapters.
+    """
     from app.services.llm.plugin_loader import load_plugins_from_env
 
-    load_plugins_from_env()
+    return load_plugins_from_env()
 
 
-_bootstrap()
+_register_builtin_adapters()

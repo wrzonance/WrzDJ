@@ -1,6 +1,7 @@
 """Tests for Beatport API endpoints."""
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -125,13 +126,16 @@ class TestBeatportLogin:
         self,
         client: TestClient,
         auth_headers: dict[str, str],
+        monkeypatch,
     ):
         """Successful login links Beatport account."""
+        monkeypatch.setattr(
+            "app.api.beatport.get_settings",
+            lambda: SimpleNamespace(beatport_client_id="test-client-id"),
+        )
         with (
             patch("app.api.beatport.login_and_get_tokens") as mock_login,
-            patch("app.api.beatport.settings") as mock_settings,
         ):
-            mock_settings.beatport_client_id = "test-client-id"
             mock_login.return_value = {
                 "access_token": "new-token",
                 "refresh_token": "new-refresh",
@@ -150,21 +154,24 @@ class TestBeatportLogin:
         self,
         client: TestClient,
         auth_headers: dict[str, str],
+        monkeypatch,
     ):
         """Login returns 503 when Beatport is not configured."""
-        with patch("app.api.beatport.settings") as mock_settings:
-            mock_settings.beatport_client_id = ""
-            response = client.post(
-                "/api/beatport/auth/login",
-                json={"username": "user", "password": "pass"},
-                headers=auth_headers,
-            )
+        monkeypatch.setattr(
+            "app.api.beatport.get_settings", lambda: SimpleNamespace(beatport_client_id="")
+        )
+        response = client.post(
+            "/api/beatport/auth/login",
+            json={"username": "user", "password": "pass"},
+            headers=auth_headers,
+        )
         assert response.status_code == 503
 
     def test_login_invalid_credentials(
         self,
         client: TestClient,
         auth_headers: dict[str, str],
+        monkeypatch,
     ):
         """Invalid credentials returns 401."""
         from unittest.mock import MagicMock
@@ -174,11 +181,13 @@ class TestBeatportLogin:
         mock_response = MagicMock()
         mock_response.status_code = 401
 
+        monkeypatch.setattr(
+            "app.api.beatport.get_settings",
+            lambda: SimpleNamespace(beatport_client_id="test-client-id"),
+        )
         with (
             patch("app.api.beatport.login_and_get_tokens") as mock_login,
-            patch("app.api.beatport.settings") as mock_settings,
         ):
-            mock_settings.beatport_client_id = "test-client-id"
             mock_login.side_effect = httpx.HTTPStatusError(
                 "Unauthorized", request=MagicMock(), response=mock_response
             )

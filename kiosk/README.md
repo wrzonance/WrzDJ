@@ -19,6 +19,9 @@ A touchscreen is not required — guests can still submit requests from their ph
 
 Use [Raspberry Pi Imager](https://www.raspberrypi.com/software/) to flash **Raspberry Pi OS Lite (64-bit)** to your SD card.
 
+Use Bookworm or newer with NetworkManager active. Setup checks this requirement
+before making changes; the captive portal does not support legacy wpa_supplicant-only systems.
+
 In Imager's settings (gear icon), configure:
 - **Hostname**: `wrzdj-kiosk`
 - **Enable SSH**: Yes (password authentication)
@@ -60,7 +63,7 @@ The kiosk now shows the live event queue — now playing, accepted requests, rec
 The kiosk includes a built-in WiFi captive portal. If the Pi boots without an internet connection (no WiFi pre-configured), the portal automatically:
 
 1. Scans for available WiFi networks
-2. Creates a `WrzDJ-Kiosk` hotspot (password: `wrzdj1234`)
+2. Creates a `WrzDJ-Kiosk` hotspot (use the password shown on the kiosk screen)
 3. Shows a WiFi setup page on the touchscreen
 4. Opens the same setup page on any phone that connects to the hotspot
 
@@ -77,15 +80,15 @@ HOTSPOT_SSID=MyCustomSSID
 HOTSPOT_PASSWORD=mypassword
 ```
 
-Then restart the portal:
+Restart the portal to reload those settings and restart the tty1 login session to reload Chromium:
 
 ```
-sudo systemctl restart wrzdj-wifi-portal
+sudo systemctl restart wrzdj-wifi-portal getty@tty1
 ```
 
 ### How It Works
 
-The portal (`wrzdj-wifi-portal.service`) runs on port 80 and starts before the kiosk display. Chromium always opens `http://localhost` first:
+The portal (`wrzdj-wifi-portal.service`) runs on port 80 after NetworkManager starts. The tty1 launcher waits for it before opening Chromium at `http://localhost`:
 
 - **Internet available**: Portal serves a JS redirect to the kiosk pairing URL
 - **No internet**: Portal starts a hotspot and serves the WiFi setup page
@@ -94,22 +97,27 @@ When a phone connects to the hotspot, all DNS resolves to the portal IP (`10.42.
 
 ## Configuration
 
-Edit `/etc/wrzdj-kiosk.conf` and restart the service:
+Edit `/etc/wrzdj-kiosk.conf`, reload the portal settings, and restart the kiosk login session:
 
 ```
 sudo nano /etc/wrzdj-kiosk.conf
-sudo systemctl restart wrzdj-kiosk
+sudo systemctl restart wrzdj-wifi-portal getty@tty1
 ```
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KIOSK_URL` | `https://app.wrzdj.com/kiosk-pair` | URL the browser opens on boot |
+| `KIOSK_URL` | `https://app.wrzdj.com/kiosk-pair` | Destination the portal opens when internet is available |
 | `KIOSK_ROTATION` | `0` | Screen rotation: `0`, `90`, `180`, `270` |
 | `EXTRA_CHROMIUM_FLAGS` | (empty) | Additional Chromium flags |
 | `HOTSPOT_SSID` | `WrzDJ-Kiosk` | WiFi hotspot name for captive portal |
-| `HOTSPOT_PASSWORD` | `wrzdj1234` | WiFi hotspot password |
+| `HOTSPOT_PASSWORD` | Generated during setup | WiFi hotspot password, displayed on the kiosk screen |
 
 WiFi variables (`WIFI_SSID`, `WIFI_PASSWORD`, `WIFI_COUNTRY`) are only used during initial setup.
+
+The portal reads `KIOSK_URL` and hotspot settings when it starts. Restart both `wrzdj-wifi-portal`
+and `getty@tty1` to reload those values in the portal and Chromium. Changes to
+`EXTRA_CHROMIUM_FLAGS` need a `getty@tty1` restart. To apply a rotation change, rerun `setup.sh`
+and reboot so the firmware configuration takes effect.
 
 ## Self-Hosted Instances
 
@@ -127,7 +135,7 @@ Or edit after setup:
 
 ```
 sudo sed -i 's|KIOSK_URL=.*|KIOSK_URL=https://your-server.com/kiosk-pair|' /etc/wrzdj-kiosk.conf
-sudo systemctl restart wrzdj-kiosk
+sudo systemctl restart wrzdj-wifi-portal getty@tty1
 ```
 
 ## SD Card Protection (Optional)
@@ -176,14 +184,15 @@ sudo journalctl -u wrzdj-wifi-portal -n 50
 
 ### Black screen after setup
 
-Check the kiosk service status:
+The display runs inside the kiosk user's tty1 login session. Check the getty and kiosk-user logs:
 ```
-sudo systemctl status wrzdj-kiosk
-sudo journalctl -u wrzdj-kiosk -n 50
+sudo systemctl status getty@tty1
+sudo journalctl -u getty@tty1 --no-pager -n 100
+sudo journalctl _UID="$(id -u kiosk)" --no-pager -n 100
 ```
 
 Common fixes:
-- GPU driver issue: Add `WLR_RENDERER=pixman` to `/etc/wrzdj-kiosk.conf` as `EXTRA_CHROMIUM_FLAGS` won't help here — edit the service file: `sudo systemctl edit wrzdj-kiosk` and add `Environment=WLR_RENDERER=pixman` under `[Service]`
+- GPU driver issue: Add `WLR_RENDERER=pixman` to `/etc/wrzdj-kiosk.conf`, then restart `getty@tty1`.
 - Missing display: Check HDMI cable, try the other HDMI port on Pi 4/5
 
 ### Touch input not working
@@ -212,11 +221,13 @@ sudo systemctl status wrzdj-kiosk-watchdog.timer
 sudo systemctl enable --now wrzdj-kiosk-watchdog.timer
 ```
 
-### Service keeps restarting
+### Kiosk browser does not launch
 
-Check logs for the root cause:
+The kiosk browser is started by the kiosk user's `.bash_profile` on tty1, not by a systemd display
+service. Check the login session and confirm the portal is ready:
 ```
-sudo journalctl -u wrzdj-kiosk --no-pager -n 100
+sudo systemctl status getty@tty1 wrzdj-wifi-portal
+sudo journalctl -u getty@tty1 --no-pager -n 100
 ```
 
 Common causes:
@@ -228,16 +239,26 @@ Common causes:
 ```
 kiosk/
   setup.sh                          # Main setup script
+  lib/
+    setup-config.sh                 # Read, validate, and write kiosk configuration
+    setup-platform.sh               # Configure packages, WiFi, user, rotation, and host
+    setup-runtime.sh                # Install portal/watchdog units and tty1 launcher
   wrzdj-kiosk.conf                  # Default configuration template
   wifi-portal/
-    portal.py                       # WiFi captive portal (Python stdlib)
+    portal.py                       # HTTP handlers, coordinated radio operations, startup
+    portal_config.py                # Typed portal settings and generated fallback credentials
+    portal_network.py               # NetworkManager commands and connectivity probes
+    portal_requests.py              # WiFi request validation before radio changes
+    portal_state.py                 # Server-owned cache, configuration and radio locks
+    portal_pages.py                 # Safe HTML rendering, styles and browser script
+    portal_defaults.py              # Default URL and hotspot name
+    portal_types.py                 # Network and connection status payloads
     dnsmasq-captive.conf            # DNS redirect config for hotspot mode
   systemd/
-    wrzdj-kiosk.service             # Cage + Chromium kiosk service (reference only)
     wrzdj-wifi-portal.service       # WiFi portal service (starts on boot)
     wrzdj-kiosk-watchdog.service    # Crash recovery (oneshot)
     wrzdj-kiosk-watchdog.timer      # Fires watchdog every 30s
-    wrzdj-kiosk-watchdog.sh         # Clears crash flags, restarts if failed
+    wrzdj-kiosk-watchdog.sh         # Clears Chromium crash flags
   overlayfs/
     setup-overlayfs.sh              # SD card write protection (optional)
 ```
@@ -246,4 +267,4 @@ The kiosk runs [Cage](https://github.com/cage-kiosk/cage), a minimal Wayland com
 
 Cage requires logind seat access (DRM/input devices), so it launches from the kiosk user's `.bash_profile` on tty1 auto-login — not from a systemd service. When Cage exits, the login session ends, getty restarts auto-login, and `.bash_profile` re-launches Cage (self-healing).
 
-On boot, the WiFi portal (`wrzdj-wifi-portal.service`) starts first on port 80. The kiosk user auto-logs in on tty1, `.bash_profile` waits for the portal to be ready, then launches Cage + Chromium pointing at `http://localhost`. If internet is available, the portal redirects to the kiosk pairing URL. If not, it shows a WiFi setup page and creates a hotspot for phone-based configuration.
+On boot, the WiFi portal (`wrzdj-wifi-portal.service`) starts on port 80 after NetworkManager. The kiosk user auto-logs in on tty1, `.bash_profile` waits for the portal to be ready, then launches Cage + Chromium pointing at `http://localhost`. If internet is available, the portal redirects to the kiosk pairing URL. If not, it shows a WiFi setup page and creates a hotspot for phone-based configuration.

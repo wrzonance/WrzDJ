@@ -12,9 +12,9 @@ from sqlalchemy.orm import sessionmaker
 from app.models.base import Base
 from app.models.provider_connection import UserProviderConnection
 from app.models.set import Set
-from app.services import apple_music_tokens
-from app.services.setbuilder import export_apple_music
-from app.services.setbuilder.export_common import ExportTrack
+from app.services.apple_music import tokens as apple_music_tokens
+from app.services.setbuilder.exports import export_apple_music
+from app.services.setbuilder.exports.export_common import ExportTrack
 
 TOKEN = "music-user-token-1234567890"
 
@@ -65,11 +65,15 @@ def test_competing_sessions_cannot_claim_with_stale_set_objects(tmp_path):
         created = Set(owner_id=1, name="Night", apple_music_playlist_id="p.confirmed123")
         setup.add(created)
         setup.commit()
+        # Commit expires ORM attributes by default. Resolve the identifier on
+        # this owning thread before worker sessions start; the workers must not
+        # refresh an object attached to this setup session concurrently.
+        created_id = int(created.id)
 
         def claim():
             session = sessions()
             try:
-                stale = session.get(Set, created.id)
+                stale = session.get(Set, created_id)
                 session.expunge(stale)
                 session.rollback()
                 barrier.wait()
@@ -82,7 +86,7 @@ def test_competing_sessions_cannot_claim_with_stale_set_objects(tmp_path):
 
         assert sorted(outcomes) == [False, True]
         setup.expire(created)
-        stored = setup.get(Set, created.id)
+        stored = setup.get(Set, created_id)
         assert stored.apple_music_export_pending is True
         assert stored.apple_music_playlist_id == "p.confirmed123"
         assert stored.apple_music_export_attempt_id

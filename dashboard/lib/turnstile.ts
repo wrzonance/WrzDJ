@@ -37,6 +37,7 @@ export interface TurnstileOptions {
 }
 
 const SCRIPT_URL = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+const SCRIPT_LOAD_TIMEOUT_MS = 15_000;
 let scriptLoadPromise: Promise<void> | null = null;
 let cachedSiteKey: string | null = null;
 
@@ -52,23 +53,55 @@ export function loadTurnstileScript(): Promise<void> {
   if (window.turnstile) return Promise.resolve();
   if (scriptLoadPromise) return scriptLoadPromise;
 
-  scriptLoadPromise = new Promise((resolve, reject) => {
-    const existing = document.querySelector(`script[src^="${SCRIPT_URL}"]`);
-    if (existing) {
-      existing.addEventListener('load', () => resolve());
-      existing.addEventListener('error', () => reject(new Error('Turnstile script failed to load')));
+  const existing = document.querySelector<HTMLScriptElement>(`script[src^="${SCRIPT_URL}"]`);
+  const script = existing ?? document.createElement('script');
+  let resolveLoad!: () => void;
+  let rejectLoad!: (error: Error) => void;
+  const loadPromise = new Promise<void>((resolve, reject) => {
+    resolveLoad = resolve;
+    rejectLoad = reject;
+  });
+  scriptLoadPromise = loadPromise;
+
+  let settled = false;
+  const cleanup = () => {
+    window.clearTimeout(timeoutId);
+    script.removeEventListener('load', handleLoad);
+    script.removeEventListener('error', handleError);
+  };
+  const fail = () => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    script.remove();
+    if (scriptLoadPromise === loadPromise) scriptLoadPromise = null;
+    rejectLoad(new Error('Turnstile script failed to load'));
+  };
+  const handleLoad = () => {
+    if (!window.turnstile) {
+      fail();
       return;
     }
-    const script = document.createElement('script');
+    if (settled) return;
+    settled = true;
+    cleanup();
+    resolveLoad();
+  };
+  const handleError = () => fail();
+  const timeoutId = window.setTimeout(fail, SCRIPT_LOAD_TIMEOUT_MS);
+
+  script.addEventListener('load', handleLoad);
+  script.addEventListener('error', handleError);
+  if (!existing) {
     script.src = SCRIPT_URL;
     script.async = true;
     script.defer = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Turnstile script failed to load'));
     document.head.appendChild(script);
-  });
+  }
+  // The script may have completed before this caller attached its listeners.
+  if (window.turnstile) handleLoad();
 
-  return scriptLoadPromise;
+  return loadPromise;
 }
 
 export function resetTurnstileCache(): void {

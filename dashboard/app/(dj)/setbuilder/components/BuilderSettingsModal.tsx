@@ -1,6 +1,8 @@
 'use client';
 
-import styles from '../setbuilder.module.css';
+
+import dialogStyles from '../setbuilder-dialogs.module.css';
+import sharedStyles from '../setbuilder-shared.module.css';
 
 export interface BuilderSettings {
   suggestReplacements: boolean;
@@ -34,10 +36,10 @@ function ToggleRow({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className={styles.settingsToggle}>
+    <label className={dialogStyles.settingsToggle}>
       <span>
-        <span className={styles.settingsToggleTitle}>{title}</span>
-        <span className={styles.settingsToggleDescription}>{description}</span>
+        <span className={dialogStyles.settingsToggleTitle}>{title}</span>
+        <span className={dialogStyles.settingsToggleDescription}>{description}</span>
       </span>
       <input
         type="checkbox"
@@ -61,23 +63,23 @@ export default function BuilderSettingsModal({
   const patch = (partial: Partial<BuilderSettings>) => onSettingsChange({ ...settings, ...partial });
 
   return (
-    <div className={styles.modalWrap}>
-      <div className={styles.modalBackdrop} onMouseDown={onClose} />
+    <div className={sharedStyles.modalWrap}>
+      <div className={sharedStyles.modalBackdrop} onMouseDown={onClose} />
       <div
-        className={styles.settingsModal}
+        className={dialogStyles.settingsModal}
         role="dialog"
         aria-modal="true"
         aria-label="Builder settings"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className={styles.settingsHeader}>
+        <div className={dialogStyles.settingsHeader}>
           <h2>Builder settings</h2>
           <button type="button" className="btn btn-sm" onClick={onClose} aria-label="Close settings">
             Close
           </button>
         </div>
 
-        <section className={styles.settingsSection}>
+        <section className={dialogStyles.settingsSection}>
           <h3>Saving</h3>
           <ToggleRow
             title="Autosave"
@@ -87,7 +89,7 @@ export default function BuilderSettingsModal({
           />
         </section>
 
-        <section className={styles.settingsSection}>
+        <section className={dialogStyles.settingsSection}>
           <h3>Edit prompts</h3>
           <ToggleRow
             title="Energy mismatch prompt"
@@ -109,7 +111,7 @@ export default function BuilderSettingsModal({
           />
         </section>
 
-        <section className={styles.settingsSection}>
+        <section className={dialogStyles.settingsSection}>
           <h3>Interaction</h3>
           <ToggleRow
             title="Double-click to play"
@@ -131,7 +133,7 @@ export default function BuilderSettingsModal({
           />
         </section>
 
-        <section className={styles.settingsSection}>
+        <section className={dialogStyles.settingsSection}>
           <h3>Agent</h3>
           <ToggleRow
             title="Agent chimes"

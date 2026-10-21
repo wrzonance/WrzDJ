@@ -78,6 +78,46 @@ class TestVerifyTurnstileToken:
         result = await verify_turnstile_token("invalid-token")
         assert result is False
 
+    @pytest.mark.parametrize("payload", [None, [], "unexpected"])
+    @patch("app.services.turnstile.httpx.AsyncClient")
+    @patch("app.services.turnstile.get_settings")
+    async def test_non_object_json_response_fails_closed(
+        self, mock_settings, mock_client_cls, payload
+    ):
+        settings = MagicMock()
+        settings.turnstile_secret_key = "test-secret"
+        settings.is_production = True
+        mock_settings.return_value = settings
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = payload
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        assert await verify_turnstile_token("token") is False
+
+    @pytest.mark.parametrize("success", [1, "true"])
+    @patch("app.services.turnstile.httpx.AsyncClient")
+    @patch("app.services.turnstile.get_settings")
+    async def test_success_flag_must_be_boolean_true(self, mock_settings, mock_client_cls, success):
+        settings = MagicMock()
+        settings.turnstile_secret_key = "test-secret"
+        settings.is_production = True
+        mock_settings.return_value = settings
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"success": success}
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        assert await verify_turnstile_token("token") is False
+
     @patch("app.services.turnstile.httpx.AsyncClient")
     @patch("app.services.turnstile.get_settings")
     async def test_no_remoteip_omits_field(self, mock_settings, mock_client_cls):

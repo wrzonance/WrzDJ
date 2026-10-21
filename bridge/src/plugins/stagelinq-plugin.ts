@@ -5,38 +5,57 @@
  * implements the EquipmentSourcePlugin interface. Connects to Denon DJ
  * equipment via the stagelinq npm package and emits normalized events.
  */
+import type { PluginMeta } from "./plugin-registry.js";
 import { EventEmitter } from "events";
 import { StageLinq } from "stagelinq";
+import { TypedEventEmitter } from "../shared/typed-event-emitter.js";
+
+type StageLinqDeviceListener = (...args: unknown[]) => void;
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
 
 import type {
   EquipmentSourcePlugin,
   PluginCapabilities,
   PluginConfigOption,
   PluginInfo,
-} from "../plugin-types.js";
+  PluginEventMap,
+  PluginEventArguments,
+} from "./plugin-types.js";
 
-export class StageLinqPlugin extends EventEmitter implements EquipmentSourcePlugin {
-  readonly info: PluginInfo = {
-    id: "stagelinq",
-    name: "Denon StageLinQ",
-    description: "Connects to Denon DJ equipment via StageLinQ protocol",
+export class StageLinqPlugin extends TypedEventEmitter<PluginEventArguments> implements EquipmentSourcePlugin {
+  static readonly metadata: PluginMeta = {
+    info: {
+      id: "stagelinq",
+      name: "Denon StageLinQ",
+      description: "Connects to Denon DJ equipment via StageLinQ protocol",
+    },
+    capabilities: {
+      multiDeck: true,
+      playState: true,
+      faderLevel: true,
+      masterDeck: true,
+      albumMetadata: true,
+    },
+    configOptions: []
   };
 
-  readonly capabilities: PluginCapabilities = {
-    multiDeck: true,
-    playState: true,
-    faderLevel: true,
-    masterDeck: true,
-    albumMetadata: true,
-  };
+  readonly info: PluginInfo = structuredClone(StageLinqPlugin.metadata.info);
 
-  readonly configOptions: readonly PluginConfigOption[] = [];
+  readonly capabilities: PluginCapabilities = structuredClone(StageLinqPlugin.metadata.capabilities);
+
+  readonly configOptions: readonly PluginConfigOption[] = structuredClone(StageLinqPlugin.metadata.configOptions);
 
   private static readonly CONNECT_TIMEOUT_MS = 30_000;
 
   private running = false;
   private disconnectFailed = false;
   private stopLogging: (() => void) | null = null;
+  private deviceEmitter: EventEmitter | null = null;
+  private readonly deviceListeners: Array<{ event: string; listener: StageLinqDeviceListener }> = [];
 
   get isRunning(): boolean {
     return this.running;
@@ -86,7 +105,7 @@ export class StageLinqPlugin extends EventEmitter implements EquipmentSourcePlug
     };
 
     // Wire event handlers AFTER options are set
-    this.wireEvents();
+    this.wireStageLinqEvents();
 
     this.emit("log", "Connecting to StageLinQ network...");
 
@@ -101,6 +120,17 @@ export class StageLinqPlugin extends EventEmitter implements EquipmentSourcePlug
 
     try {
       await Promise.race([connectPromise, timeoutPromise]);
+    } catch (error) {
+      this.running = false;
+      this.stopLogging?.();
+      this.stopLogging = null;
+      this.removeDeviceListeners();
+      try {
+        await StageLinq.disconnect();
+      } catch {
+        this.disconnectFailed = true;
+      }
+      throw error;
     } finally {
       clearTimeout(timeoutHandle);
     }
@@ -111,6 +141,7 @@ export class StageLinqPlugin extends EventEmitter implements EquipmentSourcePlug
     if (!this.running) return;
 
     this.running = false;
+    this.removeDeviceListeners();
 
     try {
       await StageLinq.disconnect();
@@ -121,15 +152,24 @@ export class StageLinqPlugin extends EventEmitter implements EquipmentSourcePlug
 
     this.stopLogging?.();
     this.stopLogging = null;
-    this.removeAllListeners();
   }
 
-  private wireEvents(): void {
+  private wireStageLinqEvents(): void {
+    const devices = StageLinq.devices;
+    const emitter = devices as EventEmitter;
+    this.deviceEmitter = emitter;
+    const listen = (event: string, listener: StageLinqDeviceListener): void => {
+      emitter.on(event, listener);
+      this.deviceListeners.push({ event, listener });
+    };
+
     // Handle now-playing events (track metadata + play state)
-    StageLinq.devices.on("nowPlaying", (status) => {
-      const deckId = status.deck || "1";
-      const title = status.title || "";
-      const artist = status.artist || "";
+    listen("nowPlaying", (payload) => {
+      const status = asRecord(payload);
+      if (!status) return;
+      const deckId = typeof status.deck === "string" && status.deck ? status.deck : "1";
+      const title = typeof status.title === "string" ? status.title : "";
+      const artist = typeof status.artist === "string" ? status.artist : "";
 
       if (!title) {
         this.emit("track", { deckId, track: null });
@@ -141,7 +181,7 @@ export class StageLinqPlugin extends EventEmitter implements EquipmentSourcePlug
         track: {
           title,
           artist,
-          album: (status as unknown as Record<string, unknown>).album as string | undefined,
+          album: typeof status.album === "string" ? status.album : undefined,
         },
       });
 
@@ -153,8 +193,9 @@ export class StageLinqPlugin extends EventEmitter implements EquipmentSourcePlug
     });
 
     // Handle state changes (play state, faders, master deck)
-    StageLinq.devices.on("stateChanged", (status) => {
-      if (!status.deck) return;
+    listen("stateChanged", (payload) => {
+      const status = asRecord(payload);
+      if (!status || typeof status.deck !== "string" || !status.deck) return;
 
       const deckId = status.deck;
 
@@ -173,24 +214,36 @@ export class StageLinqPlugin extends EventEmitter implements EquipmentSourcePlug
     });
 
     // Handle per-device connection
-    StageLinq.devices.on("connected", (info) => {
-      const deviceName = info?.software?.name || "Unknown Device";
-      const deviceVersion = info?.software?.version || "unknown";
-      const deviceAddress = info?.address || "unknown";
+    listen("connected", (payload) => {
+      const info = asRecord(payload);
+      const software = asRecord(info?.software);
+      const deviceName = typeof software?.name === "string" && software.name ? software.name : "Unknown Device";
+      const deviceVersion = typeof software?.version === "string" && software.version ? software.version : "unknown";
+      const deviceAddress = typeof info?.address === "string" && info.address ? info.address : "unknown";
       this.emit("log", `Device connected: ${deviceName} v${deviceVersion} at ${deviceAddress}`);
       this.emit("connection", { connected: true, deviceName });
     });
 
     // Handle all devices ready
-    StageLinq.devices.on("ready", () => {
+    listen("ready", () => {
       this.emit("log", "All devices ready — StateMap initialized");
       this.emit("ready");
     });
 
     // Handle device disconnect
-    (StageLinq.devices as NodeJS.EventEmitter).on("disconnect", () => {
+    listen("disconnect", () => {
       this.emit("log", "Device disconnected");
       this.emit("connection", { connected: false });
     });
+  }
+
+  private removeDeviceListeners(): void {
+    const devices = this.deviceEmitter;
+    if (!devices) return;
+    for (const { event, listener } of this.deviceListeners) {
+      devices.removeListener(event, listener);
+    }
+    this.deviceListeners.length = 0;
+    this.deviceEmitter = null;
   }
 }

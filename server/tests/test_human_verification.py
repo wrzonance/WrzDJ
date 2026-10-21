@@ -8,6 +8,7 @@ from fastapi import Request, Response
 
 from app.services.human_verification import (
     COOKIE_NAME,
+    get_human_cookie_remaining_ttl,
     issue_human_cookie,
     verify_human_cookie,
 )
@@ -90,6 +91,15 @@ class TestVerifyHumanCookie:
 
         result = verify_human_cookie(request)
         assert result == 42
+
+    def test_remaining_ttl_is_exposed_by_cookie_service(self, mock_settings):
+        cookie_value = self._issue_and_extract(mock_settings, guest_id=42)
+        request = _make_request_with_cookie(cookie_value)
+
+        remaining = get_human_cookie_remaining_ttl(request)
+
+        assert remaining is not None
+        assert 3500 < remaining <= 3600
 
     def test_missing_cookie_returns_none(self, mock_settings):
         mock_settings.return_value.effective_human_cookie_secret = b"x" * 32

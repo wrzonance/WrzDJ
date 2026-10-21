@@ -7,8 +7,8 @@ vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
   return {
     ...actual,
-    apiClient: {
-      ...actual.apiClient,
+    api: {
+      ...actual.api,
       getCollectPreview: vi.fn().mockResolvedValue({ source: 'manual', source_url: null }),
     },
   };
@@ -210,7 +210,9 @@ describe('CollectDetailSheet', () => {
       />,
     );
     await act(async () => {});
-    expect(screen.getByText('UPVOTE THIS TRACK')).toBeTruthy();
+    const voteButton = screen.getByText('UPVOTE THIS TRACK');
+    expect(voteButton).toBeTruthy();
+    expect(voteButton.closest('button')?.style.color).toBe('var(--text-on-bright-accent)');
   });
 
   it('shows VOTED label when voted', async () => {
@@ -355,8 +357,8 @@ describe('CollectDetailSheet', () => {
   });
 
   it('renders Spotify embed iframe when preview has spotify source_url', async () => {
-    const { apiClient } = await import('@/lib/api');
-    vi.mocked(apiClient.getCollectPreview).mockResolvedValueOnce({
+    const { api } = await import('@/lib/api');
+    vi.mocked(api.getCollectPreview).mockResolvedValueOnce({
       source: 'spotify',
       source_url: 'https://open.spotify.com/track/abc123',
     });
@@ -379,8 +381,8 @@ describe('CollectDetailSheet', () => {
   });
 
   it('renders Tidal embed iframe with tidal params', async () => {
-    const { apiClient } = await import('@/lib/api');
-    vi.mocked(apiClient.getCollectPreview).mockResolvedValueOnce({
+    const { api } = await import('@/lib/api');
+    vi.mocked(api.getCollectPreview).mockResolvedValueOnce({
       source: 'tidal',
       source_url: 'https://tidal.com/browse/track/12345',
     });
@@ -403,8 +405,8 @@ describe('CollectDetailSheet', () => {
   });
 
   it('renders Beatport external link when preview source is beatport', async () => {
-    const { apiClient } = await import('@/lib/api');
-    vi.mocked(apiClient.getCollectPreview).mockResolvedValueOnce({
+    const { api } = await import('@/lib/api');
+    vi.mocked(api.getCollectPreview).mockResolvedValueOnce({
       source: 'beatport',
       source_url: 'https://www.beatport.com/track/test/99999',
     });
@@ -427,8 +429,8 @@ describe('CollectDetailSheet', () => {
   });
 
   it('renders no preview when source_url is null', async () => {
-    const { apiClient } = await import('@/lib/api');
-    vi.mocked(apiClient.getCollectPreview).mockResolvedValueOnce({
+    const { api } = await import('@/lib/api');
+    vi.mocked(api.getCollectPreview).mockResolvedValueOnce({
       source: 'manual',
       source_url: null,
     });

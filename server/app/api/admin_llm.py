@@ -19,10 +19,15 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_admin, get_db
+from app.api.llm_connector_inputs import (
+    to_connector_create_input,
+    to_credential_rotation_input,
+)
 from app.core.csv_safe import sanitize_csv_value
 from app.core.rate_limit import limiter
 from app.core.time import utcnow
 from app.models.llm_connector import SCOPE_USER, STATUS_ACTIVE, LlmAuditEvent, LlmConnector
+from app.models.llm_contracts import CONNECTOR_TYPE_VALUES, ConnectorType
 from app.models.user import User, UserRole
 from app.schemas.llm import (
     AdminAuditOut,
@@ -40,30 +45,36 @@ from app.schemas.llm import (
     DjLlmStatusRow,
     UsageRow,
 )
+from app.services.llm.connector_payloads import build_create_payload
 from app.services.llm.connector_storage import (
     AUDIT_CREATED,
     AUDIT_CREDENTIALS_ROTATED,
     AUDIT_DELETED,
     AUDIT_POLICY_CHANGED,
     AUDIT_REVOKED_BY_ADMIN,
-    audit_event,
-    build_create_payload,
     create_connector,
-    current_month_token_usage,
-    current_month_token_usage_bulk,
     delete_connector,
     get_connector,
-    get_usage_stats,
-    get_user_label,
     list_all_connectors,
     list_org_connectors,
-    owner_label,
     revoke_connector,
     rotate_credentials,
     set_monthly_cap,
 )
-from app.services.llm.gateway import _resolve_org_default
-from app.services.system_settings import get_system_settings, update_system_settings
+from app.services.llm.connector_telemetry import (
+    audit_event,
+    current_month_token_usage,
+    current_month_token_usage_bulk,
+    get_usage_stats,
+    get_user_label,
+    owner_label,
+)
+from app.services.llm.gateway import resolve_org_default_connector
+from app.services.system_settings import (
+    SystemSettingsPatch,
+    get_system_settings,
+    update_system_settings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +83,9 @@ router = APIRouter()
 # Hard ceiling for a single CSV export — keeps an attacker (or an honest admin
 # with a huge history) from streaming an unbounded result set.
 _AUDIT_CSV_ROW_CAP = 10_000
+_CONNECTOR_TYPE_BY_VALUE: dict[str, ConnectorType] = {
+    connector_type: connector_type for connector_type in CONNECTOR_TYPE_VALUES
+}
 
 
 def _connector_to_admin_out(
@@ -216,7 +230,7 @@ def patch_policy(
             )
         update_kwargs["llm_default_connector_id"] = target.id
 
-    settings = update_system_settings(db, **update_kwargs)
+    settings = update_system_settings(db, SystemSettingsPatch(**update_kwargs))
     audit_event(
         db,
         actor_user_id=admin.id,
@@ -244,7 +258,7 @@ def dj_llm_status(
     Backend-computed from the same rules the gateway resolver applies, so the
     admin UI never duplicates resolution logic.
     """
-    fallback_on = _resolve_org_default(db) is not None
+    fallback_on = resolve_org_default_connector(db) is not None
     users = (
         db.query(User)
         .filter(
@@ -394,6 +408,13 @@ def get_usage(
             c = connector_map.get(cid)
             if c is None:
                 continue
+            connector_type = _CONNECTOR_TYPE_BY_VALUE.get(c.connector_type)
+            if connector_type is None:
+                logger.warning(
+                    "Skipping admin usage row for connector %s with unsupported connector type",
+                    c.id,
+                )
+                continue
             total = r["total_calls"]
             errors = r["error_count"]
             rows_out.append(
@@ -401,7 +422,7 @@ def get_usage(
                     connector_id=cid,
                     dj_username=owner_label(c.user_id, usernames),
                     display_name=c.display_name,
-                    connector_type=c.connector_type,  # type: ignore[arg-type]
+                    connector_type=connector_type,
                     total_calls=total,
                     total_tokens_in=r["total_tokens_in"],
                     total_tokens_out=r["total_tokens_out"],
@@ -567,21 +588,7 @@ def create_org_connector(
     admin decision.
     """
     try:
-        create_payload = build_create_payload(
-            connector_type=payload.connector_type,
-            display_name=payload.display_name,
-            api_key=payload.api_key,
-            base_url=payload.base_url,
-            bearer=payload.bearer,
-            model_hint=payload.model_hint,
-            aws_access_key_id=payload.aws_access_key_id,
-            aws_secret_access_key=payload.aws_secret_access_key,
-            aws_region=payload.aws_region,
-            aws_model_id=payload.aws_model_id,
-            azure_resource_name=payload.azure_resource_name,
-            azure_deployment_name=payload.azure_deployment_name,
-            azure_api_version=payload.azure_api_version,
-        )
+        create_payload = build_create_payload(to_connector_create_input(payload))
         row = create_connector(db, user_id=None, payload=create_payload, scope="org")
     except ValueError as exc:
         # Field validation failures + the org duplicate-(type, label) guard.
@@ -626,20 +633,8 @@ def rotate_org_connector_credentials(
     row = _get_org_connector_or_404(db, connector_id)
 
     try:
-        rotate_credentials(
-            db,
-            connector=row,
-            api_key=payload.api_key,
-            base_url=payload.base_url,
-            bearer=payload.bearer,
-            aws_access_key_id=payload.aws_access_key_id,
-            aws_secret_access_key=payload.aws_secret_access_key,
-            aws_region=payload.aws_region,
-            aws_model_id=payload.aws_model_id,
-            azure_resource_name=payload.azure_resource_name,
-            azure_deployment_name=payload.azure_deployment_name,
-            azure_api_version=payload.azure_api_version,
-        )
+        rotation = to_credential_rotation_input(row.connector_type, payload)
+        rotate_credentials(db, connector=row, rotation=rotation)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -6,8 +6,8 @@ Pluggable architecture:
     All converters feed into build_search_results(), which applies:
         1. Junk filtering (unwanted versions + compilation detection)
         2. ISRC-based deduplication (exact match across services)
-        3. Fuzzy deduplication (fallback for tracks without ISRC)
-        4. Popularity-based sorting
+        3. Popularity ranking
+        4. Fuzzy deduplication (fallback for tracks without ISRC)
 
     To add a new service:
         1. Create a converter: ``def new_service_to_search_result(r) -> SearchResult``
@@ -166,8 +166,8 @@ def build_search_results(
         1. Convert all source results to SearchResult
         2. Junk filter on Tidal/Spotify (not Beatport — DJ-curated catalog)
         3. ISRC dedup+merge (same recording across services → single result)
-        4. Fuzzy dedup (fallback for tracks without ISRC)
-        5. Sort by popularity DESC, Beatport extras appended after
+        4. Rank candidates by popularity, then fuzzy dedup (keep the top candidate)
+        5. Append Beatport extras after the ranked main results
 
     Args:
         tidal_results: Results from Tidal search (primary source).
@@ -207,14 +207,15 @@ def build_search_results(
     # Step 3: ISRC dedup+merge
     deduped = _isrc_dedup_merge(filtered_main)
 
-    # Step 4: Fuzzy dedup within main results
+    # Step 4: Rank first so fuzzy duplicates keep the most popular representative.
+    # Sorting is stable, so equal-ranked results retain Tidal's primary-source order.
+    deduped.sort(key=lambda result: result.popularity, reverse=True)
+
+    # Step 5: Fuzzy dedup within main results
     unique_main: list[SearchResult] = []
     for r in deduped:
         if not _is_duplicate(r, unique_main, dedup_threshold):
             unique_main.append(r)
-
-    # Step 5: Sort main results by popularity DESC
-    unique_main.sort(key=lambda r: r.popularity, reverse=True)
 
     # Step 6: Append unique Beatport extras (dedup against main results)
     added_bp = 0

@@ -5,7 +5,7 @@ import {
   projectTarget,
   rawTargetSecForSlots,
   targetDeltaTier,
-} from '../components/targetMath';
+} from '../components/curve/targetMath';
 import type { SlotView } from '../components/types';
 
 function slot(durationSec: number): SlotView {

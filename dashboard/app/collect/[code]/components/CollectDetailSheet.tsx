@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import type { CollectLeaderboardRow, CollectPreviewResponse } from '@/lib/api';
-import { apiClient } from '@/lib/api';
+import { api } from '@/lib/api';
 import { getEmbedUrl, getPreviewSource } from '@/lib/preview-embed';
+import { artGradient } from '@/lib/art-gradient';
 
 interface Props {
   row: CollectLeaderboardRow;
@@ -11,6 +12,7 @@ interface Props {
   rank: number;
   totalCount: number;
   voted: boolean;
+  voteError?: string | null;
   onVote: () => void;
   onClose: () => void;
   reverify?: () => Promise<void>;
@@ -19,24 +21,8 @@ interface Props {
 const ACCENT = '#00f0ff';
 const ACCENT2 = '#ff2bd6';
 
-const GRADIENTS = [
-  'linear-gradient(135deg, #ff006e, #8338ec, #3a86ff)',
-  'linear-gradient(135deg, #ffbe0b, #fb5607)',
-  'linear-gradient(135deg, #06ffa5, #0077b6)',
-  'linear-gradient(135deg, #ff6b9d, #c44569)',
-  'linear-gradient(135deg, #f72585, #7209b7)',
-  'linear-gradient(135deg, #4cc9f0, #4361ee)',
-  'linear-gradient(135deg, #f15bb5, #fee440)',
-  'linear-gradient(135deg, #2dc653, #25a244)',
-  'linear-gradient(135deg, #ef476f, #ffd166)',
-];
-function artGradient(seed: string) {
-  const code = (seed.charCodeAt(0) || 0) + (seed.charCodeAt(1) || 0);
-  return GRADIENTS[code % GRADIENTS.length];
-}
-
 export default function CollectDetailSheet({
-  row, code, rank, totalCount, voted, onVote, onClose, reverify,
+  row, code, rank, totalCount, voted, voteError, onVote, onClose, reverify,
 }: Props) {
   const [isWide, setIsWide] = useState<boolean | null>(null);
 
@@ -51,7 +37,7 @@ export default function CollectDetailSheet({
 
   useEffect(() => {
     let cancelled = false;
-    apiClient.getCollectPreview(code, row.id, reverify).then((data) => {
+    api.getCollectPreview(code, row.id, reverify).then((data) => {
       if (!cancelled) setPreview(data);
     }).catch(() => {});
     return () => { cancelled = true; };
@@ -109,7 +95,7 @@ export default function CollectDetailSheet({
         width: '100%', height: 56, borderRadius: 14, marginTop: 12,
         background: voted ? 'transparent' : `linear-gradient(90deg, ${ACCENT}, ${ACCENT2})`,
         border: voted ? `1.5px solid ${ACCENT}` : 'none',
-        color: voted ? ACCENT : '#000',
+        color: voted ? ACCENT : 'var(--text-on-bright-accent)',
         fontFamily: 'var(--font-grotesk, system-ui)', fontSize: 16.9, fontWeight: 800,
         cursor: voted ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
         transition: 'all 160ms',
@@ -133,7 +119,7 @@ export default function CollectDetailSheet({
         width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
         background: `linear-gradient(135deg, ${ACCENT}, ${ACCENT2})`,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 14, fontWeight: 800, color: '#000',
+        fontSize: 14, fontWeight: 800, color: 'var(--text-on-bright-accent)',
       }}>
         {row.nickname[0]?.toUpperCase() ?? '?'}
       </div>
@@ -223,7 +209,7 @@ export default function CollectDetailSheet({
       <div
         style={{
           position: 'fixed', inset: 0, zIndex: 110,
-          background: 'rgba(0,0,0,0.7)',
+          background: 'var(--color-overlay)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           padding: '20px',
           animation: 'cds-backdrop-in 220ms ease',
@@ -265,6 +251,7 @@ export default function CollectDetailSheet({
             {statsRow}
             {suggestedBy}
             {previewSection}
+            {voteError && <div role="alert" className="collect-error" style={{ marginTop: 12 }}>{voteError}</div>}
             {voteBtn}
           </div>
         </div>
@@ -318,6 +305,7 @@ export default function CollectDetailSheet({
         bottom: 'calc(env(safe-area-inset-bottom, 0px) + 20px)',
         left: 14, right: 14, zIndex: 30,
       }}>
+        {voteError && <div role="alert" className="collect-error" style={{ marginBottom: 10 }}>{voteError}</div>}
         {voteBtn}
       </div>
     </div>

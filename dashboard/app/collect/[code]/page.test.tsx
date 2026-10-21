@@ -16,7 +16,7 @@ vi.mock("../../../components/EmailGate", () => ({
   default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
-vi.mock("@/lib/useHumanVerification", () => ({
+vi.mock("@/lib/use-human-verification", () => ({
   useHumanVerification: () => ({
     state: 'verified',
     reverify: vi.fn().mockResolvedValue(undefined),
@@ -34,6 +34,14 @@ vi.mock("../../../components/NicknameGate", () => ({
   },
 }));
 
+vi.mock("../../../lib/use-guest-identity", () => ({
+  useGuestIdentity: () => ({
+    reconcileHint: vi.fn(),
+    refresh: vi.fn(),
+    isLoading: false,
+  }),
+}));
+
 vi.mock("../../../components/IdentityBar", () => ({
   IdentityBar: () => <div data-testid="identity-bar-stub" />,
 }));
@@ -49,7 +57,10 @@ const mockGetCollectProfile = vi.fn();
 const mockGetCollectLeaderboard = vi.fn();
 const mockSubmitCollectRequest = vi.fn();
 const mockEventSearch = vi.fn();
+const mockGlobalSearch = vi.fn();
 const mockEnrichPreview = vi.fn();
+const mockVoteCollectRequest = vi.fn();
+const mockGetCollectPreview = vi.fn();
 const mockGetLiveJoinCode = vi.fn().mockResolvedValue({ join_code: "ABC" });
 
 vi.mock("../../../lib/api", () => ({
@@ -61,7 +72,7 @@ vi.mock("../../../lib/api", () => ({
       this.status = status;
     }
   },
-  apiClient: {
+  api: {
     getCollectEvent: (...a: unknown[]) => mockGetEvent(...a),
     getCollectLeaderboard: (...a: unknown[]) => mockGetCollectLeaderboard(...a),
     getCollectMyPicks: vi.fn().mockResolvedValue({
@@ -70,8 +81,9 @@ vi.mock("../../../lib/api", () => ({
     getCollectProfile: (...a: unknown[]) => mockGetCollectProfile(...a),
     submitCollectRequest: (...a: unknown[]) => mockSubmitCollectRequest(...a),
     eventSearch: (...a: unknown[]) => mockEventSearch(...a),
-    search: vi.fn().mockResolvedValue([]),
-    voteCollectRequest: vi.fn().mockResolvedValue(undefined),
+    search: (...a: unknown[]) => mockGlobalSearch(...a),
+    voteCollectRequest: (...a: unknown[]) => mockVoteCollectRequest(...a),
+    getCollectPreview: (...a: unknown[]) => mockGetCollectPreview(...a),
     enrichPreview: (...a: unknown[]) => mockEnrichPreview(...a),
     getLiveJoinCode: (...a: unknown[]) => mockGetLiveJoinCode(...a),
   },
@@ -103,8 +115,11 @@ describe("CollectPage", () => {
     mockGetCollectProfile.mockResolvedValue(defaultProfile);
     mockGetCollectLeaderboard.mockResolvedValue({ requests: [], total: 0 });
     mockSubmitCollectRequest.mockResolvedValue({ id: 42 });
-    mockEventSearch.mockResolvedValue([]);
+    mockEventSearch.mockReset().mockResolvedValue([]);
+    mockGlobalSearch.mockReset().mockResolvedValue([]);
     mockEnrichPreview.mockResolvedValue([]);
+    mockVoteCollectRequest.mockReset().mockResolvedValue(undefined);
+    mockGetCollectPreview.mockReset().mockResolvedValue({ source: 'spotify', source_url: null });
     vi.stubGlobal("sessionStorage", {
       getItem: vi.fn(),
       setItem: vi.fn(),
@@ -144,6 +159,43 @@ describe("CollectPage", () => {
     await waitFor(() => {
       expect(screen.getByText(/test event/i)).toBeInTheDocument();
     });
+  });
+
+  // Regression for baseline 57cfcdc6867f: provider failures must be visible and a later search must recover.
+  it("shows event search failure and allows a successful retry", async () => {
+    mockGetEvent.mockResolvedValue(COLLECTION_EVENT);
+    mockEventSearch
+      .mockRejectedValueOnce(new Error("event provider unavailable"))
+      .mockResolvedValueOnce([{
+        artist: "Avicii",
+        title: "Levels",
+        album: null,
+        popularity: 80,
+        spotify_id: "sp-1",
+        album_art: null,
+        preview_url: null,
+        url: null,
+        source: "spotify" as const,
+        genre: null,
+        bpm: null,
+        key: null,
+        isrc: null,
+      }]);
+    render(<CollectPage />);
+    await waitFor(() => expect(screen.getByText(/Request a song/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByText(/Request a song/i));
+    const input = await screen.findByTestId("collect-search-input");
+    fireEvent.change(input, { target: { value: "Avicii" } });
+    fireEvent.submit(input.closest("form")!);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Song search is unavailable. Please try again.",
+    );
+    expect(mockGlobalSearch).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    expect(await screen.findByTestId("collect-search-result")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("redirects to /join when phase is live", async () => {
@@ -262,6 +314,48 @@ describe("CollectPage", () => {
     // The initial load is now handled by NicknameGate (mocked), so only the
     // post-submit refresh counts here.
     expect(mockGetCollectProfile.mock.calls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("does not let an old submission close a newly opened search form", async () => {
+    // Regression: 57cfcdc6867f let stale submission completion reset a reopened form.
+    mockGetEvent.mockResolvedValue(COLLECTION_EVENT);
+    let finishSubmit!: (result: { id: number; is_duplicate: boolean }) => void;
+    mockSubmitCollectRequest.mockReturnValue(new Promise((resolve) => { finishSubmit = resolve; }));
+    mockEventSearch.mockResolvedValue([{
+      artist: "Daft Punk",
+      title: "Harder Better Faster Stronger",
+      album: null,
+      popularity: 90,
+      spotify_id: "spotify-123",
+      album_art: null,
+      preview_url: null,
+      url: "https://open.spotify.com/track/spotify-123",
+      source: "spotify" as const,
+      genre: null,
+      bpm: null,
+      key: null,
+      isrc: null,
+    }]);
+
+    render(<CollectPage />);
+    await waitFor(() => expect(screen.getByText(/Request a song/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByText(/Request a song/i));
+    await waitFor(() => expect(screen.getByTestId("collect-search-input")).toBeInTheDocument());
+    fireEvent.change(screen.getByTestId("collect-search-input"), { target: { value: "Daft Punk" } });
+    fireEvent.submit(screen.getByTestId("collect-search-input").closest("form")!);
+    await waitFor(() => expect(screen.getByTestId("collect-search-result")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("collect-search-result"));
+    await waitFor(() => expect(mockSubmitCollectRequest).toHaveBeenCalledOnce());
+
+    fireEvent.click(screen.getByRole("button", { name: "Close search" }));
+    fireEvent.click(screen.getByText(/Request a song/i));
+    const input = await screen.findByTestId("collect-search-input");
+    fireEvent.change(input, { target: { value: "new session query" } });
+
+    finishSubmit({ id: 42, is_duplicate: false });
+
+    await waitFor(() => expect(input).toHaveValue("new session query"));
+    expect(screen.getByRole("dialog", { name: "Request a song" })).toBeInTheDocument();
   });
 
   it("shows error message when API throws during event fetch", async () => {
@@ -560,5 +654,44 @@ describe("CollectPage", () => {
       expect(screen.getByText("Unique Song Alpha")).toBeInTheDocument();
       expect(screen.getByText("Unique Song Beta")).toBeInTheDocument();
     });
+  });
+
+  // Regression for baseline 57cfcdc6867f: failed detail votes were rolled back without telling the guest.
+  it('shows a vote error and allows the guest to retry successfully', async () => {
+    mockGetEvent.mockResolvedValue(COLLECTION_EVENT);
+    mockGetCollectLeaderboard.mockResolvedValue({
+      requests: [{
+        id: 7,
+        title: 'Vote retry song',
+        artist: 'Test artist',
+        artwork_url: null,
+        vote_count: 2,
+        nickname: null,
+        status: 'new',
+        created_at: new Date().toISOString(),
+        bpm: null,
+        musical_key: null,
+        genre: null,
+      }],
+      total: 1,
+    });
+    mockVoteCollectRequest
+      .mockRejectedValueOnce(new Error('temporary vote failure'))
+      .mockResolvedValueOnce(undefined);
+
+    render(<CollectPage />);
+    fireEvent.click((await screen.findByText('Vote retry song')).closest('.gst-collect-row')!);
+    fireEvent.click(await screen.findByRole('button', { name: 'UPVOTE THIS TRACK' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not submit your vote. Please try again.',
+    );
+    expect(screen.getByRole('button', { name: 'UPVOTE THIS TRACK' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'UPVOTE THIS TRACK' }));
+
+    await waitFor(() => expect(mockVoteCollectRequest).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('VOTED')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });

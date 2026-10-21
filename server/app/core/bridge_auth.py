@@ -10,7 +10,7 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 
-async def verify_bridge_api_key(x_bridge_api_key: str = Header(...)) -> None:
+def verify_bridge_api_key(x_bridge_api_key: str = Header(...)) -> None:
     """
     Verify the bridge API key from request header.
 

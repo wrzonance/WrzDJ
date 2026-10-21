@@ -14,7 +14,12 @@ from anthropic import (
     AsyncAnthropic,
 )
 
-from app.services.llm.adapters._shared import extract_api_key
+from app.services.llm.adapters._shared import (
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_TIMEOUT_SECONDS,
+    MAX_TIMEOUT_SECONDS,
+    extract_api_key,
+)
 from app.services.llm.base import (
     ChatRequest,
     ChatResponse,
@@ -42,9 +47,6 @@ from app.services.llm.tool_translation import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "claude-opus-4-7"
-DEFAULT_MAX_TOKENS = 1024
-DEFAULT_TIMEOUT_SECONDS = 30.0
-MAX_TIMEOUT_SECONDS = 120.0
 
 
 class AnthropicApiKeyAdapter(LlmAdapter):

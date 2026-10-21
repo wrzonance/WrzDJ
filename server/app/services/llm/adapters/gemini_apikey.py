@@ -20,7 +20,12 @@ from typing import Any
 
 import httpx
 
-from app.services.llm.adapters._shared import extract_api_key, raise_for_status
+from app.services.llm.adapters._shared import (
+    DEFAULT_TIMEOUT_SECONDS,
+    MAX_TIMEOUT_SECONDS,
+    extract_api_key,
+    raise_for_status,
+)
 from app.services.llm.base import ChatRequest, ChatResponse, LlmAdapter, Message
 from app.services.llm.exceptions import ProviderUnavailable, ToolTranslationError
 from app.services.llm.registry import register_adapter
@@ -30,8 +35,6 @@ logger = logging.getLogger(__name__)
 
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 DEFAULT_MODEL = "gemini-2.5-flash"
-DEFAULT_TIMEOUT_SECONDS = 30.0
-MAX_TIMEOUT_SECONDS = 120.0
 
 
 class GeminiApiKeyAdapter(LlmAdapter):

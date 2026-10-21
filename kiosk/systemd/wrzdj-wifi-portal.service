@@ -3,7 +3,6 @@ Description=WrzDJ WiFi Portal
 Documentation=https://github.com/thewrz/WrzDJ/tree/main/kiosk
 After=NetworkManager-wait-online.service
 Wants=NetworkManager-wait-online.service
-Before=wrzdj-kiosk.service
 
 [Service]
 Type=simple

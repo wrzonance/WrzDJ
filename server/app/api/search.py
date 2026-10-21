@@ -8,14 +8,14 @@ from app.models.search_cache import SearchCache
 from app.models.user import User
 from app.schemas.common import CacheClearResponse
 from app.schemas.search import SearchResult
+from app.services.intent_parser import parse_intent
 from app.services.system_settings import get_system_settings
 
 router = APIRouter()
-settings = get_settings()
 
 
 @router.get("", response_model=list[SearchResult])
-@limiter.limit(lambda: f"{settings.search_rate_limit_per_minute}/minute")
+@limiter.limit(lambda: f"{get_settings().search_rate_limit_per_minute}/minute")
 def search(
     request: Request,
     q: str = Query(..., min_length=2, max_length=200),
@@ -23,10 +23,9 @@ def search(
     current_user: User = Depends(get_current_active_user),
 ) -> list[SearchResult]:
     """DJ search endpoint. Tidal primary, Spotify fallback."""
-    from app.services.intent_parser import parse_intent
+    from app.services.providers.spotify import search_songs
+    from app.services.providers.tidal import search_tidal_tracks
     from app.services.search_merge import build_search_results
-    from app.services.spotify import search_songs
-    from app.services.tidal import search_tidal_tracks
 
     sys_settings = get_system_settings(db)
     intent = parse_intent(q)

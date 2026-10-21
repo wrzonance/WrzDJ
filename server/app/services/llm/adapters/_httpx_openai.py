@@ -19,7 +19,11 @@ from typing import Any
 
 import httpx
 
-from app.services.llm.adapters._shared import raise_for_status
+from app.services.llm.adapters._shared import (
+    DEFAULT_TIMEOUT_SECONDS,
+    MAX_TIMEOUT_SECONDS,
+    raise_for_status,
+)
 from app.services.llm.base import ChatRequest, ChatResponse, ChatResponseChunk, Message
 from app.services.llm.exceptions import (
     AuthInvalid,
@@ -36,9 +40,6 @@ from app.services.llm.tool_translation import (
 )
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_TIMEOUT_SECONDS = 30.0
-MAX_TIMEOUT_SECONDS = 120.0
 
 
 def _messages_to_openai(req: ChatRequest) -> list[dict]:

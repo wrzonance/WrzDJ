@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from app.models.set_pool import SetPoolTrack
 
 # The five required pool→builder contract fields, in display order. ``key`` maps
-# to ``camelot or key`` (what the builder reads via pass1 ``_track_meta``) and
+# to ``camelot or key`` (what the builder reads via ``build_track_meta``) and
 # ``duration`` to ``duration_sec``; the rest are direct column names.
 REQUIRED_FIELDS: tuple[str, ...] = ("bpm", "key", "genre", "duration", "energy")
 

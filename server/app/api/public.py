@@ -4,11 +4,12 @@ import json
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.api.event_status import raise_for_unavailable_event
 from app.core.config import get_settings
 from app.core.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.core.rate_limit import get_guest_id, limiter
@@ -18,7 +19,6 @@ from app.models.guest import Guest
 from app.models.request import Request as SongRequest
 from app.models.request import RequestStatus
 from app.services.event import (
-    EventLookupResult,
     get_event_by_join_code_with_status,
     get_event_by_public_code_with_status,
 )
@@ -26,7 +26,6 @@ from app.services.now_playing import get_now_playing, is_now_playing_hidden
 from app.services.request import get_requests_by_guest
 
 router = APIRouter()
-settings = get_settings()
 
 
 def _build_public_banner(request: Request, event: Event) -> tuple[str | None, list[str] | None]:
@@ -94,7 +93,7 @@ class MyRequestInfo(BaseModel):
     title: str
     artist: str
     artwork_url: str | None
-    status: Literal["new", "accepted", "playing", "played", "rejected"]
+    status: RequestStatus
     vote_count: int = 0
     created_at: datetime
 
@@ -150,18 +149,12 @@ def get_kiosk_display(
     """Get public kiosk display data for an event."""
     event, lookup_result = get_event_by_join_code_with_status(db, code)
 
-    if lookup_result == EventLookupResult.NOT_FOUND:
-        raise HTTPException(status_code=404, detail="Event not found")
-
-    if lookup_result == EventLookupResult.EXPIRED:
-        raise HTTPException(status_code=410, detail="Event has expired")
-
-    if lookup_result == EventLookupResult.ARCHIVED:
-        raise HTTPException(status_code=410, detail="Event has been archived")
+    raise_for_unavailable_event(lookup_result)
 
     # Build join URL using PUBLIC_URL if set, otherwise use request base
-    if settings.public_url:
-        base_url = settings.public_url.rstrip("/")
+    public_url = get_settings().public_url
+    if public_url:
+        base_url = public_url.rstrip("/")
     else:
         base_url = str(request.base_url).rstrip("/")
     qr_join_url = f"{base_url}/join/{event.join_code}"
@@ -252,12 +245,7 @@ def get_public_event(
     code; never emits event.id. Replaces the join page's use of the DJ EventOut
     endpoint (which leaks the private id) and folds in phase + frictionless_join."""
     event, lookup_result = get_event_by_public_code_with_status(db, code)
-    if lookup_result == EventLookupResult.NOT_FOUND:
-        raise HTTPException(status_code=404, detail="Event not found")
-    if lookup_result == EventLookupResult.EXPIRED:
-        raise HTTPException(status_code=410, detail="Event has expired")
-    if lookup_result == EventLookupResult.ARCHIVED:
-        raise HTTPException(status_code=410, detail="Event has been archived")
+    raise_for_unavailable_event(lookup_result)
 
     banner_url, banner_colors = _build_public_banner(request, event)
 
@@ -285,14 +273,7 @@ def get_public_requests(
     """Get publicly visible requests for an event (NEW and ACCEPTED only)."""
     event, lookup_result = get_event_by_public_code_with_status(db, code)
 
-    if lookup_result == EventLookupResult.NOT_FOUND:
-        raise HTTPException(status_code=404, detail="Event not found")
-
-    if lookup_result == EventLookupResult.EXPIRED:
-        raise HTTPException(status_code=410, detail="Event has expired")
-
-    if lookup_result == EventLookupResult.ARCHIVED:
-        raise HTTPException(status_code=410, detail="Event has been archived")
+    raise_for_unavailable_event(lookup_result)
 
     base_q = (
         db.query(SongRequest, Guest.email_verified_at)
@@ -364,14 +345,7 @@ def check_has_requested(
     """Check if the current client has submitted any requests for this event."""
     event, lookup_result = get_event_by_public_code_with_status(db, code)
 
-    if lookup_result == EventLookupResult.NOT_FOUND:
-        raise HTTPException(status_code=404, detail="Event not found")
-
-    if lookup_result == EventLookupResult.EXPIRED:
-        raise HTTPException(status_code=410, detail="Event has expired")
-
-    if lookup_result == EventLookupResult.ARCHIVED:
-        raise HTTPException(status_code=410, detail="Event has been archived")
+    raise_for_unavailable_event(lookup_result)
 
     guest_id = get_guest_id(request, db)
 
@@ -397,14 +371,7 @@ def get_my_requests(
     """Get all requests submitted by the current client for this event."""
     event, lookup_result = get_event_by_public_code_with_status(db, code)
 
-    if lookup_result == EventLookupResult.NOT_FOUND:
-        raise HTTPException(status_code=404, detail="Event not found")
-
-    if lookup_result == EventLookupResult.EXPIRED:
-        raise HTTPException(status_code=410, detail="Event has expired")
-
-    if lookup_result == EventLookupResult.ARCHIVED:
-        raise HTTPException(status_code=410, detail="Event has been archived")
+    raise_for_unavailable_event(lookup_result)
 
     guest_id = get_guest_id(request, db)
 

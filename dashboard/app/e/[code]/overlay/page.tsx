@@ -233,7 +233,7 @@ export default function StreamOverlayPage() {
                 </div>
                 <div style={{
                   fontSize: '13px',
-                  color: '#9ca3af',
+                  color: 'var(--text-secondary)',
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
@@ -336,7 +336,7 @@ export default function StreamOverlayPage() {
                     </div>
                     <div style={{
                       fontSize: '11px',
-                      color: '#9ca3af',
+                      color: 'var(--text-secondary)',
                       whiteSpace: 'nowrap',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',

@@ -83,4 +83,23 @@ describe('FeatureOptInPanel', () => {
     );
     expect(screen.getByTestId('email-verification-stub')).toBeInTheDocument();
   });
+
+  // Regression for baseline 57cfcdc6867f: a rejected save value without `.message` rendered no useful error.
+  it('shows a useful fallback when saving rejects with a non-Error value', async () => {
+    const onSave = vi.fn().mockRejectedValue('offline');
+    render(
+      <FeatureOptInPanel
+        emailVerified={false}
+        initialNickname={null}
+        onSave={onSave}
+        onVerified={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText(/^nickname$/i), { target: { value: 'DancingQueen' } });
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not save your preferences. Please try again.',
+    );
+  });
 });

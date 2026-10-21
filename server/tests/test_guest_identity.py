@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.time import utcnow
 from app.models.guest import Guest
-from app.services.guest_identity import _ua_signals_match, identify_guest
+from app.services.guests.identity import _ua_signals_match, identify_guest
 
 
 def test_create_guest_new_visitor(db: Session):
@@ -30,6 +30,21 @@ def test_create_guest_new_visitor(db: Session):
     guest = db.query(Guest).filter(Guest.id == result.guest_id).one()
     assert guest.fingerprint_hash == "brand_new_fp"
     assert json.loads(guest.fingerprint_components) == {"screen": "1170x2532"}
+
+
+def test_guest_identity_logs_do_not_allow_fingerprint_newlines(db: Session, caplog):
+    fingerprint_hash = "visitor\nforged log entry"
+
+    identify_guest(
+        db,
+        token_from_cookie=None,
+        fingerprint_hash=fingerprint_hash,
+        fingerprint_components=None,
+        user_agent="Mozilla/5.0",
+    )
+
+    assert "visitor forg" in caplog.text
+    assert "visitor\nforged log entry" not in caplog.text
 
 
 def test_cookie_hit_returns_existing(db: Session, test_guest: Guest):

@@ -11,8 +11,9 @@ from app.core.time import utcnow
 from app.models.event import Event
 from app.models.request import Request, RequestStatus
 from app.models.user import User
-from app.services.recommendation.scorer import EventProfile, ScoredTrack, TrackProfile
+from app.services.recommendation.scorer import EventProfile, ScoredTrack
 from app.services.recommendation.service import RecommendationResult
+from app.services.tracks.profile import TrackProfile
 
 
 @pytest.fixture
@@ -132,7 +133,7 @@ class TestRecommendationsEndpoint:
 
     @patch("app.services.recommendation.service.generate_recommendations")
     @patch(
-        "app.services.recommendation.service._soundcharts_related_available",
+        "app.services.recommendation.service.soundcharts_related_available",
         return_value=True,
     )
     def test_200_no_service_but_soundcharts_related_enabled(

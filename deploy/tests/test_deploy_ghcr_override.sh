@@ -16,7 +16,14 @@ cat > "$scratch/deploy/scripts/upgrade-postgres-volume.sh" <<'UPGRADE'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$WRZDJ_FAKE_UPGRADE_LOG"
 UPGRADE
-for tool in docker ss; do
+# The other helpers deploy-ghcr.sh delegates to are out of scope here.
+for helper in cleanup-deploy-ports.sh wait-for-api-health.sh; do
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$scratch/deploy/scripts/$helper"
+  chmod +x "$scratch/deploy/scripts/$helper"
+done
+# chown: the script hands its log directory to the container user, which a
+# CI runner (not uid 1000, not root) is not allowed to do.
+for tool in docker ss chown; do
   cat > "$scratch/bin/$tool" <<'FAKE'
 #!/usr/bin/env bash
 printf '%s %s\n' "$(basename "$0")" "$*" >> "$WRZDJ_FAKE_TOOL_LOG"

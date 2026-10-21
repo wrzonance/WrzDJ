@@ -7,6 +7,7 @@ and dominant color extraction.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -20,17 +21,16 @@ from app.core.config import get_settings
 if TYPE_CHECKING:
     from app.models.event import Event
 
-settings = get_settings()
-
 # Guard against decompression bombs (default is 178M pixels)
 Image.MAX_IMAGE_PIXELS = 25_000_000
 
 ALLOWED_FORMATS = {"JPEG", "PNG", "GIF", "WEBP"}
+logger = logging.getLogger(__name__)
 
 
-def _get_banners_dir() -> Path:
+def _get_banners_dir(uploads_dir: str) -> Path:
     """Return banners directory, creating it if needed."""
-    banners_dir = Path(settings.resolved_uploads_dir) / "banners"
+    banners_dir = Path(uploads_dir) / "banners"
     banners_dir.mkdir(parents=True, exist_ok=True)
     return banners_dir
 
@@ -53,7 +53,7 @@ def _extract_dominant_colors(img: Image.Image, num_colors: int = 3) -> list[str]
 
     # Count pixels per color to sort by dominance
     color_counts: dict[int, int] = {}
-    for pixel in quantized.getdata():
+    for pixel in quantized.get_flattened_data():
         color_counts[pixel] = color_counts.get(pixel, 0) + 1
 
     # Sort by frequency (most common first)
@@ -139,6 +139,7 @@ def process_banner_upload(file: UploadFile, event_code: str) -> tuple[str, str, 
     Raises:
         ValueError: If the file is invalid (wrong format, too large, corrupt).
     """
+    settings = get_settings()
     max_size = settings.max_banner_size_mb * 1024 * 1024
 
     # Validate file size
@@ -193,7 +194,7 @@ def process_banner_upload(file: UploadFile, event_code: str) -> tuple[str, str, 
     banner_filename = f"banners/{base_name}.webp"
     kiosk_filename = f"banners/{base_name}_kiosk.webp"
 
-    banners_dir = _get_banners_dir()
+    banners_dir = _get_banners_dir(settings.resolved_uploads_dir)
 
     # Save main banner
     img.save(banners_dir / f"{base_name}.webp", "WEBP", quality=92)
@@ -217,17 +218,28 @@ def delete_banner_files(banner_filename: str | None) -> None:
     if not banner_filename:
         return
 
+    settings = get_settings()
     uploads_dir = Path(settings.resolved_uploads_dir).resolve()
 
-    for filename in [banner_filename, _kiosk_filename(banner_filename)]:
+    for asset_type, filename in (
+        ("original", banner_filename),
+        ("kiosk variant", _kiosk_filename(banner_filename)),
+    ):
         filepath = (uploads_dir / filename).resolve()
         # Ensure resolved path stays within uploads directory
         if not filepath.is_relative_to(uploads_dir):
             continue
         try:
             filepath.unlink(missing_ok=True)
-        except OSError:
-            pass  # nosec B110
+        except OSError as exc:
+            error_code = exc.errno if isinstance(exc.errno, int) else "unknown"
+            logger.warning(
+                "Could not delete %s banner asset (error=%s, errno=%s); "
+                "continuing best-effort cleanup",
+                asset_type,
+                type(exc).__name__,
+                error_code,
+            )
 
 
 def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:

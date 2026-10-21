@@ -1,0 +1,665 @@
+'use client';
+
+/**
+ * Pool panel (issue #388) — candidate-track surface for set building.
+ * Sources accordion (filter + remove-by-source), type tabs, search,
+ * multi-select removal, per-track context menu, import toast.
+ */
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { api } from '@/lib/api';
+import { usePoolVibes } from './usePoolVibes';
+import VibeTiers from '../curve/VibeTiers';
+import type {
+  PoolImportResult,
+  PoolSource,
+  PoolState,
+  SetDocumentSnapshot,
+} from '@/lib/api/types';
+
+import poolStyles from '../../setbuilder-pool.module.css';
+import sharedStyles from '../../setbuilder-shared.module.css';
+import type { ConfirmAction } from '../ConfirmActionDialog';
+import ImportModal, { type ImportKind } from '../ImportModal';
+import { BpmBadge, CamelotBadge, EnergyMini, SourceIcon, sourceColor } from './PoolBadges';
+import { poolRuntimeSec } from './poolRuntime';
+import { writePoolTrackDragPayload } from '../timeline/dnd';
+import type { BuilderCommit } from '../useSetDocumentHistory';
+
+const TYPE_TABS: { id: string; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'event', label: 'Requests' },
+  { id: 'tidal', label: 'Tidal' },
+  { id: 'beatport', label: 'Beatport' },
+  { id: 'public_url', label: 'URL' },
+  { id: 'manual', label: 'Manual' },
+];
+
+const IMPORT_MENU: { kind: ImportKind; title: string; sub: string }[] = [
+  { kind: 'event', title: 'WrzDJ Event Requests', sub: 'Pick from your events' },
+  { kind: 'tidal', title: 'Tidal Playlist', sub: 'Via your connected account' },
+  { kind: 'beatport', title: 'Beatport Playlist', sub: 'Via your connected account' },
+  { kind: 'public_url', title: 'Public Playlist URL', sub: 'Spotify, Tidal' },
+  { kind: 'manual', title: 'Add single track', sub: 'Search a service' },
+];
+
+const EMPTY_POOL: PoolState = {
+  sources: [],
+  tracks: [],
+  enrichment: { total: 0, enriched: 0, failed: 0, pending: 0, in_progress: false },
+  runtime_sec: 0,
+};
+
+function deriveEnrichment(tracks: PoolState['tracks']): PoolState['enrichment'] {
+  const enriched = tracks.filter((track) => track.enrichment_status === 'enriched').length;
+  const failed = tracks.filter((track) => track.enrichment_status === 'failed').length;
+  const pending = tracks.filter((track) => track.enrichment_status === 'pending').length;
+  return { total: tracks.length, enriched, failed, pending, in_progress: pending > 0 };
+}
+
+function normalizePoolState(pool: PoolState | SetDocumentSnapshot['pool']): PoolState {
+  if ('enrichment' in pool) return pool;
+  const tracks = pool.tracks as PoolState['tracks'];
+  // Snapshots carry neither enrichment nor runtime; derive both the same way the
+  // server does so the restored PoolState stays whole (#538 + background enrichment).
+  return {
+    sources: pool.sources,
+    tracks,
+    enrichment: deriveEnrichment(tracks),
+    runtime_sec: poolRuntimeSec(tracks),
+  };
+}
+
+interface ContextMenuState {
+  x: number;
+  y: number;
+  trackId: number;
+  sourceId: number;
+}
+
+interface PoolPanelProps {
+  setId: number;
+  snapshot?: SetDocumentSnapshot | null;
+  snapshotVersion?: number;
+  commit?: BuilderCommit;
+  confirmRemovals?: boolean;
+  requestConfirmation?: (action: ConfirmAction) => Promise<boolean>;
+}
+
+export default function PoolPanel({
+  setId,
+  snapshot,
+  snapshotVersion = 0,
+  commit,
+  confirmRemovals = false,
+  requestConfirmation,
+}: PoolPanelProps) {
+  const [pool, setPool] = useState<PoolState>(EMPTY_POOL);
+  const [loaded, setLoaded] = useState(false);
+  const [tab, setTab] = useState('all');
+  const [q, setQ] = useState('');
+  const [sourcesExpanded, setSourcesExpanded] = useState(true);
+  const [activeSourceId, setActiveSourceId] = useState<number | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [importKind, setImportKind] = useState<ImportKind | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const { vibes, showVibes, vibesBusy, vibeWriteBusyIds, toggleVibes, analyzeVibes, agreeVibe, saveVibeOverride } = usePoolVibes(setId, setToast);
+  const addMenuRef = useRef<HTMLSpanElement | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoaded(false);
+    if (snapshot) {
+      // normalizePoolState backfills both enrichment and runtime for a snapshot's
+      // partial pool, the same way the server derives them (#538 + enrichment).
+      setPool(normalizePoolState(snapshot.pool));
+      setLoaded(true);
+      return () => {
+        cancelled = true;
+      };
+    }
+    api
+      .getPool(setId)
+      .then((next) => {
+        if (!cancelled) setPool(next);
+      })
+      .catch(() => {
+        if (!cancelled) setToast('Failed to load pool');
+      })
+      .finally(() => {
+        if (!cancelled) setLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [setId, snapshot, snapshotVersion]);
+
+  useEffect(() => {
+    // Poll while background enrichment is running, regardless of whether a
+    // document snapshot is mounted: enrichment progress is orthogonal to the
+    // snapshot's content, and polling only triggers when in_progress is true —
+    // which means the live pool already carries the same just-imported tracks,
+    // so refreshing from the server is consistent (fixes a stuck banner after
+    // an import that follows a commit/recompute).
+    if (!loaded || !pool.enrichment.in_progress) return;
+    let cancelled = false;
+    const handle = setInterval(() => {
+      api
+        .getPool(setId)
+        .then((next) => {
+          if (!cancelled) setPool(next);
+        })
+        .catch(() => {
+          if (!cancelled) setToast('Failed to refresh enrichment progress');
+        });
+    }, 2500);
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+  }, [loaded, pool.enrichment.in_progress, setId]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const handle = setTimeout(() => setToast(null), 3500);
+    return () => clearTimeout(handle);
+  }, [toast]);
+
+  // Close popovers on outside clicks without pre-empting their own click handlers.
+  useEffect(() => {
+    const onDoc = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (!addMenuRef.current?.contains(target)) setAddMenuOpen(false);
+      if (!contextMenuRef.current?.contains(target)) setContextMenu(null);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  const sourceById = useMemo(() => {
+    const m = new Map<number, PoolSource>();
+    for (const s of pool.sources) m.set(s.id, s);
+    return m;
+  }, [pool.sources]);
+
+  const tabCounts = useMemo(() => {
+    const c: Record<string, number> = { all: pool.tracks.length };
+    for (const t of pool.tracks) {
+      const kind = sourceById.get(t.source_id)?.kind ?? 'manual';
+      c[kind] = (c[kind] ?? 0) + 1;
+    }
+    return c;
+  }, [pool.tracks, sourceById]);
+
+  const sourceCounts = useMemo(() => {
+    const c = new Map<number, number>();
+    for (const t of pool.tracks) c.set(t.source_id, (c.get(t.source_id) ?? 0) + 1);
+    return c;
+  }, [pool.tracks]);
+
+  const filtered = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    return pool.tracks.filter((t) => {
+      const kind = sourceById.get(t.source_id)?.kind ?? 'manual';
+      if (tab !== 'all' && kind !== tab) return false;
+      if (activeSourceId != null && t.source_id !== activeSourceId) return false;
+      if (!term) return true;
+      return `${t.title} ${t.artist} ${t.genre ?? ''}`.toLowerCase().includes(term);
+    });
+  }, [pool.tracks, sourceById, tab, q, activeSourceId]);
+
+  const existingRefs = useMemo(() => {
+    const refs = new Set<string>();
+    for (const s of pool.sources) if (s.external_ref) refs.add(`${s.kind}:${s.external_ref}`);
+    return refs;
+  }, [pool.sources]);
+
+  const onImported = useCallback((result: PoolImportResult) => {
+    setPool(result.pool);
+    setImportKind(null);
+    setToast(`${result.added} new · ${result.deduped} de-duped`);
+  }, []);
+
+  const removeTracks = useCallback(
+    async (ids: number[]) => {
+      if (confirmRemovals && requestConfirmation) {
+        const ok = await requestConfirmation({
+          title: ids.length === 1 ? 'Remove this track?' : `Remove ${ids.length} tracks?`,
+          body: 'Removing pool tracks changes the builder document and can be undone from the topbar.',
+          confirmLabel: 'Remove',
+          kind: 'danger',
+        });
+        if (!ok) return;
+      }
+      try {
+        const save = () => api.removePoolTracks(setId, ids);
+        const result = commit
+          ? await commit(ids.length === 1 ? 'Remove pool track' : `Remove ${ids.length} pool tracks`, save)
+          : await save();
+        setPool(result.pool);
+        setSelected(new Set());
+        setSelectMode(false);
+        setToast(`Removed ${result.removed} track${result.removed === 1 ? '' : 's'}`);
+      } catch {
+        setToast('Remove failed');
+      }
+    },
+    [commit, confirmRemovals, requestConfirmation, setId],
+  );
+
+  const removeSource = useCallback(
+    async (sourceId: number) => {
+      const source = pool.sources.find((s) => s.id === sourceId);
+      if (confirmRemovals && requestConfirmation) {
+        const ok = await requestConfirmation({
+          title: `Remove source${source ? ` ${source.label}` : ''}?`,
+          body:
+            'Removing a source removes its imported tracks from the builder document and can be undone from the topbar.',
+          confirmLabel: 'Remove source',
+          kind: 'danger',
+        });
+        if (!ok) return;
+      }
+      try {
+        const save = () => api.removePoolSource(setId, sourceId);
+        const result = commit
+          ? await commit(`Remove source${source ? ` ${source.label}` : ''}`, save)
+          : await save();
+        setPool(result.pool);
+        if (activeSourceId === sourceId) setActiveSourceId(null);
+        setToast(`Removed source · ${result.removed} tracks`);
+      } catch {
+        setToast('Remove failed');
+      }
+    },
+    [activeSourceId, commit, confirmRemovals, pool.sources, requestConfirmation, setId],
+  );
+
+  const toggleSelect = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const enrichmentDone = pool.enrichment.enriched + pool.enrichment.failed;
+  const enrichmentPercent =
+    pool.enrichment.total > 0 ? Math.round((enrichmentDone / pool.enrichment.total) * 100) : 0;
+
+  return (
+    <div className={poolStyles.poolPanel}>
+      {/* Header: count + Add menu */}
+      <div className={poolStyles.poolHeader}>
+        <span className={poolStyles.poolTitle}>
+          Pool <span className={poolStyles.poolCount}>{pool.tracks.length}</span>
+        </span>
+        <span style={{ flex: 1 }} />
+        {showVibes && (
+          <button
+            className="btn btn-sm"
+            onClick={analyzeVibes}
+            disabled={vibesBusy}
+            title="Analyze uncached pool tracks with AI"
+          >
+            {vibesBusy ? 'Analyzing…' : 'Analyze'}
+          </button>
+        )}
+        <button
+          className="btn btn-sm"
+          onClick={toggleVibes}
+          aria-pressed={showVibes}
+          title="Show three-tier vibe state per track"
+        >
+          Vibes
+        </button>
+        <span ref={addMenuRef} style={{ position: 'relative' }}>
+          <button
+            className="btn btn-sm"
+            onClick={() => setAddMenuOpen((o) => !o)}
+            aria-expanded={addMenuOpen}
+          >
+            + Add
+          </button>
+          {addMenuOpen && (
+            <div className={poolStyles.popoverMenu}>
+              <div className={poolStyles.popoverLabel}>Import from</div>
+              {IMPORT_MENU.map((m) => (
+                <button
+                  key={m.kind}
+                  className={poolStyles.popoverItem}
+                  onClick={() => {
+                    setAddMenuOpen(false);
+                    setImportKind(m.kind);
+                  }}
+                >
+                  <span style={{ color: sourceColor(m.kind) }}>
+                    <SourceIcon kind={m.kind} />
+                  </span>
+                  <span>
+                    <span className={poolStyles.popoverItemTitle}>{m.title}</span>
+                    <span className={poolStyles.popoverItemSub}>{m.sub}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </span>
+      </div>
+
+      {pool.enrichment.in_progress && (
+        <div className={poolStyles.poolEnrichment}>
+          <div className={poolStyles.poolEnrichmentHeader}>
+            <span className={poolStyles.poolEnrichmentText}>
+              Enriching {enrichmentDone}/{pool.enrichment.total}...
+            </span>
+            <span className={poolStyles.poolEnrichmentMeta}>
+              {pool.enrichment.pending} pending
+              {pool.enrichment.failed > 0 ? ` · ${pool.enrichment.failed} failed` : ''}
+            </span>
+          </div>
+          <div
+            className={poolStyles.poolEnrichmentBar}
+            role="progressbar"
+            aria-label="Pool enrichment progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={enrichmentPercent}
+          >
+            <div
+              className={poolStyles.poolEnrichmentFill}
+              style={{ width: `${enrichmentPercent}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Sources accordion */}
+      <div className={poolStyles.poolSources}>
+        <button className={poolStyles.sourcesToggle} onClick={() => setSourcesExpanded((e) => !e)}>
+          <span className={poolStyles.sourcesCaret}>{sourcesExpanded ? '▾' : '▸'}</span>
+          <span>Sources</span>
+          <span className={poolStyles.poolCount}>{pool.sources.length}</span>
+          <span style={{ flex: 1 }} />
+          {activeSourceId != null && (
+            <span
+              role="button"
+              tabIndex={0}
+              className={poolStyles.sourcesClearFilter}
+              onClick={(e) => {
+                e.stopPropagation();
+                setActiveSourceId(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') setActiveSourceId(null);
+              }}
+            >
+              filtered · clear
+            </span>
+          )}
+        </button>
+        {sourcesExpanded && (
+          <div>
+            {pool.sources.map((s) => {
+              const count = sourceCounts.get(s.id) ?? 0;
+              const isActive = activeSourceId === s.id;
+              return (
+                <div key={s.id} className={`${poolStyles.sourceRow} ${isActive ? poolStyles.sourceRowActive : ''}`}>
+                  <button
+                    className={poolStyles.sourceRowMain}
+                    onClick={() => setActiveSourceId(isActive ? null : s.id)}
+                    title="Click to filter pool by this source"
+                  >
+                    <span style={{ color: sourceColor(s.kind) }}>
+                      <SourceIcon kind={s.kind} size={13} />
+                    </span>
+                    <span className={poolStyles.sourceInfo}>
+                      <span className={poolStyles.sourceLabel}>{s.label}</span>
+                      {s.meta && <span className={poolStyles.sourceMeta}>{s.meta}</span>}
+                    </span>
+                    <span className={poolStyles.sourceCount}>{count}</span>
+                  </button>
+                  {s.kind !== 'manual' && (
+                    <button
+                      className={poolStyles.sourceRemove}
+                      onClick={() => removeSource(s.id)}
+                      title={`Remove all ${count} tracks imported via "${s.label}"`}
+                      aria-label={`Remove source ${s.label}`}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+            {loaded && pool.sources.length === 0 && (
+              <div className={poolStyles.sourcesEmpty}>
+                No sources yet. Tap <strong>+ Add</strong> to import.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Type tabs */}
+      <div className={poolStyles.poolTabs}>
+        {TYPE_TABS.map((t) => (
+          <button
+            key={t.id}
+            className={`${poolStyles.poolTab} ${tab === t.id ? poolStyles.poolTabActive : ''}`}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label} <span className={poolStyles.poolCount}>{tabCounts[t.id] ?? 0}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Search + multi-select toggle */}
+      <div className={poolStyles.poolSearch}>
+        <input
+          className={sharedStyles.imInput}
+          placeholder="Search pool…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          style={{ flex: 1 }}
+        />
+        <button
+          className="btn btn-sm"
+          onClick={() => {
+            setSelectMode((m) => !m);
+            setSelected(new Set());
+          }}
+          title={selectMode ? 'Exit multi-select' : 'Multi-select tracks'}
+          aria-pressed={selectMode}
+        >
+          ☑
+        </button>
+      </div>
+
+      {/* Track list */}
+      <div className={poolStyles.poolList}>
+        {filtered.map((t) => {
+          const source = sourceById.get(t.source_id);
+          const isSelected = selected.has(t.id);
+          const vibe = showVibes ? vibes.get(t.id) : undefined;
+          return (
+            <div
+              key={t.id}
+              className={`${poolStyles.poolTrack} ${isSelected ? poolStyles.poolTrackSelected : ''}`}
+              draggable={!selectMode}
+              onClick={() => selectMode && toggleSelect(t.id)}
+              onDragStart={(e) => {
+                if (selectMode) {
+                  e.preventDefault();
+                  return;
+                }
+                writePoolTrackDragPayload(e.dataTransfer, t.id);
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setContextMenu({ x: e.clientX, y: e.clientY, trackId: t.id, sourceId: t.source_id });
+              }}
+              data-testid={`pool-track-${t.id}`}
+            >
+              {selectMode && (
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  onChange={() => toggleSelect(t.id)}
+                  onClick={(e) => e.stopPropagation()}
+                  aria-label={`Select ${t.title}`}
+                />
+              )}
+              <div className={poolStyles.trackInfo}>
+                <div className={poolStyles.trackTitle}>{t.title}</div>
+                <div className={poolStyles.trackArtist}>{t.artist}</div>
+                <div className={poolStyles.trackMetaRow}>
+                  <BpmBadge bpm={t.bpm} />
+                  <CamelotBadge camelot={t.camelot} />
+                  <EnergyMini value={t.energy} />
+                  {source && (
+                    <span
+                      className={poolStyles.srcChip}
+                      style={{ color: sourceColor(source.kind) }}
+                      title={`Imported via ${source.label}`}
+                    >
+                      <SourceIcon kind={source.kind} size={10} />
+                      <span className={poolStyles.srcChipLabel}>
+                        {source.label.length > 18 ? `${source.label.slice(0, 16)}…` : source.label}
+                      </span>
+                    </span>
+                  )}
+                </div>
+                {vibe && (
+                  <VibeTiers
+                    state={vibe}
+                    busy={vibeWriteBusyIds.has(t.id)}
+                    onAgree={() => agreeVibe(t.id)}
+                    onSaveOverride={(payload) => saveVibeOverride(t.id, payload)}
+                  />
+                )}
+              </div>
+              <div
+                className={poolStyles.poolTrackStripe}
+                style={{ background: sourceColor(source?.kind) }}
+              />
+            </div>
+          );
+        })}
+        {loaded && filtered.length === 0 && (
+          <div className={sharedStyles.imEmpty}>
+            {pool.tracks.length === 0 ? 'Pool is empty — import some tracks.' : 'No matches.'}
+          </div>
+        )}
+      </div>
+
+      {/* Multi-select footer */}
+      {selectMode && (
+        <div className={poolStyles.selectFooter}>
+          <button
+            className="btn btn-sm"
+            onClick={() => setSelected(new Set(filtered.map((t) => t.id)))}
+          >
+            Select all visible
+          </button>
+          <button className="btn btn-sm" onClick={() => setSelected(new Set())} disabled={!selected.size}>
+            Clear
+          </button>
+          <span style={{ flex: 1 }} />
+          <button
+            className={`btn btn-sm ${sharedStyles.dangerBtn}`}
+            disabled={!selected.size}
+            onClick={() => removeTracks([...selected])}
+          >
+            Remove {selected.size || ''}
+          </button>
+          <button
+            className="btn btn-sm"
+            onClick={() => {
+              setSelectMode(false);
+              setSelected(new Set());
+            }}
+          >
+            Done
+          </button>
+        </div>
+      )}
+
+      {/* Context menu */}
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className={poolStyles.popoverMenu}
+          style={{ position: 'fixed', left: contextMenu.x, top: contextMenu.y, right: 'auto' }}
+        >
+          <button
+            className={poolStyles.popoverItem}
+            onClick={() => {
+              removeTracks([contextMenu.trackId]);
+              setContextMenu(null);
+            }}
+          >
+            <span className={poolStyles.popoverItemTitle}>Remove this track</span>
+          </button>
+          {(() => {
+            const source = sourceById.get(contextMenu.sourceId);
+            if (!source || source.kind === 'manual') return null;
+            const count = sourceCounts.get(source.id) ?? 0;
+            return (
+              <button
+                className={poolStyles.popoverItem}
+                onClick={() => {
+                  removeSource(source.id);
+                  setContextMenu(null);
+                }}
+              >
+                <span>
+                  <span className={poolStyles.popoverItemTitle}>
+                    Remove all from “{source.label}”
+                  </span>
+                  <span className={poolStyles.popoverItemSub}>{count} tracks</span>
+                </span>
+              </button>
+            );
+          })()}
+          <button
+            className={poolStyles.popoverItem}
+            onClick={() => {
+              setSelectMode(true);
+              setSelected(new Set([contextMenu.trackId]));
+              setContextMenu(null);
+            }}
+          >
+            <span className={poolStyles.popoverItemTitle}>Multi-select…</span>
+          </button>
+        </div>
+      )}
+
+      {/* Import modal */}
+      {importKind && (
+        <ImportModal
+          kind={importKind}
+          setId={setId}
+          existingRefs={existingRefs}
+          onClose={() => setImportKind(null)}
+          onImported={onImported}
+          onError={(msg) => setToast(msg)}
+          commit={commit}
+        />
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div className={poolStyles.poolToast} role="status">
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}

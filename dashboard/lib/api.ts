@@ -2259,21 +2259,25 @@ class ApiClient {
     data: { nickname?: string },
     reverify?: () => Promise<void>,
   ): Promise<CollectProfileResponse> {
-    const doFetch = () =>
-      fetch(`${getApiUrl()}/api/public/collect/${code}/profile`, {
+    // The collision is mapped inside doFetch so it survives withHumanRetry,
+    // which would otherwise flatten the 409 into a generic ApiError.
+    const doFetch = async () => {
+      const res = await fetch(`${getApiUrl()}/api/public/collect/${code}/profile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify(data),
       });
+      if (res.status === 409) {
+        const body = await res.json().catch(() => ({})) as { detail?: { claimed?: boolean } };
+        throw new NicknameConflictError(body.detail?.claimed ?? false);
+      }
+      return res;
+    };
     if (reverify) {
       return withHumanRetry<CollectProfileResponse>(doFetch, reverify);
     }
     const res = await doFetch();
-    if (res.status === 409) {
-      const body = await res.json().catch(() => ({})) as { detail?: { claimed?: boolean } };
-      throw new NicknameConflictError(body.detail?.claimed ?? false);
-    }
     if (!res.ok) throw new ApiError(`setCollectProfile failed: ${res.status}`, res.status);
     return res.json();
   }

@@ -1,0 +1,263 @@
+@media (max-width: 768px) {
+  .admin-layout {
+    flex-direction: column;
+  }
+
+  .admin-sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .admin-sidebar-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 0;
+  }
+
+  .admin-sidebar-link {
+    white-space: nowrap;
+    padding: 0.75rem 1rem;
+  }
+
+  .admin-sidebar-link.active {
+    border-left: none;
+    border-bottom: 3px solid var(--color-primary);
+  }
+
+  .admin-sidebar-footer {
+    flex-direction: row;
+    justify-content: space-between;
+  }
+}
+
+/* Help System */
+.help-btn-container {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.help-btn-container-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.help-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: var(--card);
+  color: var(--text-secondary);
+  font-size: 1.125rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.help-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--text);
+}
+
+.help-btn-active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
+}
+
+.help-tour-btn {
+  padding: 0.375rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--color-primary);
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.help-tour-btn:hover {
+  background: var(--color-primary-subtle);
+}
+
+/* HelpSpot highlight */
+.help-spot-highlight {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+/* Help tooltip — vertical/horizontal position set by JS in HelpSpot.tsx */
+.help-tooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 1100;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  min-width: 200px;
+  max-width: min(320px, calc(100vw - 32px));
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+.help-tooltip-title {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--text);
+  margin-bottom: 0.25rem;
+}
+
+.help-tooltip-desc {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* Onboarding card */
+.onboarding-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem 1.5rem;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.onboarding-step-counter {
+  font-size: 0.75rem;
+  color: var(--color-link);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  margin-bottom: 0.5rem;
+}
+
+.onboarding-card-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 0.375rem;
+}
+
+.onboarding-card-desc {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 1rem;
+}
+
+.onboarding-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Theme toggle */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.625rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.theme-toggle:hover {
+  border-color: var(--color-primary);
+  color: var(--text);
+}
+
+.theme-toggle-icon {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  transition: background 0.2s;
+}
+
+.theme-toggle-icon--dark {
+  background: linear-gradient(135deg, currentColor 50%, transparent 50%);
+}
+
+.theme-toggle-icon--high-contrast {
+  background: currentColor;
+}
+
+.theme-toggle-icon--daylight {
+  background: transparent;
+}
+
+/* Display headings (event names, kiosk titles) */
+h1, .display-heading {
+  font-family: var(--font-display, 'Plus Jakarta Sans'), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* Monospace text (event codes, technical info) */
+.code, code {
+  font-family: var(--font-mono, 'JetBrains Mono'), 'SF Mono', 'Fira Code', monospace;
+}
+
+/* Compact mode — reduces density for more requests visible */
+.compact .request-list {
+  gap: 0.5rem;
+}
+
+.compact .request-item {
+  padding: 0.5rem 0.75rem;
+}
+
+.compact .request-info h3 {
+  font-size: 0.95rem;
+  margin-bottom: 0.125rem;
+}
+
+.compact .request-info p {
+  font-size: 0.8rem;
+}
+
+.compact .request-actions {
+  gap: 0.25rem;
+}
+
+.compact .btn-sm {
+  padding: 0.375rem 0.625rem;
+  font-size: 0.8rem;
+}
+
+.compact .badge {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.675rem;
+}
+
+.compact .scrollable-list {
+  max-height: 900px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

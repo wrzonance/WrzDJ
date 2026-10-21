@@ -1,3 +1,4 @@
+import React from 'react';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import DashboardPage from '../page';
@@ -27,8 +28,8 @@ vi.mock('@/lib/help/HelpContext', () => ({
 vi.mock('@/components/help/HelpSpot', () => ({
   HelpSpot: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
-vi.mock('@/components/help/HelpButton', () => ({
-  HelpButton: () => null,
+vi.mock('@/components/PageControls', () => ({
+  PageControls: ({ children }: { children?: React.ReactNode }) => <div data-testid="page-controls">{children}</div>,
 }));
 vi.mock('@/components/help/OnboardingOverlay', () => ({
   OnboardingOverlay: () => null,

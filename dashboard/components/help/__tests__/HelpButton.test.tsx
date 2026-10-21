@@ -97,22 +97,19 @@ describe('HelpButton', () => {
     expect(startFn).toHaveBeenCalledWith('my-page');
   });
 
-  it('has fixed position class by default', () => {
+  it('renders in normal flow inside a help-controls group (#863)', () => {
     render(<HelpButton page="events" />);
     const container = screen.getByRole('button', { name: 'Toggle help mode' }).parentElement;
-    expect(container?.className).toBe('help-btn-container');
+    expect(container?.className).toBe('help-controls');
   });
 
-  it('uses inline class when inline prop is true', () => {
-    render(<HelpButton page="events" inline />);
-    const container = screen.getByRole('button', { name: 'Toggle help mode' }).parentElement;
-    expect(container?.className).toBe('help-btn-container-inline');
-  });
+  it('places "Start Tour" before the ? button so the row grows leftward', () => {
+    mockCtx = makeContext({ helpMode: true });
+    vi.spyOn(HelpContext, 'useHelp').mockReturnValue(mockCtx);
 
-  it('uses fixed class when inline prop is false', () => {
-    render(<HelpButton page="events" inline={false} />);
-    const container = screen.getByRole('button', { name: 'Toggle help mode' }).parentElement;
-    expect(container?.className).toBe('help-btn-container');
+    render(<HelpButton page="events" />);
+    const buttons = screen.getAllByRole('button').map((b) => b.textContent);
+    expect(buttons).toEqual(['Start Tour', '?']);
   });
 
   it('renders nothing when wrzdj-help-disabled flag is set', () => {

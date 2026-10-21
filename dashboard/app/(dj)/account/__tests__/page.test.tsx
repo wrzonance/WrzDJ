@@ -1,9 +1,14 @@
+import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import AccountPage from '../page';
 import { LocaleProvider } from '@/lib/locale';
 
 const mockPush = vi.fn();
+vi.mock('@/components/PageControls', () => ({
+  PageControls: ({ children }: { children?: React.ReactNode }) => <div data-testid="page-controls">{children}</div>,
+}));
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
 }));

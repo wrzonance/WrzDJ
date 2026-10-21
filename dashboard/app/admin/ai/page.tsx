@@ -11,7 +11,7 @@ import type {
 } from '@/lib/api/types';
 import { useAdminPage } from '@/lib/use-admin-page';
 import { HelpSpot } from '@/components/help/HelpSpot';
-import { HelpButton } from '@/components/help/HelpButton';
+import { PageControls } from '@/components/PageControls';
 import { OnboardingOverlay } from '@/components/help/OnboardingOverlay';
 import { OrgConnectorSection, TYPE_LABELS } from './OrgConnectorSection';
 import { AuditTrail } from './AuditTrail';
@@ -359,7 +359,7 @@ export default function AdminAISettingsPage() {
 
   return (
     <div className="container">
-      <HelpButton page={PAGE_ID} />
+      <PageControls helpPage={PAGE_ID} />
       <OnboardingOverlay page={PAGE_ID} />
       <h1 style={{ marginBottom: '2rem' }}>AI / LLM Settings</h1>
 

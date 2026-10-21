@@ -5,10 +5,10 @@ import { isHelpDisabled } from '@/lib/help/is-help-disabled';
 
 interface HelpButtonProps {
   page: string;
-  inline?: boolean;
 }
 
-export function HelpButton({ page, inline }: HelpButtonProps) {
+/** The `?` help-mode toggle plus, while help mode is on, the tour starter. */
+export function HelpButton({ page }: HelpButtonProps) {
   const { helpMode, onboardingActive, toggleHelpMode, startOnboarding } = useHelp();
 
   const isDisabled = isHelpDisabled();
@@ -21,8 +21,18 @@ export function HelpButton({ page, inline }: HelpButtonProps) {
   if (isDisabled) return null;
 
   return (
-    <div className={inline ? 'help-btn-container-inline' : 'help-btn-container'}>
+    <div className="help-controls">
+      {helpMode && !onboardingActive && (
+        <button
+          type="button"
+          className="help-tour-btn"
+          onClick={() => startOnboarding(page)}
+        >
+          Start Tour
+        </button>
+      )}
       <button
+        type="button"
         className={`help-btn${helpMode ? ' help-btn-active' : ''}`}
         onClick={handleToggle}
         aria-label="Toggle help mode"
@@ -30,14 +40,6 @@ export function HelpButton({ page, inline }: HelpButtonProps) {
       >
         ?
       </button>
-      {helpMode && !onboardingActive && (
-        <button
-          className="help-tour-btn"
-          onClick={() => startOnboarding(page)}
-        >
-          Start Tour
-        </button>
-      )}
     </div>
   );
 }

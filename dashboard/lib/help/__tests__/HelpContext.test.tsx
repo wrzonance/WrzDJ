@@ -3,7 +3,7 @@ import { renderHook, act } from '@testing-library/react';
 import { render, screen } from '@testing-library/react';
 import React, { createRef } from 'react';
 import { HelpProvider, useHelp } from '../HelpContext';
-import { initSeenPages, isPageSeen } from '../seen-pages';
+import { initSeenPages, isPageSeen, TOURS_SKIPPED } from '../seen-pages';
 import type { HelpSpotConfig } from '../types';
 
 // Mock the api module so completeOnboarding doesn't make real HTTP calls
@@ -189,7 +189,8 @@ describe('HelpContext', () => {
     expect(result.current.activeSpotId).toBe('s1');
   });
 
-  it('skipOnboarding resets state and writes localStorage', () => {
+  it('skipOnboarding resets state and opts out of tours on every page (#863)', async () => {
+    const { api: mockApi } = await import('@/lib/api');
     const { result } = renderHook(() => useHelp(), { wrapper });
 
     act(() => {
@@ -202,7 +203,53 @@ describe('HelpContext', () => {
     act(() => result.current.skipOnboarding());
     expect(result.current.onboardingActive).toBe(false);
     expect(result.current.activeSpotId).toBeNull();
-    expect(window.localStorage.getItem('wrzdj-help-seen-mypage')).toBe('1');
+    expect(window.localStorage.getItem(`wrzdj-help-seen-${TOURS_SKIPPED}`)).toBe('1');
+    expect(window.localStorage.getItem('wrzdj-help-seen-mypage')).toBeNull();
+    expect(mockApi.markHelpPageSeen).toHaveBeenCalledWith(TOURS_SKIPPED);
+    expect(result.current.hasSeenPage('mypage')).toBe(true);
+    expect(result.current.hasSeenPage('some-other-page')).toBe(true);
+  });
+
+  it('hasSeenPage honours a server-side tours-skipped marker (#863)', () => {
+    initSeenPages([TOURS_SKIPPED]);
+    const { result } = renderHook(() => useHelp(), { wrapper });
+    expect(result.current.hasSeenPage('dashboard')).toBe(true);
+    expect(result.current.hasSeenPage('admin-users')).toBe(true);
+  });
+
+  it('completing a tour marks only that page as seen', () => {
+    const { result } = renderHook(() => useHelp(), { wrapper });
+
+    act(() => {
+      result.current.registerSpot(makeSpot({ id: 's1', page: 'done-page', order: 1 }));
+    });
+
+    act(() => result.current.startOnboarding('done-page'));
+    act(() => result.current.nextStep());
+
+    expect(result.current.hasSeenPage('done-page')).toBe(true);
+    expect(result.current.hasSeenPage('another-page')).toBe(false);
+  });
+
+  it('restores help mode to its pre-tour state when the tour ends (#863)', () => {
+    const { result } = renderHook(() => useHelp(), { wrapper });
+
+    act(() => {
+      result.current.registerSpot(makeSpot({ id: 's1', page: 'p', order: 1 }));
+    });
+
+    // Auto-started tour: help mode was off, so it goes back off.
+    act(() => result.current.startOnboarding('p'));
+    expect(result.current.helpMode).toBe(true);
+    act(() => result.current.skipOnboarding());
+    expect(result.current.helpMode).toBe(false);
+
+    // Tour started from help mode: help mode stays on afterwards.
+    act(() => result.current.toggleHelpMode());
+    act(() => result.current.startOnboarding('p'));
+    act(() => result.current.nextStep());
+    expect(result.current.onboardingActive).toBe(false);
+    expect(result.current.helpMode).toBe(true);
   });
 
   it('hasSeenPage reads localStorage', () => {

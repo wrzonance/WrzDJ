@@ -5,10 +5,10 @@ import Link from 'next/link';
 import { useDjAccess } from '@/lib/use-dj-access';
 import { api } from '@/lib/api';
 import type { Event, TidalStatus, BeatportStatus, ActivityLogEntry } from '@/lib/api/types';
-import { useHelp } from '@/lib/help/HelpContext';
+import { useAutoOnboarding } from '@/lib/help/useAutoOnboarding';
 import { useLocale } from '@/lib/locale';
 import { HelpSpot } from '@/components/help/HelpSpot';
-import { HelpButton } from '@/components/help/HelpButton';
+import { PageControls } from '@/components/PageControls';
 import { OnboardingOverlay } from '@/components/help/OnboardingOverlay';
 import { ActivityLogPanel } from './components/ActivityLogPanel';
 import { CreateEventWorkflow } from './components/CreateEventWorkflow';
@@ -19,7 +19,6 @@ const PAGE_ID = 'dashboard';
 export default function DashboardPage() {
   const { locale, messages } = useLocale();
   const { isAuthenticated, isLoading, role, logout, canAccess } = useDjAccess();
-  const { hasSeenPage, startOnboarding } = useHelp();
   const [events, setEvents] = useState<Event[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(true);
   const [tidalStatus, setTidalStatus] = useState<TidalStatus | null>(null);
@@ -34,12 +33,7 @@ export default function DashboardPage() {
     }
   }, [canAccess]);
 
-  useEffect(() => {
-    if (canAccess && !loadingEvents && !hasSeenPage(PAGE_ID)) {
-      const timer = setTimeout(() => startOnboarding(PAGE_ID), 500);
-      return () => clearTimeout(timer);
-    }
-  }, [canAccess, loadingEvents, hasSeenPage, startOnboarding]);
+  useAutoOnboarding(PAGE_ID, canAccess && !loadingEvents);
 
   const loadData = async () => {
     try {
@@ -73,7 +67,7 @@ export default function DashboardPage() {
 
   return (
     <div className="container">
-      <HelpButton page={PAGE_ID} />
+      <PageControls helpPage={PAGE_ID} />
       <OnboardingOverlay page={PAGE_ID} />
 
       {errorMsg && (

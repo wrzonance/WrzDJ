@@ -5,7 +5,7 @@ import { api, AdminUser } from '@/lib/api';
 import type { UserRole } from '@/lib/auth';
 import { useAdminPage } from '@/lib/use-admin-page';
 import { HelpSpot } from '@/components/help/HelpSpot';
-import { HelpButton } from '@/components/help/HelpButton';
+import { PageControls } from '@/components/PageControls';
 import { OnboardingOverlay } from '@/components/help/OnboardingOverlay';
 
 const PAGE_ID = 'admin-users';
@@ -102,7 +102,7 @@ export default function AdminUsersPage() {
 
   return (
     <div className="container">
-      <HelpButton page={PAGE_ID} />
+      <PageControls helpPage={PAGE_ID} />
       <OnboardingOverlay page={PAGE_ID} />
 
       <div className="header">

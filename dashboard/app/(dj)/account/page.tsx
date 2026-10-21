@@ -11,6 +11,7 @@ import AppleMusicAccountCard from '@/app/(dj)/account/components/AppleMusicAccou
 import PasswordChangeSection from '@/app/(dj)/account/components/PasswordChangeSection';
 import EmailChangeSection from '@/app/(dj)/account/components/EmailChangeSection';
 import GuestExperienceSection from '@/app/(dj)/account/components/GuestExperienceSection';
+import { PageControls } from '@/components/PageControls';
 import { LOCALES, type Locale } from '@/lib/locales';
 import { useLocale } from '@/lib/locale';
 
@@ -46,6 +47,7 @@ export default function AccountPage() {
 
   return (
     <main style={{ maxWidth: '720px', margin: '0 auto', padding: '2rem 1rem' }}>
+      <PageControls />
       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem' }}>
         <Link href="/dashboard" style={{ color: 'var(--text-secondary)', textDecoration: 'none', fontSize: '0.875rem' }}>
           ← Dashboard

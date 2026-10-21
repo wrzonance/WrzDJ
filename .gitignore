@@ -81,6 +81,7 @@ notes/
 .gitnexus
 .aider*
 .claude/
+.playwright-mcp/
 .superpowers/
 .worktrees/
 

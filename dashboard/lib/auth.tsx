@@ -104,7 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // visitor to /login, it just means "not signed in".
     api.getMe()
       .then((user) => {
-        initSeenPages(user.help_pages_seen ?? []);
+        initSeenPages(user.help_pages_seen ?? [], user.id);
         redirectToLoginOnUnauthorized();
         setIsAuthenticated(true);
         setRole(user.role as UserRole);
@@ -135,7 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     writeSessionHint(newSessionGeneration());
     redirectToLoginOnUnauthorized();
     const user = await api.getMe();
-    initSeenPages(user.help_pages_seen ?? []);
+    initSeenPages(user.help_pages_seen ?? [], user.id);
     setRole(user.role as UserRole);
     setIsAuthenticated(true);
   };

@@ -3,9 +3,9 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, SystemStats } from '@/lib/api';
-import { useHelp } from '@/lib/help/HelpContext';
+import { useAutoOnboarding } from '@/lib/help/useAutoOnboarding';
 import { HelpSpot } from '@/components/help/HelpSpot';
-import { HelpButton } from '@/components/help/HelpButton';
+import { PageControls } from '@/components/PageControls';
 import { OnboardingOverlay } from '@/components/help/OnboardingOverlay';
 
 const PAGE_ID = 'admin-overview';
@@ -13,7 +13,6 @@ const PAGE_ID = 'admin-overview';
 export default function AdminOverviewPage() {
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [error, setError] = useState('');
-  const { hasSeenPage, startOnboarding, onboardingActive } = useHelp();
 
   useEffect(() => {
     api.getAdminStats()
@@ -21,16 +20,12 @@ export default function AdminOverviewPage() {
       .catch(() => setError('Failed to load stats'));
   }, []);
 
-  useEffect(() => {
-    if (stats && !onboardingActive && !hasSeenPage(PAGE_ID)) {
-      const timer = setTimeout(() => startOnboarding(PAGE_ID), 500);
-      return () => clearTimeout(timer);
-    }
-  }, [stats, onboardingActive, hasSeenPage, startOnboarding]);
+  useAutoOnboarding(PAGE_ID, stats !== null);
 
   if (error) {
     return (
       <div className="container">
+        <PageControls />
         <div className="card" style={{ color: 'var(--color-danger)' }}>{error}</div>
       </div>
     );
@@ -39,6 +34,7 @@ export default function AdminOverviewPage() {
   if (!stats) {
     return (
       <div className="container">
+        <PageControls />
         <div className="loading">Loading stats...</div>
       </div>
     );
@@ -46,7 +42,7 @@ export default function AdminOverviewPage() {
 
   return (
     <div className="container">
-      <HelpButton page={PAGE_ID} />
+      <PageControls helpPage={PAGE_ID} />
       <OnboardingOverlay page={PAGE_ID} />
       <h1 style={{ marginBottom: '2rem' }}>Dashboard Overview</h1>
 

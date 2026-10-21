@@ -18,6 +18,7 @@ from app.services.human_verification import (
     get_human_cookie_remaining_ttl,
     issue_human_cookie,
     record_human_verification,
+    verify_human_cookie,
 )
 from app.services.turnstile import verify_turnstile_token
 
@@ -99,17 +100,20 @@ async def verify_human(
 def verify_status(
     request: Request,
     response: Response,
+    db: Session = Depends(get_db),
 ) -> VerifyStatusResponse:
     """Report whether the caller already has a valid wrzdj_human cookie.
 
     Returns verified=false on missing, expired, version-mismatched, or
-    tampered cookies. No side effects (no cookie refresh, no DB writes).
-    Safe to call on every page mount.
+    tampered cookies, and on a cookie bound to a guest other than the
+    caller's current wrzdj_guest (after a merge, delete, or re-identify),
+    because require_verified_human would reject that cookie (#874). No side
+    effects (no cookie refresh, no DB writes). Safe to call on every page mount.
     """
     response.headers["Cache-Control"] = "no-store, private"
 
     remaining = get_human_cookie_remaining_ttl(request)
-    if remaining is None:
+    if remaining is None or verify_human_cookie(request) != get_guest_id(request, db):
         return VerifyStatusResponse(verified=False, expires_in=0)
 
     return VerifyStatusResponse(verified=True, expires_in=remaining)

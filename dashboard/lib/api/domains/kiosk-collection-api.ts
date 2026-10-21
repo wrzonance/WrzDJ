@@ -186,28 +186,32 @@ export class KioskCollectionApi {
     data: { nickname?: string },
     reverify?: () => Promise<void>,
   ): Promise<CollectProfileResponse> {
-    const doFetch = () =>
-      fetch(`${getApiUrl()}/api/public/collect/${code}/profile`, {
+    // The collision is mapped inside doFetch so it survives withHumanRetry,
+    // which would otherwise flatten the 409 into a generic ApiError.
+    const doFetch = async () => {
+      const res = await fetch(`${getApiUrl()}/api/public/collect/${code}/profile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify(data),
       });
+      if (res.status === 409) {
+        const error = await responseError(res.clone(), 'Request failed');
+        if (error.code === 'nickname_taken') {
+          const detail = error.detail;
+          const claimed = detail && typeof detail === 'object' && 'claimed' in detail
+            ? detail.claimed === true
+            : false;
+          throw new NicknameConflictError(claimed);
+        }
+      }
+      return res;
+    };
     if (reverify) {
       return withHumanRetry<CollectProfileResponse>(doFetch, reverify);
     }
     const res = await doFetch();
-    if (!res.ok) {
-      const error = await responseError(res, 'Request failed');
-      if (res.status === 409 && error.code === 'nickname_taken') {
-        const detail = error.detail;
-        const claimed = detail && typeof detail === 'object' && 'claimed' in detail
-          ? detail.claimed === true
-          : false;
-        throw new NicknameConflictError(claimed);
-      }
-      throw error;
-    }
+    if (!res.ok) throw await responseError(res, 'Request failed');
     return res.json();
   }
 

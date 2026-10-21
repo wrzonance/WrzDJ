@@ -705,5 +705,44 @@ describe('ApiClient requests', () => {
             claimed: false,
           });
         });
+
+        // NicknameGate always passes reverify; the 409 must survive withHumanRetry
+        // so a taken name opens the collision screen instead of "Request failed".
+        it('throws NicknameConflictError on 409 when called with reverify', async () => {
+          vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+            new Response(
+              JSON.stringify({ detail: { code: 'nickname_taken', claimed: true } }),
+              { status: 409, headers: { 'Content-Type': 'application/json' } },
+            ),
+          );
+          const reverify = vi.fn();
+          await expect(
+            api.setCollectProfile('EVT01', { nickname: 'Alex' }, reverify),
+          ).rejects.toMatchObject({ name: 'NicknameConflictError', claimed: true });
+          expect(reverify).not.toHaveBeenCalled();
+        });
+
+        // #853: the server's real 422 for a filtered name reaches NicknameGate as
+        // the validator's own message, so the guest knows to pick another name.
+        it('surfaces the nickname validator message from a real 422 body', async () => {
+          vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+            new Response(
+              JSON.stringify({
+                detail: [
+                  {
+                    type: 'value_error',
+                    loc: ['body', 'nickname'],
+                    msg: 'Value error, Please choose a different name',
+                    input: 'Rude',
+                  },
+                ],
+              }),
+              { status: 422, headers: { 'Content-Type': 'application/json' } },
+            ),
+          );
+          await expect(
+            api.setCollectProfile('EVT01', { nickname: 'Rude' }, vi.fn()),
+          ).rejects.toMatchObject({ status: 422, message: 'Please choose a different name' });
+        });
       });
 });

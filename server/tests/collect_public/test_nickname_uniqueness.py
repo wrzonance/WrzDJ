@@ -1,6 +1,8 @@
 """Public collection endpoint tests grouped by behavior."""
 
+from app.core.time import utcnow
 from app.models.guest import Guest
+from tests.collect_public.helpers import _human_cookie_for
 
 # ── Nickname uniqueness tests ──────────────────────────────────────────────
 
@@ -34,15 +36,7 @@ class TestNicknameUniqueness:
         return g
 
     def _human_cookie_for(self, guest_id: int) -> str:
-        """Mint a wrzdj_human cookie value for the given guest_id."""
-        from fastapi import Response
-
-        from app.services.human_verification import issue_human_cookie
-
-        resp = Response()
-        issue_human_cookie(resp, guest_id)
-        raw = resp.headers.get("set-cookie", "")
-        return raw.split("=", 1)[1].split(";", 1)[0] if "=" in raw else ""
+        return _human_cookie_for(guest_id)
 
     def _set_guest_cookies(self, client, guest: Guest) -> None:
         """Replace the client cookie jar with one guest's identity cookies."""
@@ -153,3 +147,59 @@ class TestNicknameUniqueness:
             json={},
         )
         assert r.status_code == 200
+
+
+class TestProfileRejectsNameBeforeEmailGate:
+    """Regression for #853: a name the server will refuse is rejected before the
+    email gate, so a guest without a verified email is never sent through the
+    email-code step only to have the name refused afterwards."""
+
+    def _use_unverified_guest(self, client, db) -> None:
+        guest = Guest(
+            token="unverified" + "0" * 54,
+            fingerprint_hash="fp_unverified",
+            created_at=utcnow(),
+            last_seen_at=utcnow(),
+        )
+        db.add(guest)
+        db.commit()
+        db.refresh(guest)
+        client.cookies.clear()
+        client.cookies.set("wrzdj_guest", guest.token)
+        client.cookies.set("wrzdj_human", _human_cookie_for(guest.id))
+
+    def test_profane_name_rejected_before_email_gate(self, client, db, test_event):
+        self._use_unverified_guest(client, db)
+        r = client.post(
+            f"/api/public/collect/{test_event.code}/profile",
+            json={"nickname": "FuckYou"},
+        )
+        assert r.status_code == 422
+        assert "Please choose a different name" in r.text
+
+    def test_malformed_name_rejected_before_email_gate(self, client, db, test_event):
+        self._use_unverified_guest(client, db)
+        r = client.post(
+            f"/api/public/collect/{test_event.code}/profile",
+            json={"nickname": "<script>"},
+        )
+        assert r.status_code == 422
+
+    def test_taken_name_rejected_before_email_gate(self, client, db, test_event):
+        client.post(f"/api/public/collect/{test_event.code}/profile", json={"nickname": "Alex"})
+        self._use_unverified_guest(client, db)
+        r = client.post(
+            f"/api/public/collect/{test_event.code}/profile",
+            json={"nickname": "alex"},
+        )
+        assert r.status_code == 409
+        assert r.json()["detail"] == {"code": "nickname_taken", "claimed": True}
+
+    def test_acceptable_name_still_requires_verified_email(self, client, db, test_event):
+        self._use_unverified_guest(client, db)
+        r = client.post(
+            f"/api/public/collect/{test_event.code}/profile",
+            json={"nickname": "DancingQueen"},
+        )
+        assert r.status_code == 403
+        assert r.json()["detail"] == {"code": "email_verification_required"}

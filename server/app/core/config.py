@@ -223,7 +223,7 @@ class Settings(BaseSettings):
         return self.dev_auth_bypass and not self.is_production
 
 
-HUMAN_COOKIE_SECRET_MIN_BYTES = 32
+HUMAN_COOKIE_KEY_MIN_BYTES = 32
 _HUMAN_COOKIE_KEY_HINT = (
     'Generate with: python -c "import secrets, base64; '
     'print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"'
@@ -240,13 +240,13 @@ def _decode_human_cookie_secret(secret: str) -> bytes:
     """
     normalized = secret.replace("-", "+").replace("_", "/")
     key = base64.b64decode(normalized + "=" * (-len(normalized) % 4), validate=True)
-    if len(key) < HUMAN_COOKIE_SECRET_MIN_BYTES:
-        msg = f"must decode to at least {HUMAN_COOKIE_SECRET_MIN_BYTES} bytes"
+    if len(key) < HUMAN_COOKIE_KEY_MIN_BYTES:
+        msg = f"must decode to at least {HUMAN_COOKIE_KEY_MIN_BYTES} bytes"
         raise ValueError(msg)
     return key
 
 
-def _human_cookie_secret_error(secret: str) -> str | None:
+def _human_cookie_key_error(secret: str) -> str | None:
     """Return a startup error for an unusable HUMAN_COOKIE_SECRET, else None.
 
     The messages are fixed text: nothing derived from the secret reaches the log.
@@ -256,7 +256,7 @@ def _human_cookie_secret_error(secret: str) -> str | None:
     except binascii.Error:
         reason = "not valid Base64"
     except ValueError:
-        reason = f"must decode to at least {HUMAN_COOKIE_SECRET_MIN_BYTES} bytes"
+        reason = f"must decode to at least {HUMAN_COOKIE_KEY_MIN_BYTES} bytes"
     else:
         return None
     return f"HUMAN_COOKIE_SECRET is invalid ({reason}). {_HUMAN_COOKIE_KEY_HINT}"
@@ -344,8 +344,8 @@ def validate_settings(settings: Settings) -> None:
             errors.append(
                 f"HUMAN_COOKIE_SECRET must be set in production. {_HUMAN_COOKIE_KEY_HINT}"
             )
-        elif cookie_secret_error := _human_cookie_secret_error(settings.human_cookie_secret):
-            errors.append(cookie_secret_error)
+        elif cookie_key_error := _human_cookie_key_error(settings.human_cookie_secret):
+            errors.append(cookie_key_error)
         if settings.dev_auth_bypass:
             errors.append(
                 "DEV_AUTH_BYPASS must NOT be set in production — it disables the guest "

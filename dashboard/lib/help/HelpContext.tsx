@@ -3,24 +3,22 @@
 import { createContext, useCallback, useContext, useRef, useState, ReactNode } from 'react';
 import { api } from '@/lib/api';
 import type { HelpSpotConfig, HelpContextValue } from './types';
-import { isPageSeen, markPageSeen, TOURS_SKIPPED } from './seen-pages';
+import { isPageSeen, markPageSeen, seenStorageKey, TOURS_SKIPPED } from './seen-pages';
 import { isHelpDisabled } from './is-help-disabled';
 
 const HelpContext = createContext<HelpContextValue | null>(null);
-
-const storageKey = (id: string) => `wrzdj-help-seen-${id}`;
 
 /** Seen on this account (server-initialised set) or in this browser (fallback). */
 function isSeen(id: string): boolean {
   if (isPageSeen(id)) return true;
   if (typeof localStorage === 'undefined') return false;
-  return localStorage.getItem(storageKey(id)) === '1';
+  return localStorage.getItem(seenStorageKey(id)) === '1';
 }
 
 function persistSeen(id: string): void {
   markPageSeen(id);
   if (typeof localStorage !== 'undefined') {
-    localStorage.setItem(storageKey(id), '1');
+    localStorage.setItem(seenStorageKey(id), '1');
   }
   api.markHelpPageSeen(id).catch(() => {});
 }

@@ -344,6 +344,7 @@ export default function AdminAISettingsPage() {
   if (loading) {
     return (
       <div className="container">
+        <PageControls />
         <div className="loading">Loading AI settings...</div>
       </div>
     );
@@ -352,6 +353,7 @@ export default function AdminAISettingsPage() {
   if (!settings) {
     return (
       <div className="container">
+        <PageControls />
         <div className="card" style={{ color: 'var(--color-danger)' }}>{error || loadError || 'Failed to load'}</div>
       </div>
     );

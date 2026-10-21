@@ -25,6 +25,7 @@ export default function AdminOverviewPage() {
   if (error) {
     return (
       <div className="container">
+        <PageControls />
         <div className="card" style={{ color: 'var(--color-danger)' }}>{error}</div>
       </div>
     );
@@ -33,6 +34,7 @@ export default function AdminOverviewPage() {
   if (!stats) {
     return (
       <div className="container">
+        <PageControls />
         <div className="loading">Loading stats...</div>
       </div>
     );

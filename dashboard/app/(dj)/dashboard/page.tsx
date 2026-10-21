@@ -60,6 +60,7 @@ export default function DashboardPage() {
   if (isLoading || !isAuthenticated) {
     return (
       <div className="container">
+        <PageControls />
         <div className="loading">Loading...</div>
       </div>
     );

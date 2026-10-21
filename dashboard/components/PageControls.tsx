@@ -18,7 +18,7 @@ interface PageControlsProps {
  */
 export function PageControls({ helpPage, children }: PageControlsProps) {
   return (
-    <div className="page-controls" role="toolbar" aria-label="Page controls">
+    <div className="page-controls" role="group" aria-label="Page controls">
       {children}
       <ThemeToggle />
       {helpPage && <HelpButton page={helpPage} />}

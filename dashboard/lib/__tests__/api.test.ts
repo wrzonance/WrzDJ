@@ -2967,6 +2967,22 @@ describe('ApiClient', () => {
         claimed: false,
       });
     });
+
+    // NicknameGate always passes reverify; the 409 must survive withHumanRetry
+    // so a taken name opens the collision screen instead of "Request failed".
+    it('throws NicknameConflictError on 409 when called with reverify', async () => {
+      vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ detail: { code: 'nickname_taken', claimed: true } }),
+          { status: 409, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+      const reverify = vi.fn();
+      await expect(
+        api.setCollectProfile('EVT01', { nickname: 'Alex' }, reverify),
+      ).rejects.toMatchObject({ name: 'NicknameConflictError', claimed: true });
+      expect(reverify).not.toHaveBeenCalled();
+    });
   });
 
   describe('streamConnectorTest', () => {

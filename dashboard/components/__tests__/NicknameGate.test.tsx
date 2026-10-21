@@ -534,6 +534,23 @@ describe('NicknameGate — existing behavior coverage', () => {
     await waitFor(() => expect(screen.getByText(/server error/i)).toBeInTheDocument());
   });
 
+  // #853: the server now refuses a filtered name before the email gate; the
+  // guest must stay on the name step to pick another, not reach email login.
+  it('keeps the guest on the nickname step when the name is refused', async () => {
+    const { ApiError } = await import('../../lib/api');
+    mockSetProfile.mockRejectedValue(new ApiError('Please choose a different name', 422));
+    render(<NicknameGate code="EVT01" onComplete={onComplete} />);
+    await waitFor(() => screen.getByRole('button', { name: /new name/i }));
+    fireEvent.click(screen.getByRole('button', { name: /new name/i }));
+    fireEvent.change(screen.getByPlaceholderText(/dancingqueen/i), { target: { value: 'Rude' } });
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/please choose a different name/i)).toBeInTheDocument(),
+    );
+    expect(screen.getByPlaceholderText(/dancingqueen/i)).toBeInTheDocument();
+    expect(screen.queryByText(/log in with email/i)).not.toBeInTheDocument();
+  });
+
   it('skip from email_prompt calls onComplete with emailVerified=false', async () => {
     mockGetProfile.mockResolvedValue({
       nickname: 'Alex',

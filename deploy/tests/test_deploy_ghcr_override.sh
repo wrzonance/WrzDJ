@@ -16,6 +16,11 @@ cat > "$scratch/deploy/scripts/upgrade-postgres-volume.sh" <<'UPGRADE'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$WRZDJ_FAKE_UPGRADE_LOG"
 UPGRADE
+# The other helpers deploy-ghcr.sh delegates to are out of scope here.
+for helper in cleanup-deploy-ports.sh wait-for-api-health.sh; do
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$scratch/deploy/scripts/$helper"
+  chmod +x "$scratch/deploy/scripts/$helper"
+done
 for tool in docker ss; do
   cat > "$scratch/bin/$tool" <<'FAKE'
 #!/usr/bin/env bash

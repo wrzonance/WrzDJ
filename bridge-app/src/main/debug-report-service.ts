@@ -1,4 +1,5 @@
-import { readFile, writeFile } from 'fs/promises';
+import { mkdtemp, readFile, rename, rm, writeFile } from 'fs/promises';
+import { dirname, join } from 'path';
 import type { BridgeSettings, BridgeStatus } from '../shared/types.js';
 
 type DebugReportStatus = Pick<
@@ -79,5 +80,12 @@ export async function writeDebugReport(
     '--- Log File ---',
     logContents,
   ];
-  await writeFile(filePath, lines.join('\n'), 'utf-8');
+  const stagingDirectory = await mkdtemp(join(dirname(filePath), '.wrzdj-debug-report-'));
+  const stagedReportPath = join(stagingDirectory, 'report.txt');
+  try {
+    await writeFile(stagedReportPath, lines.join('\n'), 'utf-8');
+    await rename(stagedReportPath, filePath);
+  } finally {
+    await rm(stagingDirectory, { recursive: true, force: true });
+  }
 }

@@ -56,6 +56,9 @@ const mocks = vi.hoisted(() => {
     dialog: { showSaveDialog: vi.fn() },
     readFile: vi.fn(),
     writeFile: vi.fn(),
+    mkdtemp: vi.fn(),
+    rename: vi.fn(),
+    rm: vi.fn(),
     verifyToken: vi.fn(),
     login: vi.fn(),
     fetchBridgeApiKey: vi.fn(),
@@ -75,9 +78,18 @@ vi.mock('electron', () => ({
   },
 }));
 vi.mock('fs/promises', () => ({
-  default: { readFile: mocks.readFile, writeFile: mocks.writeFile },
+  default: {
+    readFile: mocks.readFile,
+    writeFile: mocks.writeFile,
+    mkdtemp: mocks.mkdtemp,
+    rename: mocks.rename,
+    rm: mocks.rm,
+  },
   readFile: mocks.readFile,
   writeFile: mocks.writeFile,
+  mkdtemp: mocks.mkdtemp,
+  rename: mocks.rename,
+  rm: mocks.rm,
 }));
 vi.mock('../store.js', () => mocks.store);
 vi.mock('../auth-service.js', async (importOriginal) => ({
@@ -124,6 +136,9 @@ beforeEach(() => {
   mocks.dialog.showSaveDialog.mockResolvedValue({ filePath: '/tmp/report.txt' });
   mocks.readFile.mockResolvedValue('bridge log');
   mocks.writeFile.mockResolvedValue(undefined);
+  mocks.mkdtemp.mockResolvedValue('/tmp/.wrzdj-debug-report-unique');
+  mocks.rename.mockResolvedValue(undefined);
+  mocks.rm.mockResolvedValue(undefined);
   registerIpcHandlers(mainWindow as never);
 });
 
@@ -593,6 +608,7 @@ describe('bridge:exportDebugReport IPC boundary', () => {
     await expect(handler(IPC_CHANNELS.BRIDGE_EXPORT_DEBUG_REPORT)({})).resolves.toBeNull();
     expect(mocks.readFile).not.toHaveBeenCalled();
     expect(mocks.writeFile).not.toHaveBeenCalled();
+    expect(mocks.mkdtemp).not.toHaveBeenCalled();
   });
 
   it('uses the read fallback and awaits the report write', async () => {
@@ -615,7 +631,7 @@ describe('bridge:exportDebugReport IPC boundary', () => {
     expect(completed).toBe(false);
 
     expect(mocks.writeFile).toHaveBeenCalledWith(
-      '/tmp/report.txt',
+      '/tmp/.wrzdj-debug-report-unique/report.txt',
       expect.stringContaining('(no log file found)'),
       'utf-8',
     );
@@ -624,13 +640,21 @@ describe('bridge:exportDebugReport IPC boundary', () => {
     resolveWrite();
     await expect(exportResult).resolves.toBe('/tmp/report.txt');
     expect(completed).toBe(true);
+    expect(mocks.rename).toHaveBeenCalledWith(
+      '/tmp/.wrzdj-debug-report-unique/report.txt',
+      '/tmp/report.txt',
+    );
+    expect(mocks.rm).toHaveBeenCalledWith('/tmp/.wrzdj-debug-report-unique', {
+      recursive: true,
+      force: true,
+    });
   });
 
   it('exports successful log contents and returns the selected path', async () => {
     await expect(handler(IPC_CHANNELS.BRIDGE_EXPORT_DEBUG_REPORT)({})).resolves.toBe('/tmp/report.txt');
 
     expect(mocks.writeFile).toHaveBeenCalledWith(
-      '/tmp/report.txt',
+      '/tmp/.wrzdj-debug-report-unique/report.txt',
       expect.stringContaining('bridge log'),
       'utf-8',
     );
@@ -651,7 +675,7 @@ describe('bridge:exportDebugReport IPC boundary', () => {
     await handler(IPC_CHANNELS.BRIDGE_EXPORT_DEBUG_REPORT)({});
 
     expect(mocks.writeFile).toHaveBeenCalledWith(
-      '/tmp/report.txt',
+      '/tmp/.wrzdj-debug-report-unique/report.txt',
       expect.stringContaining('rotated bridge log'),
       'utf-8',
     );
@@ -664,7 +688,7 @@ describe('bridge:exportDebugReport IPC boundary', () => {
     await handler(IPC_CHANNELS.BRIDGE_EXPORT_DEBUG_REPORT)({});
 
     expect(mocks.writeFile).toHaveBeenCalledWith(
-      '/tmp/report.txt',
+      '/tmp/.wrzdj-debug-report-unique/report.txt',
       expect.stringContaining('(no log file found)'),
       'utf-8',
     );

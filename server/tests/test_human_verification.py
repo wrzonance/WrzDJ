@@ -188,6 +188,14 @@ class TestVerifyHumanCookie:
         request = _make_request_with_cookie(cookie_value)
         assert verify_human_cookie(request) is None
 
+    def test_signature_with_stray_characters_returns_none(self, mock_settings):
+        # #856: a lenient decoder drops the "!!!!", so the altered cookie verified.
+        cookie_value = self._issue_and_extract(mock_settings, guest_id=42)
+        payload, sig = cookie_value.rsplit(".", 1)
+        request = _make_request_with_cookie(f"{payload}.{sig[:4]}!!!!{sig[4:]}")
+
+        assert verify_human_cookie(request) is None
+
     def test_malformed_cookie_returns_none(self, mock_settings):
         mock_settings.return_value.effective_human_cookie_secret = b"x" * 32
 

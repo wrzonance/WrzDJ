@@ -14,6 +14,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 from app.core.config import get_settings
@@ -32,7 +33,14 @@ def _b64encode(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode().rstrip("=")
 
 
+# The exact alphabet _b64encode emits. Anything else is rejected rather than
+# dropped, so no altered cookie string decodes to the bytes of a real one (#856).
+_URLSAFE_B64 = re.compile(r"[A-Za-z0-9_-]*")
+
+
 def _b64decode(s: str) -> bytes:
+    if not _URLSAFE_B64.fullmatch(s):
+        raise binascii.Error("not unpadded URL-safe base64")
     pad = "=" * (-len(s) % 4)
     return base64.urlsafe_b64decode(s + pad)
 

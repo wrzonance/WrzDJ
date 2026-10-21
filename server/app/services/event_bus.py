@@ -171,8 +171,8 @@ class EventBus:
         except asyncio.QueueFull:
             logger.warning(
                 "SSE queue full for %s, dropping %s event",
-                event_code,
-                message["event"],
+                event_code.replace("\r", " ").replace("\n", " "),
+                str(message["event"]).replace("\r", " ").replace("\n", " "),
             )
 
     def _remove_closed_subscriber(

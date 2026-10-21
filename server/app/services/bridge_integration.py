@@ -95,7 +95,10 @@ def sync_now_playing_from_bridge(
     """
     event = get_event_by_code_for_bridge(db, event_code)
     if not event:
-        logger.warning(f"Event not found for code: {event_code}")
+        logger.warning(
+            "Event not found for code: %s",
+            event_code.replace("\r", " ").replace("\n", " "),
+        )
         return None
 
     # Resolve the match and album art before staging bridge state changes.

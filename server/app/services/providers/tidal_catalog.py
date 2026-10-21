@@ -86,7 +86,7 @@ def get_playlist_tracks(db: Session, user: User, playlist_id: str) -> list[Tidal
     except Exception as exc:
         logger.error(
             "Tidal playlist fetch failed for playlist %s (%s)",
-            playlist_id,
+            playlist_id.replace("\r", " ").replace("\n", " "),
             type(exc).__name__,
         )
         raise TidalFetchError(f"Tidal playlist fetch failed ({type(exc).__name__})") from exc
@@ -101,7 +101,11 @@ def search_tidal_by_isrc(db: Session, user: User, isrc: str) -> TidalSearchResul
         tracks = session.get_tracks_by_isrc(isrc)
         return track_to_result(tracks[0]) if tracks else None
     except Exception as exc:
-        logger.error("Tidal ISRC lookup failed for %s: %s", isrc, type(exc).__name__)
+        logger.error(
+            "Tidal ISRC lookup failed for %s: %s",
+            isrc.replace("\r", " ").replace("\n", " "),
+            type(exc).__name__,
+        )
         return None
 
 
@@ -114,7 +118,11 @@ def get_tidal_track_by_id(db: Session, user: User, track_id: str) -> TidalSearch
         track = session.track(int(track_id))
         return track_to_result(track) if track else None
     except Exception as exc:
-        logger.error("Tidal track fetch failed for %s: %s", track_id, type(exc).__name__)
+        logger.error(
+            "Tidal track fetch failed for %s: %s",
+            track_id.replace("\r", " ").replace("\n", " "),
+            type(exc).__name__,
+        )
         return None
 
 

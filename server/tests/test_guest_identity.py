@@ -32,6 +32,21 @@ def test_create_guest_new_visitor(db: Session):
     assert json.loads(guest.fingerprint_components) == {"screen": "1170x2532"}
 
 
+def test_guest_identity_logs_do_not_allow_fingerprint_newlines(db: Session, caplog):
+    fingerprint_hash = "visitor\nforged log entry"
+
+    identify_guest(
+        db,
+        token_from_cookie=None,
+        fingerprint_hash=fingerprint_hash,
+        fingerprint_components=None,
+        user_agent="Mozilla/5.0",
+    )
+
+    assert "visitor forg" in caplog.text
+    assert "visitor\nforged log entry" not in caplog.text
+
+
 def test_cookie_hit_returns_existing(db: Session, test_guest: Guest):
     """Valid cookie -> returns existing Guest, updates last_seen_at."""
     old_last_seen = test_guest.last_seen_at

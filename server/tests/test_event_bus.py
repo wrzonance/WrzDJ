@@ -53,6 +53,20 @@ class TestEventBus:
         assert msg1 == {"event": "test_event", "data": {"key": "value"}}
         assert msg2 == {"event": "test_event", "data": {"key": "value"}}
 
+    def test_queue_full_log_escapes_dynamic_values(self, caplog):
+        bus = EventBus()
+        event_code = "EVT001\nforged channel"
+        queue = bus.subscribe(event_code)
+        for _ in range(queue.maxsize):
+            queue.put_nowait({"event": "existing", "data": {}})
+
+        bus.publish(event_code, "track\nforged event")
+
+        assert "EVT001 forged channel" in caplog.text
+        assert "track forged event" in caplog.text
+        assert "\nforged channel" not in caplog.text
+        assert "\nforged event" not in caplog.text
+
     def test_publish_does_not_deliver_to_other_channels(self):
         bus = EventBus()
         q1 = bus.subscribe("EVT001")

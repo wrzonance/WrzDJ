@@ -154,6 +154,31 @@ def test_tidal_provider_error_logs_never_include_exception_text(
     assert sentinel not in caplog.text
 
 
+def test_tidal_lookup_log_escapes_line_breaks_in_isrc(db, test_user, caplog, monkeypatch):
+    session = MagicMock()
+    session.get_tracks_by_isrc.side_effect = RuntimeError("provider failure")
+    monkeypatch.setattr(tidal_catalog, "get_tidal_session", lambda *_: session)
+    caplog.set_level("ERROR")
+
+    assert tidal_catalog.search_tidal_by_isrc(db, test_user, "ISRC\nforged entry") is None
+
+    assert "ISRC forged entry" in caplog.text
+    assert "ISRC\nforged entry" not in caplog.text
+
+
+def test_tidal_playlist_log_escapes_line_breaks_in_playlist_id(db, test_user, caplog, monkeypatch):
+    session = MagicMock()
+    session.playlist.side_effect = RuntimeError("provider failure")
+    monkeypatch.setattr(tidal_catalog, "get_tidal_session", lambda *_: session)
+    caplog.set_level("ERROR")
+
+    with pytest.raises(TidalFetchError):
+        tidal_catalog.get_playlist_tracks(db, test_user, "playlist\nforged entry")
+
+    assert "playlist forged entry" in caplog.text
+    assert "playlist\nforged entry" not in caplog.text
+
+
 def test_batch_add_logs_sanitize_provider_exception_text(
     db, test_event, test_user, caplog, monkeypatch
 ):

@@ -72,13 +72,14 @@ def get_playlist_tracks(db: Session, user: User, playlist_id: str) -> list[Beatp
     if not is_valid_beatport_id(playlist_id):
         logger.warning("Rejected malformed Beatport playlist id")
         return []
+    validated_playlist_id = int(playlist_id)
     if not ensure_beatport_token(db, user):
         return []
 
     try:
         with httpx.Client(timeout=HTTP_TIMEOUT) as client:
             response = client.get(
-                f"{BEATPORT_API_BASE}/my/playlists/{playlist_id}/tracks/",
+                f"{BEATPORT_API_BASE}/my/playlists/{validated_playlist_id}/tracks/",
                 headers={"Authorization": f"Bearer {user.beatport_access_token}"},
             )
             response.raise_for_status()

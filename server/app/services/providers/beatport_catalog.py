@@ -204,13 +204,14 @@ def get_beatport_track(db: Session, user: User, track_id: str) -> BeatportSearch
     if not is_valid_beatport_id(track_id):
         logger.warning("Rejected malformed Beatport track id")
         return None
+    validated_track_id = int(track_id)
     if not ensure_beatport_token(db, user):
         return None
 
     try:
         with httpx.Client(timeout=HTTP_TIMEOUT) as client:
             response = client.get(
-                f"{BEATPORT_API_BASE}/catalog/tracks/{track_id}/",
+                f"{BEATPORT_API_BASE}/catalog/tracks/{validated_track_id}/",
                 headers={"Authorization": f"Bearer {user.beatport_access_token}"},
             )
             response.raise_for_status()

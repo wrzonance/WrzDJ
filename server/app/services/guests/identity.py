@@ -31,7 +31,7 @@ def _short_fp(fp: str | None) -> str:
     """
     if not fp:
         return "-"
-    return fp[:12]
+    return fp.replace("\r", " ").replace("\n", " ")[:12]
 
 
 @dataclass

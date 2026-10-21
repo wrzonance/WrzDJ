@@ -254,10 +254,12 @@ class TestHandleNowPlayingUpdate:
 
         assert seen["status_at_lookup"] == RequestStatus.ACCEPTED.value
 
-    def test_event_not_found(self, db: Session):
+    def test_event_not_found(self, db: Session, caplog):
         """Returns None for non-existent event."""
-        result = sync_now_playing_from_bridge(db, "INVALID", "Test", "Test")
+        result = sync_now_playing_from_bridge(db, "INVALID\nforged event", "Test", "Test")
         assert result is None
+        assert "INVALID forged event" in caplog.text
+        assert "INVALID\nforged event" not in caplog.text
 
 
 class TestLookupTidalAlbumArt:

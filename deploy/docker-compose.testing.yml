@@ -1,0 +1,20 @@
+# Resource budget for the testing stack (#844) when it shares a host with
+# production. Layered on docker-compose.ghcr.yml through WRZDJ_COMPOSE_OVERRIDE
+# in the testing deploy/.env; production never loads it.
+#
+# The caps are generous for a single DJ shaking a branch down (the production
+# stack idles around 100 MiB in total) but low enough that a runaway testing
+# container is killed by its own cgroup long before the host's OOM killer has
+# to choose between it and production. cpu_shares makes testing yield to
+# production under contention on the single vCPU instead of capping it when
+# the CPU is idle.
+services:
+  api:
+    mem_limit: 384m
+    cpu_shares: 256
+  web:
+    mem_limit: 256m
+    cpu_shares: 256
+  db:
+    mem_limit: 192m
+    cpu_shares: 256

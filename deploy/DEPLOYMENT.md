@@ -408,6 +408,191 @@ with the older tag.
    Compare the `ssh-keyscan` output with the host key you already trust in
    `~/.ssh/known_hosts` before storing it.
 
+## Testing environment (`testing` branch)
+
+A second, fully separate WrzDJ stack runs on the same host behind
+`testing.wrzdj.com` / `testing-api.wrzdj.com` (#844). It exists to run an
+unproven branch in the wild — real TLS, real QR codes, real Turnstile, a real
+bridge connection — before that branch reaches `main`. Nothing is shared with
+production except the machine and nginx: the testing stack has its own git
+checkout (`/root/WrzDJ-testing`), its own `deploy/.env` with its own secrets,
+its own Compose project (`wrzdj-testing`: own database and uploads volumes),
+its own host ports (`8001` / `3001`), its own nginx vhosts and certificates,
+and its own SSH deploy key that can run nothing but the testing entrypoint.
+
+**Flow.** Open the PR against `testing` (or retarget an existing one:
+`gh pr edit N --base testing`) and merge it. `docker-publish.yml` builds the
+`testing` and `testing-sha-<commit>` images (amd64 only, their own tag
+namespace: a testing build can never overwrite an image production deploys by) and its `deploy-testing` job,
+scoped to the `testing` GitHub environment, SSHes to the host with the commit
+sha. On the host `wrzdj-ci-deploy-testing` (the installed copy of
+`deploy/ci-deploy-testing.sh`) first checks that the operator's `deploy/.env`
+really describes an isolated stack (`COMPOSE_PROJECT_NAME=wrzdj-testing`, ports
+other than production's `8000`/`3000`, no foreign `POSTGRES_VOLUME_NAME`), then
+waits for the host-wide deploy lock shared with production (a release deploy
+in progress makes it queue, up to 15 minutes), re-verifies that the commit is
+on `origin/testing`, checks the testing clone out at it (refusing a commit that
+tracks `deploy/.env`, which must stay the operator's file), runs
+`deploy-ghcr.sh testing-sha-<commit>` under the testing `deploy/.env` (which
+layers the resource budget in `docker-compose.testing.yml` on top of the
+Compose file through `WRZDJ_COMPOSE_OVERRIDE`), waits for the frontend as well
+as the API, regenerates only the two testing vhosts
+(`WRZDJ_NGINX_VHOSTS_ONLY=1`; a rendering that fails `nginx -t` is rolled back
+so production's next reload never meets it) if `deploy/nginx/` changed since
+the last successful testing deploy, records the commit and prunes dangling
+images. The job then polls `https://testing-api.wrzdj.com/health` and
+`https://testing.wrzdj.com/`.
+
+**Trust model.** Like production's entrypoint, the testing entrypoint runs the
+checked-out commit's own `deploy-ghcr.sh` / `setup-nginx.sh` as root, so a
+commit that reaches `testing` can run anything on the host. The control is the
+branch: `testing` only takes pull requests whose CI passed, and the entrypoint
+verifies the operator's isolation settings before any of that code runs. If
+untrusted contributors could ever merge to `testing`, add a required reviewer
+on the `testing` environment or move the stack to its own host; the entrypoint
+cannot make branch code safe to run.
+
+**Promote.** When the branch holds up, open a PR from `testing` to `main` and
+merge it; release as usual with a tag. **Resync** `testing` to `main` whenever
+it has drifted or you want to start over (admins bypass the branch ruleset):
+
+```bash
+git fetch origin && git push --force origin origin/main:testing
+```
+
+The resync itself deploys `main`'s commit to the testing stack; moving the
+stack backwards is allowed here on purpose (production refuses it).
+
+**Manual deploy / inspect**, on the host:
+
+```bash
+wrzdj-ci-deploy-testing <full commit sha on origin/testing>
+docker compose -p wrzdj-testing -f /root/WrzDJ-testing/deploy/docker-compose.ghcr.yml ps
+docker compose -p wrzdj-testing -f /root/WrzDJ-testing/deploy/docker-compose.ghcr.yml logs -f api
+```
+
+The testing database starts empty; the bootstrap admin comes from the
+`BOOTSTRAP_ADMIN_*` values in `/root/WrzDJ-testing/deploy/.env`.
+
+### One-time setup
+
+1. **DNS.** `A` records for `testing.wrzdj.com` and `testing-api.wrzdj.com`
+   pointing at the host (DreamHost panel → Websites → Manage Websites →
+   wrzdj.com → DNS, for this deployment).
+
+2. **Checkout, env and entrypoint**, on the host as root:
+
+   ```bash
+   git clone https://github.com/wrzonance/WrzDJ /root/WrzDJ-testing
+   cp /root/WrzDJ-testing/deploy/.env.example /root/WrzDJ-testing/deploy/.env
+   chmod 600 /root/WrzDJ-testing/deploy/.env
+   # Edit it: fresh JWT_SECRET / TOKEN_ENCRYPTION_KEY / HUMAN_COOKIE_SECRET /
+   # POSTGRES_PASSWORD / BRIDGE_API_KEY / BOOTSTRAP_ADMIN_PASSWORD, and:
+   #   COMPOSE_PROJECT_NAME=wrzdj-testing
+   #   PORT_API=8001
+   #   PORT_FRONTEND=3001
+   #   WRZDJ_COMPOSE_OVERRIDE=docker-compose.testing.yml   # memory/CPU budget next to production
+   #   PUBLIC_URL=https://testing.wrzdj.com
+   #   NEXT_PUBLIC_API_URL=https://testing-api.wrzdj.com
+   #   CORS_ORIGINS=https://testing.wrzdj.com
+   #   TIDAL_REDIRECT_URI / BEATPORT_REDIRECT_URI on testing-api.wrzdj.com
+   install -m 0755 /root/WrzDJ-testing/deploy/ci-deploy-testing.sh /usr/local/bin/wrzdj-ci-deploy-testing
+   ```
+
+   `COMPOSE_PROJECT_NAME` is what keeps the two stacks apart: without it both
+   checkouts' `deploy/` directories resolve to the same Compose project and the
+   testing deploy would replace production's containers; the entrypoint refuses
+   to run until it, the ports and the override are set as above. Re-run the
+   `install` whenever `deploy/ci-deploy-testing.sh` changes; deploys never
+   update it.
+
+3. **nginx and certificates**, on the host. Vhosts-only mode leaves the shared
+   `conf.d` includes and the catch-all (production's) untouched and installs
+   HTTP bootstraps for the two new hostnames so certbot can validate:
+
+   ```bash
+   cd /root/WrzDJ-testing
+   WRZDJ_NGINX_VHOSTS_ONLY=1 PORT_API=8001 PORT_FRONTEND=3001 \
+     APP_DOMAIN=testing.wrzdj.com API_DOMAIN=testing-api.wrzdj.com ./deploy/setup-nginx.sh
+   for d in testing.wrzdj.com testing-api.wrzdj.com; do
+     certbot --nginx --non-interactive --agree-tos --email admin@wrzdj.com --cert-name "$d"     --key-type ecdsa -d "$d"
+     certbot --nginx --non-interactive --agree-tos --email admin@wrzdj.com --cert-name "$d-rsa" --key-type rsa   -d "$d"
+   done
+   WRZDJ_NGINX_VHOSTS_ONLY=1 PORT_API=8001 PORT_FRONTEND=3001 \
+     APP_DOMAIN=testing.wrzdj.com API_DOMAIN=testing-api.wrzdj.com ./deploy/setup-nginx.sh
+   ```
+
+4. **A deploy key used for nothing else**, on your workstation, and lock it to
+   the testing entrypoint on the host (same `restrict,command=` pattern as
+   production, different script and checkout):
+
+   ```bash
+   ssh-keygen -t ed25519 -N '' -C wrzdj-ci-deploy-testing -f ./wrzdj-ci-deploy-testing
+   # on the host:
+   echo 'restrict,command="WRZDJ_REPO_DIR=/root/WrzDJ-testing /usr/local/bin/wrzdj-ci-deploy-testing" '"$(cat wrzdj-ci-deploy-testing.pub)" \
+     >> ~/.ssh/authorized_keys
+   # back on the workstation — test the lock before storing the key anywhere:
+   ssh -i wrzdj-ci-deploy-testing -o IdentitiesOnly=yes root@HOST bogus
+   # expect: refusing to deploy 'bogus'
+   ```
+
+5. **GitHub: branch, ruleset, environment, secrets.** The environment admits
+   deployments only from the `testing` branch, so a workflow edited on any other
+   branch cannot reach its secrets. The ruleset requires a PR and the same
+   checks as `main`, forbids deletion and non-fast-forward pushes, and lets
+   repository admins bypass it for the resync above.
+
+   ```bash
+   git push origin origin/main:refs/heads/testing          # create the branch from main
+   gh api -X PUT repos/OWNER/REPO/environments/testing \
+     -F 'deployment_branch_policy[protected_branches]=false' \
+     -F 'deployment_branch_policy[custom_branch_policies]=true'
+   gh api -X POST repos/OWNER/REPO/environments/testing/deployment-branch-policies \
+     -f name=testing -f type=branch
+   gh api -X POST repos/OWNER/REPO/rulesets --input - <<'JSON'
+   {"name":"Testing branch: PR only","target":"branch","enforcement":"active",
+    "bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"always"}],
+    "conditions":{"ref_name":{"include":["refs/heads/testing"],"exclude":[]}},
+    "rules":[{"type":"deletion"},{"type":"non_fast_forward"},
+             {"type":"pull_request","parameters":{"required_approving_review_count":0,
+              "dismiss_stale_reviews_on_push":false,"require_code_owner_review":false,
+              "require_last_push_approval":false,"required_review_thread_resolution":false}},
+             {"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":false,
+              "required_status_checks":[{"context":"Backend Tests"},{"context":"Frontend Tests"},
+               {"context":"Bridge Tests"},{"context":"Bridge App Tests"},{"context":"Kiosk WiFi Portal Tests"},
+               {"context":"Docker Build Smoke Test"},{"context":"Trivy Gate"}]}}]}
+   JSON
+   gh secret set TESTING_DEPLOY_SSH_KEY     --env testing < wrzdj-ci-deploy-testing
+   gh secret set TESTING_DEPLOY_HOST        --env testing --body "HOST"
+   gh secret set TESTING_DEPLOY_USER        --env testing --body "root"
+   gh secret set TESTING_DEPLOY_KNOWN_HOSTS --env testing --body "$(ssh-keyscan -t ed25519 HOST 2>/dev/null)"
+   gh variable set TESTING_API_URL          --env testing --body "https://testing-api.wrzdj.com"
+   shred -u wrzdj-ci-deploy-testing
+   ```
+
+   Through the web UI instead: repository **Settings → Environments → testing**;
+   **Deployment branches and tags → Selected branches and tags → Add deployment
+   branch or tag rule** (Ref type *Branch*, pattern `testing`); then under
+   **Environment secrets → Add secret** paste the *private* key file's full
+   contents (the `-----BEGIN OPENSSH PRIVATE KEY-----` … `-----END …-----` block,
+   newlines included) as `TESTING_DEPLOY_SSH_KEY`, and the other three secrets
+   and the `TESTING_API_URL` variable as above. Compare the `ssh-keyscan` output
+   with the host key you already trust in `~/.ssh/known_hosts` before storing it.
+
+6. **Hostname-bound third parties.** The testing stack reuses production's
+   provider credentials, so each provider must also accept the testing hostnames:
+
+   - **Cloudflare Turnstile** — the site key only works on the hostnames listed
+     on its widget. Dashboard → **Turnstile** → select the widget → **Settings**
+     → **Hostname Management → Add Hostnames** → enter `testing.wrzdj.com` →
+     **Add**. (Adding the parent `wrzdj.com` would cover every subdomain
+     instead; free widgets allow 10 hostnames.) The site key does not change.
+     Until this is done, guests on testing cannot pass human verification.
+   - **Tidal / Beatport** developer apps — add the `TIDAL_REDIRECT_URI` /
+     `BEATPORT_REDIRECT_URI` values from the testing `deploy/.env` (on
+     `testing-api.wrzdj.com`) as allowed redirect URIs. Until then the DJ
+     "connect" flows on testing fail at the provider; everything else works.
+
 ## Maintenance
 
 ### View logs

@@ -61,7 +61,15 @@ case "${1:-}" in
     [ "${NGINX_TEST_PROBE_MODE:-ok}" = "ok" ] || exit 1
     printf '%s\n' "${NGINX_TEST_VERSION_OUTPUT:-nginx version: nginx/${NGINX_TEST_VERSION:-1.31.0}}" >&2
     ;;
-  -t) exit 0 ;;
+  -t)
+    # A failure mode that clears itself once the offending file is gone, so the
+    # rollback's own re-test can be observed succeeding.
+    if [ -n "${NGINX_TEST_T_FAIL_IF_PRESENT:-}" ] && [ -e "$NGINX_TEST_T_FAIL_IF_PRESENT" ]; then
+      echo "nginx: [emerg] invalid directive in $NGINX_TEST_T_FAIL_IF_PRESENT" >&2
+      exit 1
+    fi
+    exit 0
+    ;;
   *) exit 2 ;;
 esac
 SH
@@ -170,7 +178,7 @@ NGINX
 }
 
 assert_nginx_config() {
-  for name in api.example.test app.example.test default; do
+  for name in api.example.test app.example.test default "$@"; do
     rm -f "$nginx_root/sites-enabled/$name"
     cp "$nginx_root/sites-available/$name" "$nginx_root/sites-enabled/$name"
   done
@@ -472,6 +480,133 @@ SYSTEMCTL_MODE=inactive PATH="$bin_dir:$PATH" NGINX_ETC_DIR="$nginx_root" \
   APP_DOMAIN=app.example.test API_DOMAIN=api.example.test \
   bash "$repo_root/deploy/setup-nginx.sh" > "$tmp_dir/systemctl-inactive.log" 2>&1
 grep -Fq 'nginx is not active' "$tmp_dir/systemctl-inactive.log"
+
+
+# Vhosts-only mode (#844): a second stack on the same host (the testing
+# environment) installs only its own two vhosts. The shared http-context
+# includes and the default catch-all belong to the primary deploy and must
+# not be rewritten, and an existing TLS catch-all must not block the HTTP
+# bootstrap of the new hostnames.
+shared_manifest() {
+  sha256sum "$nginx_root/conf.d/wrzdj-logging.conf" "$nginx_root/conf.d/wrzdj-tuning.conf" \
+    "$nginx_root/sites-available/default" "$repo_root/deploy/nginx/default.conf"
+}
+shared_before="$(shared_manifest)"
+run_vhosts_only() {
+  WRZDJ_NGINX_VHOSTS_ONLY=1 PATH="$bin_dir:$PATH" NGINX_ETC_DIR="$nginx_root" \
+    LETSENCRYPT_DIR="$tmp_dir/letsencrypt" CERTIFICATE_CHECKER="$certificate_checker" \
+    NGINX_INSTALLER="$nginx_installer" NGINX_CONFD_INSTALLER="$confd_installer" \
+    APP_DOMAIN=testing.example.test API_DOMAIN=testing-api.example.test \
+    PORT_API=8001 PORT_FRONTEND=3001 \
+    bash "$repo_root/deploy/setup-nginx.sh" > "$tmp_dir/vhosts-only.log" 2>&1 || {
+    cat "$tmp_dir/vhosts-only.log" >&2
+    exit 1
+  }
+}
+rm -f "$RELOAD_MARKER"
+run_vhosts_only
+for name in testing.example.test testing-api.example.test; do
+  test -f "$nginx_root/sites-available/$name"
+  test -L "$nginx_root/sites-enabled/$name"
+  if grep -Fq 'ssl_certificate' "$nginx_root/sites-available/$name"; then
+    echo "vhosts-only bootstrap for $name unexpectedly contains TLS directives" >&2
+    exit 1
+  fi
+done
+test "$(shared_manifest)" = "$shared_before"
+test -f "$RELOAD_MARKER"
+if grep -Fq 'default.conf' "$tmp_dir/vhosts-only.log"; then
+  echo "vhosts-only mode reported touching the default catch-all" >&2
+  exit 1
+fi
+
+for domain in testing.example.test testing-api.example.test \
+  testing.example.test-rsa testing-api.example.test-rsa; do
+  mkdir -p "$tmp_dir/letsencrypt/live/$domain"
+  openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+    -subj "/CN=$domain" \
+    -keyout "$tmp_dir/letsencrypt/live/$domain/privkey.pem" \
+    -out "$tmp_dir/letsencrypt/live/$domain/fullchain.pem" >/dev/null 2>&1
+done
+run_vhosts_only
+grep -Fq 'proxy_pass http://127.0.0.1:8001;' "$nginx_root/sites-available/testing-api.example.test"
+grep -Fq 'proxy_pass http://127.0.0.1:3001;' "$nginx_root/sites-available/testing.example.test"
+grep -Fq 'connect-src '"'"'self'"'"' https://testing-api.example.test' \
+  "$nginx_root/sites-available/testing.example.test"
+test "$(shared_manifest)" = "$shared_before"
+assert_nginx_config testing.example.test testing-api.example.test
+
+
+# A rendered vhost that fails `nginx -t` must not stay installed: production's
+# next reload or certificate renewal would load it. As root a brand-new vhost
+# is removed again and the tree is byte-for-byte what it was; the non-root
+# deploy user has no removal wrapper, so it gets told exactly what to remove
+# while everything it did not add stays untouched.
+installed_manifest() {
+  (cd "$nginx_root" && find sites-available sites-enabled conf.d -type f -o -type l | sort | while read -r f; do
+    if [ -L "$f" ]; then printf '%s -> %s\n' "$f" "$(readlink "$f")"; else printf '%s %s\n' "$f" "$(sha256sum "$f" | cut -d' ' -f1)"; fi
+  done)
+}
+root_bin="$tmp_dir/root-bin"
+mkdir -p "$root_bin"
+cat > "$root_bin/id" <<'ID'
+#!/usr/bin/env bash
+if [ "${1:-}" = -u ]; then printf '0\n'; else /usr/bin/id "$@"; fi
+ID
+chmod +x "$root_bin/id"
+run_failing_new_vhost() { # PATH_PREFIX LOG
+  WRZDJ_NGINX_VHOSTS_ONLY=1 NGINX_TEST_T_FAIL_IF_PRESENT="$nginx_root/sites-enabled/testing-api.example.test" \
+    PATH="$1:$bin_dir:$PATH" NGINX_ETC_DIR="$nginx_root" LETSENCRYPT_DIR="$tmp_dir/letsencrypt" \
+    CERTIFICATE_CHECKER="$certificate_checker" NGINX_INSTALLER="$nginx_installer" \
+    NGINX_CONFD_INSTALLER="$confd_installer" APP_DOMAIN=testing.example.test \
+    API_DOMAIN=testing-api.example.test PORT_API=8001 PORT_FRONTEND=3001 \
+    bash "$repo_root/deploy/setup-nginx.sh" > "$2" 2>&1
+}
+rm -f "$nginx_root/sites-available/testing.example.test" "$nginx_root/sites-enabled/testing.example.test" \
+  "$nginx_root/sites-available/testing-api.example.test" "$nginx_root/sites-enabled/testing-api.example.test"
+tree_before="$(installed_manifest)"
+rm -f "$RELOAD_MARKER"
+if run_failing_new_vhost "$root_bin" "$tmp_dir/rollback-new-root.log"; then
+  echo "setup (root) reported success although nginx -t failed" >&2
+  exit 1
+fi
+grep -Fq 'Restoring the previously installed vhosts' "$tmp_dir/rollback-new-root.log"
+grep -Fq 'Removed: ' "$tmp_dir/rollback-new-root.log"
+grep -Fq 'Restored configuration passes nginx -t' "$tmp_dir/rollback-new-root.log"
+test "$(installed_manifest)" = "$tree_before"
+test ! -e "$RELOAD_MARKER"
+
+if run_failing_new_vhost "$bin_dir" "$tmp_dir/rollback-new-user.log"; then
+  echo "setup (non-root) reported success although nginx -t failed" >&2
+  exit 1
+fi
+grep -Fq 'Cannot remove the new vhost testing-api.example.test without root' "$tmp_dir/rollback-new-user.log"
+grep -Fq "sudo rm $nginx_root/sites-enabled/testing-api.example.test $nginx_root/sites-available/testing-api.example.test" \
+  "$tmp_dir/rollback-new-user.log"
+test "$(installed_manifest | grep -v 'testing')" = "$tree_before"
+test ! -e "$RELOAD_MARKER"
+rm -f "$nginx_root/sites-available/testing.example.test" "$nginx_root/sites-enabled/testing.example.test" \
+  "$nginx_root/sites-available/testing-api.example.test" "$nginx_root/sites-enabled/testing-api.example.test"
+
+# ...and a previously installed vhost is restored to its earlier content.
+run_vhosts_only
+tree_before="$(installed_manifest)"
+cp "$nginx_root/sites-available/api.example.test" "$tmp_dir/api-before"
+if NGINX_TEST_T_FAIL_IF_PRESENT="$nginx_root/sites-available/api.example.test.failing" \
+  PATH="$bin_dir:$PATH" NGINX_ETC_DIR="$nginx_root" LETSENCRYPT_DIR="$tmp_dir/letsencrypt" \
+  CERTIFICATE_CHECKER="$certificate_checker" NGINX_INSTALLER="$nginx_installer" \
+  NGINX_CONFD_INSTALLER="$confd_installer" APP_DOMAIN=app.example.test API_DOMAIN=api.example.test \
+  SSE_CONN_LIMIT=7 bash -c 'touch "$NGINX_TEST_T_FAIL_IF_PRESENT"; trap "rm -f \"$NGINX_TEST_T_FAIL_IF_PRESENT\"" EXIT; bash "$0"' \
+  "$repo_root/deploy/setup-nginx.sh" > "$tmp_dir/rollback-existing.log" 2>&1; then
+  echo "setup reported success although nginx -t failed on an existing vhost" >&2
+  exit 1
+fi
+grep -Fq 'Restored:' "$tmp_dir/rollback-existing.log"
+cmp -s "$nginx_root/sites-available/api.example.test" "$tmp_dir/api-before"
+if grep -Fq 'limit_conn wrzdj_sse 7;' "$nginx_root/sites-available/api.example.test"; then
+  echo "failed run left its new rendering installed" >&2
+  exit 1
+fi
 
 if [ "$(source_nginx_manifest)" != "$source_nginx_before" ]; then
   echo 'setup-nginx test modified the source deploy/nginx directory' >&2

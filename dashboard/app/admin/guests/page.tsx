@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, type AdminGuest, type AdminGuestFilter } from '@/lib/api';
 import { useAdminPage } from '@/lib/useAdminPage';
 import { HelpSpot } from '@/components/help/HelpSpot';
@@ -42,15 +42,33 @@ export default function AdminGuestsPage() {
   const total = paginated?.total ?? 0;
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
+  // Debounced search: only a *changed* query resets the page, so the mount-time
+  // timer cannot bounce an admin who already clicked Next back to page 1.
+  const appliedQueryRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     const timer = setTimeout(() => {
-      setQuery(search.trim() || undefined);
+      const next = search.trim() || undefined;
+      if (next === appliedQueryRef.current) return;
+      appliedQueryRef.current = next;
+      setQuery(next);
       setPage(1);
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [search]);
 
+  // Deleting the last guest on a later page would otherwise strand the admin
+  // on an empty page with no pagination to go back.
   useEffect(() => {
+    if (!loading && total > 0 && page > totalPages) setPage(totalPages);
+  }, [loading, total, page, totalPages]);
+
+  // useAdminPage already loads once on mount; this effect covers later changes.
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
+    }
     reload();
   }, [page, filter, query, reload]);
 

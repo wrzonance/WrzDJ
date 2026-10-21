@@ -160,6 +160,60 @@ describe('AdminGuestsPage', () => {
     });
   });
 
+  it('loads exactly once on mount', async () => {
+    await renderLoaded();
+
+    expect(api.getAdminGuests).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the newer filter result when an older request resolves later', async () => {
+    let resolveFirst: (value: typeof mockPage) => void = () => {};
+    const first = new Promise<typeof mockPage>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const sharedPage = { items: [bob], total: 1, page: 1, limit: 20 };
+    vi.mocked(api.getAdminGuests)
+      .mockImplementationOnce(() => first)
+      .mockResolvedValue(sharedPage);
+
+    render(<AdminGuestsPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Shared fingerprint' }));
+    await waitFor(() => {
+      expect(screen.getByText('bob_1')).toBeInTheDocument();
+    });
+
+    resolveFirst(mockPage);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(screen.queryByText('Alice')).not.toBeInTheDocument();
+    expect(screen.getByText('bob_1')).toBeInTheDocument();
+  });
+
+  it('returns to the previous page after deleting the last guest on a later page', async () => {
+    vi.mocked(api.deleteAdminGuest).mockResolvedValue(undefined);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    let deleted = false;
+    vi.mocked(api.getAdminGuests).mockImplementation(async (page) => {
+      if (page === 2 && !deleted) return { items: [bob], total: 21, page: 2, limit: 20 };
+      if (page === 2) return { items: [], total: 20, page: 2, limit: 20 };
+      return { items: [alice], total: deleted ? 20 : 21, page: 1, limit: 20 };
+    });
+
+    await renderLoaded();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => {
+      expect(screen.getByText('bob_1')).toBeInTheDocument();
+    });
+
+    deleted = true;
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete' })[0]);
+
+    await waitFor(() => {
+      expect(api.getAdminGuests).toHaveBeenLastCalledWith(1, 20, 'all', undefined);
+    });
+    expect(screen.getByText('Alice')).toBeInTheDocument();
+  });
+
   it('reloads with the chosen filter', async () => {
     await renderLoaded();
 

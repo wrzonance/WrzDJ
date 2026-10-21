@@ -364,8 +364,6 @@ class TestGetRelatedSongsByIsrc:
     def test_status_error_does_not_log_response_body(self, mock_settings, mock_get, caplog):
         """The auth-failure log records only the status code, never the upstream
         response body, so a leaked credential in the body can't reach the logs."""
-        import logging
-
         mock_settings.return_value = self._settings()
         error_resp = MagicMock()
         error_resp.status_code = 403

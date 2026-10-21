@@ -371,4 +371,7 @@ jobs:
         run: bash scripts/test-proxy-image.sh wrzdj-proxy:smoke
 
       - name: Test production nginx provisioning
-        run: bash deploy/tests/test_setup_nginx.sh
+        run: |
+          for test in deploy/tests/test_*.sh; do
+            bash "$test"
+          done

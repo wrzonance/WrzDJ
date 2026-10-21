@@ -26,6 +26,11 @@ frontend (`dashboard/`) + Node bridge for DJ equipment (`bridge/`) + Electron br
   - Frontend: **vanilla CSS + inline React styles — NO Tailwind, no UI framework.** Dark theme
     (bg `#0a0a0a`, cards `#1a1a1a`, text `#ededed`), mobile-first. Styles in
     `dashboard/app/globals.css` or inline.
+- **`testing` branch = deploy target, not a working branch.** Merging a PR into the
+  protected `testing` branch auto-deploys it to `testing.wrzdj.com` / `api-testing.wrzdj.com`
+  (separate stack on the same droplet; see `deploy/DEPLOYMENT.md` → "Testing environment").
+  Feature branches still branch from `main`; retarget a PR to `testing` only to shake it down
+  live before it goes to `main`.
 - **Versioning**: date-based git tags (e.g. `v2026.02.07`; same-day suffix `v2026.02.07.2`).
   Releases trigger on tag push, not PR merge (`release.yml`).
 

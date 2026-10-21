@@ -11,6 +11,11 @@ set -euo pipefail
 #   PORT_API=8000         (default: 8000)
 #   PORT_FRONTEND=3000    (default: 3000)
 #   SSE_CONN_LIMIT=500    (default: 500) concurrent SSE streams per client address
+#   WRZDJ_NGINX_VHOSTS_ONLY=1
+#       Install only the two vhosts for APP_DOMAIN / API_DOMAIN. For a second
+#       stack on a host that already runs WrzDJ (the testing environment): the
+#       http-context includes in conf.d and the default catch-all belong to the
+#       primary deploy and are left untouched.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TEMPLATE_DIR="$SCRIPT_DIR/nginx"
@@ -46,6 +51,11 @@ validate_domain "$APP_DOMAIN"
 validate_domain "$API_DOMAIN"
 
 # Optional with defaults
+VHOSTS_ONLY="${WRZDJ_NGINX_VHOSTS_ONLY:-0}"
+if [[ "$VHOSTS_ONLY" != 0 && "$VHOSTS_ONLY" != 1 ]]; then
+  echo "ERROR: WRZDJ_NGINX_VHOSTS_ONLY must be 0 or 1 (got '$VHOSTS_ONLY')" >&2
+  exit 1
+fi
 export PORT_API="${PORT_API:-8000}"
 export PORT_FRONTEND="${PORT_FRONTEND:-3000}"
 export SSE_CONN_LIMIT="${SSE_CONN_LIMIT:-500}"
@@ -87,10 +97,14 @@ for domain in "$API_DOMAIN" "$APP_DOMAIN" "$API_DOMAIN-rsa" "$APP_DOMAIN-rsa"; d
   esac
 done
 
+# The catch-all is only this invocation's to judge when it will be rewritten;
+# in vhosts-only mode it belongs to the primary deploy and may already be TLS
+# while the new hostnames still need their HTTP bootstrap.
 has_installed_tls_config() {
   local config
-  for config in "$NGINX_SITES_AVAILABLE/$API_DOMAIN" \
-    "$NGINX_SITES_AVAILABLE/$APP_DOMAIN" "$NGINX_SITES_AVAILABLE/default"; do
+  local -a configs=("$NGINX_SITES_AVAILABLE/$API_DOMAIN" "$NGINX_SITES_AVAILABLE/$APP_DOMAIN")
+  [ "$VHOSTS_ONLY" -eq 0 ] && configs+=("$NGINX_SITES_AVAILABLE/default")
+  for config in "${configs[@]}"; do
     if [ -f "$config" ] && grep -Eq '^[[:space:]]*ssl_certificate[[:space:]]' "$config"; then
       return 0
     fi
@@ -133,6 +147,7 @@ echo "    API_DOMAIN:    $API_DOMAIN"
 echo "    PORT_API:      $PORT_API"
 echo "    PORT_FRONTEND: $PORT_FRONTEND"
 echo "    SSE_CONN_LIMIT: $SSE_CONN_LIMIT"
+[ "$VHOSTS_ONLY" -eq 1 ] && echo "    mode:          vhosts only (shared conf.d and catch-all untouched)"
 
 # envsubst only replaces the variables we specify, leaving nginx $vars untouched
 # shellcheck disable=SC2016
@@ -162,20 +177,22 @@ else
 fi
 echo "    Generated: $TEMPLATE_DIR/$APP_DOMAIN.conf"
 
-# Generate default catch-all server block
-if [ "$TLS_READY" -eq 1 ]; then
+# Generate default catch-all server block (primary deploy only)
+if [ "$VHOSTS_ONLY" -eq 1 ]; then
+  :
+elif [ "$TLS_READY" -eq 1 ]; then
   envsubst "$VARS" < "$TEMPLATE_DIR/default.conf.template" \
     > "$TEMPLATE_DIR/default.conf"
+  echo "    Generated: $TEMPLATE_DIR/default.conf"
 else
   export BOOTSTRAP_DOMAIN="_"
   export BOOTSTRAP_LISTEN_OPTIONS=" default_server"
   envsubst "$VARS" < "$TEMPLATE_DIR/bootstrap.conf.template" \
     > "$TEMPLATE_DIR/default.conf"
+  echo "    Generated: $TEMPLATE_DIR/default.conf"
 fi
-echo "    Generated: $TEMPLATE_DIR/default.conf"
 
-# Install to nginx if running as root / with sudo
-if [ -d "$NGINX_SITES_AVAILABLE" ]; then
+install_shared_configs() {
   echo ""
   echo "==> Installing http-level nginx configs to conf.d"
 
@@ -194,28 +211,31 @@ if [ -d "$NGINX_SITES_AVAILABLE" ]; then
 
   install_confd_config "$TEMPLATE_DIR/logging.conf" "wrzdj-logging.conf"
   install_confd_config "$TEMPLATE_DIR/tuning.conf" "wrzdj-tuning.conf"
+}
+
+# install_vhost_config FILE SITE_NAME: copy one rendered vhost and enable it.
+install_vhost_config() {
+  local src="$1" site_name="$2"
+  if [ -n "$SUDO" ]; then
+    # Use wrapper script (validates names, does cp + ln together)
+    $SUDO "$NGINX_INSTALLER" "$src"
+  else
+    # Running as root — direct cp/ln
+    cp "$src" "$NGINX_SITES_AVAILABLE/$site_name"
+    ln -sf "$NGINX_SITES_AVAILABLE/$site_name" "$NGINX_SITES_ENABLED/$site_name"
+  fi
+  echo "    Installed: $NGINX_SITES_AVAILABLE/$site_name"
+}
+
+# Install to nginx if running as root / with sudo
+if [ -d "$NGINX_SITES_AVAILABLE" ]; then
+  [ "$VHOSTS_ONLY" -eq 0 ] && install_shared_configs
 
   echo ""
   echo "==> Installing vhost configs to sites-available"
-
-  if [ -n "$SUDO" ]; then
-    # Use wrapper script (validates names, does cp + ln together)
-    $SUDO "$NGINX_INSTALLER" "$TEMPLATE_DIR/$API_DOMAIN.conf"
-    $SUDO "$NGINX_INSTALLER" "$TEMPLATE_DIR/$APP_DOMAIN.conf"
-    $SUDO "$NGINX_INSTALLER" "$TEMPLATE_DIR/default.conf"
-  else
-    # Running as root — direct cp/ln
-    $SUDO cp "$TEMPLATE_DIR/$API_DOMAIN.conf" "$NGINX_SITES_AVAILABLE/$API_DOMAIN"
-    $SUDO cp "$TEMPLATE_DIR/$APP_DOMAIN.conf" "$NGINX_SITES_AVAILABLE/$APP_DOMAIN"
-    $SUDO cp "$TEMPLATE_DIR/default.conf" "$NGINX_SITES_AVAILABLE/default"
-    $SUDO ln -sf "$NGINX_SITES_AVAILABLE/$API_DOMAIN" "$NGINX_SITES_ENABLED/$API_DOMAIN"
-    $SUDO ln -sf "$NGINX_SITES_AVAILABLE/$APP_DOMAIN" "$NGINX_SITES_ENABLED/$APP_DOMAIN"
-    $SUDO ln -sf "$NGINX_SITES_AVAILABLE/default" "$NGINX_SITES_ENABLED/default"
-  fi
-
-  echo "    Installed: $NGINX_SITES_AVAILABLE/$API_DOMAIN"
-  echo "    Installed: $NGINX_SITES_AVAILABLE/$APP_DOMAIN"
-  echo "    Installed: $NGINX_SITES_AVAILABLE/default (catch-all)"
+  install_vhost_config "$TEMPLATE_DIR/$API_DOMAIN.conf" "$API_DOMAIN"
+  install_vhost_config "$TEMPLATE_DIR/$APP_DOMAIN.conf" "$APP_DOMAIN"
+  [ "$VHOSTS_ONLY" -eq 0 ] && install_vhost_config "$TEMPLATE_DIR/default.conf" default
 
   echo ""
   echo "==> Testing nginx config"
@@ -243,11 +263,13 @@ else
   echo ""
   echo "==> /etc/nginx/sites-available not found — configs generated but not installed."
   echo "    Copy them manually:"
-  echo "      sudo cp $TEMPLATE_DIR/logging.conf /etc/nginx/conf.d/wrzdj-logging.conf"
-  echo "      sudo cp $TEMPLATE_DIR/tuning.conf /etc/nginx/conf.d/wrzdj-tuning.conf"
+  if [ "$VHOSTS_ONLY" -eq 0 ]; then
+    echo "      sudo cp $TEMPLATE_DIR/logging.conf /etc/nginx/conf.d/wrzdj-logging.conf"
+    echo "      sudo cp $TEMPLATE_DIR/tuning.conf /etc/nginx/conf.d/wrzdj-tuning.conf"
+  fi
   echo "      sudo cp $TEMPLATE_DIR/$API_DOMAIN.conf /etc/nginx/sites-available/$API_DOMAIN"
   echo "      sudo cp $TEMPLATE_DIR/$APP_DOMAIN.conf /etc/nginx/sites-available/$APP_DOMAIN"
-  echo "      sudo cp $TEMPLATE_DIR/default.conf /etc/nginx/sites-available/default"
+  [ "$VHOSTS_ONLY" -eq 0 ] && echo "      sudo cp $TEMPLATE_DIR/default.conf /etc/nginx/sites-available/default"
 fi
 
 # --- Migration: ensure overlay location block exists for existing deployments ---

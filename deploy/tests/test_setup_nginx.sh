@@ -108,7 +108,7 @@ NGINX
 }
 
 assert_nginx_config() {
-  for name in api.example.test app.example.test default; do
+  for name in api.example.test app.example.test default "$@"; do
     rm -f "$nginx_root/sites-enabled/$name"
     cp "$nginx_root/sites-available/$name" "$nginx_root/sites-enabled/$name"
   done
@@ -303,5 +303,60 @@ SYSTEMCTL_MODE=inactive PATH="$bin_dir:$PATH" NGINX_ETC_DIR="$nginx_root" \
   APP_DOMAIN=app.example.test API_DOMAIN=api.example.test \
   bash "$repo_root/deploy/setup-nginx.sh" > "$tmp_dir/systemctl-inactive.log" 2>&1
 grep -Fq 'nginx is not active' "$tmp_dir/systemctl-inactive.log"
+
+
+# Vhosts-only mode (#844): a second stack on the same host (the testing
+# environment) installs only its own two vhosts. The shared http-context
+# includes and the default catch-all belong to the primary deploy and must
+# not be rewritten, and an existing TLS catch-all must not block the HTTP
+# bootstrap of the new hostnames.
+shared_manifest() {
+  sha256sum "$nginx_root/conf.d/wrzdj-logging.conf" "$nginx_root/conf.d/wrzdj-tuning.conf" \
+    "$nginx_root/sites-available/default" "$repo_root/deploy/nginx/default.conf"
+}
+shared_before="$(shared_manifest)"
+run_vhosts_only() {
+  WRZDJ_NGINX_VHOSTS_ONLY=1 PATH="$bin_dir:$PATH" NGINX_ETC_DIR="$nginx_root" \
+    LETSENCRYPT_DIR="$tmp_dir/letsencrypt" CERTIFICATE_CHECKER="$certificate_checker" \
+    NGINX_INSTALLER="$nginx_installer" NGINX_CONFD_INSTALLER="$confd_installer" \
+    APP_DOMAIN=testing.example.test API_DOMAIN=api-testing.example.test \
+    PORT_API=8001 PORT_FRONTEND=3001 \
+    bash "$repo_root/deploy/setup-nginx.sh" > "$tmp_dir/vhosts-only.log" 2>&1 || {
+    cat "$tmp_dir/vhosts-only.log" >&2
+    exit 1
+  }
+}
+rm -f "$RELOAD_MARKER"
+run_vhosts_only
+for name in testing.example.test api-testing.example.test; do
+  test -f "$nginx_root/sites-available/$name"
+  test -L "$nginx_root/sites-enabled/$name"
+  if grep -Fq 'ssl_certificate' "$nginx_root/sites-available/$name"; then
+    echo "vhosts-only bootstrap for $name unexpectedly contains TLS directives" >&2
+    exit 1
+  fi
+done
+test "$(shared_manifest)" = "$shared_before"
+test -f "$RELOAD_MARKER"
+if grep -Fq 'default.conf' "$tmp_dir/vhosts-only.log"; then
+  echo "vhosts-only mode reported touching the default catch-all" >&2
+  exit 1
+fi
+
+for domain in testing.example.test api-testing.example.test \
+  testing.example.test-rsa api-testing.example.test-rsa; do
+  mkdir -p "$tmp_dir/letsencrypt/live/$domain"
+  openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+    -subj "/CN=$domain" \
+    -keyout "$tmp_dir/letsencrypt/live/$domain/privkey.pem" \
+    -out "$tmp_dir/letsencrypt/live/$domain/fullchain.pem" >/dev/null 2>&1
+done
+run_vhosts_only
+grep -Fq 'proxy_pass http://127.0.0.1:8001;' "$nginx_root/sites-available/api-testing.example.test"
+grep -Fq 'proxy_pass http://127.0.0.1:3001;' "$nginx_root/sites-available/testing.example.test"
+grep -Fq 'connect-src '"'"'self'"'"' https://api-testing.example.test' \
+  "$nginx_root/sites-available/testing.example.test"
+test "$(shared_manifest)" = "$shared_before"
+assert_nginx_config testing.example.test api-testing.example.test
 
 printf 'setup-nginx provisioning contract passed\n'

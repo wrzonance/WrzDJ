@@ -1,17 +1,22 @@
 name: Docker Publish
 
 # PR-time image validation lives in ci.yml's "Docker Build Smoke Test" (amd64,
-# no push). This workflow only runs on main/tag pushes, where it does the full
-# multi-arch build+push to GHCR — keeping the slow arm64-under-QEMU build off PRs.
+# no push). This workflow only runs on main/testing/tag pushes, where it does the
+# full multi-arch build+push to GHCR — keeping the slow arm64-under-QEMU build
+# off PRs. Pushes to `testing` build amd64 only: they exist to deploy the
+# testing environment (an amd64 host) and are never promoted.
 #
 # Image tags: `latest` and `main` follow HEAD of main (unreleased trunk);
-# `vYYYY.MM.DD` and `sha-<commit>` are built on a release tag push, and `stable`
-# is promoted to the release only after BOTH images are pushed, so a deployer on
-# `stable` always gets a matching api/web pair from the newest release. Release
-# tags are validated (format, commit on main) before anything is built.
+# `testing` follows HEAD of the protected testing branch; `vYYYY.MM.DD` and
+# `sha-<commit>` are built on a release tag push (`sha-<commit>` on every push),
+# and `stable` is promoted to the release only after BOTH images are pushed, so
+# a deployer on `stable` always gets a matching api/web pair from the newest
+# release. Release tags are validated (format, commit on main) before anything
+# is built. A push to `testing` additionally deploys `sha-<commit>` to the
+# testing stack (#844); only release tags ever reach production.
 on:
   push:
-    branches: [main]
+    branches: [main, testing]
     tags: ['v*']
 
 # Read-only default for every job; jobs that need more declare it themselves.
@@ -29,6 +34,10 @@ env:
   REGISTRY: ghcr.io
   API_IMAGE: ghcr.io/wrzonance/wrzdj-api
   WEB_IMAGE: ghcr.io/wrzonance/wrzdj-web
+  # The testing host is amd64; skipping the QEMU arm64 build there keeps a
+  # merge-to-testing deploy short. Everything published for main/releases
+  # stays multi-arch.
+  PLATFORMS: ${{ github.ref == 'refs/heads/testing' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
 
 jobs:
   # Release tags must be well-formed and point at a commit on main. Skipped on
@@ -99,7 +108,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./server
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ env.PLATFORMS }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -154,7 +163,7 @@ jobs:
           context: ./dashboard
           build-args: |
             NEXT_PUBLIC_API_URL=__WRZDJ_API_URL__
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ env.PLATFORMS }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -230,5 +239,47 @@ jobs:
       - name: Verify the public API is healthy
         env:
           API_URL: ${{ vars.PROD_API_URL }}
+        run: |
+          curl -sSf --retry 6 --retry-delay 5 --retry-all-errors "$API_URL/health"
+
+  # A merge to the protected `testing` branch deploys that commit's images to
+  # the separate testing stack (#844). The environment's branch policy admits
+  # only `testing`; the key is a different one from production's and is locked
+  # on the host to wrzdj-ci-deploy-testing, which re-checks that the commit is
+  # on origin/testing before touching anything.
+  deploy-testing:
+    name: Deploy testing branch to the testing environment
+    needs: [publish-api, publish-web]
+    if: github.ref == 'refs/heads/testing'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: testing
+      url: https://testing.wrzdj.com
+    steps:
+      - name: Install the deploy key
+        env:
+          SSH_KEY: ${{ secrets.TESTING_DEPLOY_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.TESTING_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+
+      - name: Deploy the commit on the host
+        env:
+          SHA: ${{ github.sha }}
+          SSH_HOST: ${{ secrets.TESTING_DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.TESTING_DEPLOY_USER }}
+        run: |
+          # The remote side reads this "command" only as "<commit>": the key's
+          # forced command is wrzdj-ci-deploy-testing, which validates it.
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes -o BatchMode=yes \
+            -o ConnectTimeout=20 "$SSH_USER@$SSH_HOST" "$SHA"
+
+      - name: Verify the testing API is healthy
+        env:
+          API_URL: ${{ vars.TESTING_API_URL }}
         run: |
           curl -sSf --retry 6 --retry-delay 5 --retry-all-errors "$API_URL/health"

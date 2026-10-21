@@ -57,6 +57,12 @@ export type AppleMusicDeveloperToken = Schemas['AppleMusicDeveloperTokenOut'];
 export type SystemStats = Schemas['SystemStats'];
 export type AdminUser = Schemas['AdminUserOut'];
 export type AdminEvent = Schemas['AdminEventOut'];
+// Admin guest management (#862)
+export type AdminGuest = Schemas['AdminGuestOut'];
+export type AdminGuestEvent = Schemas['AdminGuestEventOut'];
+export type AdminGuestUpdate = Schemas['AdminGuestUpdate'];
+export type AdminGuestProfileUpdate = Schemas['AdminGuestProfileUpdate'];
+export type AdminGuestFilter = 'all' | 'verified' | 'unverified' | 'shared';
 export type SystemSettings = Schemas['SystemSettingsOut'];
 export type AIModelInfo = Schemas['AIModelInfo'];
 export type AIModelsResponse = Schemas['AIModelsResponse'];

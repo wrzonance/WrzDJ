@@ -46,6 +46,11 @@ export type {
 export type {
   ActivityLogEntry,
   AdminEvent,
+  AdminGuest,
+  AdminGuestEvent,
+  AdminGuestFilter,
+  AdminGuestProfileUpdate,
+  AdminGuestUpdate,
   AdminUser,
   AIModelInfo,
   AIModelsResponse,

@@ -1,5 +1,11 @@
 import type { ApiTransport } from '../transport';
-import type { AdminEvent } from '../types';
+import type {
+  AdminEvent,
+  AdminGuest,
+  AdminGuestFilter,
+  AdminGuestProfileUpdate,
+  AdminGuestUpdate,
+} from '../types';
 import type { UserRole } from '../../auth';
 import type { LlmStreamChunk, AdminLlmAuditFilters } from '../contracts';
 import { ApiError, CSRF_HEADER_NAME, CSRF_HEADER_VALUE, getApiUrl } from '../shared';
@@ -120,6 +126,41 @@ export class AdminApi {
       method: 'POST',
       body: JSON.stringify({ codes }),
     });
+  }
+
+  // ========== Admin guests (#862) ==========
+
+  async getAdminGuests(
+    page: number = 1,
+    limit: number = 20,
+    filter: AdminGuestFilter = 'all',
+    q?: string
+  ): Promise<PaginatedResponse<AdminGuest>> {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit), filter });
+    if (q) params.set('q', q);
+    return this.transport.fetch(`/api/admin/guests?${params}`);
+  }
+
+  async updateAdminGuest(guestId: number, data: AdminGuestUpdate): Promise<AdminGuest> {
+    return this.transport.fetch(`/api/admin/guests/${guestId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateAdminGuestProfile(
+    guestId: number,
+    eventId: number,
+    data: AdminGuestProfileUpdate
+  ): Promise<AdminGuest> {
+    return this.transport.fetch(`/api/admin/guests/${guestId}/events/${eventId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteAdminGuest(guestId: number): Promise<void> {
+    await this.transport.rawFetch(`/api/admin/guests/${guestId}`, { method: 'DELETE' });
   }
 
   async getAdminSettings(): Promise<SystemSettings> {

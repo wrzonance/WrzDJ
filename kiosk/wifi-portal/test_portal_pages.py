@@ -11,23 +11,51 @@ def test_rescan_client_reports_denial_failure_and_timeout():
     page = pages.html_setup(
         "Setup", "password123", [{"ssid": "Network", "signal": 80, "security": "Open"}]
     )
+    run_portal_client(page)
+
+
+def test_browser_client_script_extraction_accepts_uppercase_tags():
+    page = pages.html_setup("Setup", "password123", [])
+    uppercase_tags = page.replace("<script>", "<SCRIPT>").replace("</script>", "</SCRIPT>")
+    run_portal_client(uppercase_tags)
+
+
+def run_portal_client(page):
+    # Parse repository-generated test HTML to execute its inline client script.
+    parser = InlineScriptCollector()
+    parser.feed(page)
+    assert len(parser.scripts) == 1
     subprocess.run(
         ["node", str(Path(__file__).parents[1] / "tests/test_portal_client.cjs")],
-        input=page,
+        input=parser.script,
         text=True,
         check=True,
         timeout=10,
     )
 
 
-class ScriptCollector(HTMLParser):
+class InlineScriptCollector(HTMLParser):
     def __init__(self):
         super().__init__()
-        self.scripts = 0
+        self.scripts = []
+        self._current_script = None
 
     def handle_starttag(self, tag, attrs):
         if tag == "script":
-            self.scripts += 1
+            self._current_script = []
+            self.scripts.append(self._current_script)
+
+    def handle_data(self, data):
+        if self._current_script is not None:
+            self._current_script.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "script":
+            self._current_script = None
+
+    @property
+    def script(self):
+        return "".join(self.scripts[0])
 
 
 def test_setup_accepts_only_the_settings_it_renders():
@@ -45,16 +73,16 @@ def test_network_name_cannot_break_out_of_script():
         }
     ]
     page = pages.html_setup("Setup", "password123", networks)
-    parser = ScriptCollector()
+    parser = InlineScriptCollector()
     parser.feed(page)
-    assert parser.scripts == 1
+    assert len(parser.scripts) == 1
 
 
 def test_redirect_url_cannot_break_out_of_script():
     page = pages.html_redirect("https://example.com/</script><script>alert(1)</script>")
-    parser = ScriptCollector()
+    parser = InlineScriptCollector()
     parser.feed(page)
-    assert parser.scripts == 1
+    assert len(parser.scripts) == 1
 
 
 class TestHtmlRedirect:

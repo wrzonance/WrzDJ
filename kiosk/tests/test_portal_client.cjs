@@ -3,8 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-const html = fs.readFileSync(0, 'utf8');
-const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+// Input is inline JavaScript extracted from the repository-owned portal fixture.
+const script = fs.readFileSync(0, 'utf8');
 
 function element() {
   return {

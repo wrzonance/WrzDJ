@@ -451,6 +451,220 @@
         "title": "AdminEventOut",
         "type": "object"
       },
+      "AdminGuestEventOut": {
+        "description": "One event membership (a guest_profiles row) as the admin sees it.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "event_id": {
+            "title": "Event Id",
+            "type": "integer"
+          },
+          "joined_at": {
+            "format": "date-time",
+            "title": "Joined At",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "nickname": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nickname"
+          },
+          "submission_count": {
+            "default": 0,
+            "title": "Submission Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "code",
+          "event_id",
+          "joined_at",
+          "name",
+          "nickname",
+          "submission_count"
+        ],
+        "title": "AdminGuestEventOut",
+        "type": "object"
+      },
+      "AdminGuestOut": {
+        "properties": {
+          "browser": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Browser"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email_masked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email Masked"
+          },
+          "email_verified": {
+            "default": false,
+            "title": "Email Verified",
+            "type": "boolean"
+          },
+          "email_verified_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email Verified At"
+          },
+          "event_count": {
+            "default": 0,
+            "title": "Event Count",
+            "type": "integer"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/AdminGuestEventOut"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "fingerprint_shared_with": {
+            "default": 0,
+            "title": "Fingerprint Shared With",
+            "type": "integer"
+          },
+          "fingerprint_short": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fingerprint Short"
+          },
+          "human_verified_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Human Verified At"
+          },
+          "human_verify_count": {
+            "default": 0,
+            "title": "Human Verify Count",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "title": "Last Seen At",
+            "type": "string"
+          },
+          "nickname": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nickname"
+          },
+          "request_count": {
+            "default": 0,
+            "title": "Request Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "browser",
+          "created_at",
+          "email_masked",
+          "email_verified",
+          "email_verified_at",
+          "event_count",
+          "events",
+          "fingerprint_shared_with",
+          "fingerprint_short",
+          "human_verified_at",
+          "human_verify_count",
+          "id",
+          "last_seen_at",
+          "nickname",
+          "request_count"
+        ],
+        "title": "AdminGuestOut",
+        "type": "object"
+      },
+      "AdminGuestProfileUpdate": {
+        "properties": {
+          "nickname": {
+            "anyOf": [
+              {
+                "maxLength": 30,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nickname"
+          }
+        },
+        "title": "AdminGuestProfileUpdate",
+        "type": "object"
+      },
+      "AdminGuestUpdate": {
+        "properties": {
+          "revoke_email": {
+            "default": false,
+            "title": "Revoke Email",
+            "type": "boolean"
+          }
+        },
+        "title": "AdminGuestUpdate",
+        "type": "object"
+      },
       "AdminPolicyOut": {
         "properties": {
           "llm_apikey_connectors_enabled": {
@@ -12296,6 +12510,256 @@
           }
         ],
         "summary": "Admin Update Event",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/guests": {
+      "get": {
+        "operationId": "admin_list_guests_api_admin_guests_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "title": "Filter",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 30,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Admin List Guests",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/guests/{guest_id}": {
+      "delete": {
+        "operationId": "admin_delete_guest_api_admin_guests__guest_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guest_id",
+            "required": true,
+            "schema": {
+              "title": "Guest Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Admin Delete Guest",
+        "tags": [
+          "admin"
+        ]
+      },
+      "patch": {
+        "operationId": "admin_update_guest_api_admin_guests__guest_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guest_id",
+            "required": true,
+            "schema": {
+              "title": "Guest Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminGuestUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminGuestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Admin Update Guest",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/guests/{guest_id}/events/{event_id}": {
+      "patch": {
+        "operationId": "admin_update_guest_profile_api_admin_guests__guest_id__events__event_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guest_id",
+            "required": true,
+            "schema": {
+              "title": "Guest Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "title": "Event Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminGuestProfileUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminGuestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Admin Update Guest Profile",
         "tags": [
           "admin"
         ]

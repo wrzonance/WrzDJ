@@ -254,7 +254,13 @@ jobs:
   deploy-testing:
     name: Deploy testing branch to the testing environment
     needs: [publish-api, publish-web]
-    if: github.ref == 'refs/heads/testing'
+    # always(): validate-release-tag is skipped on branch pushes, and a job whose
+    # needs chain contains a skipped job is itself skipped unless it says so
+    # explicitly (the publish jobs do the same). The result checks keep a failed
+    # build from deploying.
+    if: >-
+      always() && github.ref == 'refs/heads/testing'
+      && needs.publish-api.result == 'success' && needs.publish-web.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:

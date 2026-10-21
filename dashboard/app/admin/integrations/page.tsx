@@ -8,7 +8,7 @@ import type {
 import { api } from '@/lib/api';
 import { useAdminPage } from '@/lib/useAdminPage';
 import { HelpSpot } from '@/components/help/HelpSpot';
-import { HelpButton } from '@/components/help/HelpButton';
+import { PageControls } from '@/components/PageControls';
 import { OnboardingOverlay } from '@/components/help/OnboardingOverlay';
 
 const PAGE_ID = 'admin-integrations';
@@ -92,7 +92,7 @@ export default function AdminIntegrationsPage() {
 
   return (
     <div className="container">
-      <HelpButton page={PAGE_ID} />
+      <PageControls helpPage={PAGE_ID} />
       <OnboardingOverlay page={PAGE_ID} />
       <h1 style={{ marginBottom: '0.5rem' }}>Integrations</h1>
       <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>

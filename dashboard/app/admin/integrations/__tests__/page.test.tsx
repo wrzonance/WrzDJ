@@ -1,3 +1,4 @@
+import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import AdminIntegrationsPage from '../page';
@@ -5,6 +6,10 @@ import AdminIntegrationsPage from '../page';
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
   usePathname: () => '/admin/integrations',
+}));
+
+vi.mock('@/components/PageControls', () => ({
+  PageControls: ({ children }: { children?: React.ReactNode }) => <div data-testid="page-controls">{children}</div>,
 }));
 
 vi.mock('@/lib/help/HelpContext', () => ({

@@ -21,6 +21,7 @@ from app.services.email_verification import (
     confirm_verification_code,
     create_verification_code,
 )
+from app.services.human_verification import issue_human_cookie, verify_human_cookie
 from app.services.turnstile import verify_turnstile_token
 
 router = APIRouter()
@@ -99,5 +100,12 @@ def confirm_code(
             max_age=31536000,
             path="/api/",
         )
+        # A merge rotated this browser's identity to the surviving guest. Its
+        # wrzdj_human cookie is HMAC-bound to the source guest, which no longer
+        # exists, so every gated call would 403 until it expired (#874). The
+        # browser already proved it is human for this session: carry that proof
+        # over. Never mint one the browser did not earn.
+        if verify_human_cookie(request) == guest_id:
+            issue_human_cookie(response, result.guest_id)
 
     return response

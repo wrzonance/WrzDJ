@@ -102,17 +102,20 @@ async def verify_human(
 def verify_status(
     request: Request,
     response: Response,
+    db: Session = Depends(get_db),
 ) -> VerifyStatusResponse:
     """Report whether the caller already has a valid wrzdj_human cookie.
 
     Returns verified=false on missing, expired, version-mismatched, or
-    tampered cookies. No side effects (no cookie refresh, no DB writes).
-    Safe to call on every page mount.
+    tampered cookies, and on a cookie bound to a guest other than the
+    caller's current wrzdj_guest (after a merge, delete, or re-identify),
+    because require_verified_human would reject that cookie (#874). No side
+    effects (no cookie refresh, no DB writes). Safe to call on every page mount.
     """
     response.headers["Cache-Control"] = "no-store, private"
 
     guest_id = verify_human_cookie(request)
-    if guest_id is None:
+    if guest_id is None or get_guest_id(request, db) != guest_id:
         return VerifyStatusResponse(verified=False, expires_in=0)
 
     import json as _json

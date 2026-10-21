@@ -144,3 +144,76 @@ def test_confirm_wrong_code_returns_error(client: TestClient, db: Session):
         json={"email": "wrong@test.com", "code": "000000"},
     )
     assert resp.status_code == 400
+
+
+def _human_cookie_for(guest_id: int) -> str:
+    """Mint a wrzdj_human cookie value bound to guest_id."""
+    from fastapi import Response
+
+    from app.services.human_verification import COOKIE_NAME, issue_human_cookie
+
+    resp = Response()
+    issue_human_cookie(resp, guest_id)
+    raw = resp.headers["set-cookie"]
+    return raw.split(f"{COOKIE_NAME}=", 1)[1].split(";", 1)[0]
+
+
+def _human_cookie_guest_id(cookie_value: str) -> int | None:
+    """Return the guest id a wrzdj_human cookie value is bound to."""
+    from fastapi import Request
+
+    from app.services.human_verification import COOKIE_NAME, verify_human_cookie
+
+    request = Request(
+        {"type": "http", "headers": [], "method": "GET", "path": "/", "query_string": b""}
+    )
+    request._cookies = {COOKIE_NAME: cookie_value}
+    return verify_human_cookie(request)
+
+
+def _claim_email(client: TestClient, db: Session, guest_id: int, email: str):
+    """Request and confirm a code for `email` as the client's current guest."""
+    from app.models.email_verification_code import EmailVerificationCode
+
+    with patch("app.services.email_verification.send_verification_email"):
+        client.post(
+            "/api/public/guest/verify/request",
+            json={"email": email, "turnstile_token": "test-token"},
+        )
+    code = (
+        db.query(EmailVerificationCode).filter(EmailVerificationCode.guest_id == guest_id).first()
+    )
+    return client.post(
+        "/api/public/guest/verify/confirm",
+        json={"email": email, "code": code.code},
+    )
+
+
+def test_confirm_merge_rebinds_human_cookie_to_surviving_guest(client: TestClient, db: Session):
+    """#874: a merge rotates wrzdj_guest; the browser's proven human cookie must follow it."""
+    device_a = _identify(client, "rebind_device_a_fp")
+    client.cookies.set("wrzdj_guest", device_a["cookie"])
+    assert _claim_email(client, db, device_a["guest_id"], "rebind@test.com").status_code == 200
+
+    device_b = _identify(client, "rebind_device_b_fp")
+    client.cookies.set("wrzdj_guest", device_b["cookie"])
+    client.cookies.set("wrzdj_human", _human_cookie_for(device_b["guest_id"]))
+    resp = _claim_email(client, db, device_b["guest_id"], "rebind@test.com")
+
+    assert resp.status_code == 200
+    assert resp.json()["merged"] is True
+    assert _human_cookie_guest_id(resp.cookies["wrzdj_human"]) == device_a["guest_id"]
+
+
+def test_confirm_merge_without_human_cookie_issues_none(client: TestClient, db: Session):
+    """#874: a merge must not mint a human cookie the browser never earned."""
+    device_a = _identify(client, "noearn_device_a_fp")
+    client.cookies.set("wrzdj_guest", device_a["cookie"])
+    assert _claim_email(client, db, device_a["guest_id"], "noearn@test.com").status_code == 200
+
+    device_b = _identify(client, "noearn_device_b_fp")
+    client.cookies.set("wrzdj_guest", device_b["cookie"])
+    resp = _claim_email(client, db, device_b["guest_id"], "noearn@test.com")
+
+    assert resp.json()["merged"] is True
+    assert "wrzdj_human" not in resp.cookies

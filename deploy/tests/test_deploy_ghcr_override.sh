@@ -21,7 +21,9 @@ for helper in cleanup-deploy-ports.sh wait-for-api-health.sh; do
   printf '#!/usr/bin/env bash\nexit 0\n' > "$scratch/deploy/scripts/$helper"
   chmod +x "$scratch/deploy/scripts/$helper"
 done
-for tool in docker ss; do
+# chown: the script hands its log directory to the container user, which a
+# CI runner (not uid 1000, not root) is not allowed to do.
+for tool in docker ss chown; do
   cat > "$scratch/bin/$tool" <<'FAKE'
 #!/usr/bin/env bash
 printf '%s %s\n' "$(basename "$0")" "$*" >> "$WRZDJ_FAKE_TOOL_LOG"

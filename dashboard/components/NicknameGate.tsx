@@ -121,7 +121,7 @@ export function NicknameGate({ code, onComplete, reverify }: Props) {
   const loadProfile = useCallback(async () => {
     setGateState('loading');
     try {
-      const p = await api.getCollectProfile(code);
+      const p = await api.getCollectProfile(code, reverify);
       setProfileCache(p);
       if (p.nickname && p.email_verified) {
         onComplete({
@@ -143,7 +143,7 @@ export function NicknameGate({ code, onComplete, reverify }: Props) {
         setGateState('error');
       }
     }
-  }, [code, onComplete]);
+  }, [code, onComplete, reverify]);
 
   // Wait for the identify endpoint to set the wrzdj_guest cookie before we
   // call getCollectProfile. Otherwise the backend can't resolve guest_id and
@@ -230,7 +230,7 @@ export function NicknameGate({ code, onComplete, reverify }: Props) {
     let verified = false;
     try {
       await api.confirmVerificationCode(emailInput, codeInput);
-      const p = await api.getCollectProfile(code);
+      const p = await api.getCollectProfile(code, reverify);
       setProfileCache(p);
       setEmailVerified(true);
       verified = true;

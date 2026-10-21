@@ -174,11 +174,20 @@ export class KioskCollectionApi {
     });
   }
 
-  async getCollectProfile(code: string): Promise<CollectProfileResponse> {
-    return this.transport.publicFetch(
-      `${getApiUrl()}/api/public/collect/${code}/profile`,
-      { method: 'GET', headers: { 'Content-Type': 'application/json' }, credentials: 'include' },
-    );
+  async getCollectProfile(
+    code: string,
+    reverify?: () => Promise<void>,
+  ): Promise<CollectProfileResponse> {
+    const url = `${getApiUrl()}/api/public/collect/${code}/profile`;
+    const init: RequestInit = {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+    };
+    if (reverify) {
+      return withHumanRetry<CollectProfileResponse>(() => fetch(url, init), reverify);
+    }
+    return this.transport.publicFetch(url, init);
   }
 
   async setCollectProfile(

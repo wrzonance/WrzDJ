@@ -450,6 +450,7 @@ describe('NicknameGate — existing behavior coverage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    devBypassActive = false; // the dev-bypass tests below flip it on
     mockGetProfile.mockResolvedValue(emptyProfile);
     mockSetProfile.mockResolvedValue({ ...emptyProfile, nickname: 'TestUser' });
     mockRequestCode.mockResolvedValue({ sent: true });
@@ -617,6 +618,37 @@ describe('NicknameGate — existing behavior coverage', () => {
 
       expect(first).toHaveBeenCalledOnce();
       expect(second).not.toHaveBeenCalled();
+    });
+  });
+
+  // Regression (#874): after an email merge the human cookie is bound to a
+  // guest that no longer exists, so the profile load 403s. Like every other
+  // gated collect call it must hand `reverify` to the client so the cookie is
+  // repaired and the call retried instead of landing on the generic error.
+  describe('stale human cookie', () => {
+    it('loads the profile through the re-verify path', async () => {
+      const reverify = vi.fn().mockResolvedValue(undefined);
+      render(<NicknameGate code="EVT01" onComplete={onComplete} reverify={reverify} />);
+      await waitFor(() => expect(mockGetProfile).toHaveBeenCalledWith('EVT01', reverify));
+    });
+
+    it('re-loads the profile through the re-verify path after a code is confirmed', async () => {
+      const reverify = vi.fn().mockResolvedValue(undefined);
+      render(<NicknameGate code="EVT01" onComplete={onComplete} reverify={reverify} />);
+      await waitFor(() => screen.getByRole('button', { name: /have email/i }));
+      fireEvent.click(screen.getByRole('button', { name: /have email/i }));
+      fireEvent.change(screen.getByPlaceholderText(/you@example\.com/i), {
+        target: { value: 'a@b.co' },
+      });
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: /send code/i })).not.toBeDisabled(),
+      );
+      fireEvent.click(screen.getByRole('button', { name: /send code/i }));
+      await waitFor(() => screen.getByPlaceholderText(/6.digit/i));
+      mockGetProfile.mockClear();
+      fireEvent.change(screen.getByPlaceholderText(/6.digit/i), { target: { value: '123456' } });
+      fireEvent.click(screen.getByRole('button', { name: /^verify$/i }));
+      await waitFor(() => expect(mockGetProfile).toHaveBeenCalledWith('EVT01', reverify));
     });
   });
 });

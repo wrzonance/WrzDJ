@@ -160,3 +160,25 @@ class TestVerifyStatusGuestBinding:
         r = client.get("/api/public/guest/verify-status")
 
         assert r.json() == {"verified": False, "expires_in": 0}
+
+    def test_dev_bypass_skips_guest_binding_and_writes_nothing(
+        self, client: TestClient, db: Session
+    ):
+        """DEV-ONLY: the gates accept everyone under the bypass, so the probe must agree
+        without resolving (and creating) the dev guest row — a write it promises not to make."""
+        from unittest.mock import patch
+
+        from app.core.config import Settings
+        from app.models.guest import Guest
+        from app.services.human_verification import COOKIE_NAME
+
+        guest = _make_guest(db, "bypass")
+        rows_before = db.query(Guest).count()
+        bypass = Settings(env="development", dev_auth_bypass=True)
+        with patch("app.core.config.get_settings", lambda: bypass):
+            client.cookies.clear()
+            client.cookies.set(COOKIE_NAME, _human_cookie_for(guest.id))
+            r = client.get("/api/public/guest/verify-status")
+
+        assert r.json()["verified"] is True
+        assert db.query(Guest).count() == rows_before

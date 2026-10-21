@@ -217,3 +217,19 @@ def test_confirm_merge_without_human_cookie_issues_none(client: TestClient, db: 
 
     assert resp.json()["merged"] is True
     assert "wrzdj_human" not in resp.cookies
+
+
+def test_confirm_merge_ignores_human_cookie_of_another_guest(client: TestClient, db: Session):
+    """#874: a human cookie bound to some other guest must not be rebound on merge."""
+    device_a = _identify(client, "foreign_device_a_fp")
+    client.cookies.set("wrzdj_guest", device_a["cookie"])
+    assert _claim_email(client, db, device_a["guest_id"], "foreign@test.com").status_code == 200
+
+    bystander = _identify(client, "foreign_bystander_fp")
+    device_b = _identify(client, "foreign_device_b_fp")
+    client.cookies.set("wrzdj_guest", device_b["cookie"])
+    client.cookies.set("wrzdj_human", _human_cookie_for(bystander["guest_id"]))
+    resp = _claim_email(client, db, device_b["guest_id"], "foreign@test.com")
+
+    assert resp.json()["merged"] is True
+    assert "wrzdj_human" not in resp.cookies

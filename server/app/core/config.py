@@ -188,13 +188,7 @@ class Settings(BaseSettings):
         import secrets
 
         if self.human_cookie_secret:
-            # Accept both padded (openssl rand -base64 32 → 44 chars) and
-            # unpadded (secrets.token_urlsafe(32) → 43 chars) forms. Decoded
-            # strictly: a lenient decoder drops stray characters and boots with
-            # a key nobody configured (#856).
-            s = self.human_cookie_secret.replace("-", "+").replace("_", "/")
-            pad = "=" * (-len(s) % 4)
-            return base64.b64decode(s + pad, validate=True)
+            return _decode_human_cookie_secret(self.human_cookie_secret)
 
         if self.is_production:
             msg = "HUMAN_COOKIE_SECRET is required in production"
@@ -223,6 +217,38 @@ class Settings(BaseSettings):
         if it is set with ENV=production, so it can never silently weaken a deployment.
         """
         return self.dev_auth_bypass and not self.is_production
+
+
+HUMAN_COOKIE_SECRET_MIN_BYTES = 32
+_HUMAN_COOKIE_KEY_HINT = (
+    'Generate with: python -c "import secrets, base64; '
+    'print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"'
+)
+
+
+def _decode_human_cookie_secret(secret: str) -> bytes:
+    """Decode HUMAN_COOKIE_SECRET into its HMAC key, raising ValueError when it
+    is not usable as one.
+
+    Accepts both padded standard (openssl rand -base64 32) and unpadded URL-safe
+    (secrets.token_urlsafe(32)) Base64. Decoded strictly: a lenient decoder drops
+    stray characters and yields a key nobody configured (#856).
+    """
+    normalized = secret.replace("-", "+").replace("_", "/")
+    key = base64.b64decode(normalized + "=" * (-len(normalized) % 4), validate=True)
+    if len(key) < HUMAN_COOKIE_SECRET_MIN_BYTES:
+        msg = f"must decode to at least {HUMAN_COOKIE_SECRET_MIN_BYTES} bytes, got {len(key)}"
+        raise ValueError(msg)
+    return key
+
+
+def _human_cookie_secret_error(secret: str) -> str | None:
+    """Return a startup error for an unusable HUMAN_COOKIE_SECRET, else None."""
+    try:
+        _decode_human_cookie_secret(secret)
+    except ValueError as exc:  # binascii.Error is a ValueError
+        return f"HUMAN_COOKIE_SECRET is invalid ({exc}). {_HUMAN_COOKIE_KEY_HINT}"
+    return None
 
 
 _FERNET_KEY_HINT = (
@@ -305,10 +331,10 @@ def validate_settings(settings: Settings) -> None:
             errors.append(fernet_error)
         if not settings.human_cookie_secret:
             errors.append(
-                "HUMAN_COOKIE_SECRET must be set in production. "
-                'Generate with: python -c "import secrets, base64; '
-                'print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"'
+                f"HUMAN_COOKIE_SECRET must be set in production. {_HUMAN_COOKIE_KEY_HINT}"
             )
+        elif cookie_secret_error := _human_cookie_secret_error(settings.human_cookie_secret):
+            errors.append(cookie_secret_error)
         if settings.dev_auth_bypass:
             errors.append(
                 "DEV_AUTH_BYPASS must NOT be set in production — it disables the guest "

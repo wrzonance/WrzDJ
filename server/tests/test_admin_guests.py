@@ -142,6 +142,13 @@ class TestListGuests:
         assert _items(client, admin_headers, q="%")["total"] == 0
         assert _items(client, admin_headers, q="b_1")["total"] == 1
 
+    def test_search_literal_backslash(self, client, admin_headers, guests, test_event, db):
+        _profile(db, guests["c"], test_event, "back\\slash")
+        data = _items(client, admin_headers, q="k\\s")
+        assert data["total"] == 1
+        assert data["items"][0]["id"] == guests["c"].id
+        assert _items(client, admin_headers, q="\\")["total"] == 1
+
     def test_pagination(self, client, admin_headers, guests):
         data = _items(client, admin_headers, page=2, limit=3)
         assert data["total"] == 4
@@ -221,6 +228,33 @@ class TestUpdateGuestProfile:
         )
         assert response.status_code == 409
         assert response.json()["detail"] == "Nickname already taken in this event"
+
+    def test_patch_profile_lost_race_returns_409(
+        self, client, admin_headers, guests, test_event, db, monkeypatch
+    ):
+        """Two admins pass the pre-check; the loser hits the Postgres unique index."""
+        from sqlalchemy.exc import IntegrityError
+
+        import app.services.admin_guests as svc
+
+        monkeypatch.setattr(svc, "_nickname_taken", lambda *_args: False)
+        real_commit = db.commit
+        calls = {"n": 0}
+
+        def failing_commit():
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise IntegrityError("INSERT", {}, Exception("uq_guest_profile_event_nickname"))
+            real_commit()
+
+        monkeypatch.setattr(db, "commit", failing_commit)
+        response = _patch_profile(
+            client, admin_headers, guests["a"].id, test_event.id, {"nickname": "bob_1"}
+        )
+        assert response.status_code == 409
+        assert response.json()["detail"] == "Nickname already taken in this event"
+        # The session must be usable again after the rollback.
+        assert db.query(GuestProfile).filter(GuestProfile.guest_id == guests["a"].id).count() == 1
 
     def test_patch_profile_same_guest_case_change_ok(
         self, client, admin_headers, guests, test_event

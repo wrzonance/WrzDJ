@@ -6,6 +6,7 @@ Spec: docs/superpowers/specs/2026-10-21-admin-guest-management-design.md
 from collections import defaultdict
 
 from sqlalchemy import exists, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.email_verification_code import EmailVerificationCode
@@ -49,7 +50,9 @@ def update_guest_profile_nickname(
     """Set or clear the guest's nickname on one event.
 
     The case-insensitive per-event uniqueness index is Postgres-only, so the
-    conflict is checked here before writing (the test DB is SQLite).
+    conflict is checked here before writing (the test DB is SQLite). Two admins
+    can still both pass that check; the loser's commit then trips the index, so
+    an IntegrityError is translated to the same NicknameTaken outcome.
     """
     profile = (
         db.query(GuestProfile)
@@ -62,7 +65,11 @@ def update_guest_profile_nickname(
     if cleaned is not None and _nickname_taken(db, profile, cleaned):
         raise NicknameTaken
     profile.nickname = cleaned
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise NicknameTaken from exc
     db.refresh(profile)
     return profile
 
@@ -84,8 +91,12 @@ def delete_guest_admin(db: Session, guest: Guest) -> None:
     """Delete the identity; requests and votes stay, anonymised, in one transaction.
 
     `guest_id` is nulled explicitly rather than left to the FK's ON DELETE SET
-    NULL so the outcome does not depend on the database enforcing it.
+    NULL so the outcome does not depend on the database enforcing it. The guest
+    row is locked first: on Postgres a FOR UPDATE lock blocks the FOR KEY SHARE
+    lock a concurrent request insert needs, so no request can slip in between
+    the scrub and the delete and keep its nickname (SQLite ignores the lock).
     """
+    db.query(Guest).filter(Guest.id == guest.id).with_for_update().one()
     db.query(Request).filter(Request.guest_id == guest.id).update(
         {"guest_id": None, "nickname": None}, synchronize_session=False
     )

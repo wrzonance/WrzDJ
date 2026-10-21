@@ -36,14 +36,19 @@ def record_human_verification(db: Session, guest_id: int) -> None:
     Turnstile itself returns only pass/fail, so this is the whole "human"
     signal the admin Guests page can show (#862). A missing row is a no-op:
     the cookie is still issued, the stat is simply not recorded.
+
+    The increment is a single SQL UPDATE, not read-modify-write, so two
+    passes landing at once both count.
     """
     from app.models.guest import Guest
 
-    guest = db.query(Guest).filter(Guest.id == guest_id).first()
-    if guest is None:
-        return
-    guest.human_verified_at = utcnow()
-    guest.human_verify_count = (guest.human_verify_count or 0) + 1
+    db.query(Guest).filter(Guest.id == guest_id).update(
+        {
+            Guest.human_verified_at: utcnow(),
+            Guest.human_verify_count: Guest.human_verify_count + 1,
+        },
+        synchronize_session=False,
+    )
     db.commit()
 
 

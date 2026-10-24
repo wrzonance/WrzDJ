@@ -1,0 +1,47 @@
+# Runs the server performance benchmarks with CodSpeed.
+name: CodSpeed
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Allows CodSpeed to trigger backtest performance analysis for initial data.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  benchmarks:
+    name: Run benchmarks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OpenID Connect authentication with CodSpeed
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+          cache: "pip"
+          cache-dependency-path: server/pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run benchmarks
+        uses: CodSpeedHQ/action@821a40cd6c80e3cfe387caf55668287addd808da # v5.5.0
+        with:
+          mode: simulation
+          working-directory: server
+          run: pytest benchmarks --codspeed -o addopts="" -p no:cacheprovider

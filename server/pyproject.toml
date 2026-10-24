@@ -55,6 +55,7 @@ dev = [
     "pip>=26.1.2",           # CVE-2026-3219, CVE-2026-6357, PYSEC-2026-196 (transitive from pip-audit)
     "setuptools>=83.0.0",    # PYSEC-2026-3447 (path traversal via PackageIndex.download)
     "httpx2>=2.14.0",
+    "pytest-codspeed>=4.0.0",
 ]
 
 [build-system]

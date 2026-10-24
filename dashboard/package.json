@@ -22,7 +22,7 @@
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "simple-keyboard": "^3.8.192",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

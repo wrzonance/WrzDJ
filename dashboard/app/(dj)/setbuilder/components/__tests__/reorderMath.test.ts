@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { buildMovedIds } from '../reorderMath';
 import type { SlotView } from '../types';

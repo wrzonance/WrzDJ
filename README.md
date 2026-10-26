@@ -3,6 +3,7 @@
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Platforms">
   <img src="https://img.shields.io/coderabbit/prs/github/wrzonance/WrzDJ?utm_source=oss&utm_medium=github&utm_campaign=wrzonance%2FWrzDJ&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews" alt="CodeRabbit Reviews">
+  <a href="https://app.codspeed.io/wrzonance/WrzDJ?utm_source=badge"><img src="https://img.shields.io/endpoint?url=https://codspeed.io/badge.json" alt="CodSpeed"/></a>
 </p>
 
 # WrzDJ

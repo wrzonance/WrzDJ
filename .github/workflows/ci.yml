@@ -57,6 +57,21 @@ jobs:
       - name: Format check with ruff
         run: ruff format --check .
 
+      # The frontend job regenerates the TypeScript types from server/openapi.json,
+      # but nothing checks that file against the app itself. Regenerate it with the
+      # same script developers use, so a route or schema change without a re-export
+      # fails here instead of drifting silently. Needs no database, so it runs early.
+      - name: Check committed OpenAPI schema is current
+        env:
+          JWT_SECRET: test-secret-key
+          ENV: development
+        run: |
+          python scripts/export_openapi.py
+          git diff --exit-code -- openapi.json || {
+            echo "::error file=server/openapi.json::openapi.json is stale. Run 'python scripts/export_openapi.py' in server/, then 'npm run types:generate' in dashboard/, and commit both files."
+            exit 1
+          }
+
       - name: Security scan with bandit
         run: bandit -r app -c pyproject.toml
 

@@ -18,6 +18,15 @@ def _configure_spotify(monkeypatch):
     monkeypatch.setattr(spotify_oauth, "get_settings", lambda: settings)
 
 
+def _forbid_code_exchange(monkeypatch) -> list:
+    """Record any call to the code exchange; a rejected callback must never reach it."""
+    calls: list = []
+    monkeypatch.setattr(
+        "app.api.spotify.finish_authorization", lambda db, state, code: calls.append(code)
+    )
+    return calls
+
+
 def test_auth_start_returns_provider_url_and_persists_state(
     client, auth_headers, test_user, db, monkeypatch
 ):
@@ -74,6 +83,10 @@ def test_callback_rejects_tampered_browser_cookie(client, auth_headers, monkeypa
     state = parse_qs(urlparse(started.json()["authorization_url"]).query)["state"][0]
     valid_cookie = encrypt_value(state)
     assert valid_cookie is not None
+    exchange = _forbid_code_exchange(monkeypatch)
+    # /auth/start already put the VALID cookie in the jar; drop it so only the tampered one is
+    # sent (otherwise which one the server sees depends on the httpx/starlette versions).
+    client.cookies.clear()
     client.cookies.set(
         "wrzdj_spotify_oauth_state",
         f"{'0' if valid_cookie[0] != '0' else '1'}{valid_cookie[1:]}",
@@ -87,6 +100,7 @@ def test_callback_rejects_tampered_browser_cookie(client, auth_headers, monkeypa
     )
 
     assert response.status_code == 400
+    assert exchange == [], "a rejected cookie must stop before the code exchange"
 
 
 def test_callback_rejects_plaintext_cookie_even_when_state_matches(
@@ -95,6 +109,8 @@ def test_callback_rejects_plaintext_cookie_even_when_state_matches(
     _configure_spotify(monkeypatch)
     started = client.post("/api/spotify/auth/start", headers=auth_headers)
     state = parse_qs(urlparse(started.json()["authorization_url"]).query)["state"][0]
+    exchange = _forbid_code_exchange(monkeypatch)
+    client.cookies.clear()  # only the plaintext cookie may reach the server
     client.cookies.set("wrzdj_spotify_oauth_state", state, path="/api/spotify/auth/callback")
 
     response = client.get(
@@ -104,6 +120,7 @@ def test_callback_rejects_plaintext_cookie_even_when_state_matches(
     )
 
     assert response.status_code == 400
+    assert exchange == [], "a plaintext cookie must stop before the code exchange"
 
 
 def test_callback_accepts_matching_browser_cookie_and_clears_it(client, auth_headers, monkeypatch):

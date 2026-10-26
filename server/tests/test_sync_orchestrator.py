@@ -667,6 +667,7 @@ class TestEnrichRequestMetadata:
         """Non-existent request ID is a no-op."""
         enrich_request_metadata(db, 999999)  # Should not raise
 
+    @pytest.mark.usefixtures("tidal_down")
     def test_musicbrainz_fills_genre_first(self, db, tidal_event):
         """MusicBrainz is tried first for genre (before Beatport)."""
         request = _make_accepted_request(db, tidal_event, "Test Song", "Radiohead", "enrich_mb")
@@ -681,6 +682,7 @@ class TestEnrichRequestMetadata:
         db.refresh(request)
         assert request.genre == "alternative rock"
 
+    @pytest.mark.usefixtures("tidal_down")
     def test_musicbrainz_skipped_when_genre_present(self, db, tidal_event):
         """MusicBrainz is not called when genre already exists."""
         request = _make_accepted_request(db, tidal_event, "Test Song", "Artist", "enrich_mb_skip")
@@ -851,6 +853,7 @@ class TestEnrichRequestMetadata:
         db.refresh(request)
         assert request.bpm is None  # Gracefully degraded
 
+    @pytest.mark.usefixtures("tidal_down", "musicbrainz_no_match")
     def test_normalizes_key_from_enrichment(self, db, tidal_event):
         """Musical key from enrichment is normalized to Camelot notation."""
         request = _make_accepted_request(db, tidal_event, "Test Song", "Artist", "enrich_key_norm")
@@ -862,6 +865,7 @@ class TestEnrichRequestMetadata:
         db.refresh(request)
         assert request.musical_key == "7A"  # D Minor = 7A
 
+    @pytest.mark.usefixtures("tidal_down")
     def test_musicbrainz_failure_is_graceful(self, db, tidal_event):
         """MusicBrainz exceptions don't crash the enrichment task."""
         request = _make_accepted_request(db, tidal_event, "Test Song", "Artist", "enrich_mb_fail")
@@ -876,6 +880,7 @@ class TestEnrichRequestMetadata:
         db.refresh(request)
         assert request.genre is None  # Gracefully degraded
 
+    @pytest.mark.usefixtures("tidal_down")
     def test_beatport_enrichment_skips_non_matching_results(self, db, tidal_event, tidal_user):
         """Beatport results that don't match the requested song are skipped."""
         tidal_user.beatport_access_token = "fake_bp_token"
@@ -948,6 +953,7 @@ class TestEnrichRequestMetadata:
         assert request.bpm is None  # Should NOT take BPM from wrong track
         assert request.musical_key is None
 
+    @pytest.mark.usefixtures("tidal_down")
     def test_beatport_enrichment_rejects_same_title_wrong_artist(self, db, tidal_event, tidal_user):
         """Beatport result with matching title but wrong artist is rejected.
 

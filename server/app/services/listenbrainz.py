@@ -32,11 +32,15 @@ class LBRadioTrack:
     recording_mbid: str | None = None
 
 
+# ListenBrainz's popularity endpoint answers at most this many artists per request.
+LB_POPULARITY_MAX_MBIDS = 100
+
+
 def fetch_artist_popularity(mbids: list[str]) -> dict[str, dict]:
     """Batch-fetch artist popularity from ListenBrainz.
 
     Args:
-        mbids: List of MusicBrainz artist IDs (up to 100).
+        mbids: List of MusicBrainz artist IDs (up to LB_POPULARITY_MAX_MBIDS; extras are ignored).
 
     Returns:
         Mapping of mbid -> {"total_listen_count": int|None, "total_user_count": int|None}.
@@ -48,8 +52,8 @@ def fetch_artist_popularity(mbids: list[str]) -> dict[str, dict]:
     try:
         with httpx.Client(timeout=HTTP_TIMEOUT) as client:
             response = client.post(
-                f"{LISTENBRAINZ_BASE}/1/popularity/artists",
-                json={"artist_mbids": mbids[:100]},
+                f"{LISTENBRAINZ_BASE}/1/popularity/artist",
+                json={"artist_mbids": mbids[:LB_POPULARITY_MAX_MBIDS]},
                 headers={"User-Agent": USER_AGENT, "Content-Type": "application/json"},
             )
             response.raise_for_status()

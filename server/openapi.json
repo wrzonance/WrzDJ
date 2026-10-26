@@ -18259,7 +18259,7 @@
     },
     "/api/public/guest/verify-status": {
       "get": {
-        "description": "Report whether the caller already has a valid wrzdj_human cookie.\n\nReturns verified=false on missing, expired, version-mismatched, or\ntampered cookies. No side effects (no cookie refresh, no DB writes).\nSafe to call on every page mount.",
+        "description": "Report whether the caller already has a valid wrzdj_human cookie.\n\nReturns verified=false on missing, expired, version-mismatched, or\ntampered cookies, and on a cookie bound to a guest other than the\ncaller's current wrzdj_guest (after a merge, delete, or re-identify),\nbecause require_verified_human would reject that cookie (#874). No side\neffects (no cookie refresh, no DB writes). Safe to call on every page mount.",
         "operationId": "verify_status_api_public_guest_verify_status_get",
         "responses": {
           "200": {

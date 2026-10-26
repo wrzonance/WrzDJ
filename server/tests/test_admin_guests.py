@@ -235,9 +235,7 @@ class TestUpdateGuestProfile:
         """Two admins pass the pre-check; the loser hits the Postgres unique index."""
         from sqlalchemy.exc import IntegrityError
 
-        import app.services.admin_guests as svc
-
-        monkeypatch.setattr(svc, "_nickname_taken", lambda *_args: False)
+        monkeypatch.setattr("app.services.admin_guests._nickname_taken", lambda *_args: False)
         real_commit = db.commit
         calls = {"n": 0}
 
@@ -297,7 +295,8 @@ class TestDeleteGuest:
         db.commit()
         request_id = request_row.id
 
-        assert client.delete(f"{LIST_URL}/{guest_id}", headers=admin_headers).status_code == 204
+        response = client.delete(f"{LIST_URL}/{guest_id}", headers=admin_headers)
+        assert response.status_code == 204
 
         db.expire_all()
         kept = db.query(Request).filter(Request.id == request_id).one()
@@ -307,7 +306,8 @@ class TestDeleteGuest:
         assert vote.guest_id is None
 
     def test_delete_404(self, client, admin_headers):
-        assert client.delete(f"{LIST_URL}/999999", headers=admin_headers).status_code == 404
+        response = client.delete(f"{LIST_URL}/999999", headers=admin_headers)
+        assert response.status_code == 404
 
     def test_delete_dj_403(self, client, auth_headers, guests):
         response = client.delete(f"{LIST_URL}/{guests['a'].id}", headers=auth_headers)

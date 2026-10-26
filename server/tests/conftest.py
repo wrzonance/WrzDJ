@@ -255,3 +255,143 @@ def test_request(db: Session, test_event: Event) -> Request:
     db.commit()
     db.refresh(request)
     return request
+
+
+@pytest.fixture(autouse=True)
+def _no_network_enrichment(request, monkeypatch):
+    """Request-time enrichment is a no-op in tests unless marked ``real_enrichment``.
+
+    Submitting a request schedules ``_enrich_with_fresh_session``, which opens its own
+    ``SessionLocal()`` (the configured database, not this suite's SQLite) and calls the
+    metadata providers. Left real, every submit test waited 2-9 s in TestClient teardown.
+    Tests that patch ``enrich_request_metadata`` themselves still win (their patch is later).
+    """
+    if request.node.get_closest_marker("real_enrichment"):
+        return
+    monkeypatch.setattr(
+        "app.services.sync.orchestrator.enrich_request_metadata", lambda db, request_id: None
+    )
+
+
+@pytest.fixture(autouse=True)
+def _block_outbound_http(request, monkeypatch):
+    """Fail any test whose code reaches the real network; fake the provider instead.
+
+    Calls matching a route registered on ``fake_http`` get that fake response (the app's own
+    request and parsing code still run). Any other call raises the library's own connection
+    error at once, so the app takes its real "provider unreachable" path with no timeout
+    wait; provider code often swallows that as best-effort, so the attempt is also recorded
+    and fails the test at teardown. TestClient uses its own in-process transport, so it is
+    unaffected. Opt out with ``allow_network``.
+    """
+    from tests.fakes import FakeHttp
+
+    http = FakeHttp()
+    if request.node.get_closest_marker("allow_network"):
+        yield http
+        return
+
+    import httpx
+    import requests
+    import requests.adapters
+
+    attempts: list[str] = []
+    message = "outbound HTTP blocked in tests: {}"
+
+    def _httpx_response(route, req):
+        if route.raises == "timeout":
+            raise httpx.ReadTimeout(f"fake timeout: {req.url}", request=req)
+        if route.raises:
+            raise httpx.ConnectError(f"fake connect error: {req.url}", request=req)
+        content, headers = route.payload(req.content)
+        return httpx.Response(route.status, content=content, headers=headers, request=req)
+
+    def _httpx_send(self, req):
+        route = http.find(req.method, str(req.url))
+        if route is not None:
+            return _httpx_response(route, req)
+        attempts.append(str(req.url))
+        raise httpx.ConnectError(message.format(req.url), request=req)
+
+    async def _httpx_send_async(self, req):
+        route = http.find(req.method, str(req.url))
+        if route is not None:
+            await req.aread()
+            return _httpx_response(route, req)
+        attempts.append(str(req.url))
+        raise httpx.ConnectError(message.format(req.url), request=req)
+
+    def _requests_send(self, req, *args, **kwargs):
+        route = http.find(req.method, req.url)
+        if route is None:
+            attempts.append(str(req.url))
+            raise requests.exceptions.ConnectionError(message.format(req.url), request=req)
+        if route.raises == "timeout":
+            raise requests.exceptions.ReadTimeout(f"fake timeout: {req.url}", request=req)
+        if route.raises:
+            raise requests.exceptions.ConnectionError(f"fake connect error: {req.url}", request=req)
+        body = req.body.encode() if isinstance(req.body, str) else (req.body or b"")
+        content, headers = route.payload(body)
+        resp = requests.Response()
+        resp.status_code = route.status
+        resp._content = content
+        resp.headers = requests.structures.CaseInsensitiveDict(headers)
+        resp.url = req.url
+        resp.request = req
+        resp.encoding = "utf-8"
+        return resp
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", _httpx_send)
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", _httpx_send_async)
+    monkeypatch.setattr(requests.adapters.HTTPAdapter, "send", _requests_send)
+    yield http
+    if attempts:
+        pytest.fail(f"test made {len(attempts)} outbound HTTP call(s): {attempts[:3]}")
+
+
+@pytest.fixture
+def fake_http(_block_outbound_http):
+    """Register fake provider responses for this test (see tests/fakes/__init__.py)."""
+    return _block_outbound_http
+
+
+@pytest.fixture
+def tidal_connected(fake_http):
+    """A Tidal account whose stored tokens are valid; no network."""
+    from tests.fakes.providers import tidal_connected as register
+
+    register(fake_http)
+    return fake_http
+
+
+@pytest.fixture
+def tidal_down(fake_http):
+    """Tidal is unreachable on purpose: the app's "Tidal unavailable" path, no network."""
+    from tests.fakes.providers import tidal_down as register
+
+    register(fake_http)
+    return fake_http
+
+
+@pytest.fixture
+def beatport_up(fake_http):
+    from tests.fakes.providers import beatport_up as register
+
+    register(fake_http)
+    return fake_http
+
+
+@pytest.fixture
+def listenbrainz_popular(fake_http):
+    from tests.fakes.providers import listenbrainz_popular as register
+
+    register(fake_http)
+    return fake_http
+
+
+@pytest.fixture
+def musicbrainz_no_match(fake_http):
+    from tests.fakes.providers import musicbrainz_no_match as register
+
+    register(fake_http)
+    return fake_http

@@ -179,6 +179,7 @@ class TestBeatportUrlFormat:
 
 
 class TestDisconnect:
+    @pytest.mark.usefixtures("beatport_up")
     def test_disconnect_clears_tokens(self, db: Session, beatport_user: User):
         """Disconnect clears all Beatport token columns."""
         assert beatport_user.beatport_access_token is not None
@@ -426,6 +427,7 @@ class TestDefaultTokenExpiry:
         """Default token expiry constant is 600 seconds (10 minutes)."""
         assert DEFAULT_TOKEN_EXPIRY == 600
 
+    @pytest.mark.usefixtures("beatport_up")
     def test_save_tokens_uses_600_default(self, db: Session, beatport_user_no_token: User):
         """save_tokens uses 600s default when expires_in is missing."""
         token_data = {"access_token": "tok", "refresh_token": "ref"}

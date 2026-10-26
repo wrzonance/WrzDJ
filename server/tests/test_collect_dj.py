@@ -1,5 +1,7 @@
 from datetime import timedelta
 
+import pytest
+
 from app.core.time import utcnow
 
 
@@ -318,6 +320,7 @@ def test_sync_collection_to_tidal_sync_disabled(
     assert "not enabled" in r.json()["detail"]
 
 
+@pytest.mark.usefixtures("tidal_down")
 def test_sync_collection_to_tidal_queues_eligible(
     client, db, auth_headers, test_event, collection_requests
 ):

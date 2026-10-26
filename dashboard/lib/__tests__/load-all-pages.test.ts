@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect, vi } from 'vitest';
 import { loadAllPages, REQUEST_LOAD_CAP, type PageFetcher } from '../load-all-pages';
 

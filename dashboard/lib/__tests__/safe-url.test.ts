@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * TDD guard for H-F1 — safeExternalUrl must block dangerous URL schemes.
  *

@@ -219,6 +219,7 @@ def _connect(db: Session, user: User, *, tidal: bool = False, beatport: bool = F
     db.commit()
 
 
+@pytest.mark.usefixtures("tidal_down")
 def test_import_from_tidal_resolves_and_imports(db: Session, test_user: User, monkeypatch):
     set_obj = _mk_set(db, test_user)
     _connect(db, test_user, tidal=True)

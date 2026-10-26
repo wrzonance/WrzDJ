@@ -41,7 +41,7 @@ def _backfill_lb_popularity(db: Session, normalized_map: dict[str, list[str]]) -
     and lb_user_count is None. Fetches popularity in a single batch
     POST and writes results back to the cache rows.
     """
-    from app.services.listenbrainz import fetch_artist_popularity
+    from app.services.listenbrainz import LB_POPULARITY_MAX_MBIDS, fetch_artist_popularity
 
     # Find verified artists with MBIDs that haven't been checked against LB yet
     rows_needing_lb = (
@@ -63,16 +63,20 @@ def _backfill_lb_popularity(db: Session, normalized_map: dict[str, list[str]]) -
         mbid_to_rows.setdefault(row.mbid, []).append(row)
 
     mbids = list(mbid_to_rows.keys())
-    lb_data = fetch_artist_popularity(mbids)
+    # One bounded request. Only the artists actually sent are checked; the rest stay
+    # unknown (None, pass-through) and are checked on a later request. "Not checked"
+    # must never be stored as "no listeners".
+    checked = mbids[:LB_POPULARITY_MAX_MBIDS]
+    lb_data = fetch_artist_popularity(checked)
 
     # On LB failure (empty dict returned), leave lb_user_count as None (pass-through)
-    if not lb_data and mbids:
-        logger.info("ListenBrainz returned no data for %d MBIDs — skipping LB gate", len(mbids))
+    if not lb_data and checked:
+        logger.info("ListenBrainz returned no data for %d MBIDs — skipping LB gate", len(checked))
         return
 
-    for mbid, rows in mbid_to_rows.items():
+    for mbid in checked:
         popularity = lb_data.get(mbid)
-        for row in rows:
+        for row in mbid_to_rows[mbid]:
             if popularity is not None:
                 row.lb_listen_count = popularity.get("total_listen_count")
                 row.lb_user_count = popularity.get("total_user_count")
@@ -82,9 +86,10 @@ def _backfill_lb_popularity(db: Session, normalized_map: dict[str, list[str]]) -
                 row.lb_user_count = 0
 
     logger.info(
-        "LB backfill: %d artists checked, %d found in LB",
-        len(mbids),
-        sum(1 for m in mbids if m in lb_data),
+        "LB backfill: %d artists checked, %d found in LB, %d left for a later request",
+        len(checked),
+        sum(1 for m in checked if m in lb_data),
+        len(mbids) - len(checked),
     )
 
 

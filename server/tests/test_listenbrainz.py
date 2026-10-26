@@ -135,3 +135,21 @@ class TestFetchArtistPopularity:
             result = fetch_artist_popularity(["mbid-1"])
 
         assert len(result) == 1
+
+    def test_posts_to_the_live_popularity_endpoint(self):
+        """Regression: the API path is /1/popularity/artist (singular). The plural path the
+        code used returns 404, so the popularity gate silently never applied (checked live
+        2026-10-26: singular 200 with this response shape, plural 404)."""
+        with patch("app.services.listenbrainz.httpx.Client") as mock_client_cls:
+            mock_client = MagicMock()
+            mock_client.__enter__ = MagicMock(return_value=mock_client)
+            mock_client.__exit__ = MagicMock(return_value=False)
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = []
+            mock_client.post.return_value = mock_resp
+            mock_client_cls.return_value = mock_client
+
+            fetch_artist_popularity(["mbid-1"])
+
+        url = mock_client.post.call_args.args[0]
+        assert url.endswith("/1/popularity/artist")

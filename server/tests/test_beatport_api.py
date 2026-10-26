@@ -121,6 +121,7 @@ class TestBeatportStatus:
 
 
 class TestBeatportLogin:
+    @pytest.mark.usefixtures("beatport_up")
     def test_login_success(
         self,
         client: TestClient,
@@ -225,6 +226,7 @@ class TestBeatportLogin:
 
 
 class TestBeatportDisconnect:
+    @pytest.mark.usefixtures("beatport_up")
     def test_disconnect(self, client: TestClient, bp_api_headers: dict[str, str], db: Session):
         """Disconnect clears tokens."""
         response = client.post("/api/beatport/disconnect", headers=bp_api_headers)
@@ -306,6 +308,7 @@ class TestBeatportSearch:
         )
         assert response.status_code == 422
 
+    @pytest.mark.usefixtures("beatport_up")
     def test_accepts_200_char_query(self, client: TestClient, bp_api_headers: dict[str, str]):
         """Search accepts query of exactly 200 characters (doesn't return 422)."""
         query_200 = "a" * 200

@@ -223,6 +223,7 @@ def test_dual_write_preserved_on_miss(db: Session, bp_user: User, monkeypatch):
     assert request.musical_key == "4A"
 
 
+@pytest.mark.usefixtures("tidal_down")
 def test_energy_gate_off_does_not_call_soundcharts(db: Session, bp_user: User, monkeypatch):
     """Default (gate off): Soundcharts feature fn is never called; energy stays None."""
     event = _make_event(db, bp_user, "ENGOFF", "ENGOFW")
@@ -259,6 +260,7 @@ def test_energy_gate_off_does_not_call_soundcharts(db: Session, bp_user: User, m
     assert track.energy is None
 
 
+@pytest.mark.usefixtures("tidal_down")
 def test_energy_gate_on_writes_energy_with_provenance(db: Session, bp_user: User, monkeypatch):
     """Gate on + ISRC: Soundcharts adapter is called; energy written as 'soundcharts'."""
     from app.services.soundcharts import SoundchartsAudioFeatures
@@ -358,6 +360,7 @@ def test_presupplied_field_reaches_complete_store_row(db: Session, bp_user: User
     assert track.provenance["bpm"]["source"] == "beatport"
 
 
+@pytest.mark.usefixtures("tidal_down")
 def test_energy_backfills_onto_complete_cached_row_on_repeat(
     db: Session, bp_user: User, monkeypatch
 ):

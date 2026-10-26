@@ -336,6 +336,7 @@ class TestBeatportPlaylistToTrackProfiles:
 
 
 class TestGenerateRecommendationsFromTemplate:
+    @pytest.mark.usefixtures("musicbrainz_no_match")
     @patch("app.services.recommendation.service._search_candidates")
     @patch("app.services.recommendation.template.tracks_from_tidal_playlist")
     def test_full_pipeline(self, mock_tidal_tracks, mock_search, db: Session, test_user: User):

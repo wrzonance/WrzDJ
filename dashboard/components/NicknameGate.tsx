@@ -46,6 +46,16 @@ type GateState =
   | 'email_code'
   | 'email_prompt';
 
+// How far confirming an emailed code got. The server consumes the code as soon
+// as the first step succeeds, so only the 'code' stage may blame the code.
+type ConfirmStage = 'code' | 'profile' | 'claim';
+
+const CONFIRM_FALLBACK_ERROR: Record<ConfirmStage, string> = {
+  code: 'Invalid or expired code.',
+  profile: "Email verified, but we couldn't load your profile — choose your name to continue.",
+  claim: "Couldn't save nickname — please try again",
+};
+
 export function NicknameGate({ code, onComplete, reverify }: Props) {
   const identity = useGuestIdentity();
 
@@ -225,15 +235,14 @@ export function NicknameGate({ code, onComplete, reverify }: Props) {
   const handleConfirmCode = async () => {
     setVerifyingCode(true);
     setInputError(null);
-    // Tracks whether the OTP itself succeeded, so a later (deferred-claim)
-    // failure is not misreported as a bad code.
-    let verified = false;
+    let stage: ConfirmStage = 'code';
     try {
       await apiClient.confirmVerificationCode(emailInput, codeInput);
+      // The code is consumed: from here on a failure must not read as a bad code.
+      stage = 'profile';
+      setEmailVerified(true);
       const p = await apiClient.getCollectProfile(code, reverify);
       setProfileCache(p);
-      setEmailVerified(true);
-      verified = true;
       if (p.nickname) {
         onComplete({
           nickname: p.nickname,
@@ -249,6 +258,7 @@ export function NicknameGate({ code, onComplete, reverify }: Props) {
       }
       // Email is verified — claim the deferred name as a separate step so a
       // claim failure can't strand the guest behind an already-consumed code.
+      stage = 'claim';
       const claimed = await apiClient.setCollectProfile(
         code,
         { nickname: pendingNickname },
@@ -267,17 +277,18 @@ export function NicknameGate({ code, onComplete, reverify }: Props) {
         setCollisionNickname(pendingNickname ?? '');
         setPendingNickname(null);
         setGateState(err.claimed ? 'collision_claimed' : 'collision_unclaimed');
-      } else if (verified) {
-        // OTP succeeded but the deferred claim failed — keep the verified state
-        // and move off the consumed-code screen so the guest can retry the name.
-        setPendingNickname(null);
-        setInputError(
-          err instanceof ApiError ? err.message : "Couldn't save nickname — please try again",
-        );
-        setGateState('nickname_input');
-      } else {
-        setInputError(err instanceof ApiError ? err.message : 'Invalid or expired code.');
+        return;
       }
+      if (stage !== 'code') {
+        // OTP succeeded but a later step failed — keep the verified state and
+        // move off the consumed-code screen so the guest can (re)claim a name.
+        setPendingNickname(null);
+        setGateState('nickname_input');
+      }
+      // getCollectProfile only throws internal-format text, so that stage always
+      // shows the friendly copy; the other stages surface the server's message.
+      const showServerMessage = err instanceof ApiError && stage !== 'profile';
+      setInputError(showServerMessage ? err.message : CONFIRM_FALLBACK_ERROR[stage]);
     } finally {
       setVerifyingCode(false);
     }

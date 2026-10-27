@@ -651,4 +651,65 @@ describe('NicknameGate — existing behavior coverage', () => {
       await waitFor(() => expect(mockGetProfile).toHaveBeenCalledWith('EVT01', reverify));
     });
   });
+
+  // The server consumes the OTP the moment confirmVerificationCode resolves, so
+  // a failure of the follow-up profile load must never read as a bad code or
+  // leave the guest on a code screen whose code can no longer succeed.
+  describe('profile load fails after the code is confirmed', () => {
+    const driveToVerify = async (reverify: () => Promise<void>) => {
+      render(<NicknameGate code="EVT01" onComplete={onComplete} reverify={reverify} />);
+      await waitFor(() => screen.getByRole('button', { name: /have email/i }));
+      fireEvent.click(screen.getByRole('button', { name: /have email/i }));
+      fireEvent.change(screen.getByPlaceholderText(/you@example\.com/i), {
+        target: { value: 'a@b.co' },
+      });
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: /send code/i })).not.toBeDisabled(),
+      );
+      fireEvent.click(screen.getByRole('button', { name: /send code/i }));
+      await waitFor(() => screen.getByPlaceholderText(/6.digit/i));
+      fireEvent.change(screen.getByPlaceholderText(/6.digit/i), { target: { value: '123456' } });
+      fireEvent.click(screen.getByRole('button', { name: /^verify$/i }));
+    };
+
+
+    it.each([
+      ['an ApiError', 'api'],
+      ['a network error', 'plain'],
+    ])('lands on the nickname step with a friendly message on %s', async (_label, kind) => {
+      const { ApiError } = await import('../../lib/api');
+      mockGetProfile
+        .mockResolvedValueOnce(emptyProfile)
+        .mockRejectedValueOnce(
+          kind === 'api' ? new ApiError('getCollectProfile failed: 403', 403) : new Error('network'),
+        );
+      await driveToVerify(vi.fn().mockResolvedValue(undefined));
+
+      await waitFor(() => expect(screen.getByPlaceholderText(/dancingqueen/i)).toBeInTheDocument());
+      expect(screen.queryByPlaceholderText(/6.digit/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/invalid or expired code/i)).not.toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "Email verified, but we couldn't load your profile — choose your name to continue.",
+        ),
+      ).toBeInTheDocument();
+      // Internal client error text must never reach the guest.
+      expect(screen.queryByText(/getCollectProfile failed/i)).not.toBeInTheDocument();
+      expect(mockConfirmCode).toHaveBeenCalledTimes(1);
+      expect(onComplete).not.toHaveBeenCalled();
+    });
+
+    it('saves the name from the recovered step without re-submitting the consumed code', async () => {
+      mockGetProfile.mockResolvedValueOnce(emptyProfile).mockRejectedValueOnce(new Error('network'));
+      await driveToVerify(vi.fn().mockResolvedValue(undefined));
+
+      await waitFor(() => screen.getByPlaceholderText(/dancingqueen/i));
+      fireEvent.change(screen.getByPlaceholderText(/dancingqueen/i), { target: { value: 'Alex' } });
+      fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+      await waitFor(() => expect(mockSetProfile).toHaveBeenCalledTimes(1));
+      expect(mockSetProfile).toHaveBeenCalledWith('EVT01', { nickname: 'Alex' }, expect.anything());
+      expect(mockConfirmCode).toHaveBeenCalledTimes(1);
+    });
+  });
 });

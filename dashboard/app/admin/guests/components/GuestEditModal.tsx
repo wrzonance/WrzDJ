@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, ApiError, type AdminGuest } from '@/lib/api';
+import { useDialogFocus } from '@/lib/useDialogFocus';
 import { guestDisplayName } from './guest-format';
 
 interface GuestEditModalProps {
@@ -26,6 +27,8 @@ export function GuestEditModal({ guest, onClose, onSaved }: GuestEditModalProps)
   const [fieldErrors, setFieldErrors] = useState<Record<number, string>>({});
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  useDialogFocus(dialogRef);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -79,8 +82,16 @@ export function GuestEditModal({ guest, onClose, onSaved }: GuestEditModalProps)
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-        <h2 style={{ marginBottom: '1rem' }}>Edit: {guestDisplayName(guest)}</h2>
+      <div
+        ref={dialogRef}
+        className="modal"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="guest-edit-title"
+        tabIndex={-1}
+      >
+        <h2 id="guest-edit-title" style={{ marginBottom: '1rem' }}>Edit: {guestDisplayName(guest)}</h2>
         <form onSubmit={handleSubmit}>
           {guest.events.length === 0 && (
             <p className="guest-meta" style={{ marginBottom: '1rem' }}>

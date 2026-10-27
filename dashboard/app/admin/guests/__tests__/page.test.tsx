@@ -278,6 +278,60 @@ describe('AdminGuestsPage', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
   });
 
+  describe('edit dialog accessibility', () => {
+    async function openAliceEdit() {
+      await renderLoaded();
+      const editButton = screen.getAllByRole('button', { name: 'Edit' })[0];
+      editButton.focus();
+      fireEvent.click(editButton);
+      return editButton;
+    }
+
+    it('names the dialog after the guest', async () => {
+      await openAliceEdit();
+
+      expect(screen.getByRole('dialog', { name: /Edit: Alice/ })).toBeInTheDocument();
+    });
+
+    it('moves focus to the first nickname input on open', async () => {
+      await openAliceEdit();
+
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).toContainElement(document.activeElement as HTMLElement);
+      expect(screen.getByLabelText('Nickname in Test Event')).toHaveFocus();
+    });
+
+    it('wraps Tab from Cancel to the first field and Shift+Tab back', async () => {
+      await openAliceEdit();
+      const cancel = screen.getByRole('button', { name: 'Cancel' });
+      cancel.focus();
+
+      fireEvent.keyDown(cancel, { key: 'Tab' });
+      expect(screen.getByLabelText('Nickname in Test Event')).toHaveFocus();
+
+      fireEvent.keyDown(document.activeElement as Element, { key: 'Tab', shiftKey: true });
+      expect(cancel).toHaveFocus();
+    });
+
+    it('restores focus to the Edit button when Cancel closes the dialog', async () => {
+      const editButton = await openAliceEdit();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(editButton).toHaveFocus();
+    });
+
+    it('restores focus to the Edit button when Escape closes the dialog', async () => {
+      const editButton = await openAliceEdit();
+
+      fireEvent.keyDown(window, { key: 'Escape' });
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(editButton).toHaveFocus();
+    });
+  });
+
   it('deletes a guest after confirmation', async () => {
     vi.mocked(api.deleteAdminGuest).mockResolvedValue(undefined);
     vi.spyOn(window, 'confirm').mockReturnValue(true);

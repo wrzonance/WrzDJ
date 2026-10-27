@@ -274,6 +274,12 @@ export interface CollectEventPreview {
  *  `limit` returns HTTP 422, so growing-window UIs clamp to this value. */
 export const PUBLIC_PAGE_MAX = 500;
 
+/** Clamp a requested page size to a whole number in [1, PUBLIC_PAGE_MAX]; the backend 422s otherwise. */
+function clampPageLimit(limit: number): number {
+  const whole = Number.isNaN(limit) ? 1 : Math.trunc(limit);
+  return Math.min(Math.max(whole, 1), PUBLIC_PAGE_MAX);
+}
+
 export interface CollectLeaderboardRow {
   id: number;
   title: string;
@@ -1231,7 +1237,7 @@ class ApiClient {
     if (options?.status) params.set('status', options.status);
     if (options?.sort) params.set('sort', options.sort);
     if (options?.direction) params.set('direction', options.direction);
-    if (options?.limit !== undefined) params.set('limit', String(options.limit));
+    if (options?.limit !== undefined) params.set('limit', String(clampPageLimit(options.limit)));
     if (options?.offset !== undefined) params.set('offset', String(options.offset));
     const qs = params.toString();
     return this.fetch(`/api/events/${code}/requests${qs ? `?${qs}` : ''}`);
@@ -1432,7 +1438,7 @@ class ApiClient {
     offset?: number,
   ): Promise<GuestRequestListResponse> {
     const qs = new URLSearchParams();
-    if (limit != null) qs.set('limit', String(limit));
+    if (limit != null) qs.set('limit', String(clampPageLimit(limit)));
     if (offset != null) qs.set('offset', String(offset));
     const suffix = qs.toString() ? `?${qs}` : '';
     return this.publicFetch(`${getApiUrl()}/api/public/events/${code}/requests${suffix}`);
@@ -2482,7 +2488,7 @@ class ApiClient {
     const params = new URLSearchParams();
     if (options?.sort) params.set('sort', options.sort);
     if (options?.direction) params.set('direction', options.direction);
-    if (options?.limit !== undefined) params.set('limit', String(options.limit));
+    if (options?.limit !== undefined) params.set('limit', String(clampPageLimit(options.limit)));
     if (options?.offset !== undefined) params.set('offset', String(options.offset));
     const qs = params.toString();
     return this.fetch(`/api/events/${code}/pending-review${qs ? `?${qs}` : ''}`);

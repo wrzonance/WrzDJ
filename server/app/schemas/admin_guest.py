@@ -5,7 +5,7 @@ Spec: docs/superpowers/specs/2026-10-21-admin-guest-management-design.md
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.common import BaseSchema, IsoDatetime, OptionalIsoDatetime
 
@@ -50,3 +50,11 @@ class AdminGuestUpdate(BaseModel):
 
 class AdminGuestProfileUpdate(BaseModel):
     nickname: str | None = Field(None, max_length=30)
+
+    @field_validator("nickname", mode="before")
+    @classmethod
+    def _strip_nickname(cls, value: object) -> object:
+        """Trim before the length check; blank means clear (None)."""
+        if isinstance(value, str):
+            return value.strip() or None
+        return value

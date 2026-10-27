@@ -26,6 +26,9 @@ class ProfileNotFound(Exception):
     """The guest has no membership on that event."""
 
 
+NICKNAME_UNIQUE_INDEX = "uq_guest_profile_event_nickname"  # migration 040
+
+
 class NicknameTaken(Exception):
     """Another guest already uses that nickname (case-insensitively) in the event."""
 
@@ -44,6 +47,12 @@ def revoke_guest_email(db: Session, guest: Guest) -> Guest:
     return guest
 
 
+def _is_nickname_unique_violation(exc: IntegrityError) -> bool:
+    """True only when psycopg reports the per-event nickname unique index."""
+    diag = getattr(exc.orig, "diag", None)
+    return getattr(diag, "constraint_name", None) == NICKNAME_UNIQUE_INDEX
+
+
 def update_guest_profile_nickname(
     db: Session, guest: Guest, event_id: int, nickname: str | None
 ) -> GuestProfile:
@@ -52,7 +61,8 @@ def update_guest_profile_nickname(
     The case-insensitive per-event uniqueness index is Postgres-only, so the
     conflict is checked here before writing (the test DB is SQLite). Two admins
     can still both pass that check; the loser's commit then trips the index, so
-    an IntegrityError is translated to the same NicknameTaken outcome.
+    an IntegrityError on that index is translated to the same NicknameTaken
+    outcome. Any other IntegrityError is rolled back and re-raised.
     """
     profile = (
         db.query(GuestProfile)
@@ -69,7 +79,9 @@ def update_guest_profile_nickname(
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        raise NicknameTaken from exc
+        if _is_nickname_unique_violation(exc):
+            raise NicknameTaken from exc
+        raise
     db.refresh(profile)
     return profile
 

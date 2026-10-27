@@ -33,7 +33,7 @@ def _connected(db, user):
     db.commit()
 
 
-def _set(db, user):
+def _create_set(db, user):
     value = Set(owner_id=user.id, name="Night")
     db.add(value)
     db.commit()
@@ -60,16 +60,20 @@ def test_competing_sessions_cannot_claim_with_stale_set_objects(tmp_path):
     Base.metadata.create_all(engine)
     sessions = sessionmaker(bind=engine)
     setup = sessions()
-    barrier = Barrier(2)
+    # A timeout turns a worker that dies before the barrier into an error, not a hang.
+    barrier = Barrier(2, timeout=10)
     try:
         created = Set(owner_id=1, name="Night", apple_music_playlist_id="p.confirmed123")
         setup.add(created)
         setup.commit()
+        # Read the id here: `created` is expired, and refreshing it from the worker
+        # threads would share the non-thread-safe `setup` session between them.
+        created_id = created.id
 
         def claim():
             session = sessions()
             try:
-                stale = session.get(Set, created.id)
+                stale = session.get(Set, created_id)
                 session.expunge(stale)
                 session.rollback()
                 barrier.wait()
@@ -82,7 +86,7 @@ def test_competing_sessions_cannot_claim_with_stale_set_objects(tmp_path):
 
         assert sorted(outcomes) == [False, True]
         setup.expire(created)
-        stored = setup.get(Set, created.id)
+        stored = setup.get(Set, created_id)
         assert stored.apple_music_export_pending is True
         assert stored.apple_music_playlist_id == "p.confirmed123"
         assert stored.apple_music_export_attempt_id
@@ -94,7 +98,7 @@ def test_competing_sessions_cannot_claim_with_stale_set_objects(tmp_path):
 
 def test_export_posts_once_and_confirms_ordered_duplicates(db, test_user, monkeypatch):
     _connected(db, test_user)
-    set_obj = _set(db, test_user)
+    set_obj = _create_set(db, test_user)
     requests = []
 
     def post(*args, **kwargs):
@@ -144,7 +148,7 @@ def test_export_posts_once_and_confirms_ordered_duplicates(db, test_user, monkey
 
 def test_export_retries_readback_after_eventual_playlist_propagation(db, test_user, monkeypatch):
     _connected(db, test_user)
-    set_obj = _set(db, test_user)
+    set_obj = _create_set(db, test_user)
     _post(
         monkeypatch,
         lambda *_args, **_kwargs: {"data": [{"id": "p.created123", "type": "library-playlists"}]},
@@ -179,7 +183,7 @@ def test_export_retries_readback_after_eventual_playlist_propagation(db, test_us
 
 def test_uncertain_post_keeps_claim_and_retry_never_posts_again(db, test_user, monkeypatch):
     _connected(db, test_user)
-    set_obj = _set(db, test_user)
+    set_obj = _create_set(db, test_user)
     posts = []
 
     def post(*_args, **_kwargs):
@@ -203,7 +207,7 @@ def test_uncertain_post_keeps_claim_and_retry_never_posts_again(db, test_user, m
 
 def test_stale_rejected_write_does_not_invalidate_a_newer_grant(db, test_user, monkeypatch):
     _connected(db, test_user)
-    set_obj = _set(db, test_user)
+    set_obj = _create_set(db, test_user)
     connection = (
         db.query(UserProviderConnection)
         .filter_by(user_id=test_user.id, provider_id="apple_music")
@@ -229,7 +233,7 @@ def test_stale_rejected_write_does_not_invalidate_a_newer_grant(db, test_user, m
 
 def test_verified_playlist_id_survives_final_commit_failure(db, test_user, monkeypatch):
     _connected(db, test_user)
-    set_obj = _set(db, test_user)
+    set_obj = _create_set(db, test_user)
 
     def request(method, *_args, **_kwargs):
         return {"data": [{"id": "p.created123", "type": "library-playlists"}]}
@@ -274,7 +278,7 @@ def test_verified_playlist_id_survives_final_commit_failure(db, test_user, monke
 
 def test_confirmed_export_can_be_followed_by_another_confirmed_export(db, test_user, monkeypatch):
     _connected(db, test_user)
-    set_obj = _set(db, test_user)
+    set_obj = _create_set(db, test_user)
     playlist_ids = iter(("p.first123", "p.second123"))
     posts = []
 
@@ -314,7 +318,7 @@ def test_second_uncertain_export_preserves_confirmed_id_without_misreporting_it(
     db, test_user, monkeypatch
 ):
     _connected(db, test_user)
-    set_obj = _set(db, test_user)
+    set_obj = _create_set(db, test_user)
     posts = []
 
     def post(*_args, **_kwargs):
@@ -354,7 +358,7 @@ def test_second_uncertain_export_preserves_confirmed_id_without_misreporting_it(
 
 
 def test_stale_attempt_cannot_release_a_newer_claim(db, test_user):
-    set_obj = _set(db, test_user)
+    set_obj = _create_set(db, test_user)
     set_obj.apple_music_playlist_id = "p.confirmed123"
     set_obj.apple_music_export_pending = True
     set_obj.apple_music_export_attempt_id = "current-attempt"
@@ -371,7 +375,7 @@ def test_stale_attempt_cannot_release_a_newer_claim(db, test_user):
 
 
 def test_release_claim_db_failure_does_not_escape_as_the_export_error(db, test_user, monkeypatch):
-    set_obj = _set(db, test_user)
+    set_obj = _create_set(db, test_user)
     set_obj.apple_music_export_pending = True
     set_obj.apple_music_export_attempt_id = "active-attempt"
     db.commit()
@@ -393,7 +397,7 @@ def test_release_claim_db_failure_does_not_escape_as_the_export_error(db, test_u
 
 
 def test_explicit_absence_reconciliation_releases_only_uncertain_claim(db, test_user):
-    set_obj = _set(db, test_user)
+    set_obj = _create_set(db, test_user)
     set_obj.apple_music_export_pending = True
     set_obj.apple_music_export_uncertain = True
     set_obj.apple_music_export_attempt_id = "uncertain-attempt"
@@ -410,7 +414,7 @@ def test_explicit_absence_reconciliation_releases_only_uncertain_claim(db, test_
 
 
 def test_explicit_found_playlist_reconciliation_records_confirmed_playlist(db, test_user):
-    set_obj = _set(db, test_user)
+    set_obj = _create_set(db, test_user)
     set_obj.apple_music_export_pending = True
     set_obj.apple_music_export_uncertain = True
     set_obj.apple_music_export_attempt_id = "uncertain-attempt"
@@ -426,7 +430,7 @@ def test_explicit_found_playlist_reconciliation_records_confirmed_playlist(db, t
 
 
 def test_reconciliation_cannot_clear_an_active_export_claim(db, test_user):
-    set_obj = _set(db, test_user)
+    set_obj = _create_set(db, test_user)
     set_obj.apple_music_export_pending = True
     set_obj.apple_music_export_uncertain = False
     set_obj.apple_music_export_attempt_id = "active-attempt"
@@ -439,7 +443,7 @@ def test_reconciliation_cannot_clear_an_active_export_claim(db, test_user):
 
 def test_stale_attempt_cannot_finalize_a_newer_claim(db, test_user, monkeypatch):
     _connected(db, test_user)
-    set_obj = _set(db, test_user)
+    set_obj = _create_set(db, test_user)
     set_obj.apple_music_playlist_id = "p.confirmed123"
     db.commit()
     _post(
@@ -478,7 +482,7 @@ def test_existing_claim_is_reported_as_in_progress_not_as_an_uncertain_write(
     db, test_user, monkeypatch
 ):
     _connected(db, test_user)
-    set_obj = _set(db, test_user)
+    set_obj = _create_set(db, test_user)
     set_obj.apple_music_export_pending = True
     set_obj.apple_music_export_attempt_id = "active-attempt"
     set_obj.apple_music_export_recovery_playlist_id = "p.other123"

@@ -12,6 +12,7 @@ ENV/
 *.egg
 dist/
 build/
+.playwright-mcp/
 
 # Node
 # No trailing slash: also ignores a `node_modules` symlink/file, not just a directory

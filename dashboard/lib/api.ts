@@ -1,5 +1,9 @@
 import type {
   AdminEvent,
+  AdminGuest,
+  AdminGuestFilter,
+  AdminGuestProfileUpdate,
+  AdminGuestUpdate,
   AdminUser,
   AIModelsResponse,
   AISettings,
@@ -117,6 +121,11 @@ import type {
 export type {
   ActivityLogEntry,
   AdminEvent,
+  AdminGuest,
+  AdminGuestEvent,
+  AdminGuestFilter,
+  AdminGuestProfileUpdate,
+  AdminGuestUpdate,
   AdminUser,
   AIModelInfo,
   AIModelsResponse,
@@ -264,6 +273,12 @@ export interface CollectEventPreview {
  *  MUST match server/app/core/pagination.py MAX_PAGE_SIZE. Sending a larger
  *  `limit` returns HTTP 422, so growing-window UIs clamp to this value. */
 export const PUBLIC_PAGE_MAX = 500;
+
+/** Clamp a requested page size to a whole number in [1, PUBLIC_PAGE_MAX]; the backend 422s otherwise. */
+function clampPageLimit(limit: number): number {
+  const whole = Number.isNaN(limit) ? 1 : Math.trunc(limit);
+  return Math.min(Math.max(whole, 1), PUBLIC_PAGE_MAX);
+}
 
 export interface CollectLeaderboardRow {
   id: number;
@@ -1222,7 +1237,7 @@ class ApiClient {
     if (options?.status) params.set('status', options.status);
     if (options?.sort) params.set('sort', options.sort);
     if (options?.direction) params.set('direction', options.direction);
-    if (options?.limit !== undefined) params.set('limit', String(options.limit));
+    if (options?.limit !== undefined) params.set('limit', String(clampPageLimit(options.limit)));
     if (options?.offset !== undefined) params.set('offset', String(options.offset));
     const qs = params.toString();
     return this.fetch(`/api/events/${code}/requests${qs ? `?${qs}` : ''}`);
@@ -1423,7 +1438,7 @@ class ApiClient {
     offset?: number,
   ): Promise<GuestRequestListResponse> {
     const qs = new URLSearchParams();
-    if (limit != null) qs.set('limit', String(limit));
+    if (limit != null) qs.set('limit', String(clampPageLimit(limit)));
     if (offset != null) qs.set('offset', String(offset));
     const suffix = qs.toString() ? `?${qs}` : '';
     return this.publicFetch(`${getApiUrl()}/api/public/events/${code}/requests${suffix}`);
@@ -1788,6 +1803,41 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ codes }),
     });
+  }
+
+  // ========== Admin guests (#862) ==========
+
+  async getAdminGuests(
+    page: number = 1,
+    limit: number = 20,
+    filter: AdminGuestFilter = 'all',
+    q?: string
+  ): Promise<PaginatedResponse<AdminGuest>> {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit), filter });
+    if (q) params.set('q', q);
+    return this.fetch(`/api/admin/guests?${params}`);
+  }
+
+  async updateAdminGuest(guestId: number, data: AdminGuestUpdate): Promise<AdminGuest> {
+    return this.fetch(`/api/admin/guests/${guestId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateAdminGuestProfile(
+    guestId: number,
+    eventId: number,
+    data: AdminGuestProfileUpdate
+  ): Promise<AdminGuest> {
+    return this.fetch(`/api/admin/guests/${guestId}/events/${eventId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteAdminGuest(guestId: number): Promise<void> {
+    await this.fetch(`/api/admin/guests/${guestId}`, { method: 'DELETE' });
   }
 
   async getAdminSettings(): Promise<SystemSettings> {
@@ -2446,7 +2496,7 @@ class ApiClient {
     const params = new URLSearchParams();
     if (options?.sort) params.set('sort', options.sort);
     if (options?.direction) params.set('direction', options.direction);
-    if (options?.limit !== undefined) params.set('limit', String(options.limit));
+    if (options?.limit !== undefined) params.set('limit', String(clampPageLimit(options.limit)));
     if (options?.offset !== undefined) params.set('offset', String(options.offset));
     const qs = params.toString();
     return this.fetch(`/api/events/${code}/pending-review${qs ? `?${qs}` : ''}`);

@@ -690,6 +690,75 @@ describe('ApiClient', () => {
       expect(options.method).toBe('POST');
     });
 
+    it('fetches admin guests with filter and search', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ items: [{ id: 7, nickname: 'Alice' }], total: 1, page: 1, limit: 20 }),
+      });
+
+      const result = await api.getAdminGuests(2, 50, 'shared', 'ali');
+      expect(result.items).toHaveLength(1);
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/admin/guests?');
+      expect(url).toContain('page=2');
+      expect(url).toContain('limit=50');
+      expect(url).toContain('filter=shared');
+      expect(url).toContain('q=ali');
+    });
+
+    it('omits q from the admin guests URL when not searching', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ items: [], total: 0, page: 1, limit: 20 }),
+      });
+
+      await api.getAdminGuests();
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('filter=all');
+      expect(url).not.toContain('q=');
+    });
+
+    it('revokes an admin guest email with PATCH', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 7, email_verified: false }),
+      });
+
+      const guest = await api.updateAdminGuest(7, { revoke_email: true });
+      expect(guest.email_verified).toBe(false);
+
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/admin/guests/7');
+      expect(options.method).toBe('PATCH');
+      expect(JSON.parse(options.body)).toEqual({ revoke_email: true });
+    });
+
+    it('updates an admin guest per-event nickname with PATCH', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 7, nickname: 'Zed' }),
+      });
+
+      const guest = await api.updateAdminGuestProfile(7, 3, { nickname: 'Zed' });
+      expect(guest.nickname).toBe('Zed');
+
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/admin/guests/7/events/3');
+      expect(options.method).toBe('PATCH');
+    });
+
+    it('deletes an admin guest', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, status: 204, json: async () => null });
+
+      await api.deleteAdminGuest(7);
+
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/admin/guests/7');
+      expect(options.method).toBe('DELETE');
+    });
+
     it('updates admin settings', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -1787,6 +1856,20 @@ describe('ApiClient', () => {
       expect(url).toContain('offset=0');
     });
 
+
+    it('clamps limit to PUBLIC_PAGE_MAX and passes in-range limits through (#915)', async () => {
+      api.setToken('test-token');
+      mockFetch.mockResolvedValue({ ok: true, json: async () => envelope() });
+
+      await api.getRequests('ABC123', { limit: 1000 });
+      await api.getRequests('ABC123', { limit: 50 });
+      await api.getRequests('ABC123', { limit: -5 });
+
+      expect(new URL(mockFetch.mock.calls[0][0], 'http://x').searchParams.get('limit')).toBe('500');
+      expect(new URL(mockFetch.mock.calls[1][0], 'http://x').searchParams.get('limit')).toBe('50');
+      expect(new URL(mockFetch.mock.calls[2][0], 'http://x').searchParams.get('limit')).toBe('1');
+    });
+
     it('omits sort/direction/limit/offset by default', async () => {
       api.setToken('test-token');
       mockFetch.mockResolvedValueOnce({ ok: true, json: async () => envelope() });
@@ -1842,6 +1925,20 @@ describe('ApiClient', () => {
 
       const [url] = mockFetch.mock.calls[0];
       expect(url).toContain('/api/events/ABC123/pending-review');
+    });
+
+
+    it('clamps limit to PUBLIC_PAGE_MAX and passes in-range limits through (#915)', async () => {
+      api.setToken('test-token');
+      mockFetch.mockResolvedValue({ ok: true, json: async () => envelope() });
+
+      await api.getPendingReview('ABC123', { limit: 1000 });
+      await api.getPendingReview('ABC123', { limit: 50 });
+      await api.getPendingReview('ABC123', { limit: -5 });
+
+      expect(new URL(mockFetch.mock.calls[0][0], 'http://x').searchParams.get('limit')).toBe('500');
+      expect(new URL(mockFetch.mock.calls[1][0], 'http://x').searchParams.get('limit')).toBe('50');
+      expect(new URL(mockFetch.mock.calls[2][0], 'http://x').searchParams.get('limit')).toBe('1');
     });
 
     it('omits sort/direction/limit/offset by default (Review order)', async () => {
@@ -1994,6 +2091,22 @@ describe('ApiClient', () => {
       const [url] = mockFetch.mock.calls[0];
       expect(url).toContain('limit=100');
       expect(url).toContain('offset=200');
+    });
+
+    it('clamps limit to PUBLIC_PAGE_MAX and normalises non-integers (#922)', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ requests: [], now_playing: null, total: 0 }),
+      });
+
+      await api.getPublicRequests('ABC123', 1000);
+      await api.getPublicRequests('ABC123', 1.5);
+      await api.getPublicRequests('ABC123', Number.NaN);
+
+      const limits = mockFetch.mock.calls.map(([url]) =>
+        new URL(url, 'http://x').searchParams.get('limit'),
+      );
+      expect(limits).toEqual(['500', '1', '1']);
     });
 
     it('omits the query string when no paging args are given', async () => {

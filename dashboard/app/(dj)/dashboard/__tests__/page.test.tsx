@@ -116,6 +116,7 @@ describe('DashboardPage', () => {
     render(<DashboardPage />);
     expect(screen.getByText('Dashboard')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create Event' })).toBeInTheDocument();
+    expect(screen.getByTestId('page-controls')).toBeInTheDocument();
   });
 
   it('renders Account button linking to /account', async () => {

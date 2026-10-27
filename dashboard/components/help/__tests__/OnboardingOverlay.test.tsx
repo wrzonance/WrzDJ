@@ -37,6 +37,7 @@ function makeContext(overrides: Partial<HelpContextValue> = {}): HelpContextValu
     nextStep: vi.fn(),
     prevStep: vi.fn(),
     skipOnboarding: vi.fn(),
+    dismissOnboarding: vi.fn(),
     hasSeenPage: vi.fn(() => false),
     ...overrides,
   };
@@ -218,13 +219,15 @@ describe('OnboardingOverlay', () => {
     expect(nextFn).toHaveBeenCalledTimes(1);
   });
 
-  it('Escape key calls skipOnboarding', () => {
+  it('Escape key dismisses this page\'s tour without the account-wide skip', () => {
+    const dismissFn = vi.fn();
     const skipFn = vi.fn();
     const spot = makeSpot();
     mockCtx = makeContext({
       onboardingActive: true,
       activeSpotId: 'spot-1',
       currentStep: 0,
+      dismissOnboarding: dismissFn,
       skipOnboarding: skipFn,
       getSpotsForPage: vi.fn(() => [spot]),
     });
@@ -232,7 +235,8 @@ describe('OnboardingOverlay', () => {
 
     render(<OnboardingOverlay page="p" />);
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(skipFn).toHaveBeenCalledTimes(1);
+    expect(dismissFn).toHaveBeenCalledTimes(1);
+    expect(skipFn).not.toHaveBeenCalled();
   });
 
   it('positions card above spotlight when target is near viewport bottom', () => {

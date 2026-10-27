@@ -22,5 +22,6 @@ export interface HelpContextValue extends HelpState {
   nextStep: () => void;
   prevStep: () => void;
   skipOnboarding: () => void;
+  dismissOnboarding: () => void;
   hasSeenPage: (page: string) => boolean;
 }

@@ -261,6 +261,61 @@ describe('HelpContext', () => {
     expect(result.current.hasSeenPage('new-page')).toBe(true);
   });
 
+  it('hasSeenPage returns false instead of throwing when storage reads throw', () => {
+    const spy = vi.spyOn(localStorageMock, 'getItem').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError');
+    });
+    try {
+      const { result } = renderHook(() => useHelp(), { wrapper });
+      expect(() => result.current.hasSeenPage('any-page')).not.toThrow();
+      expect(result.current.hasSeenPage('any-page')).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('skipOnboarding still reaches the server and memory when storage writes throw', async () => {
+    const { api: mockApi } = await import('@/lib/api');
+    vi.mocked(mockApi.markHelpPageSeen).mockClear();
+    const spy = vi.spyOn(localStorageMock, 'setItem').mockImplementation(() => {
+      throw new DOMException('quota', 'QuotaExceededError');
+    });
+    try {
+      const { result } = renderHook(() => useHelp(), { wrapper });
+      act(() => {
+        result.current.registerSpot(makeSpot({ id: 's1', page: 'q-page', order: 1 }));
+      });
+      act(() => result.current.startOnboarding('q-page'));
+
+      expect(() => act(() => result.current.skipOnboarding())).not.toThrow();
+      expect(mockApi.markHelpPageSeen).toHaveBeenCalledWith(TOURS_SKIPPED);
+      expect(isPageSeen(TOURS_SKIPPED)).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('dismissOnboarding ends the tour and marks only the current page as seen', async () => {
+    const { api: mockApi } = await import('@/lib/api');
+    vi.mocked(mockApi.markHelpPageSeen).mockClear();
+    const { result } = renderHook(() => useHelp(), { wrapper });
+
+    act(() => {
+      result.current.registerSpot(makeSpot({ id: 's1', page: 'p1', order: 1 }));
+    });
+    act(() => result.current.startOnboarding('p1'));
+    expect(result.current.onboardingActive).toBe(true);
+
+    act(() => result.current.dismissOnboarding());
+
+    expect(result.current.onboardingActive).toBe(false);
+    expect(result.current.hasSeenPage('p1')).toBe(true);
+    expect(result.current.hasSeenPage('p2')).toBe(false);
+    expect(isPageSeen(TOURS_SKIPPED)).toBe(false);
+    expect(mockApi.markHelpPageSeen).toHaveBeenCalledWith('p1');
+    expect(mockApi.markHelpPageSeen).not.toHaveBeenCalledWith(TOURS_SKIPPED);
+  });
+
   it('nextStep past last step auto-completes onboarding', () => {
     const { result } = renderHook(() => useHelp(), { wrapper });
 

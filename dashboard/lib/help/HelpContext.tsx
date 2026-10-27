@@ -3,23 +3,25 @@
 import { createContext, useCallback, useContext, useRef, useState, ReactNode } from 'react';
 import { api } from '@/lib/api';
 import type { HelpSpotConfig, HelpContextValue } from './types';
-import { isPageSeen, markPageSeen, seenStorageKey, TOURS_SKIPPED } from './seen-pages';
+import {
+  isPageSeen,
+  markPageSeen,
+  readFallbackSeen,
+  writeFallbackSeen,
+  TOURS_SKIPPED,
+} from './seen-pages';
 import { isHelpDisabled } from './is-help-disabled';
 
 const HelpContext = createContext<HelpContextValue | null>(null);
 
 /** Seen on this account (server-initialised set) or in this browser (fallback). */
 function isSeen(id: string): boolean {
-  if (isPageSeen(id)) return true;
-  if (typeof localStorage === 'undefined') return false;
-  return localStorage.getItem(seenStorageKey(id)) === '1';
+  return isPageSeen(id) || readFallbackSeen(id);
 }
 
 function persistSeen(id: string): void {
   markPageSeen(id);
-  if (typeof localStorage !== 'undefined') {
-    localStorage.setItem(seenStorageKey(id), '1');
-  }
+  writeFallbackSeen(id);
   api.markHelpPageSeen(id).catch(() => {});
 }
 
@@ -104,6 +106,11 @@ export function HelpProvider({ children }: { children: ReactNode }) {
     endOnboarding(TOURS_SKIPPED);
   }, [endOnboarding]);
 
+  /** End the tour (Escape): marks only the current page seen, not the account-wide skip. */
+  const dismissOnboarding = useCallback(() => {
+    endOnboarding(onboardingPageRef.current);
+  }, [endOnboarding]);
+
   const hasSeenPage = useCallback((page: string): boolean => {
     if (isDisabled) return true;
     return isSeen(TOURS_SKIPPED) || isSeen(page);
@@ -123,6 +130,7 @@ export function HelpProvider({ children }: { children: ReactNode }) {
         nextStep,
         prevStep,
         skipOnboarding,
+        dismissOnboarding,
         hasSeenPage,
       }}
     >

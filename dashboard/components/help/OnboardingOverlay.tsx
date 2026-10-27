@@ -8,7 +8,15 @@ interface OnboardingOverlayProps {
 }
 
 export function OnboardingOverlay({ page }: OnboardingOverlayProps) {
-  const { onboardingActive, currentStep, getSpotsForPage, nextStep, prevStep, skipOnboarding } = useHelp();
+  const {
+    onboardingActive,
+    currentStep,
+    getSpotsForPage,
+    nextStep,
+    prevStep,
+    skipOnboarding,
+    dismissOnboarding,
+  } = useHelp();
   const [spotRect, setSpotRect] = useState<DOMRect | null>(null);
 
   const spots = getSpotsForPage(page);
@@ -51,12 +59,12 @@ export function OnboardingOverlay({ page }: OnboardingOverlayProps) {
     if (!onboardingActive) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        skipOnboarding();
+        dismissOnboarding();
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onboardingActive, skipOnboarding]);
+  }, [onboardingActive, dismissOnboarding]);
 
   if (!onboardingActive || totalSteps === 0 || !currentSpot) return null;
 

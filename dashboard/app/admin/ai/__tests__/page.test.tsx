@@ -159,6 +159,7 @@ describe('AdminAISettingsPage', () => {
     await waitFor(() => {
       expect(screen.getByText('AI / LLM Settings')).toBeInTheDocument();
     });
+    expect(screen.getByTestId('page-controls')).toBeInTheDocument();
 
     // Legacy env-var key panel and model selector are gone.
     expect(screen.queryByText('API Key Status')).not.toBeInTheDocument();

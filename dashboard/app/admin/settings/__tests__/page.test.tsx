@@ -81,6 +81,7 @@ describe('AdminSettingsPage', () => {
 
     expect(screen.getByText('System Settings')).toBeInTheDocument();
     expect(screen.getByLabelText(/Search Rate Limit/)).toHaveValue(10);
+    expect(screen.getByTestId('page-controls')).toBeInTheDocument();
   });
 
   it('shows error when settings fail to load', async () => {

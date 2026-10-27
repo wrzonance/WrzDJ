@@ -39,6 +39,27 @@ export function markPageSeen(page: string) {
   seenPages.add(page);
 }
 
+/**
+ * Browser fallback read. Storage can be blocked or throw on access (privacy mode,
+ * sandboxed frames), so the whole access is guarded: failure means "not seen here".
+ */
+export function readFallbackSeen(id: string): boolean {
+  try {
+    return localStorage.getItem(seenStorageKey(id)) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** Browser fallback write; a failure is a no-op because the server copy is authoritative. */
+export function writeFallbackSeen(id: string): void {
+  try {
+    localStorage.setItem(seenStorageKey(id), '1');
+  } catch {
+    // Storage blocked or full: the in-memory set and the server still record it.
+  }
+}
+
 function claimFallbackStorage(ownerId: string): void {
   if (typeof localStorage === 'undefined') return;
   try {

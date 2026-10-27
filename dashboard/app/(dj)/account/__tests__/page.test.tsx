@@ -81,6 +81,7 @@ describe('AccountPage', () => {
       expect(screen.getByText('Change Password')).toBeInTheDocument();
       expect(screen.getByText('Change Email')).toBeInTheDocument();
     });
+    expect(screen.getByTestId('page-controls')).toBeInTheDocument();
   });
 
   it('renders the relocated AI / Model providers section', async () => {

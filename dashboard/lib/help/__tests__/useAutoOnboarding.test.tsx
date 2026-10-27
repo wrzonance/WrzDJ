@@ -17,6 +17,7 @@ function makeContext(overrides: Partial<HelpContextValue> = {}): HelpContextValu
     nextStep: vi.fn(),
     prevStep: vi.fn(),
     skipOnboarding: vi.fn(),
+    dismissOnboarding: vi.fn(),
     hasSeenPage: vi.fn(() => false),
     ...overrides,
   };

@@ -92,6 +92,7 @@ describe('AdminEventsPage', () => {
   it('renders page heading', async () => {
     render(<AdminEventsPage />);
     expect(screen.getByText('Event Management')).toBeInTheDocument();
+    expect(screen.getByTestId('page-controls')).toBeInTheDocument();
   });
 
   it('displays events in table', async () => {

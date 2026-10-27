@@ -118,6 +118,7 @@ describe('AdminIntegrationsPage', () => {
       expect(screen.getByText('Beatport')).toBeDefined();
       expect(screen.getByText('Bridge (DJ Equipment)')).toBeDefined();
     });
+    expect(screen.getByTestId('page-controls')).toBeInTheDocument();
   });
 
   it('shows loading state initially', () => {

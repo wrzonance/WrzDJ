@@ -81,6 +81,7 @@ describe('AdminUsersPage', () => {
 
     expect(screen.getByText('User Management')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create User' })).toBeInTheDocument();
+    expect(screen.getByTestId('page-controls')).toBeInTheDocument();
   });
 
   it('displays users in a table', async () => {

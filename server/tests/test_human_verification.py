@@ -141,6 +141,28 @@ class TestVerifyHumanCookie:
         result = verify_human_cookie(request)
         assert result is None
 
+    def test_cookie_expiry_is_exclusive(self, mock_settings):
+        """Regression #914: exp == now is expired; exp == now + 1 is still valid."""
+        mock_settings.return_value.effective_human_cookie_secret = b"x" * 32
+        mock_settings.return_value.is_production = False
+        mock_settings.return_value.human_cookie_ttl_seconds = 3600
+
+        issued = datetime(2030, 1, 1, tzinfo=UTC)
+        with patch("app.services.human_verification.utcnow", return_value=issued):
+            response = Response()
+            issue_human_cookie(response, guest_id=42)
+            set_cookie = response.headers.get("set-cookie")
+            cookie_value = set_cookie.split("=", 1)[1].split(";", 1)[0]
+        exp = int(issued.timestamp()) + 3600
+        request = _make_request_with_cookie(cookie_value)
+
+        at_exp = datetime.fromtimestamp(exp, UTC)
+        with patch("app.services.human_verification.utcnow", return_value=at_exp):
+            assert verify_human_cookie(request) is None
+        one_before = datetime.fromtimestamp(exp - 1, UTC)
+        with patch("app.services.human_verification.utcnow", return_value=one_before):
+            assert verify_human_cookie(request) == 42
+
     def test_guest_id_must_be_strict_int(self, mock_settings):
         """Cookies with bool, str, or float guest_id are rejected."""
         import json as _json

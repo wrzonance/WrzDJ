@@ -147,7 +147,7 @@ def verify_human_cookie(request: Request) -> int | None:
     except (KeyError, TypeError):
         return None
 
-    if exp < int(utcnow().timestamp()):
+    if exp <= int(utcnow().timestamp()):  # expiry is exclusive
         return None
 
     return guest_id

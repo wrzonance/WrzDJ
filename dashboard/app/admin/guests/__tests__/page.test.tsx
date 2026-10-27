@@ -1,6 +1,11 @@
+import React from 'react';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import AdminGuestsPage from '../page';
+
+vi.mock('@/components/PageControls', () => ({
+  PageControls: ({ children }: { children?: React.ReactNode }) => <div data-testid="page-controls">{children}</div>,
+}));
 
 vi.mock('@/lib/help/HelpContext', () => ({
   useHelp: () => ({
@@ -113,6 +118,7 @@ describe('AdminGuestsPage', () => {
     for (const label of ['All', 'Verified', 'Unverified', 'Shared fingerprint']) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
     }
+    expect(screen.getByTestId('page-controls')).toBeInTheDocument();
   });
 
   it('shows email, human, and fingerprint signals per guest', async () => {

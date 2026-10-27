@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, type AdminGuest, type AdminGuestFilter } from '@/lib/api';
 import { useAdminPage } from '@/lib/useAdminPage';
 import { HelpSpot } from '@/components/help/HelpSpot';
-import { HelpButton } from '@/components/help/HelpButton';
+import { PageControls } from '@/components/PageControls';
 import { OnboardingOverlay } from '@/components/help/OnboardingOverlay';
 import { GuestEditModal } from './components/GuestEditModal';
 import { GuestRow } from './components/GuestRow';
@@ -96,7 +96,7 @@ export default function AdminGuestsPage() {
 
   return (
     <div className="container">
-      <HelpButton page={PAGE_ID} />
+      <PageControls helpPage={PAGE_ID} />
       <OnboardingOverlay page={PAGE_ID} />
 
       <HelpSpot

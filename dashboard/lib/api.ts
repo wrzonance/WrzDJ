@@ -274,9 +274,10 @@ export interface CollectEventPreview {
  *  `limit` returns HTTP 422, so growing-window UIs clamp to this value. */
 export const PUBLIC_PAGE_MAX = 500;
 
-/** Clamp a requested page size into [1, PUBLIC_PAGE_MAX]; the backend 422s outside it. */
+/** Clamp a requested page size to a whole number in [1, PUBLIC_PAGE_MAX]; the backend 422s otherwise. */
 function clampPageLimit(limit: number): number {
-  return Math.min(Math.max(limit, 1), PUBLIC_PAGE_MAX);
+  const whole = Number.isNaN(limit) ? 1 : Math.trunc(limit);
+  return Math.min(Math.max(whole, 1), PUBLIC_PAGE_MAX);
 }
 
 export interface CollectLeaderboardRow {
@@ -1437,7 +1438,7 @@ class ApiClient {
     offset?: number,
   ): Promise<GuestRequestListResponse> {
     const qs = new URLSearchParams();
-    if (limit != null) qs.set('limit', String(limit));
+    if (limit != null) qs.set('limit', String(clampPageLimit(limit)));
     if (offset != null) qs.set('offset', String(offset));
     const suffix = qs.toString() ? `?${qs}` : '';
     return this.publicFetch(`${getApiUrl()}/api/public/events/${code}/requests${suffix}`);

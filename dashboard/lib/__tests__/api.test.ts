@@ -2093,6 +2093,22 @@ describe('ApiClient', () => {
       expect(url).toContain('offset=200');
     });
 
+    it('clamps limit to PUBLIC_PAGE_MAX and normalises non-integers (#922)', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ requests: [], now_playing: null, total: 0 }),
+      });
+
+      await api.getPublicRequests('ABC123', 1000);
+      await api.getPublicRequests('ABC123', 1.5);
+      await api.getPublicRequests('ABC123', Number.NaN);
+
+      const limits = mockFetch.mock.calls.map(([url]) =>
+        new URL(url, 'http://x').searchParams.get('limit'),
+      );
+      expect(limits).toEqual(['500', '1', '1']);
+    });
+
     it('omits the query string when no paging args are given', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,

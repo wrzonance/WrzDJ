@@ -4,6 +4,7 @@ import base64
 from datetime import UTC, datetime
 from unittest.mock import patch
 
+import pytest
 from fastapi import Request, Response
 
 from app.services.human_verification import (
@@ -199,6 +200,20 @@ class TestVerifyHumanCookie:
 
         request = _make_request_with_cookie(cookie_value)
         assert verify_human_cookie(request) is None
+
+    @pytest.mark.parametrize("payload", [b"[]", b"null", b"42", b'"text"'])
+    def test_validly_signed_non_object_payload_returns_none(self, mock_settings, payload):
+        """Regression #922: signed JSON that is not an object returns None, not a 500."""
+        mock_settings.return_value.effective_human_cookie_secret = b"x" * 32
+        mock_settings.return_value.is_production = False
+        mock_settings.return_value.human_cookie_ttl_seconds = 3600
+
+        from app.services.human_verification import _b64encode, _sign
+
+        sig = _sign(payload, b"x" * 32)
+        cookie_value = f"{_b64encode(payload)}.{_b64encode(sig)}"
+
+        assert verify_human_cookie(_make_request_with_cookie(cookie_value)) is None
 
     def test_signature_with_stray_characters_returns_none(self, mock_settings):
         # #856: a lenient decoder drops the "!!!!", so the altered cookie verified.

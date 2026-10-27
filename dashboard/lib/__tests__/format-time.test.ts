@@ -1,6 +1,31 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { formatRequestTimestamp, ordinalSuffix } from '../format-time';
+import { formatRelativeAge, formatRequestTimestamp, ordinalSuffix } from '../format-time';
+
+describe('formatRelativeAge', () => {
+  const now = new Date('2026-10-21T12:00:00Z');
+
+  it('says just now under a minute', () => {
+    expect(formatRelativeAge('2026-10-21T11:59:30Z', now)).toBe('just now');
+  });
+
+  it('uses minutes under an hour', () => {
+    expect(formatRelativeAge('2026-10-21T11:55:00Z', now)).toBe('5m ago');
+  });
+
+  it('uses hours under a day', () => {
+    expect(formatRelativeAge('2026-10-21T10:00:00Z', now)).toBe('2h ago');
+  });
+
+  it('uses days under a month', () => {
+    expect(formatRelativeAge('2026-10-18T12:00:00Z', now)).toBe('3d ago');
+  });
+
+  it('falls back to the locale date past 30 days', () => {
+    const old = new Date('2026-08-01T12:00:00Z');
+    expect(formatRelativeAge(old.toISOString(), now)).toBe(old.toLocaleDateString());
+  });
+});
 
 describe('ordinalSuffix', () => {
   it('uses st/nd/rd for 1/2/3 and th otherwise', () => {

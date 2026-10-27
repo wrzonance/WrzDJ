@@ -30,18 +30,24 @@ export function useAdminPage<T>({
   loaderRef.current = loader;
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
+  // Last request wins: a slow earlier load must not overwrite a newer one's
+  // data after the user changed page, filter, or search.
+  const requestIdRef = useRef(0);
 
   const reload = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     try {
       const result = await loaderRef.current();
+      if (requestId !== requestIdRef.current) return;
       setData(result);
       setError('');
     } catch (err) {
+      if (requestId !== requestIdRef.current) return;
       const handler = onErrorRef.current;
       setError(handler ? handler(err) : 'Failed to load');
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
   }, []);
 

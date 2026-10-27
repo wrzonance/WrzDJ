@@ -26,6 +26,11 @@ function wrapTab(e: KeyboardEvent, container: HTMLElement): void {
   if (!container.contains(active)) {
     e.preventDefault();
     (e.shiftKey ? last : first).focus();
+  } else if (!focusables.includes(active as HTMLElement)) {
+    // The focused control left the list (e.g. Save disabled mid-request), so the
+    // browser's default move could leave the dialog: step to its neighbour here.
+    e.preventDefault();
+    neighbourOf(active as Element, focusables, e.shiftKey).focus();
   } else if (e.shiftKey && active === first) {
     e.preventDefault();
     last.focus();
@@ -33,6 +38,20 @@ function wrapTab(e: KeyboardEvent, container: HTMLElement): void {
     e.preventDefault();
     first.focus();
   }
+}
+
+/** The next (or previous) focusable after `from` in document order, wrapping. */
+function neighbourOf(from: Element, focusables: HTMLElement[], backwards: boolean): HTMLElement {
+  if (backwards) {
+    const before = focusables.filter(
+      (el) => from.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING,
+    );
+    return before[before.length - 1] ?? focusables[focusables.length - 1];
+  }
+  const after = focusables.find(
+    (el) => from.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+  return after ?? focusables[0];
 }
 
 function restoreFocus(opener: Element | null): void {

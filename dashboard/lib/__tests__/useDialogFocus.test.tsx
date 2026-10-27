@@ -136,6 +136,29 @@ describe('useDialogFocus', () => {
     expect(screen.getByLabelText('first')).toHaveFocus();
   });
 
+  it('keeps focus inside when the focused control becomes disabled (#915)', () => {
+    render(
+      <Harness>
+        <button>save</button>
+        <input aria-label="middle" />
+        <button>cancel</button>
+      </Harness>,
+    );
+    openDialog();
+    const save = screen.getByRole('button', { name: 'save' }) as HTMLButtonElement;
+    save.focus();
+    save.disabled = true;
+
+    fireEvent.keyDown(save, { key: 'Tab', shiftKey: true });
+    expect(screen.getByRole('button', { name: 'cancel' })).toHaveFocus();
+
+    const cancel = screen.getByRole('button', { name: 'cancel' }) as HTMLButtonElement;
+    save.disabled = false;
+    cancel.disabled = true;
+    fireEvent.keyDown(cancel, { key: 'Tab' });
+    expect(save).toHaveFocus();
+  });
+
   it('skips controls inside hidden, inert or aria-hidden subtrees (#915)', () => {
     render(
       <Harness>

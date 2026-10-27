@@ -274,9 +274,9 @@ export interface CollectEventPreview {
  *  `limit` returns HTTP 422, so growing-window UIs clamp to this value. */
 export const PUBLIC_PAGE_MAX = 500;
 
-/** Clamp a requested page size into [0, PUBLIC_PAGE_MAX] (backend rejects larger with 422). */
+/** Clamp a requested page size into [1, PUBLIC_PAGE_MAX]; the backend 422s outside it. */
 function clampPageLimit(limit: number): number {
-  return Math.min(Math.max(limit, 0), PUBLIC_PAGE_MAX);
+  return Math.min(Math.max(limit, 1), PUBLIC_PAGE_MAX);
 }
 
 export interface CollectLeaderboardRow {

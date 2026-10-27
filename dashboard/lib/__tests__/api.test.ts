@@ -1867,7 +1867,7 @@ describe('ApiClient', () => {
 
       expect(new URL(mockFetch.mock.calls[0][0], 'http://x').searchParams.get('limit')).toBe('500');
       expect(new URL(mockFetch.mock.calls[1][0], 'http://x').searchParams.get('limit')).toBe('50');
-      expect(new URL(mockFetch.mock.calls[2][0], 'http://x').searchParams.get('limit')).toBe('0');
+      expect(new URL(mockFetch.mock.calls[2][0], 'http://x').searchParams.get('limit')).toBe('1');
     });
 
     it('omits sort/direction/limit/offset by default', async () => {
@@ -1938,7 +1938,7 @@ describe('ApiClient', () => {
 
       expect(new URL(mockFetch.mock.calls[0][0], 'http://x').searchParams.get('limit')).toBe('500');
       expect(new URL(mockFetch.mock.calls[1][0], 'http://x').searchParams.get('limit')).toBe('50');
-      expect(new URL(mockFetch.mock.calls[2][0], 'http://x').searchParams.get('limit')).toBe('0');
+      expect(new URL(mockFetch.mock.calls[2][0], 'http://x').searchParams.get('limit')).toBe('1');
     });
 
     it('omits sort/direction/limit/offset by default (Review order)', async () => {

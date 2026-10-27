@@ -130,6 +130,8 @@ def verify_human_cookie(request: Request) -> int | None:
         payload = json.loads(payload_bytes)
     except (ValueError, TypeError):
         return None
+    if not isinstance(payload, dict):
+        return None
 
     # Reject cookies issued under prior schema versions (v=1 had no field;
     # the constant bump forces every pre-existing session to re-verify).
@@ -147,7 +149,7 @@ def verify_human_cookie(request: Request) -> int | None:
     except (KeyError, TypeError):
         return None
 
-    if exp < int(utcnow().timestamp()):
+    if exp <= int(utcnow().timestamp()):  # expiry is exclusive
         return None
 
     return guest_id

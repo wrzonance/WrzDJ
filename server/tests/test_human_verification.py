@@ -4,6 +4,7 @@ import base64
 from datetime import UTC, datetime
 from unittest.mock import patch
 
+import pytest
 from fastapi import Request, Response
 
 from app.services.human_verification import (
@@ -141,6 +142,28 @@ class TestVerifyHumanCookie:
         result = verify_human_cookie(request)
         assert result is None
 
+    def test_cookie_expiry_is_exclusive(self, mock_settings):
+        """Regression #914: exp == now is expired; exp == now + 1 is still valid."""
+        mock_settings.return_value.effective_human_cookie_secret = b"x" * 32
+        mock_settings.return_value.is_production = False
+        mock_settings.return_value.human_cookie_ttl_seconds = 3600
+
+        issued = datetime(2030, 1, 1, tzinfo=UTC)
+        with patch("app.services.human_verification.utcnow", return_value=issued):
+            response = Response()
+            issue_human_cookie(response, guest_id=42)
+            set_cookie = response.headers.get("set-cookie")
+            cookie_value = set_cookie.split("=", 1)[1].split(";", 1)[0]
+        exp = int(issued.timestamp()) + 3600
+        request = _make_request_with_cookie(cookie_value)
+
+        at_exp = datetime.fromtimestamp(exp, UTC)
+        with patch("app.services.human_verification.utcnow", return_value=at_exp):
+            assert verify_human_cookie(request) is None
+        one_before = datetime.fromtimestamp(exp - 1, UTC)
+        with patch("app.services.human_verification.utcnow", return_value=one_before):
+            assert verify_human_cookie(request) == 42
+
     def test_guest_id_must_be_strict_int(self, mock_settings):
         """Cookies with bool, str, or float guest_id are rejected."""
         import json as _json
@@ -177,6 +200,20 @@ class TestVerifyHumanCookie:
 
         request = _make_request_with_cookie(cookie_value)
         assert verify_human_cookie(request) is None
+
+    @pytest.mark.parametrize("payload", [b"[]", b"null", b"42", b'"text"'])
+    def test_validly_signed_non_object_payload_returns_none(self, mock_settings, payload):
+        """Regression #922: signed JSON that is not an object returns None, not a 500."""
+        mock_settings.return_value.effective_human_cookie_secret = b"x" * 32
+        mock_settings.return_value.is_production = False
+        mock_settings.return_value.human_cookie_ttl_seconds = 3600
+
+        from app.services.human_verification import _b64encode, _sign
+
+        sig = _sign(payload, b"x" * 32)
+        cookie_value = f"{_b64encode(payload)}.{_b64encode(sig)}"
+
+        assert verify_human_cookie(_make_request_with_cookie(cookie_value)) is None
 
     def test_signature_with_stray_characters_returns_none(self, mock_settings):
         # #856: a lenient decoder drops the "!!!!", so the altered cookie verified.

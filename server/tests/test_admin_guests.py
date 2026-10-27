@@ -2,9 +2,11 @@
 
 import hashlib
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.time import utcnow
@@ -13,7 +15,7 @@ from app.models.guest import Guest
 from app.models.guest_profile import GuestProfile
 from app.models.request import Request
 from app.models.request_vote import RequestVote
-from app.services.admin_guests import mask_email
+from app.services.admin_guests import NicknameTaken, mask_email, update_guest_profile_nickname
 from app.services.guest_identity import browser_label
 
 IPHONE_UA = (
@@ -204,7 +206,60 @@ class TestUpdateGuest:
         assert _patch(client, auth_headers, guests["a"].id, {}).status_code == 403
 
 
+class _PgOrig(Exception):
+    """Stand-in for a psycopg error carrying ``diag.constraint_name``."""
+
+    def __init__(self, constraint_name: str):
+        super().__init__(constraint_name)
+        self.diag = SimpleNamespace(constraint_name=constraint_name)
+
+
 class TestUpdateGuestProfile:
+    def test_nickname_padded_to_limit_is_trimmed_before_length_check(
+        self, client, admin_headers, guests, test_event
+    ):
+        """Regression #914: max_length applied after strip, not before."""
+        name = "n" * 30
+        response = _patch_profile(
+            client, admin_headers, guests["a"].id, test_event.id, {"nickname": f"  {name}  "}
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["events"][0]["nickname"] == name
+
+    def test_nickname_of_only_spaces_clears(self, client, admin_headers, guests, test_event):
+        response = _patch_profile(
+            client, admin_headers, guests["a"].id, test_event.id, {"nickname": " " * 31}
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["events"][0]["nickname"] is None
+
+    def test_nickname_over_limit_still_422(self, client, admin_headers, guests, test_event):
+        response = _patch_profile(
+            client, admin_headers, guests["a"].id, test_event.id, {"nickname": "n" * 31}
+        )
+        assert response.status_code == 422
+
+    def test_other_integrity_error_is_not_nickname_taken(self, db, guests, test_event, monkeypatch):
+        """Regression #914: only the nickname index maps to NicknameTaken."""
+        monkeypatch.setattr("app.services.admin_guests._nickname_taken", lambda *_args: False)
+
+        def failing_commit():
+            raise IntegrityError("INSERT", {}, _PgOrig("some_other_constraint"))
+
+        monkeypatch.setattr(db, "commit", failing_commit)
+        with pytest.raises(IntegrityError):
+            update_guest_profile_nickname(db, guests["a"], test_event.id, "fresh")
+
+    def test_nickname_index_violation_is_nickname_taken(self, db, guests, test_event, monkeypatch):
+        monkeypatch.setattr("app.services.admin_guests._nickname_taken", lambda *_args: False)
+
+        def failing_commit():
+            raise IntegrityError("INSERT", {}, _PgOrig("uq_guest_profile_event_nickname"))
+
+        monkeypatch.setattr(db, "commit", failing_commit)
+        with pytest.raises(NicknameTaken):
+            update_guest_profile_nickname(db, guests["a"], test_event.id, "fresh")
+
     def test_patch_profile_nickname(self, client, admin_headers, guests, test_event):
         response = _patch_profile(
             client, admin_headers, guests["a"].id, test_event.id, {"nickname": "  Zed "}
@@ -242,7 +297,7 @@ class TestUpdateGuestProfile:
         def failing_commit():
             calls["n"] += 1
             if calls["n"] == 1:
-                raise IntegrityError("INSERT", {}, Exception("uq_guest_profile_event_nickname"))
+                raise IntegrityError("INSERT", {}, _PgOrig("uq_guest_profile_event_nickname"))
             real_commit()
 
         monkeypatch.setattr(db, "commit", failing_commit)

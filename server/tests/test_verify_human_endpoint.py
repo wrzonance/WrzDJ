@@ -71,6 +71,37 @@ class TestVerifyHumanEndpoint:
         assert "CAPTCHA" in response.json()["detail"]
         assert COOKIE_NAME not in response.cookies
 
+    @patch(
+        "app.api.guest.verify_turnstile_token",
+        new_callable=AsyncMock,
+        return_value=True,
+    )
+    def test_success_records_pass_on_guest(self, mock_turnstile, client: TestClient, db: Session):
+        guest = _create_guest(db)
+        client.cookies.set("wrzdj_guest", guest.token)
+
+        client.post("/api/public/guest/verify-human", json={"turnstile_token": "t"})
+        client.post("/api/public/guest/verify-human", json={"turnstile_token": "t"})
+
+        db.refresh(guest)
+        assert guest.human_verify_count == 2
+        assert guest.human_verified_at is not None
+
+    @patch(
+        "app.api.guest.verify_turnstile_token",
+        new_callable=AsyncMock,
+        return_value=False,
+    )
+    def test_failure_does_not_record_pass(self, mock_turnstile, client: TestClient, db: Session):
+        guest = _create_guest(db)
+        client.cookies.set("wrzdj_guest", guest.token)
+
+        client.post("/api/public/guest/verify-human", json={"turnstile_token": "bad"})
+
+        db.refresh(guest)
+        assert guest.human_verify_count == 0
+        assert guest.human_verified_at is None
+
     def test_missing_guest_cookie_400(self, client: TestClient, db: Session):
         # No wrzdj_guest cookie set
         response = client.post(

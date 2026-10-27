@@ -93,6 +93,58 @@ export interface paths {
         patch: operations["admin_update_event_api_admin_events__code__patch"];
         trace?: never;
     };
+    "/api/admin/guests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin List Guests */
+        get: operations["admin_list_guests_api_admin_guests_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/guests/{guest_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Admin Delete Guest */
+        delete: operations["admin_delete_guest_api_admin_guests__guest_id__delete"];
+        options?: never;
+        head?: never;
+        /** Admin Update Guest */
+        patch: operations["admin_update_guest_api_admin_guests__guest_id__patch"];
+        trace?: never;
+    };
+    "/api/admin/guests/{guest_id}/events/{event_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Admin Update Guest Profile */
+        patch: operations["admin_update_guest_profile_api_admin_guests__guest_id__events__event_id__patch"];
+        trace?: never;
+    };
     "/api/admin/integrations": {
         parameters: {
             query?: never;
@@ -4188,6 +4240,97 @@ export interface components {
              * @default 0
              */
             request_count: number;
+        };
+        /**
+         * AdminGuestEventOut
+         * @description One event membership (a guest_profiles row) as the admin sees it.
+         */
+        AdminGuestEventOut: {
+            /** Code */
+            code: string;
+            /** Event Id */
+            event_id: number;
+            /**
+             * Joined At
+             * Format: date-time
+             */
+            joined_at: string;
+            /** Name */
+            name: string;
+            /** Nickname */
+            nickname: string | null;
+            /**
+             * Submission Count
+             * @default 0
+             */
+            submission_count: number;
+        };
+        /** AdminGuestOut */
+        AdminGuestOut: {
+            /** Browser */
+            browser: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Email Masked */
+            email_masked: string | null;
+            /**
+             * Email Verified
+             * @default false
+             */
+            email_verified: boolean;
+            /** Email Verified At */
+            email_verified_at: string | null;
+            /**
+             * Event Count
+             * @default 0
+             */
+            event_count: number;
+            /** Events */
+            events: components["schemas"]["AdminGuestEventOut"][];
+            /**
+             * Fingerprint Shared With
+             * @default 0
+             */
+            fingerprint_shared_with: number;
+            /** Fingerprint Short */
+            fingerprint_short: string | null;
+            /** Human Verified At */
+            human_verified_at: string | null;
+            /**
+             * Human Verify Count
+             * @default 0
+             */
+            human_verify_count: number;
+            /** Id */
+            id: number;
+            /**
+             * Last Seen At
+             * Format: date-time
+             */
+            last_seen_at: string;
+            /** Nickname */
+            nickname: string | null;
+            /**
+             * Request Count
+             * @default 0
+             */
+            request_count: number;
+        };
+        /** AdminGuestProfileUpdate */
+        AdminGuestProfileUpdate: {
+            /** Nickname */
+            nickname?: string | null;
+        };
+        /** AdminGuestUpdate */
+        AdminGuestUpdate: {
+            /**
+             * Revoke Email
+             * @default false
+             */
+            revoke_email: boolean;
         };
         /** AdminPolicyOut */
         AdminPolicyOut: {
@@ -8326,6 +8469,140 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminEventOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_list_guests_api_admin_guests_get: {
+        parameters: {
+            query?: {
+                page?: number;
+                limit?: number;
+                filter?: string;
+                q?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_delete_guest_api_admin_guests__guest_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guest_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_update_guest_api_admin_guests__guest_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guest_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminGuestUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminGuestOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_update_guest_profile_api_admin_guests__guest_id__events__event_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guest_id: number;
+                event_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminGuestProfileUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminGuestOut"];
                 };
             };
             /** @description Validation Error */

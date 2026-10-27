@@ -19,6 +19,7 @@ from app.services.human_verification import (
     COOKIE_NAME,
     _b64decode,
     issue_human_cookie,
+    record_human_verification,
     verify_human_cookie,
 )
 from app.services.turnstile import verify_turnstile_token
@@ -93,6 +94,7 @@ async def verify_human(
     if not is_valid:
         raise HTTPException(status_code=400, detail="CAPTCHA verification failed")
 
+    record_human_verification(db, guest_id)
     issue_human_cookie(response, guest_id)
 
     return VerifyHumanResponse(verified=True, expires_in=settings.human_cookie_ttl_seconds)

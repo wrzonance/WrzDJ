@@ -60,16 +60,20 @@ def test_competing_sessions_cannot_claim_with_stale_set_objects(tmp_path):
     Base.metadata.create_all(engine)
     sessions = sessionmaker(bind=engine)
     setup = sessions()
-    barrier = Barrier(2)
+    # A timeout turns a worker that dies before the barrier into an error, not a hang.
+    barrier = Barrier(2, timeout=10)
     try:
         created = Set(owner_id=1, name="Night", apple_music_playlist_id="p.confirmed123")
         setup.add(created)
         setup.commit()
+        # Read the id here: `created` is expired, and refreshing it from the worker
+        # threads would share the non-thread-safe `setup` session between them.
+        created_id = created.id
 
         def claim():
             session = sessions()
             try:
-                stale = session.get(Set, created.id)
+                stale = session.get(Set, created_id)
                 session.expunge(stale)
                 session.rollback()
                 barrier.wait()
@@ -82,7 +86,7 @@ def test_competing_sessions_cannot_claim_with_stale_set_objects(tmp_path):
 
         assert sorted(outcomes) == [False, True]
         setup.expire(created)
-        stored = setup.get(Set, created.id)
+        stored = setup.get(Set, created_id)
         assert stored.apple_music_export_pending is True
         assert stored.apple_music_playlist_id == "p.confirmed123"
         assert stored.apple_music_export_attempt_id

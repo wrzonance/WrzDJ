@@ -118,6 +118,44 @@ describe('useDialogFocus', () => {
     expect(middle).toHaveFocus();
   });
 
+  it('skips disabled controls for mount focus and Tab wrapping (#915)', () => {
+    render(
+      <Harness>
+        <button disabled>off-first</button>
+        <input aria-label="first" />
+        <button>last</button>
+        <button disabled>off-last</button>
+      </Harness>,
+    );
+    openDialog();
+    expect(screen.getByLabelText('first')).toHaveFocus();
+
+    screen.getByRole('button', { name: 'last' }).focus();
+    fireEvent.keyDown(document.activeElement as Element, { key: 'Tab' });
+
+    expect(screen.getByLabelText('first')).toHaveFocus();
+  });
+
+  it('skips controls inside hidden, inert or aria-hidden subtrees (#915)', () => {
+    render(
+      <Harness>
+        <div hidden>
+          <button>in-hidden</button>
+        </div>
+        <div aria-hidden="true">
+          <button>in-aria-hidden</button>
+        </div>
+        <div inert>
+          <button>in-inert</button>
+        </div>
+        <input aria-label="first" />
+      </Harness>,
+    );
+    openDialog();
+
+    expect(screen.getByLabelText('first')).toHaveFocus();
+  });
+
   it('restores focus to the opener when the dialog unmounts', () => {
     render(
       <Harness>

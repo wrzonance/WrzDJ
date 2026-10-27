@@ -3,8 +3,13 @@ import { useEffect, type RefObject } from 'react';
 const FOCUSABLE =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
+/** Subtrees whose descendants cannot receive focus (no layout checks: jsdom has none). */
+const UNAVAILABLE = '[hidden], [inert], [aria-hidden="true"]';
+
 function focusableIn(container: HTMLElement): HTMLElement[] {
-  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE));
+  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+    (el) => !el.matches(':disabled') && !el.closest(UNAVAILABLE),
+  );
 }
 
 /** Keeps Tab / Shift+Tab cycling between the first and last focusable inside `container`. */

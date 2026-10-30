@@ -97,11 +97,21 @@ ignore = ["UP042", "E711", "E712"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Unknown markers fail collection (a typo would otherwise silently skip a fixture or filter).
+strict_markers = true
 testpaths = ["tests"]
 addopts = "-v --cov=app --cov-report=term-missing --cov-branch --cov-fail-under=85"
 markers = [
     "real_enrichment: run real request-time enrichment (it is a no-op in tests by default)",
     "allow_network: allow real outbound HTTP (blocked in tests by default)",
+]
+filterwarnings = [
+    # Our own deprecations fail the suite, so they get fixed when they appear.
+    'error::DeprecationWarning:app\.',
+    # Third-party, not ours to fix: slowapi still calls asyncio.iscoroutinefunction.
+    "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning:slowapi",
+    # Third-party: starlette's TestClient notice about the httpx package name.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
 ]
 
 [tool.coverage.run]

@@ -1,5 +1,11 @@
 """Pytest configuration and fixtures for WrzDJ tests."""
 
+import os
+
+# A full-length signing key for tests (HS512 wants 64 bytes); the short default caused a
+# PyJWT InsecureKeyLengthWarning on every token (~1,450 per run). Set before app imports.
+os.environ["JWT_SECRET"] = "wrzdj-tests-only-signing-key-" + "0123456789abcdef" * 3
+
 from collections.abc import Generator
 from datetime import timedelta
 

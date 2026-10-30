@@ -17,6 +17,14 @@ const nextConfig = {
   // Hide the dev-only indicator (lower-left circle) so it doesn't appear in screenshots.
   devIndicators: false,
   allowedDevOrigins: ['192.168.*.*'],
+  // Next 16.4+ (1) rewrites a generated block into dashboard/AGENTS.md when it detects a coding
+  // assistant, and (2) stops `next dev` / `next build` once to print upgrade instructions.
+  // dashboard/AGENTS.md is hand-maintained (its version check replaces the generated block), and
+  // upgrades go through Renovate and review.
+  agentRules: false,
+  experimental: {
+    agentUpgrade: false,
+  },
   async redirects() {
     return [
       // DJ AI connector/model settings moved into the account page (#357).

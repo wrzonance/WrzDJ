@@ -1,9 +1,9 @@
-<!-- BEGIN:nextjs-agent-rules -->
+# Dashboard
 
-# This is NOT the Next.js you know
+Check which version of Next.js this dashboard uses before writing any code: `next` in
+`package.json`, exact version in `package-lock.json`. It may be newer than your training data,
+so APIs, conventions and file structure can differ. Read the matching guide in
+`node_modules/next/dist/docs/` and heed deprecation notices.
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
-
-This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
-
-<!-- END:nextjs-agent-rules -->
+This file is hand-maintained; add dashboard-specific instructions here. `next.config.js` sets
+`agentRules: false` so `next dev` does not regenerate it.

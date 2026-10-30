@@ -19,7 +19,7 @@
     "stagelinq": "3.5.7"
   },
   "devDependencies": {
-    "@types/node": "^25.9.8",
+    "@types/node": "^26.0.0",
     "@vitest/coverage-v8": "^5.0.3",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",

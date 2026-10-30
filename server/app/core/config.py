@@ -6,6 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from pydantic import PositiveInt
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Look for .env in project root (parent of server/)
@@ -115,6 +116,9 @@ class Settings(BaseSettings):
     #   python -c "import secrets, base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"  # noqa: E501
     human_cookie_secret: str = ""
     human_cookie_ttl_seconds: int = 3600  # 60 min sliding window
+    # Lifetime of the wrzdj_guest identity cookie, counted from when it is set.
+    # 24h covers one event night.
+    guest_cookie_max_age_seconds: PositiveInt = 86400
 
     # DEV-ONLY: bypass the guest human-verification + email-verification gates so
     # headless tests (API/Playwright) can exercise guest flows without minting a

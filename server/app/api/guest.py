@@ -61,15 +61,18 @@ def identify(
         }
     )
 
-    if result.token:
+    # A cookie hit re-sets the same token, so the lifetime counts from the last visit
+    # (and cookies issued with an older, longer Max-Age pick up the current one).
+    token = result.token or (token_from_cookie if result.action == "cookie_hit" else None)
+    if token:
         is_prod = settings.env == "production"
         response.set_cookie(
             key="wrzdj_guest",
-            value=result.token,
+            value=token,
             httponly=True,
             secure=is_prod,
             samesite="lax",
-            max_age=31536000,
+            max_age=settings.guest_cookie_max_age_seconds,
             path="/api/",
         )
 

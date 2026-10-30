@@ -233,3 +233,21 @@ def test_confirm_merge_ignores_human_cookie_of_another_guest(client: TestClient,
 
     assert resp.json()["merged"] is True
     assert "wrzdj_human" not in resp.cookies
+
+
+def test_confirm_merge_cookie_max_age_follows_setting(client: TestClient, db: Session, monkeypatch):
+    """The rotated wrzdj_guest cookie from a merge uses the same lifetime as identify."""
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "guest_cookie_max_age_seconds", 12 * 60 * 60)
+    device_a = _identify(client, "max_age_device_a_fp")
+    client.cookies.set("wrzdj_guest", device_a["cookie"])
+    assert _claim_email(client, db, device_a["guest_id"], "maxage@test.com").status_code == 200
+
+    device_b = _identify(client, "max_age_device_b_fp")
+    client.cookies.set("wrzdj_guest", device_b["cookie"])
+    resp = _claim_email(client, db, device_b["guest_id"], "maxage@test.com")
+
+    assert resp.json()["merged"] is True
+    (header,) = [h for h in resp.headers.get_list("set-cookie") if h.startswith("wrzdj_guest=")]
+    assert "Max-Age=43200" in header

@@ -395,3 +395,221 @@ def musicbrainz_no_match(fake_http):
 
     register(fake_http)
     return fake_http
+
+
+class FrozenClock:
+    """Controller for a frozen test clock (see the ``clock`` fixture)."""
+
+    def __init__(self, frozen):
+        self._frozen = frozen
+
+    @property
+    def now(self):
+        """The frozen moment as app code sees it (naive UTC, like app.core.time.utcnow)."""
+        from app.core import time as app_time
+
+        return app_time.utcnow()
+
+    def __call__(self):
+        return self.now
+
+    def advance(self, seconds: float):
+        self._frozen.tick(timedelta(seconds=seconds))
+        return self.now
+
+    def set(self, moment):
+        self._frozen.move_to(moment)
+        return self.now
+
+
+def _build_route_contexts_unfrozen(app) -> None:
+    """Build FastAPI's per-route parameter fields before time is frozen.
+
+    FastAPI builds them on a router's first request. Under freezegun that first build sees
+    FakeDatetime in a ``datetime | None`` parameter and every request in the test fails, so
+    a frozen test that is the first to reach a router (a file run on its own) broke. Walking
+    the included routers once builds and caches them.
+    """
+    from fastapi.routing import _IncludedRouter
+
+    def walk(routes) -> None:
+        for route in routes:
+            if isinstance(route, _IncludedRouter):
+                walk(route.effective_candidates())
+
+    walk(app.router.routes)
+
+
+@pytest.fixture
+def clock(test_app) -> Generator[FrozenClock, None, None]:
+    """Freeze time for the whole test with freezegun (``freeze_time(tick=False)``).
+
+    Covers every clock app code reads: app.core.time.utcnow (also where a module imported it
+    by name, and SQLAlchemy column defaults bound to it), datetime.now, time.time and
+    time.monotonic (rate limits, throttles). ``clock.now`` is the frozen naive-UTC moment;
+    ``clock.advance(4)`` moves it. Use it for anything near a time limit, never the real clock.
+    """
+    from datetime import UTC, datetime
+
+    from freezegun import freeze_time
+
+    _build_route_contexts_unfrozen(test_app)
+    start = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
+    with freeze_time(start, tick=False) as frozen:
+        yield FrozenClock(frozen)
+
+
+@pytest.fixture
+def frozen_clock(clock) -> FrozenClock:
+    """Alias of ``clock``."""
+    return clock
+
+
+@pytest.fixture
+def make_user(db: Session):
+    """Factory: ``make_user(username=..., role=..., **columns)`` -> a committed User."""
+    counter = iter(range(1, 10_000))
+
+    def make(**overrides) -> User:
+        n = next(counter)
+        values = {
+            "username": f"user{n}",
+            "password_hash": TEST_USER_PASSWORD_HASH,
+            "role": "dj",
+        }
+        values.update(overrides)
+        user = User(**values)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+
+    return make
+
+
+@pytest.fixture
+def make_event(db: Session, make_user):
+    """Factory: ``make_event(user=..., code=..., **columns)`` -> a committed Event."""
+    counter = iter(range(1, 10_000))
+
+    from app.core import time as app_time
+
+    def make(user: User | None = None, **overrides) -> Event:
+        n = next(counter)
+        owner = user or make_user()
+        values = {
+            "code": f"EVT{n:03d}",
+            "join_code": f"JN{n:04d}",
+            "name": f"Event {n}",
+            "created_by_user_id": owner.id,
+            # read the clock at call time, so a frozen ``clock`` applies here too
+            "expires_at": app_time.utcnow() + timedelta(hours=6),
+        }
+        values.update(overrides)
+        event = Event(**values)
+        db.add(event)
+        db.commit()
+        db.refresh(event)
+        return event
+
+    return make
+
+
+@pytest.fixture(scope="session")
+def _pg_engine():
+    """Real Postgres for ``@pytest.mark.postgres`` tests, or None when TEST_POSTGRES_URL is unset.
+
+    Each xdist worker gets its own schema (pytest_pg_<worker>), so parallel runs and the
+    database's own Alembic-managed ``public`` schema never collide.
+    """
+    import os
+
+    url = os.environ.get("TEST_POSTGRES_URL")
+    if not url:
+        yield None
+        return
+    from sqlalchemy import text
+
+    schema = "pytest_pg_" + os.environ.get("PYTEST_XDIST_WORKER", "main")
+    engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
+    with engine.begin() as conn:
+        conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        conn.execute(text(f'CREATE SCHEMA "{schema}"'))
+    Base.metadata.create_all(engine)
+    try:
+        yield engine
+    finally:
+        with engine.begin() as conn:
+            conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        engine.dispose()
+
+
+@pytest.fixture
+def pg_db(_pg_engine) -> Generator[Session, None, None]:
+    """A session on real Postgres, rolled back after the test (skips without TEST_POSTGRES_URL)."""
+    if _pg_engine is None:
+        pytest.skip("TEST_POSTGRES_URL is not set")
+    connection = _pg_engine.connect()
+    outer = connection.begin()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    try:
+        yield session
+    finally:
+        session.close()
+        outer.rollback()
+        connection.close()
+
+
+@pytest.fixture
+def make_guest(db: Session):
+    """Factory: ``make_guest(**columns)`` -> a committed Guest with a unique token."""
+    counter = iter(range(1, 10_000))
+
+    def make(**overrides) -> Guest:
+        n = next(counter)
+        values = {"token": f"{n:064x}", "fingerprint_hash": f"fp_factory_{n}"}
+        values.update(overrides)
+        guest = Guest(**values)
+        db.add(guest)
+        db.commit()
+        db.refresh(guest)
+        return guest
+
+    return make
+
+
+@pytest.fixture
+def make_request(db: Session, make_event):
+    """Factory: ``make_request(event=..., **columns)`` -> a committed NEW song request."""
+    counter = iter(range(1, 10_000))
+
+    def make(event: Event | None = None, **overrides) -> Request:
+        n = next(counter)
+        values = {
+            "event_id": (event or make_event()).id,
+            "song_title": f"Song {n}",
+            "artist": f"Artist {n}",
+            "source": "manual",
+            "status": RequestStatus.NEW.value,
+            "dedupe_key": f"factory_dedupe_{n:08d}",
+        }
+        values.update(overrides)
+        request = Request(**values)
+        db.add(request)
+        db.commit()
+        db.refresh(request)
+        return request
+
+    return make
+
+
+@pytest.fixture
+def make_set(client: TestClient, auth_headers: dict):
+    """Factory: ``make_set(name)`` -> the id of a new setbuilder set owned by test_user."""
+
+    def make(name: str = "Test Set") -> int:
+        resp = client.post("/api/setbuilder/sets", json={"name": name}, headers=auth_headers)
+        assert resp.status_code == 201
+        return resp.json()["id"]
+
+    return make

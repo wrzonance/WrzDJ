@@ -19,10 +19,8 @@ NO_LLM_DETAIL = "No AI connector configured — connect one in Settings → AI."
 
 
 @pytest.fixture
-def set_id(client: TestClient, auth_headers: dict) -> int:
-    resp = client.post("/api/setbuilder/sets", json={"name": "Vibe Set"}, headers=auth_headers)
-    assert resp.status_code == 201
-    return resp.json()["id"]
+def set_id(make_set) -> int:
+    return make_set("Vibe Set")
 
 
 @pytest.fixture

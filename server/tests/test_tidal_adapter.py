@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
-from sqlalchemy.orm import Session
 
 from app.models.event import Event
 from app.models.user import User
@@ -21,38 +20,29 @@ def adapter():
 
 
 @pytest.fixture
-def tidal_user(db: Session) -> User:
-    from app.services.auth import get_password_hash
-
-    user = User(
+def tidal_user(make_user) -> User:
+    """A user with a linked Tidal account."""
+    return make_user(
         username="tidal_adapter_user",
-        password_hash=get_password_hash("testpassword123"),
         tidal_access_token="test_access_token",
         tidal_refresh_token="test_refresh_token",
         tidal_token_expires_at=datetime.now(UTC) + timedelta(hours=1),
         tidal_user_id="12345",
     )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
 
 
 @pytest.fixture
-def tidal_event(db: Session, tidal_user: User) -> Event:
-    event = Event(
+def tidal_event(make_event, tidal_user: User) -> Event:
+    """An event with Tidal sync enabled."""
+    return make_event(
+        user=tidal_user,
         code="ADAPT1",
         join_code="RZL4R2",
         name="Adapter Test Event",
-        created_by_user_id=tidal_user.id,
         expires_at=datetime.now(UTC) + timedelta(hours=6),
         tidal_sync_enabled=True,
         tidal_playlist_id="playlist_adapt",
     )
-    db.add(event)
-    db.commit()
-    db.refresh(event)
-    return event
 
 
 class TestTidalAdapterProperties:

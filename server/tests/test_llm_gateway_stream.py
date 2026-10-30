@@ -8,7 +8,6 @@ import pytest
 
 from app.models.llm_connector import LlmCallLog, LlmConnector
 from app.models.user import User
-from app.services.auth import get_password_hash
 from app.services.llm.adapters.openai_apikey import OpenAIApiKeyAdapter
 from app.services.llm.base import ChatRequest, ChatResponseChunk, Message, TokenUsage
 from app.services.llm.exceptions import (
@@ -20,16 +19,8 @@ from app.services.llm.gateway import Gateway
 
 
 @pytest.fixture
-def dj_user(db) -> User:
-    user = User(
-        username="streamdj",
-        password_hash=get_password_hash("password123"),
-        role="dj",
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
+def dj_user(make_user) -> User:
+    return make_user(username="streamdj")
 
 
 def _make_connector(db, user, **kw) -> LlmConnector:

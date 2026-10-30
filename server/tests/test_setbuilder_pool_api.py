@@ -14,10 +14,8 @@ from app.services.setbuilder import pool as pool_module
 
 
 @pytest.fixture
-def set_id(client: TestClient, auth_headers: dict) -> int:
-    resp = client.post("/api/setbuilder/sets", json={"name": "Pool Set"}, headers=auth_headers)
-    assert resp.status_code == 201
-    return resp.json()["id"]
+def set_id(make_set) -> int:
+    return make_set("Pool Set")
 
 
 @pytest.fixture

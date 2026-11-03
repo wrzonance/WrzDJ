@@ -158,3 +158,18 @@ def test_identify_cookie_hit_renews_the_same_cookie(client: TestClient):
     assert second.json()["action"] == "cookie_hit"
     assert second.cookies["wrzdj_guest"] == token
     assert _guest_cookie_max_age(second) == 24 * 60 * 60
+
+
+def test_identify_cookie_hit_re_sets_the_stored_token(client: TestClient, db):
+    """The renewed cookie carries the guest row's stored token, not the request's value
+    (#932 CodeQL: a cookie built from user-supplied input)."""
+    from app.models.guest import Guest
+
+    first = client.post("/api/public/guest/identify", json={"fingerprint_hash": "test_fp_store"})
+    guest_id = first.json()["guest_id"]
+    client.cookies.set("wrzdj_guest", first.cookies["wrzdj_guest"])
+
+    second = client.post("/api/public/guest/identify", json={"fingerprint_hash": "test_fp_store"})
+
+    assert second.json()["action"] == "cookie_hit"
+    assert second.cookies["wrzdj_guest"] == db.get(Guest, guest_id).token

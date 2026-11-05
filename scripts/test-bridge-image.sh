@@ -4,6 +4,11 @@ set -euo pipefail
 image=${1:?Usage: test-bridge-image.sh IMAGE}
 root=$(cd "$(dirname "$0")/.." && pwd)
 
+runtime_uid=$(docker run --rm --network none --entrypoint id "$image" -u)
+if [ "$runtime_uid" = "0" ]; then
+  echo "Bridge image runs as root; it must drop to an unprivileged user" >&2
+  exit 1
+fi
 docker run --rm --network none --entrypoint sh "$image" -ec '
   for tool in npm npx tsc vitest; do
     if command -v "$tool" >/dev/null; then

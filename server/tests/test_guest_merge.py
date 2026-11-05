@@ -3,6 +3,7 @@
 from contextlib import contextmanager
 from datetime import timedelta
 
+import pytest
 from sqlalchemy import event
 from sqlalchemy.orm import Session
 
@@ -27,6 +28,16 @@ def _make_guest(db: Session, token_prefix: str) -> Guest:
     db.commit()
     db.refresh(guest)
     return guest
+
+
+def test_merge_rejects_the_same_guest_as_source_and_target(db: Session):
+    """A self-merge would delete the guest's own votes and profiles as "duplicates" and
+    leave a tombstone that forwards to itself; it is refused before any write."""
+    guest = _make_guest(db, "self_m")
+    with pytest.raises(ValueError, match="two different guests"):
+        merge_guests(db, source_guest_id=guest.id, target_guest_id=guest.id)
+    db.refresh(guest)
+    assert guest.merged_into_guest_id is None and guest.fingerprint_hash == "fp_self_m"
 
 
 def test_merge_moves_requests(db: Session, test_event: Event):

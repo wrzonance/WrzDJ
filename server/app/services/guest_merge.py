@@ -57,6 +57,8 @@ def merge_guests(db: Session, *, source_guest_id: int, target_guest_id: int) -> 
     The source row is kept as a forwarding tombstone (PII and fingerprint cleared) so a
     stale cookie still resolves to the target (#932).
     """
+    if source_guest_id == target_guest_id:
+        raise ValueError("guest merge needs two different guests")
     requests_moved = 0
     votes_moved = 0
     votes_deduped = 0

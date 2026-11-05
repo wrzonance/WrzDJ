@@ -525,10 +525,13 @@ def make_event(db: Session, make_user):
 def _pg_engine():
     """Real Postgres for ``@pytest.mark.postgres`` tests, or None when TEST_POSTGRES_URL is unset.
 
-    Each xdist worker gets its own schema (pytest_pg_<worker>), so parallel runs and the
-    database's own Alembic-managed ``public`` schema never collide.
+    Each session gets its own schema (``pytest_pg_<worker>_<random suffix>``), so parallel
+    xdist workers, concurrent local sessions on one database, and the database's own
+    Alembic-managed ``public`` schema never collide. A crashed run can leave its schema
+    behind; the next run uses a fresh name and does not touch it.
     """
     import os
+    import uuid
 
     url = os.environ.get("TEST_POSTGRES_URL")
     if not url:
@@ -536,7 +539,8 @@ def _pg_engine():
         return
     from sqlalchemy import text
 
-    schema = "pytest_pg_" + os.environ.get("PYTEST_XDIST_WORKER", "main")
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "main")
+    schema = f"pytest_pg_{worker}_{uuid.uuid4().hex[:8]}"
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     with engine.begin() as conn:
         conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))

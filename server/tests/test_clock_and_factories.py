@@ -51,22 +51,47 @@ def test_make_event_uses_the_frozen_clock_for_expiry(make_event, clock):
 
 
 def test_unknown_markers_are_rejected(tmp_path):
-    """strict_markers (pyproject): an unregistered marker fails collection."""
+    """The repo's pytest config sets strict_markers, so an unregistered marker is rejected.
+
+    Guards server/pyproject.toml itself: the setting is asserted from the file, and a
+    subprocess pytest run against that same config (minus its coverage addopts) must
+    refuse an unregistered marker with the strict-markers error.
+    """
     import subprocess
     import sys
+    import tomllib
+    from pathlib import Path
 
-    (tmp_path / "pytest.ini").write_text("[pytest]\nstrict_markers = true\n")
+    config = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    ini_options = tomllib.loads(config.read_text())["tool"]["pytest"]["ini_options"]
+    assert ini_options["strict_markers"] is True
+
     (tmp_path / "test_x.py").write_text(
         "import pytest\n\n@pytest.mark.not_registered_marker\ndef test_x():\n    pass\n"
     )
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(tmp_path)],
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-c",
+            str(config),
+            "--rootdir",
+            str(tmp_path),
+            "-o",
+            "addopts=",
+            "-p",
+            "no:cacheprovider",
+            "-q",
+            str(tmp_path / "test_x.py"),
+        ],
         cwd=tmp_path,
         capture_output=True,
         text=True,
     )
+    output = result.stdout + result.stderr
     assert result.returncode != 0
-    assert "not_registered_marker" in result.stdout + result.stderr
+    assert "'not_registered_marker' not found in `markers` configuration option" in output
 
 
 def test_make_guest_gives_unique_tokens(make_guest):

@@ -104,6 +104,8 @@ jobs:
           DATABASE_URL: postgresql+psycopg://wrzdj:wrzdj@localhost:5432/wrzdj_test
           JWT_SECRET: test-secret-key
           ENV: development
+          # @pytest.mark.postgres tests run on this service too (own schemas, dropped after)
+          TEST_POSTGRES_URL: postgresql+psycopg://wrzdj:wrzdj@localhost:5432/wrzdj_test
         run: pytest -n 4 --dist=loadfile --cov=app --cov-report=xml --cov-report=term-missing --durations=25 --durations-min=1.0
 
       - name: Check Alembic migrations are up to date

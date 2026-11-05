@@ -9,7 +9,6 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 import requests
-from sqlalchemy.orm import Session
 
 from app.models.user import User
 from app.services import beatport, listenbrainz, tidal
@@ -70,12 +69,12 @@ class TestListenBrainzDays:
 
 class TestBeatportDays:
     @pytest.fixture
-    def bp_user(self, db: Session, test_user: User) -> User:
-        test_user.beatport_access_token = "fake-access"
-        test_user.beatport_refresh_token = "fake-refresh"
-        test_user.beatport_token_expires_at = datetime.now(UTC) + timedelta(hours=1)
-        db.commit()
-        return test_user
+    def bp_user(self, make_user) -> User:
+        return make_user(
+            beatport_access_token="fake-access",
+            beatport_refresh_token="fake-refresh",
+            beatport_token_expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
 
     def test_streaming_subscription_is_read(self, db, bp_user, beatport_up):
         assert beatport.fetch_subscription_type(db, bp_user) == "streaming"
@@ -89,12 +88,12 @@ class TestBeatportDays:
 
 class TestTidalDays:
     @pytest.fixture
-    def tidal_user(self, db: Session, test_user: User) -> User:
-        test_user.tidal_access_token = "fake-access"
-        test_user.tidal_refresh_token = "fake-refresh"
-        test_user.tidal_token_expires_at = datetime.now(UTC) + timedelta(hours=1)
-        db.commit()
-        return test_user
+    def tidal_user(self, make_user) -> User:
+        return make_user(
+            tidal_access_token="fake-access",
+            tidal_refresh_token="fake-refresh",
+            tidal_token_expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
 
     def test_connected_account_loads_a_session(self, db, tidal_user, tidal_connected):
         session = tidal.get_tidal_session(db, tidal_user)

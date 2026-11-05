@@ -28,16 +28,8 @@ def _patch_chat(mock):
 
 
 @pytest.fixture
-def dj_user(db) -> User:
-    user = User(
-        username="djuser",
-        password_hash=get_password_hash("password123"),
-        role="dj",
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
+def dj_user(make_user) -> User:
+    return make_user(username="djuser")
 
 
 @pytest.fixture

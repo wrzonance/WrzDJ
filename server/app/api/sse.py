@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from sse_starlette.sse import EventSourceResponse
 
 from app.core.rate_limit import limiter
@@ -53,6 +54,13 @@ async def _event_generator(
         bus.unsubscribe(event_code, queue)
 
 
+def _lookup_event_code(code: str) -> tuple[EventLookupResult, str | None]:
+    """One-shot existence check in a short-lived session (returned before streaming)."""
+    with SessionLocal() as db:
+        event, result = get_event_by_public_code_with_status(db, code)
+        return result, (event.code if event is not None else None)
+
+
 @router.get("/events/{code}/stream")
 @limiter.limit("10/minute")
 async def event_stream(
@@ -81,15 +89,16 @@ async def event_stream(
     - requests_bulk_update: Batch accept/reject
     - bridge_status_changed: Bridge connect/disconnect
     """
-    with SessionLocal() as db:
-        event, result = get_event_by_public_code_with_status(db, code)
-        if result == EventLookupResult.NOT_FOUND:
-            raise HTTPException(status_code=404, detail="Event not found")
-        if result == EventLookupResult.ARCHIVED:
-            raise HTTPException(status_code=410, detail="Event has been archived")
-        if result == EventLookupResult.EXPIRED:
-            raise HTTPException(status_code=410, detail="Event has expired")
-        event_code = event.code
+    # The lookup is blocking DB I/O; this handler is async, so run it on a worker thread.
+    # Inline, a pool checkout under load blocked the event loop for up to pool_timeout and
+    # froze every request, /health included (2026-11-03, self-host stack).
+    result, event_code = await run_in_threadpool(_lookup_event_code, code)
+    if result == EventLookupResult.NOT_FOUND:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if result == EventLookupResult.ARCHIVED:
+        raise HTTPException(status_code=410, detail="Event has been archived")
+    if result == EventLookupResult.EXPIRED:
+        raise HTTPException(status_code=410, detail="Event has expired")
 
     return EventSourceResponse(
         _event_generator(request, event_code),

@@ -380,3 +380,51 @@ class TestHelpers:
     def test_browser_label_unknown_or_missing(self):
         assert browser_label("curl/8.0") is None
         assert browser_label(None) is None
+
+
+def test_admin_list_hides_merge_tombstones(client, admin_headers, db):
+    """#932: a merged source stays as a forwarding tombstone but is not a guest to manage."""
+    from app.services.guest_merge import merge_guests
+
+    source = _guest(db, "tomb_list_src")
+    survivor = _guest(db, "tomb_list_tgt")
+    merge_guests(db, source_guest_id=source.id, target_guest_id=survivor.id)
+
+    data = _items(client, admin_headers)
+
+    assert data["total"] == 1
+    assert [item["id"] for item in data["items"]] == [survivor.id]
+    assert _items(client, admin_headers, filter="shared")["total"] == 0
+    assert _items(client, admin_headers, filter="unverified")["total"] == 1
+
+
+def test_admin_delete_of_merge_target_removes_its_tombstones(client, admin_headers, db):
+    """#932: deleting the survivor must not leave tombstones that resolve as live guests."""
+    from app.services.guest_identity import resolve_guest_by_token
+    from app.services.guest_merge import merge_guests
+
+    source = _guest(db, "tomb_del_src")
+    survivor = _guest(db, "tomb_del_tgt")
+    stale_token = source.token
+    source_id = source.id
+    merge_guests(db, source_guest_id=source.id, target_guest_id=survivor.id)
+
+    response = client.delete(f"{LIST_URL}/{survivor.id}", headers=admin_headers)
+
+    assert response.status_code in (200, 204)
+    db.expire_all()
+    assert db.get(Guest, source_id) is None
+    assert resolve_guest_by_token(db, stale_token) is None
+
+
+def test_tombstones_do_not_inflate_fingerprint_collisions(client, admin_headers, db):
+    """#932: a forwarding tombstone must never make its survivor look like a shared device,
+    even if a legacy row still carries the same fingerprint."""
+    survivor = _guest(db, "coll_tgt", fingerprint_hash="f" * 64)
+    _guest(db, "coll_src", fingerprint_hash="f" * 64, merged_into_guest_id=survivor.id)
+
+    data = _items(client, admin_headers, filter="shared")
+
+    assert data["total"] == 0
+    row = _items(client, admin_headers)["items"][0]
+    assert row["id"] == survivor.id

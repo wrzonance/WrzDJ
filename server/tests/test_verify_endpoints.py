@@ -251,3 +251,24 @@ def test_confirm_merge_cookie_max_age_follows_setting(client: TestClient, db: Se
     assert resp.json()["merged"] is True
     (header,) = [h for h in resp.headers.get_list("set-cookie") if h.startswith("wrzdj_guest=")]
     assert "Max-Age=43200" in header
+
+
+def test_stale_merged_cookie_still_passes_the_cookie_gate(client: TestClient, db: Session):
+    """PR #932: a cookie-gated endpoint called with the merged-away token resolves to the
+    survivor instead of 400 "Guest identity required"."""
+    device_a = _identify(client, "gate_stale_a_fp")
+    client.cookies.set("wrzdj_guest", device_a["cookie"])
+    assert _claim_email(client, db, device_a["guest_id"], "gate@test.com").status_code == 200
+    device_b = _identify(client, "gate_stale_b_fp")
+    client.cookies.set("wrzdj_guest", device_b["cookie"])
+    assert _claim_email(client, db, device_b["guest_id"], "gate@test.com").json()["merged"]
+
+    client.cookies.clear()
+    client.cookies.set("wrzdj_guest", device_b["cookie"])
+    with patch("app.services.email_verification.send_verification_email"):
+        resp = client.post(
+            "/api/public/guest/verify/request",
+            json={"email": "other@test.com", "turnstile_token": "test-token"},
+        )
+
+    assert resp.status_code == 200

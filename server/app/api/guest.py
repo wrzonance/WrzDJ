@@ -8,7 +8,6 @@ from app.api.deps import get_db
 from app.core import config as core_config
 from app.core.config import get_settings
 from app.core.rate_limit import get_client_ip, get_guest_id, limiter
-from app.models.guest import Guest
 from app.schemas.guest import IdentifyRequest, IdentifyResponse
 from app.schemas.human_verification import (
     VerifyHumanRequest,
@@ -65,15 +64,11 @@ def identify(
     # A cookie hit re-sets the same token, so the lifetime counts from the last visit
     # (and cookies issued with an older, longer Max-Age pick up the current one). The value
     # comes from the stored guest row, never from the request's cookie.
-    token = result.token
-    if token is None and result.action == "cookie_hit":
-        guest = db.get(Guest, result.guest_id)
-        token = guest.token if guest else None
-    if token:
+    if result.token:
         is_prod = settings.env == "production"
         response.set_cookie(
             key="wrzdj_guest",
-            value=token,
+            value=result.token,
             httponly=True,
             secure=is_prod,
             samesite="lax",

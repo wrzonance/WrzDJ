@@ -422,15 +422,14 @@ def test_code_requests_for_one_email_are_serialized(_pg_engine, held):
     holding.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
 
     def request_code(session):
-        with patch("app.services.email_verification.send_verification_email"):
-            return create_verification_code(
-                session, guest_id=g["a"].id, email="fan-vc1@test.com"
-            ).id
+        return create_verification_code(session, guest_id=g["a"].id, email="fan-vc1@test.com").id
 
-    thread, box = _in_thread(engine, request_code)
-    _assert_waiting_on_row_lock(engine, thread, box)
-    _release(holding)
-    code_id = _finish(thread, box)
+    # patch() is process-global: it wraps the whole threaded section, never a thread's body
+    with patch("app.services.email_verification.send_verification_email"):
+        thread, box = _in_thread(engine, request_code)
+        _assert_waiting_on_row_lock(engine, thread, box)
+        _release(holding)
+        code_id = _finish(thread, box)
     with Session(engine) as s:
         assert s.get(EmailVerificationCode, code_id).guest_id == g["a"].id
 
@@ -446,15 +445,17 @@ def test_concurrent_code_requests_cannot_overshoot_the_hourly_cap(_pg_engine):
             create_verification_code(s, guest_id=g["a"].id, email=email)
 
     def request_code(session):
-        with patch("app.services.email_verification.send_verification_email"):
-            return create_verification_code(session, guest_id=g["a"].id, email=email).id
+        return create_verification_code(session, guest_id=g["a"].id, email=email).id
 
-    threads = [_in_thread(engine, request_code) for _ in range(2)]
-    outcomes = []
-    for thread, box in threads:
-        thread.join(30)
-        assert not thread.is_alive()
-        outcomes.append(box.get("error", box.get("value")))
+    # patch() is process-global: one patch around both threads, or the first thread to finish
+    # would restore the real sender under the other one (its send then fails and is deleted).
+    with patch("app.services.email_verification.send_verification_email"):
+        threads = [_in_thread(engine, request_code) for _ in range(2)]
+        outcomes = []
+        for thread, box in threads:
+            thread.join(30)
+            assert not thread.is_alive()
+            outcomes.append(box.get("error", box.get("value")))
     errors = [o for o in outcomes if isinstance(o, RateLimitExceededError)]
     assert len(errors) == 1, outcomes
     with Session(engine) as s:

@@ -197,7 +197,7 @@ def test_event_stream_lookup_runs_off_the_event_loop(pooled_engine):
     """The existence check is blocking DB I/O inside an async handler; it must run on a
     worker thread. Inline, a dry pool blocked the loop for pool_timeout and froze every
     request, /health included (self-host stack, 2026-11-03)."""
-    import app.api.sse as sse
+    from app.api import sse
 
     loop_thread = threading.get_ident()
     lookup_threads: list[int] = []

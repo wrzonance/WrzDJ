@@ -28,9 +28,13 @@ FROM base AS runtime
 WORKDIR /app
 # The bridge starts with node; npm and the compiler belong only in the builder.
 RUN npm uninstall --global npm
-COPY --from=builder /app/package.json /app/package-lock.json ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/dist ./dist
+COPY --from=builder --chown=node:node /app/package.json /app/package-lock.json ./
+COPY --from=builder --chown=node:node /app/node_modules ./node_modules
+COPY --from=builder --chown=node:node /app/dist ./dist
+
+# Run as the image's unprivileged `node` user (uid 1000), as the api and web images do.
+# StageLinQ discovery and the Traktor listener use unprivileged ports only.
+USER node
 
 # Run the bridge
 CMD ["node", "dist/index.js"]

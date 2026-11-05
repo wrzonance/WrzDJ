@@ -45,7 +45,7 @@ def test_cookie_hit_returns_existing(db: Session, test_guest: Guest):
     )
     assert result.guest_id == test_guest.id
     assert result.action == "cookie_hit"
-    assert result.token is None
+    assert result.token == test_guest.token
 
     db.refresh(test_guest)
     assert test_guest.last_seen_at >= old_last_seen
@@ -380,3 +380,65 @@ def test_identify_does_not_leak_rejection_reason_to_client(client: TestClient, d
     assert body["reconcile_hint"] is True
     assert "rejection_reason" not in body
     assert "existing_guest" not in body
+
+
+def test_resolve_guest_by_token_follows_tombstone_only_inside_cookie_window(db: Session):
+    """#932: a merged-away token resolves to the survivor for guest_cookie_max_age_seconds
+    after the merge, then to None (never to the tombstone itself)."""
+    from datetime import timedelta
+
+    from app.core.config import get_settings
+    from app.core.time import utcnow
+    from app.services.guest_identity import resolve_guest_by_token
+    from app.services.guest_merge import merge_guests
+
+    window = timedelta(seconds=get_settings().guest_cookie_max_age_seconds)
+    source = Guest(token="s" * 64, created_at=utcnow(), last_seen_at=utcnow())
+    target = Guest(token="t" * 64, created_at=utcnow(), last_seen_at=utcnow())
+    db.add_all([source, target])
+    db.commit()
+    merge_guests(db, source_guest_id=source.id, target_guest_id=target.id)
+
+    assert resolve_guest_by_token(db, "s" * 64).id == target.id
+
+    source.merged_at = utcnow() - window - timedelta(seconds=1)
+    db.commit()
+    assert resolve_guest_by_token(db, "s" * 64) is None
+    assert resolve_guest_by_token(db, "t" * 64).id == target.id
+
+
+def test_fingerprint_reconcile_never_lands_on_a_tombstone(db: Session):
+    """#932: a racing identify can write a fingerprint back onto a tombstone row. Cookieless
+    reconciliation must skip it: a new guest is created and the tombstone token is untouched."""
+    from datetime import timedelta
+
+    from app.core.time import utcnow
+
+    ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/125.0 Safari/537.36"
+    survivor = Guest(token="v" * 64, created_at=utcnow(), last_seen_at=utcnow())
+    db.add(survivor)
+    db.commit()
+    tomb = Guest(
+        token="w" * 64,
+        fingerprint_hash="tomb_fp_hash_1234",
+        user_agent=ua,
+        merged_into_guest_id=survivor.id,
+        merged_at=utcnow(),
+        created_at=utcnow() - timedelta(days=2),
+        last_seen_at=utcnow() - timedelta(days=1),
+    )
+    db.add(tomb)
+    db.commit()
+
+    result = identify_guest(
+        db,
+        token_from_cookie=None,
+        fingerprint_hash="tomb_fp_hash_1234",
+        fingerprint_components={},
+        user_agent=ua,
+    )
+
+    assert result.action == "create"
+    assert result.guest_id not in (tomb.id, survivor.id)
+    db.refresh(tomb)
+    assert tomb.token == "w" * 64

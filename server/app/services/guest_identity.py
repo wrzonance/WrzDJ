@@ -3,6 +3,9 @@
 Resolves anonymous guests via a two-signal system:
 1. Server-assigned HttpOnly cookie token (primary, canonical)
 2. ThumbmarkJS browser fingerprint hash (reconciliation fallback)
+
+A cookie token of a merged-away guest keeps resolving to the survivor for
+guest_cookie_max_age_seconds after the merge, then goes dead (#932).
 """
 
 import json
@@ -14,6 +17,7 @@ from typing import Literal
 
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.time import utcnow
 from app.models.guest import Guest
 
@@ -38,9 +42,32 @@ def _short_fp(fp: str | None) -> str:
 class IdentifyResult:
     guest_id: int
     action: Literal["create", "cookie_hit", "reconcile"]
-    token: str | None  # set only when a new cookie should be issued
+    token: str | None  # the token to (re)issue as the cookie; None only when no cookie is set
     reconcile_hint: bool = False  # true when create happened but a FP match existed
     rejection_reason: str | None = None  # internal-only — never sent to clients
+
+
+MAX_MERGE_HOPS = 5
+
+
+def resolve_guest_by_token(db: Session, token: str) -> Guest | None:
+    """Look up a guest by cookie token, following merge tombstones to the live guest.
+
+    A tombstone forwards only for guest_cookie_max_age_seconds after the merge, since a
+    stale cookie cannot legitimately outlive that; an expired tombstone resolves to None,
+    never to itself. Returns None when the token is unknown or forwards to nothing live
+    (#932).
+    """
+    window = timedelta(seconds=get_settings().guest_cookie_max_age_seconds)
+    now = utcnow()
+    guest = db.query(Guest).filter(Guest.token == token).first()
+    for _ in range(MAX_MERGE_HOPS):
+        if guest is None or guest.merged_into_guest_id is None:
+            return guest
+        if guest.merged_at is None or now - guest.merged_at > window:
+            return None
+        guest = db.get(Guest, guest.merged_into_guest_id)
+    return None
 
 
 def _ua_signals_match(stored_ua: str | None, submitted_ua: str) -> bool:
@@ -166,7 +193,7 @@ def identify_guest(
 
     # --- Flow 2: Cookie present ---
     if token_from_cookie:
-        guest = db.query(Guest).filter(Guest.token == token_from_cookie).first()
+        guest = resolve_guest_by_token(db, token_from_cookie)
         if guest:
             old_fp = guest.fingerprint_hash
             guest.last_seen_at = now
@@ -186,7 +213,7 @@ def identify_guest(
                 guest.id,
                 short_fp,
             )
-            return IdentifyResult(guest_id=guest.id, action="cookie_hit", token=None)
+            return IdentifyResult(guest_id=guest.id, action="cookie_hit", token=guest.token)
 
     # --- LAYER 2: fingerprint reconciliation (gated by 4 rules) ---
     rejection_reason: str | None = None
@@ -194,6 +221,7 @@ def identify_guest(
         matches = (
             db.query(Guest)
             .filter(Guest.fingerprint_hash == fingerprint_hash)
+            .filter(Guest.merged_into_guest_id.is_(None))  # never reconcile onto a tombstone
             .filter(Guest.last_seen_at > now - RECONCILE_FRESHNESS_WINDOW)
             .all()
         )

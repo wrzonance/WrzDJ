@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from sqlalchemy import case, update
 from sqlalchemy.orm import Session
 
+from app.core.time import utcnow
 from app.models.guest import Guest
 from app.models.guest_profile import GuestProfile
 from app.models.request import Request
@@ -23,7 +24,11 @@ class MergeResult:
 
 
 def merge_guests(db: Session, *, source_guest_id: int, target_guest_id: int) -> MergeResult:
-    """Merge source Guest into target Guest. Source is deleted after."""
+    """Merge source Guest into target Guest.
+
+    The source row is kept as a forwarding tombstone (PII and fingerprint cleared) so a
+    stale cookie still resolves to the target (#932).
+    """
     requests_moved = 0
     votes_moved = 0
     votes_deduped = 0
@@ -93,10 +98,25 @@ def merge_guests(db: Session, *, source_guest_id: int, target_guest_id: int) -> 
             profile.guest_id = target_guest_id
             profiles_moved += 1
 
-    # Step 4: Delete source Guest
+    # Step 4: Turn the source into a forwarding tombstone and keep chains one hop deep
+    db.execute(
+        update(Guest)
+        .where(Guest.merged_into_guest_id == source_guest_id)
+        .values(merged_into_guest_id=target_guest_id)
+    )
     source_guest = db.query(Guest).filter(Guest.id == source_guest_id).first()
     if source_guest:
-        db.delete(source_guest)
+        source_guest.merged_into_guest_id = target_guest_id
+        source_guest.merged_at = utcnow()
+        source_guest.fingerprint_hash = None
+        source_guest.fingerprint_components = None
+        source_guest.user_agent = None
+        source_guest.verified_email = None
+        source_guest.email_hash = None
+        source_guest.nickname = None
+        source_guest.email_verified_at = None
+        source_guest.human_verified_at = None
+        source_guest.human_verify_count = 0
 
     db.commit()
 

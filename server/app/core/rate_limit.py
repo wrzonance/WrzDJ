@@ -120,7 +120,7 @@ def get_guest_id(request: Request, db: Session) -> int | None:
     Inert in production — see Settings.auth_bypass_enabled.
     """
     from app.core.config import get_settings
-    from app.models.guest import Guest
+    from app.services.guest_identity import resolve_guest_by_token
 
     bypass = get_settings().auth_bypass_enabled
 
@@ -130,7 +130,7 @@ def get_guest_id(request: Request, db: Session) -> int | None:
         # dev guest row must not become a production backdoor.
         if is_inert_dev_token(token):
             return None
-        guest = db.query(Guest).filter(Guest.token == token).first()
+        guest = resolve_guest_by_token(db, token)
         if guest:
             return guest.id
 

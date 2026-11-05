@@ -178,12 +178,51 @@ def test_merge_nickname_fallback(db: Session, test_event: Event):
     assert remaining.nickname == "SourceNick"
 
 
-def test_merge_deletes_source_guest(db: Session):
-    source = _make_guest(db, "src_del")
-    target = _make_guest(db, "tgt_del")
+def test_merge_keeps_source_as_forwarding_tombstone(db: Session):
+    """#932: the source row survives as a PII-free tombstone forwarding to the target."""
+    source = _make_guest(db, "src_tomb")
+    source.fingerprint_components = '{"a": 1}'
+    source.user_agent = "UA"
+    source.verified_email = "tomb@test.com"
+    source.email_hash = "h" * 64
+    source.nickname = "Nick"
+    source.email_verified_at = utcnow()
+    source.human_verified_at = utcnow()
+    source.human_verify_count = 3
+    db.commit()
+    target = _make_guest(db, "tgt_tomb")
+    source_token = source.token
+
     merge_guests(db, source_guest_id=source.id, target_guest_id=target.id)
-    assert db.query(Guest).filter(Guest.id == source.id).first() is None
-    assert db.query(Guest).filter(Guest.id == target.id).first() is not None
+
+    db.expire_all()
+    tomb = db.query(Guest).filter(Guest.id == source.id).one()
+    assert tomb.merged_into_guest_id == target.id
+    assert tomb.merged_at is not None
+    assert tomb.token == source_token
+    assert tomb.fingerprint_hash is None
+    assert tomb.fingerprint_components is None
+    assert tomb.user_agent is None
+    assert tomb.verified_email is None
+    assert tomb.email_hash is None
+    assert tomb.nickname is None
+    assert tomb.email_verified_at is None
+    assert tomb.human_verified_at is None
+    assert tomb.human_verify_count == 0
+    assert db.query(Guest).filter(Guest.id == target.id).one().merged_into_guest_id is None
+
+
+def test_merge_flattens_earlier_tombstones_to_one_hop(db: Session):
+    """A->B then B->C leaves A forwarding straight to C."""
+    a = _make_guest(db, "chain_a")
+    b = _make_guest(db, "chain_b")
+    c = _make_guest(db, "chain_c")
+    merge_guests(db, source_guest_id=a.id, target_guest_id=b.id)
+    merge_guests(db, source_guest_id=b.id, target_guest_id=c.id)
+
+    db.expire_all()
+    assert db.query(Guest).filter(Guest.id == a.id).one().merged_into_guest_id == c.id
+    assert db.query(Guest).filter(Guest.id == b.id).one().merged_into_guest_id == c.id
 
 
 def test_merge_returns_correct_counts(db: Session, test_event: Event):

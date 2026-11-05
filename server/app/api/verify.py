@@ -97,7 +97,7 @@ def confirm_code(
             httponly=True,
             secure=is_prod,
             samesite="lax",
-            max_age=31536000,
+            max_age=get_settings().guest_cookie_max_age_seconds,
             path="/api/",
         )
         # A merge rotated this browser's identity to the surviving guest. Its

@@ -23,6 +23,19 @@ class MergeResult:
     profiles_merged: int
 
 
+def _target_voted_request_ids(
+    db: Session, target_guest_id: int, source_votes: list[RequestVote]
+) -> set[int]:
+    """The requests among the source's votes that the target has already voted on."""
+    if not source_votes:
+        return set()
+    request_ids = {vote.request_id for vote in source_votes}
+    rows = db.query(RequestVote.request_id).filter(
+        RequestVote.guest_id == target_guest_id, RequestVote.request_id.in_(request_ids)
+    )
+    return {request_id for (request_id,) in rows}
+
+
 def _target_profiles_by_event(
     db: Session, target_guest_id: int, source_profiles: list[GuestProfile]
 ) -> dict[int, GuestProfile]:
@@ -60,12 +73,7 @@ def merge_guests(db: Session, *, source_guest_id: int, target_guest_id: int) -> 
 
     # Step 2: Reassign votes (with dedup)
     source_votes = db.query(RequestVote).filter(RequestVote.guest_id == source_guest_id).all()
-    target_voted_request_ids = {
-        request_id
-        for (request_id,) in db.query(RequestVote.request_id).filter(
-            RequestVote.guest_id == target_guest_id
-        )
-    }
+    target_voted_request_ids = _target_voted_request_ids(db, target_guest_id, source_votes)
     for vote in source_votes:
         if vote.request_id in target_voted_request_ids:
             db.delete(vote)

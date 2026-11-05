@@ -198,6 +198,8 @@ def identify_guest(
             # A merged-away cookie forwards to the survivor (#932). That hit comes from the
             # merged device, so its fingerprint and UA must not overwrite the survivor's own;
             # only a cookie carrying the survivor's token describes the survivor's device.
+            # This guards the forwarded hop only: the response re-issues the survivor's token,
+            # and from then on the guest has one device profile, as it always had.
             direct_token_match = guest.token == token_from_cookie
             old_fp = guest.fingerprint_hash
             guest.last_seen_at = now

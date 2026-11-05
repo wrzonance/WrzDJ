@@ -11,8 +11,9 @@ guest_cookie_max_age_seconds after the merge, then goes dead (#932).
 import json
 import logging
 import secrets
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Literal
 
 from sqlalchemy.orm import Session
@@ -50,6 +51,31 @@ class IdentifyResult:
 MAX_MERGE_HOPS = 5
 
 
+LOCK_RETRIES = 3
+
+
+def lock_guests(db: Session, guest_ids: Iterable[int]) -> dict[int, Guest]:
+    """SELECT the given guest rows FOR UPDATE, in ascending id order, re-reading them.
+
+    Every writer that touches guest rows locks through here, so two writers never wait on
+    each other in opposite orders (no deadlock), and the rows come back fresh
+    (populate_existing) so a decision taken before the lock can be checked after it (#951).
+    SQLite ignores FOR UPDATE; the re-read still happens.
+    """
+    ids = sorted(set(guest_ids))
+    if not ids:
+        return {}
+    rows = (
+        db.query(Guest)
+        .filter(Guest.id.in_(ids))
+        .order_by(Guest.id)
+        .populate_existing()
+        .with_for_update()
+        .all()
+    )
+    return {row.id: row for row in rows}
+
+
 def resolve_guest_by_token(db: Session, token: str, *, lock: bool = False) -> Guest | None:
     """Look up a guest by cookie token, following merge tombstones to the live guest.
 
@@ -58,25 +84,55 @@ def resolve_guest_by_token(db: Session, token: str, *, lock: bool = False) -> Gu
     never to itself. Returns None when the token is unknown or forwards to nothing live
     (#932).
 
-    ``lock`` selects each visited row FOR UPDATE (Postgres; SQLite ignores it) for callers
-    that go on to write the guest: a merge in flight for that guest is then waited for and
-    seen as the committed tombstone, instead of being overwritten after the fact (#951).
+    ``lock`` is for callers that go on to write guest-owned rows: every row on the chain is
+    locked through lock_guests and the chain is re-read under the locks, so a merge in
+    flight for that guest is waited for and then followed, never overwritten (#951).
     """
-    window = timedelta(seconds=get_settings().guest_cookie_max_age_seconds)
-    now = utcnow()
-    guest = _guest_row(db, Guest.token == token, lock)
-    for _ in range(MAX_MERGE_HOPS):
-        if guest is None or guest.merged_into_guest_id is None:
-            return guest
-        if guest.merged_at is None or now - guest.merged_at > window:
-            return None
-        guest = _guest_row(db, Guest.id == guest.merged_into_guest_id, lock)
+    if not lock:
+        return _walk_chain(db, token, fresh=False)[1]
+    locked: set[int] = set()
+    for _ in range(LOCK_RETRIES):
+        visited, live = _walk_chain(db, token, fresh=True)
+        if visited <= locked:
+            return live
+        locked |= set(lock_guests(db, visited | locked))
     return None
 
 
-def _guest_row(db: Session, criterion, lock: bool) -> Guest | None:
+def _walk_chain(db: Session, token: str, *, fresh: bool) -> tuple[set[int], Guest | None]:
+    """(ids visited, the live guest or None) for a cookie token, applying the window rule."""
+    window = timedelta(seconds=get_settings().guest_cookie_max_age_seconds)
+    now = utcnow()
+    visited: set[int] = set()
+    guest = _guest_row(db, Guest.token == token, fresh)
+    for _ in range(MAX_MERGE_HOPS):
+        if guest is None:
+            return visited, None
+        visited.add(guest.id)
+        if guest.merged_into_guest_id is None:
+            return visited, guest
+        if guest.merged_at is None or now - guest.merged_at > window:
+            return visited, None
+        guest = _guest_row(db, Guest.id == guest.merged_into_guest_id, fresh)
+    return visited, None
+
+
+def _guest_row(db: Session, criterion, fresh: bool) -> Guest | None:
     query = db.query(Guest).filter(criterion)
-    return (query.with_for_update() if lock else query).first()
+    return (query.populate_existing() if fresh else query).first()
+
+
+def _reconcile_rejection(existing: Guest, now: datetime, user_agent: str) -> str | None:
+    """Why a fingerprint match must not be reconciled onto ``existing``, or None."""
+    if existing.merged_into_guest_id is not None:
+        return "merged_away"
+    if existing.email_verified_at is not None:
+        return "verified_guest"
+    if existing.last_seen_at > now - RECONCILE_QUIET_PERIOD:
+        return "concurrent_activity"
+    if not _ua_signals_match(existing.user_agent, user_agent):
+        return "ua_mismatch"
+    return None
 
 
 def _ua_signals_match(stored_ua: str | None, submitted_ua: str) -> bool:
@@ -246,13 +302,11 @@ def identify_guest(
             rejection_reason = "ambiguous_match"
         elif len(matches) == 1:
             existing = matches[0]
-            if existing.email_verified_at is not None:
-                rejection_reason = "verified_guest"
-            elif existing.last_seen_at > now - RECONCILE_QUIET_PERIOD:
-                rejection_reason = "concurrent_activity"
-            elif not _ua_signals_match(existing.user_agent, user_agent):
-                rejection_reason = "ua_mismatch"
-            else:
+            # Lock the candidate and judge the fresh row: a merge that landed since the
+            # query would otherwise be overwritten with this device's profile (#951).
+            lock_guests(db, [existing.id])
+            rejection_reason = _reconcile_rejection(existing, now, user_agent)
+            if rejection_reason is None:
                 # All gates passed — reconcile
                 existing.last_seen_at = now
                 existing.user_agent = user_agent

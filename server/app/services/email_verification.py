@@ -177,11 +177,12 @@ def confirm_verification_code(
             merge_result.votes_moved,
             merge_result.profiles_moved,
         )
+        survivor = db.query(Guest).filter(Guest.id == merge_result.target_guest_id).one()
         return VerifyResult(
             verified=True,
-            guest_id=existing.id,
+            guest_id=survivor.id,
             merged=True,
-            new_token=existing.token,
+            new_token=survivor.token,
         )
 
     # First verification for this email

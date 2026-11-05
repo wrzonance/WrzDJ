@@ -10,6 +10,7 @@ from app.models.guest import Guest
 from app.models.guest_profile import GuestProfile
 from app.models.request import Request
 from app.models.request_vote import RequestVote
+from app.services.guest_identity import LOCK_RETRIES, MAX_MERGE_HOPS, lock_guests
 
 
 @dataclass
@@ -21,6 +22,47 @@ class MergeResult:
     votes_deduped: int
     profiles_moved: int
     profiles_merged: int
+
+
+def _lock_merge_rows(
+    db: Session, source_guest_id: int, target_guest_id: int
+) -> tuple[Guest, Guest]:
+    """Lock source, target chain and the source's tombstones; return (source, live target).
+
+    Re-reads under the locks until nothing new turned up: a source merged away meanwhile is
+    refused, a target merged away meanwhile is followed to its survivor (#951).
+    """
+    wanted = {source_guest_id, target_guest_id}
+    for _ in range(LOCK_RETRIES):
+        locked = lock_guests(db, wanted)
+        source = locked.get(source_guest_id)
+        if source is None or source.merged_into_guest_id is not None:
+            raise ValueError("source guest is missing or already merged")
+        target = _live_target(locked, target_guest_id)
+        tombstones = _tombstone_ids(db, source_guest_id)
+        if isinstance(target, Guest) and tombstones <= wanted:
+            if target.id == source_guest_id:
+                raise ValueError("target guest chain leads back to the source")
+            return source, target
+        wanted |= tombstones | ({target} if isinstance(target, int) else set())
+    raise ValueError("guest rows kept changing while locking them for the merge")
+
+
+def _live_target(locked: dict[int, Guest], guest_id: int) -> Guest | int:
+    """Follow merged_into within the locked rows; the live Guest, or the id still to lock."""
+    for _ in range(MAX_MERGE_HOPS):
+        guest = locked.get(guest_id)
+        if guest is None:
+            return guest_id
+        if guest.merged_into_guest_id is None:
+            return guest
+        guest_id = guest.merged_into_guest_id
+    raise ValueError("target guest chain is too deep")
+
+
+def _tombstone_ids(db: Session, guest_id: int) -> set[int]:
+    rows = db.query(Guest.id).filter(Guest.merged_into_guest_id == guest_id)
+    return {row_id for (row_id,) in rows}
 
 
 def _target_voted_request_ids(
@@ -65,11 +107,11 @@ def merge_guests(db: Session, *, source_guest_id: int, target_guest_id: int) -> 
     profiles_moved = 0
     profiles_merged = 0
 
-    # Step 0: Lock both guest rows for the transaction (Postgres; SQLite ignores FOR UPDATE).
-    # An identify that is writing the source waits here; one arriving later sees the committed
-    # tombstone and follows it. Source first, the order the cookie lookup walks (#951).
-    for guest_id in (source_guest_id, target_guest_id):
-        db.query(Guest).filter(Guest.id == guest_id).with_for_update().first()
+    # Step 0: Lock the rows and settle them under the locks (#951): the source must still be
+    # live, the target is followed to its live survivor, and the source's own tombstones are
+    # locked too so the flattening below never waits on a row someone else holds.
+    source_guest, target_guest = _lock_merge_rows(db, source_guest_id, target_guest_id)
+    target_guest_id = target_guest.id
 
     # Step 1: Reassign requests
     req_count = (
@@ -128,19 +170,17 @@ def merge_guests(db: Session, *, source_guest_id: int, target_guest_id: int) -> 
         .where(Guest.merged_into_guest_id == source_guest_id)
         .values(merged_into_guest_id=target_guest_id)
     )
-    source_guest = db.query(Guest).filter(Guest.id == source_guest_id).first()
-    if source_guest:
-        source_guest.merged_into_guest_id = target_guest_id
-        source_guest.merged_at = utcnow()
-        source_guest.fingerprint_hash = None
-        source_guest.fingerprint_components = None
-        source_guest.user_agent = None
-        source_guest.verified_email = None
-        source_guest.email_hash = None
-        source_guest.nickname = None
-        source_guest.email_verified_at = None
-        source_guest.human_verified_at = None
-        source_guest.human_verify_count = 0
+    source_guest.merged_into_guest_id = target_guest_id
+    source_guest.merged_at = utcnow()
+    source_guest.fingerprint_hash = None
+    source_guest.fingerprint_components = None
+    source_guest.user_agent = None
+    source_guest.verified_email = None
+    source_guest.email_hash = None
+    source_guest.nickname = None
+    source_guest.email_verified_at = None
+    source_guest.human_verified_at = None
+    source_guest.human_verify_count = 0
 
     db.commit()
 

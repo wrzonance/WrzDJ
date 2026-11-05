@@ -185,8 +185,11 @@ def _in_thread(fn, *args, **kwargs) -> tuple[threading.Thread, dict]:
     return thread, box
 
 
-def _assert_waiting_on_row_lock(engine, thread: threading.Thread, timeout: float = 5.0):
-    """The other backend must reach a row-lock wait (pg_stat_activity), not merely be slow."""
+def _assert_waiting_on_row_lock(engine, thread: threading.Thread, timeout: float = 30.0):
+    """The other backend must reach a row-lock wait (pg_stat_activity), not merely be slow.
+
+    The window is generous because CI runs four xdist workers under coverage on one runner;
+    a thread that finishes without ever waiting fails immediately regardless."""
     deadline = time.monotonic() + timeout
     with engine.connect() as conn:
         while time.monotonic() < deadline:
@@ -206,7 +209,7 @@ def _assert_waiting_on_row_lock(engine, thread: threading.Thread, timeout: float
 
 
 def _finish(thread: threading.Thread, box: dict) -> object:
-    thread.join(10)
+    thread.join(30)
     assert not thread.is_alive() and "error" not in box, box
     return box["value"]
 
@@ -307,7 +310,7 @@ def test_merge_refuses_a_source_that_was_merged_away_meanwhile(_pg_engine, held)
     _assert_waiting_on_row_lock(engine, thread)
     _release(merging)
 
-    thread.join(10)
+    thread.join(30)
     assert isinstance(box.get("error"), ValueError), box
     assert _load(engine, g["a"].id).merged_into_guest_id == g["b"].id
 
@@ -441,6 +444,6 @@ def test_a_code_cannot_be_accepted_twice_by_concurrent_confirmations(_pg_engine,
     thread, box = _in_thread(confirm)
     _assert_waiting_on_row_lock(engine, thread)
     _release(holding)
-    thread.join(10)
+    thread.join(30)
     assert not thread.is_alive()
     assert isinstance(box.get("error"), CodeInvalidError), box

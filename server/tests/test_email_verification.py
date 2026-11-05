@@ -106,6 +106,19 @@ def test_rate_limit_five_codes_per_hour(db: Session, test_guest: Guest):
             create_verification_code(db, guest_id=test_guest.id, email="fan@test.com")
 
 
+def test_rate_limit_counts_sends_per_hour_not_live_codes(db: Session, test_guest: Guest, clock):
+    """Expired or used codes still count: five sends, five minutes' wait, the sixth is still
+    refused; an hour after the first send the window has moved on and sending works again."""
+    with patch("app.services.email_verification.send_verification_email"):
+        for _ in range(5):
+            create_verification_code(db, guest_id=test_guest.id, email="fan@test.com")
+        clock.advance(6 * 60)  # every code above has expired
+        with pytest.raises(RateLimitExceededError):
+            create_verification_code(db, guest_id=test_guest.id, email="fan@test.com")
+        clock.advance(55 * 60)  # 61 minutes after the first send
+        create_verification_code(db, guest_id=test_guest.id, email="fan@test.com")
+
+
 def test_verify_sets_email_on_guest(db: Session, test_guest: Guest):
     """Guest.verified_email and email_verified_at populated."""
     with patch("app.services.email_verification.send_verification_email"):

@@ -246,12 +246,13 @@ def test_identify_waits_for_an_in_flight_merge_and_lands_on_the_survivor(_pg_eng
     assert tomb.fingerprint_hash is None and tomb.user_agent is None
 
 
-def test_merge_waits_for_an_in_flight_identify_and_still_clears_the_tombstone(_pg_engine):
+def test_merge_waits_for_an_in_flight_identify_and_still_clears_the_tombstone(_pg_engine, held):
     """An identify holds the source row while writing it; the merge waits for that commit
     and then clears the tombstone, so the identify's writes never outlive the merge."""
     engine = _engine_or_skip(_pg_engine)
     g = _seed_guests(engine, "lk2", "a", "b")
     identifying = Session(engine)
+    held.append(identifying)  # released at teardown if an assertion fires before commit
     guest = resolve_guest_by_token(identifying, g["a"].token, lock=True)
     guest.fingerprint_hash = "fp_lk2_device"
     identifying.flush()

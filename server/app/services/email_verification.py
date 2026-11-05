@@ -59,16 +59,17 @@ def create_verification_code(db: Session, *, guest_id: int, email: str) -> Email
     eh = _hash_email(email_lower)
     now = utcnow()
 
-    active_count = (
+    # The cap is per hour of sends, whatever became of the codes: counting only live
+    # codes let an address receive five emails every five minutes, once each batch expired.
+    sent_last_hour = (
         db.query(EmailVerificationCode)
         .filter(
             EmailVerificationCode.email_hash == eh,
-            EmailVerificationCode.used == False,  # noqa: E712
-            EmailVerificationCode.expires_at > now,
+            EmailVerificationCode.created_at > now - timedelta(hours=1),
         )
         .count()
     )
-    if active_count >= MAX_CODES_PER_EMAIL_PER_HOUR:
+    if sent_last_hour >= MAX_CODES_PER_EMAIL_PER_HOUR:
         _logger.warning(
             "guest.verify action=rate_limited email_hash=%s reason=max_codes_per_hour",
             _short_email_hash(eh),

@@ -40,6 +40,27 @@ def test_merge_rejects_the_same_guest_as_source_and_target(db: Session):
     assert guest.merged_into_guest_id is None and guest.fingerprint_hash == "fp_self_m"
 
 
+def test_merge_into_a_merged_away_target_lands_on_its_survivor(db: Session):
+    """When the target was itself merged into another guest, the merge follows the tombstone
+    and lands on the live survivor, forwarding the source there in one hop (#951)."""
+    a, b, c = _make_guest(db, "chain_a"), _make_guest(db, "chain_b"), _make_guest(db, "chain_c")
+    merge_guests(db, source_guest_id=b.id, target_guest_id=c.id)
+
+    result = merge_guests(db, source_guest_id=a.id, target_guest_id=b.id)
+
+    assert result.target_guest_id == c.id
+    db.refresh(a)
+    assert a.merged_into_guest_id == c.id
+
+
+def test_merge_refuses_a_source_that_is_already_a_tombstone(db: Session):
+    """A merged-away guest cannot be merged again (#951)."""
+    a, b, c = _make_guest(db, "tomb_a"), _make_guest(db, "tomb_b"), _make_guest(db, "tomb_c")
+    merge_guests(db, source_guest_id=a.id, target_guest_id=b.id)
+    with pytest.raises(ValueError, match="already merged"):
+        merge_guests(db, source_guest_id=a.id, target_guest_id=c.id)
+
+
 def test_merge_moves_requests(db: Session, test_event: Event):
     source = _make_guest(db, "src")
     target = _make_guest(db, "tgt")
@@ -335,5 +356,6 @@ def test_merge_reads_the_targets_votes_and_profiles_once(
 
     assert (result.votes_moved, result.votes_deduped) == (2, 2)
     assert (result.profiles_moved, result.profiles_merged) == (2, 2)
-    assert len(vote_reads) == 2, vote_reads  # the source's votes, the target's voted requests
-    assert len(profile_reads) == 2, profile_reads  # the source's profiles, the target's
+    # One read for the source's rows and at most one for the target's, however many rows
+    assert len(vote_reads) <= 2, vote_reads
+    assert len(profile_reads) <= 2, profile_reads

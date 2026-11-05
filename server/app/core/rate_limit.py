@@ -111,13 +111,21 @@ def is_inert_dev_token(token: str | None) -> bool:
     return not get_settings().auth_bypass_enabled
 
 
-def get_guest_id(request: Request, db: Session) -> int | None:
+_READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def get_guest_id(request: Request, db: Session, *, lock: bool | None = None) -> int | None:
     """Read the wrzdj_guest cookie and return the Guest.id, or None.
 
     Under DEV_AUTH_BYPASS (dev only) a cookieless request resolves to a stable dev
     guest, so headless tests need no guest cookie on ANY guest endpoint (this is the
     single identity chokepoint the gates and the inline-resolving routes share).
     Inert in production — see Settings.auth_bypass_enabled.
+
+    ``lock`` (default: every non-read method) holds the guest row FOR UPDATE for the rest
+    of the request's transaction, so a request or vote written by this guest cannot land
+    on a row a concurrent merge is turning into a tombstone; the merge waits, or the
+    request follows the committed tombstone to the survivor (#951).
     """
     from app.core.config import get_settings
     from app.services.guest_identity import resolve_guest_by_token
@@ -130,7 +138,9 @@ def get_guest_id(request: Request, db: Session) -> int | None:
         # dev guest row must not become a production backdoor.
         if is_inert_dev_token(token):
             return None
-        guest = resolve_guest_by_token(db, token)
+        if lock is None:
+            lock = request.scope.get("method", "GET") not in _READ_METHODS
+        guest = resolve_guest_by_token(db, token, lock=lock)
         if guest:
             return guest.id
 

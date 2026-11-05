@@ -174,12 +174,16 @@ def _release(session) -> None:
     session.close()
 
 
-def _in_thread(fn, *args, **kwargs) -> tuple[threading.Thread, dict]:
+def _in_thread(engine, fn, **kwargs) -> tuple[threading.Thread, dict]:
+    """Run ``fn(session, **kwargs)`` on its own connection in a thread; ``box["pid"]`` is
+    that connection's backend pid, so the lock wait asserted below is this thread's own."""
     box: dict = {}
 
     def target():
         try:
-            box["value"] = fn(*args, **kwargs)
+            with Session(engine) as session:
+                box["pid"] = session.execute(text("SELECT pg_backend_pid()")).scalar_one()
+                box["value"] = fn(session, **kwargs)
         except Exception as exc:  # noqa: BLE001 - surfaced by the assertions below
             box["error"] = exc
 
@@ -188,27 +192,39 @@ def _in_thread(fn, *args, **kwargs) -> tuple[threading.Thread, dict]:
     return thread, box
 
 
-def _assert_waiting_on_row_lock(engine, thread: threading.Thread, timeout: float = 30.0):
-    """The other backend must reach a row-lock wait (pg_stat_activity), not merely be slow.
+def _assert_waiting_on_row_lock(
+    engine, thread: threading.Thread, box: dict, timeout: float = 30.0
+) -> None:
+    """The thread's own backend (``box["pid"]``) must reach a lock wait in pg_stat_activity,
+    not merely be slow; another worker's lock wait in the shared database does not count.
 
     The window is generous because CI runs four xdist workers under coverage on one runner;
-    a thread that finishes without ever waiting fails immediately regardless."""
+    a thread that finishes without ever waiting fails immediately regardless, and a timeout
+    reports what that backend was doing."""
     deadline = time.monotonic() + timeout
+    last = None
     with engine.connect() as conn:
         while time.monotonic() < deadline:
-            waiting = conn.execute(
-                text(
-                    "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()"
-                    " AND wait_event_type = 'Lock' AND pid <> pg_backend_pid()"
-                )
-            ).scalar()
-            if waiting:
-                assert thread.is_alive()
-                return
+            pid = box.get("pid")
+            if pid is not None:
+                last = conn.execute(
+                    text(
+                        "SELECT state, wait_event_type, wait_event, left(query, 120)"
+                        " FROM pg_stat_activity WHERE pid = :pid"
+                    ),
+                    {"pid": pid},
+                ).first()
+                if last is not None and last[1] == "Lock":
+                    assert thread.is_alive()
+                    return
             if not thread.is_alive():
-                raise AssertionError("the operation finished without waiting on a row lock")
+                raise AssertionError(f"the operation finished without waiting on a lock: {box}")
             time.sleep(0.02)
-    raise AssertionError("no backend reached a row-lock wait")
+    raise AssertionError(
+        f"backend {box.get('pid')} did not reach a lock wait within {timeout}s;"
+        f" last seen {tuple(last) if last is not None else None}; box={box};"
+        f" pool={engine.pool.status()}"
+    )
 
 
 def _finish(thread: threading.Thread, box: dict) -> object:
@@ -224,14 +240,12 @@ def _load(engine, guest_id: int) -> Guest:
         return guest
 
 
-def _identify(engine, **kwargs):
-    with Session(engine) as s:
-        return identify_guest(s, **kwargs)
+def _identify(session, **kwargs):
+    return identify_guest(session, **kwargs)
 
 
-def _merge(engine, source_id: int, target_id: int):
-    with Session(engine) as s:
-        return merge_guests(s, source_guest_id=source_id, target_guest_id=target_id)
+def _merge(session, source_id: int, target_id: int):
+    return merge_guests(session, source_guest_id=source_id, target_guest_id=target_id)
 
 
 def test_identify_waits_for_an_in_flight_merge_and_lands_on_the_survivor(_pg_engine, held):
@@ -243,14 +257,14 @@ def test_identify_waits_for_an_in_flight_merge_and_lands_on_the_survivor(_pg_eng
     merge_guests(merging, source_guest_id=g["a"].id, target_guest_id=g["b"].id)
 
     thread, box = _in_thread(
-        _identify,
         engine,
+        _identify,
         token_from_cookie=g["a"].token,
         fingerprint_hash="fp_lk1_device",
         fingerprint_components=None,
         user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/604.1",
     )
-    _assert_waiting_on_row_lock(engine, thread)
+    _assert_waiting_on_row_lock(engine, thread, box)
     _release(merging)
 
     result = _finish(thread, box)
@@ -271,8 +285,8 @@ def test_merge_waits_for_an_in_flight_identify_and_still_clears_the_tombstone(_p
     guest.fingerprint_hash = "fp_lk2_device"
     identifying.flush()
 
-    thread, box = _in_thread(_merge, engine, g["a"].id, g["b"].id)
-    _assert_waiting_on_row_lock(engine, thread)
+    thread, box = _in_thread(engine, _merge, source_id=g["a"].id, target_id=g["b"].id)
+    _assert_waiting_on_row_lock(engine, thread, box)
     identifying.commit()
     identifying.close()
 
@@ -290,8 +304,8 @@ def test_merge_into_a_target_being_merged_away_lands_on_its_survivor(_pg_engine,
     merging = _holding(engine, held)
     merge_guests(merging, source_guest_id=g["b"].id, target_guest_id=g["c"].id)
 
-    thread, box = _in_thread(_merge, engine, g["a"].id, g["b"].id)
-    _assert_waiting_on_row_lock(engine, thread)
+    thread, box = _in_thread(engine, _merge, source_id=g["a"].id, target_id=g["b"].id)
+    _assert_waiting_on_row_lock(engine, thread, box)
     _release(merging)
 
     result = _finish(thread, box)
@@ -309,8 +323,8 @@ def test_merge_refuses_a_source_that_was_merged_away_meanwhile(_pg_engine, held)
     merging = _holding(engine, held)
     merge_guests(merging, source_guest_id=g["a"].id, target_guest_id=g["b"].id)
 
-    thread, box = _in_thread(_merge, engine, g["a"].id, g["c"].id)
-    _assert_waiting_on_row_lock(engine, thread)
+    thread, box = _in_thread(engine, _merge, source_id=g["a"].id, target_id=g["c"].id)
+    _assert_waiting_on_row_lock(engine, thread, box)
     _release(merging)
 
     thread.join(30)
@@ -327,14 +341,14 @@ def test_fingerprint_reconcile_waits_and_does_not_revive_a_merged_guest(_pg_engi
     merge_guests(merging, source_guest_id=g["a"].id, target_guest_id=g["b"].id)
 
     thread, box = _in_thread(
-        _identify,
         engine,
+        _identify,
         token_from_cookie=None,
         fingerprint_hash=g["a"].fingerprint_hash,
         fingerprint_components=None,
         user_agent=_UA,
     )
-    _assert_waiting_on_row_lock(engine, thread)
+    _assert_waiting_on_row_lock(engine, thread, box)
     _release(merging)
 
     result = _finish(thread, box)
@@ -352,16 +366,13 @@ def test_a_guest_write_during_a_merge_resolves_to_the_survivor(_pg_engine, held)
     merging = _holding(engine, held)
     merge_guests(merging, source_guest_id=g["a"].id, target_guest_id=g["b"].id)
 
-    def resolve_for_write():
-        with Session(engine) as s:
-            cookie = f"wrzdj_guest={g['a'].token}".encode()
-            request = HttpRequest(
-                {"type": "http", "method": "POST", "headers": [(b"cookie", cookie)]}
-            )
-            return get_guest_id(request, s)
+    def resolve_for_write(session):
+        cookie = f"wrzdj_guest={g['a'].token}".encode()
+        request = HttpRequest({"type": "http", "method": "POST", "headers": [(b"cookie", cookie)]})
+        return get_guest_id(request, session)
 
-    thread, box = _in_thread(resolve_for_write)
-    _assert_waiting_on_row_lock(engine, thread)
+    thread, box = _in_thread(engine, resolve_for_write)
+    _assert_waiting_on_row_lock(engine, thread, box)
     _release(merging)
     assert _finish(thread, box) == g["b"].id
 
@@ -376,19 +387,20 @@ def test_identify_through_a_tombstone_while_its_survivor_is_merged_does_not_dead
     with it (reproduced mid-merge in review); this pins the end state of the scenario."""
     engine = _engine_or_skip(_pg_engine)
     g = _seed_guests(engine, "lk7", "a", "b", "c")
-    _merge(engine, g["a"].id, g["b"].id)
+    with Session(engine) as s:
+        merge_guests(s, source_guest_id=g["a"].id, target_guest_id=g["b"].id)
     merging = _holding(engine, held)
     merge_guests(merging, source_guest_id=g["b"].id, target_guest_id=g["c"].id)
 
     thread, box = _in_thread(
-        _identify,
         engine,
+        _identify,
         token_from_cookie=g["a"].token,
         fingerprint_hash="fp_lk7_device",
         fingerprint_components=None,
         user_agent=_UA,
     )
-    _assert_waiting_on_row_lock(engine, thread)
+    _assert_waiting_on_row_lock(engine, thread, box)
     _release(merging)
 
     result = _finish(thread, box)
@@ -409,12 +421,14 @@ def test_code_requests_for_one_email_are_serialized(_pg_engine, held):
     holding = _holding(engine, held)
     holding.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
 
-    def request_code():
-        with Session(engine) as s, patch("app.services.email_verification.send_verification_email"):
-            return create_verification_code(s, guest_id=g["a"].id, email="fan-vc1@test.com").id
+    def request_code(session):
+        with patch("app.services.email_verification.send_verification_email"):
+            return create_verification_code(
+                session, guest_id=g["a"].id, email="fan-vc1@test.com"
+            ).id
 
-    thread, box = _in_thread(request_code)
-    _assert_waiting_on_row_lock(engine, thread)
+    thread, box = _in_thread(engine, request_code)
+    _assert_waiting_on_row_lock(engine, thread, box)
     _release(holding)
     code_id = _finish(thread, box)
     with Session(engine) as s:
@@ -431,11 +445,11 @@ def test_concurrent_code_requests_cannot_overshoot_the_hourly_cap(_pg_engine):
         for _ in range(4):
             create_verification_code(s, guest_id=g["a"].id, email=email)
 
-    def request_code():
-        with Session(engine) as s, patch("app.services.email_verification.send_verification_email"):
-            return create_verification_code(s, guest_id=g["a"].id, email=email).id
+    def request_code(session):
+        with patch("app.services.email_verification.send_verification_email"):
+            return create_verification_code(session, guest_id=g["a"].id, email=email).id
 
-    threads = [_in_thread(request_code) for _ in range(2)]
+    threads = [_in_thread(engine, request_code) for _ in range(2)]
     outcomes = []
     for thread, box in threads:
         thread.join(30)
@@ -464,12 +478,13 @@ def test_a_code_cannot_be_accepted_twice_by_concurrent_confirmations(_pg_engine,
     first = _holding(engine, held)
     assert confirm_verification_code(first, guest_id=g["a"].id, email=email, code=code).verified
 
-    def confirm_again():
-        with Session(engine) as s:
-            return confirm_verification_code(s, guest_id=g["a"].id, email=email, code=code).verified
+    def confirm_again(session):
+        return confirm_verification_code(
+            session, guest_id=g["a"].id, email=email, code=code
+        ).verified
 
-    thread, box = _in_thread(confirm_again)
-    _assert_waiting_on_row_lock(engine, thread)
+    thread, box = _in_thread(engine, confirm_again)
+    _assert_waiting_on_row_lock(engine, thread, box)
     _release(first)
     thread.join(30)
     assert not thread.is_alive()
@@ -495,12 +510,11 @@ def test_two_guests_confirming_one_email_are_serialized_and_the_second_merges(_p
     assert first.get(Guest, g["a"].id).email_hash == eh  # A owns it, uncommitted
     _serialize_per_email(first, eh)  # the lock the real confirm holds until its commit
 
-    def confirm_b():
-        with Session(engine) as s:
-            return confirm_verification_code(s, guest_id=g["b"].id, email=email, code=code_b)
+    def confirm_b(session):
+        return confirm_verification_code(session, guest_id=g["b"].id, email=email, code=code_b)
 
-    thread, box = _in_thread(confirm_b)
-    _assert_waiting_on_row_lock(engine, thread)
+    thread, box = _in_thread(engine, confirm_b)
+    _assert_waiting_on_row_lock(engine, thread, box)
     _release(first)
     result = _finish(thread, box)
     assert (result.merged, result.guest_id) == (True, g["a"].id)

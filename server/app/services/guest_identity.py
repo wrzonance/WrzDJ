@@ -50,24 +50,33 @@ class IdentifyResult:
 MAX_MERGE_HOPS = 5
 
 
-def resolve_guest_by_token(db: Session, token: str) -> Guest | None:
+def resolve_guest_by_token(db: Session, token: str, *, lock: bool = False) -> Guest | None:
     """Look up a guest by cookie token, following merge tombstones to the live guest.
 
     A tombstone forwards only for guest_cookie_max_age_seconds after the merge, since a
     stale cookie cannot legitimately outlive that; an expired tombstone resolves to None,
     never to itself. Returns None when the token is unknown or forwards to nothing live
     (#932).
+
+    ``lock`` selects each visited row FOR UPDATE (Postgres; SQLite ignores it) for callers
+    that go on to write the guest: a merge in flight for that guest is then waited for and
+    seen as the committed tombstone, instead of being overwritten after the fact (#951).
     """
     window = timedelta(seconds=get_settings().guest_cookie_max_age_seconds)
     now = utcnow()
-    guest = db.query(Guest).filter(Guest.token == token).first()
+    guest = _guest_row(db, Guest.token == token, lock)
     for _ in range(MAX_MERGE_HOPS):
         if guest is None or guest.merged_into_guest_id is None:
             return guest
         if guest.merged_at is None or now - guest.merged_at > window:
             return None
-        guest = db.get(Guest, guest.merged_into_guest_id)
+        guest = _guest_row(db, Guest.id == guest.merged_into_guest_id, lock)
     return None
+
+
+def _guest_row(db: Session, criterion, lock: bool) -> Guest | None:
+    query = db.query(Guest).filter(criterion)
+    return (query.with_for_update() if lock else query).first()
 
 
 def _ua_signals_match(stored_ua: str | None, submitted_ua: str) -> bool:
@@ -193,7 +202,7 @@ def identify_guest(
 
     # --- Flow 2: Cookie present ---
     if token_from_cookie:
-        guest = resolve_guest_by_token(db, token_from_cookie)
+        guest = resolve_guest_by_token(db, token_from_cookie, lock=True)
         if guest:
             # A merged-away cookie forwards to the survivor (#932). That hit comes from the
             # merged device, so its fingerprint and UA must not overwrite the survivor's own;

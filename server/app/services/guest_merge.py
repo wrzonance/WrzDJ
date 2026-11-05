@@ -65,6 +65,12 @@ def merge_guests(db: Session, *, source_guest_id: int, target_guest_id: int) -> 
     profiles_moved = 0
     profiles_merged = 0
 
+    # Step 0: Lock both guest rows for the transaction (Postgres; SQLite ignores FOR UPDATE).
+    # An identify that is writing the source waits here; one arriving later sees the committed
+    # tombstone and follows it. Source first, the order the cookie lookup walks (#951).
+    for guest_id in (source_guest_id, target_guest_id):
+        db.query(Guest).filter(Guest.id == guest_id).with_for_update().first()
+
     # Step 1: Reassign requests
     req_count = (
         db.query(Request)

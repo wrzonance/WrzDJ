@@ -1,5 +1,6 @@
 """Tests for the public collect preview and leaderboard endpoints."""
 
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 
 import pytest
@@ -7,6 +8,28 @@ import pytest
 from app.core.time import utcnow
 from app.models.event import Event
 from app.models.guest import Guest
+
+
+@contextmanager
+def _request_cookies(client, cookies: dict):
+    """Send these cookies with the requests inside the block, then restore the client's own.
+
+    Replaces Starlette's deprecated per-request ``cookies=`` argument. Works on the jar's
+    Cookie objects, because the jar can hold one name under several domains.
+    """
+    jar = client.cookies.jar
+    saved = [c for c in jar if c.name in cookies]
+    for c in saved:
+        jar.clear(c.domain, c.path, c.name)
+    for name, value in cookies.items():
+        client.cookies.set(name, value)
+    try:
+        yield
+    finally:
+        for c in [c for c in jar if c.name in cookies]:
+            jar.clear(c.domain, c.path, c.name)
+        for c in saved:
+            jar.set_cookie(c)
 
 
 def _enable_collection(db, event: Event):
@@ -747,14 +770,17 @@ class TestNicknameUniqueness:
         db.commit()
         # second guest tries "Alex"
         guest2 = self._make_guest(db, "two")
-        r = client.post(
-            f"/api/public/collect/{test_event.code}/profile",
-            json={"nickname": "Alex"},
-            cookies={
+        with _request_cookies(
+            client,
+            {
                 "wrzdj_guest": guest2.token,
                 "wrzdj_human": self._human_cookie_for(guest2.id),
             },
-        )
+        ):
+            r = client.post(
+                f"/api/public/collect/{test_event.code}/profile",
+                json={"nickname": "Alex"},
+            )
         assert r.status_code == 409
         body = r.json()["detail"]
         assert body["code"] == "nickname_taken"
@@ -763,24 +789,30 @@ class TestNicknameUniqueness:
     def test_collision_claimed_returns_409_claimed_true(self, client, db, test_event):
         # email-verified guest claims "Alex"
         verified_guest = self._make_guest(db, "verified", verified=True)
-        client.post(
-            f"/api/public/collect/{test_event.code}/profile",
-            json={"nickname": "Alex"},
-            cookies={
+        with _request_cookies(
+            client,
+            {
                 "wrzdj_guest": verified_guest.token,
                 "wrzdj_human": self._human_cookie_for(verified_guest.id),
             },
-        )
+        ):
+            client.post(
+                f"/api/public/collect/{test_event.code}/profile",
+                json={"nickname": "Alex"},
+            )
         # second guest tries same name
         guest2 = self._make_guest(db, "two")
-        r = client.post(
-            f"/api/public/collect/{test_event.code}/profile",
-            json={"nickname": "Alex"},
-            cookies={
+        with _request_cookies(
+            client,
+            {
                 "wrzdj_guest": guest2.token,
                 "wrzdj_human": self._human_cookie_for(guest2.id),
             },
-        )
+        ):
+            r = client.post(
+                f"/api/public/collect/{test_event.code}/profile",
+                json={"nickname": "Alex"},
+            )
         assert r.status_code == 409
         body = r.json()["detail"]
         assert body["code"] == "nickname_taken"
@@ -804,14 +836,17 @@ class TestNicknameUniqueness:
         )
         for variant in ["alex", "ALEX", "aLeX"]:
             g = self._make_guest(db, variant)
-            r = client.post(
-                f"/api/public/collect/{test_event.code}/profile",
-                json={"nickname": variant},
-                cookies={
+            with _request_cookies(
+                client,
+                {
                     "wrzdj_guest": g.token,
                     "wrzdj_human": self._human_cookie_for(g.id),
                 },
-            )
+            ):
+                r = client.post(
+                    f"/api/public/collect/{test_event.code}/profile",
+                    json={"nickname": variant},
+                )
             assert r.status_code == 409, f"Expected 409 for variant '{variant}'"
 
     def test_race_condition_integrity_error_maps_to_409(self, client, db, test_event, monkeypatch):
@@ -859,38 +894,38 @@ class TestProfileRejectsNameBeforeEmailGate:
         return {"wrzdj_guest": guest.token, "wrzdj_human": _human_cookie_for(guest.id)}
 
     def test_profane_name_rejected_before_email_gate(self, client, db, test_event):
-        r = client.post(
-            f"/api/public/collect/{test_event.code}/profile",
-            json={"nickname": "FuckYou"},
-            cookies=self._unverified_cookies(db),
-        )
+        with _request_cookies(client, self._unverified_cookies(db)):
+            r = client.post(
+                f"/api/public/collect/{test_event.code}/profile",
+                json={"nickname": "FuckYou"},
+            )
         assert r.status_code == 422
         assert "Please choose a different name" in r.text
 
     def test_malformed_name_rejected_before_email_gate(self, client, db, test_event):
-        r = client.post(
-            f"/api/public/collect/{test_event.code}/profile",
-            json={"nickname": "<script>"},
-            cookies=self._unverified_cookies(db),
-        )
+        with _request_cookies(client, self._unverified_cookies(db)):
+            r = client.post(
+                f"/api/public/collect/{test_event.code}/profile",
+                json={"nickname": "<script>"},
+            )
         assert r.status_code == 422
 
     def test_taken_name_rejected_before_email_gate(self, client, db, test_event):
         client.post(f"/api/public/collect/{test_event.code}/profile", json={"nickname": "Alex"})
-        r = client.post(
-            f"/api/public/collect/{test_event.code}/profile",
-            json={"nickname": "alex"},
-            cookies=self._unverified_cookies(db),
-        )
+        with _request_cookies(client, self._unverified_cookies(db)):
+            r = client.post(
+                f"/api/public/collect/{test_event.code}/profile",
+                json={"nickname": "alex"},
+            )
         assert r.status_code == 409
         assert r.json()["detail"] == {"code": "nickname_taken", "claimed": True}
 
     def test_acceptable_name_still_requires_verified_email(self, client, db, test_event):
-        r = client.post(
-            f"/api/public/collect/{test_event.code}/profile",
-            json={"nickname": "DancingQueen"},
-            cookies=self._unverified_cookies(db),
-        )
+        with _request_cookies(client, self._unverified_cookies(db)):
+            r = client.post(
+                f"/api/public/collect/{test_event.code}/profile",
+                json={"nickname": "DancingQueen"},
+            )
         assert r.status_code == 403
         assert r.json()["detail"] == {"code": "email_verification_required"}
 

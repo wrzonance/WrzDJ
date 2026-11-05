@@ -18,16 +18,8 @@ from app.services.llm.gateway import Gateway
 
 
 @pytest.fixture
-def dj_user(db) -> User:
-    user = User(
-        username="prefdj",
-        password_hash=get_password_hash("password123"),
-        role="dj",
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
+def dj_user(make_user) -> User:
+    return make_user(username="prefdj")
 
 
 def _make_connector(db, user, *, display_name="Pref connector", status="active"):

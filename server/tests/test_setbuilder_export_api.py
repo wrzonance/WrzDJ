@@ -3,7 +3,6 @@
 from types import SimpleNamespace
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models.set import Set, SetSlot
@@ -11,10 +10,8 @@ from app.models.set_pool import SetPoolSource, SetPoolTrack
 
 
 @pytest.fixture
-def set_id(client: TestClient, auth_headers: dict) -> int:
-    resp = client.post("/api/setbuilder/sets", json={"name": "Export Set"}, headers=auth_headers)
-    assert resp.status_code == 201
-    return resp.json()["id"]
+def set_id(make_set) -> int:
+    return make_set("Export Set")
 
 
 def _seed_pool(db: Session, set_id: int, *, with_orphan_slot: bool = False) -> None:

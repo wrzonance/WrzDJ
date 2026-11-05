@@ -3,9 +3,11 @@
 CI runs these against the job's Postgres service; locally they skip unless the URL is set.
 """
 
+import hashlib
 import threading
 import time
 from datetime import timedelta
+from unittest.mock import patch
 
 import pytest
 from fastapi import Request as HttpRequest
@@ -15,11 +17,19 @@ from sqlalchemy.orm import Session
 
 from app.core.rate_limit import get_guest_id
 from app.core.time import utcnow
+from app.models.email_verification_code import EmailVerificationCode
 from app.models.event import Event
 from app.models.guest import Guest
 from app.models.guest_profile import GuestProfile
 from app.models.request import Request, RequestStatus
 from app.models.user import User
+from app.services.email_verification import (
+    CodeInvalidError,
+    RateLimitExceededError,
+    _email_lock_key,
+    confirm_verification_code,
+    create_verification_code,
+)
 from app.services.guest_identity import identify_guest, resolve_guest_by_token
 from app.services.guest_merge import merge_guests
 
@@ -177,8 +187,11 @@ def _in_thread(fn, *args, **kwargs) -> tuple[threading.Thread, dict]:
     return thread, box
 
 
-def _assert_waiting_on_row_lock(engine, thread: threading.Thread, timeout: float = 5.0):
-    """The other backend must reach a row-lock wait (pg_stat_activity), not merely be slow."""
+def _assert_waiting_on_row_lock(engine, thread: threading.Thread, timeout: float = 30.0):
+    """The other backend must reach a row-lock wait (pg_stat_activity), not merely be slow.
+
+    The window is generous because CI runs four xdist workers under coverage on one runner;
+    a thread that finishes without ever waiting fails immediately regardless."""
     deadline = time.monotonic() + timeout
     with engine.connect() as conn:
         while time.monotonic() < deadline:
@@ -198,7 +211,7 @@ def _assert_waiting_on_row_lock(engine, thread: threading.Thread, timeout: float
 
 
 def _finish(thread: threading.Thread, box: dict) -> object:
-    thread.join(10)
+    thread.join(30)
     assert not thread.is_alive() and "error" not in box, box
     return box["value"]
 
@@ -299,7 +312,7 @@ def test_merge_refuses_a_source_that_was_merged_away_meanwhile(_pg_engine, held)
     _assert_waiting_on_row_lock(engine, thread)
     _release(merging)
 
-    thread.join(10)
+    thread.join(30)
     assert isinstance(box.get("error"), ValueError), box
     assert _load(engine, g["a"].id).merged_into_guest_id == g["b"].id
 
@@ -380,3 +393,85 @@ def test_identify_through_a_tombstone_while_its_survivor_is_merged_does_not_dead
     result = _finish(thread, box)
     assert (result.guest_id, result.action) == (g["c"].id, "cookie_hit")
     assert _load(engine, g["a"].id).merged_into_guest_id == g["c"].id
+
+
+# --- verification codes: one request per email at a time, one confirmation per code ------
+
+
+def test_code_requests_for_one_email_are_serialized(_pg_engine, held):
+    """The hourly count and the insert run under a per-email advisory lock, so a request for
+    an address waits for whoever holds that lock instead of reading a count that is about to
+    change."""
+    engine = _engine_or_skip(_pg_engine)
+    g = _seed_guests(engine, "vc1", "a")
+    key = _email_lock_key(hashlib.sha256(b"fan-vc1@test.com").hexdigest())
+    holding = _holding(engine, held)
+    holding.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
+
+    def request_code():
+        with Session(engine) as s, patch("app.services.email_verification.send_verification_email"):
+            return create_verification_code(s, guest_id=g["a"].id, email="fan-vc1@test.com").id
+
+    thread, box = _in_thread(request_code)
+    _assert_waiting_on_row_lock(engine, thread)
+    _release(holding)
+    code_id = _finish(thread, box)
+    with Session(engine) as s:
+        assert s.get(EmailVerificationCode, code_id).guest_id == g["a"].id
+
+
+def test_concurrent_code_requests_cannot_overshoot_the_hourly_cap(_pg_engine):
+    """Four sends in the hour, then two real requests at once: exactly one more is sent and
+    the other is rate-limited, so the address ends the hour at the cap, never above it."""
+    engine = _engine_or_skip(_pg_engine)
+    g = _seed_guests(engine, "vc3", "a")
+    email = "fan-vc3@test.com"
+    with Session(engine) as s, patch("app.services.email_verification.send_verification_email"):
+        for _ in range(4):
+            create_verification_code(s, guest_id=g["a"].id, email=email)
+
+    def request_code():
+        with Session(engine) as s, patch("app.services.email_verification.send_verification_email"):
+            return create_verification_code(s, guest_id=g["a"].id, email=email).id
+
+    threads = [_in_thread(request_code) for _ in range(2)]
+    outcomes = []
+    for thread, box in threads:
+        thread.join(30)
+        assert not thread.is_alive()
+        outcomes.append(box.get("error", box.get("value")))
+    errors = [o for o in outcomes if isinstance(o, RateLimitExceededError)]
+    assert len(errors) == 1, outcomes
+    with Session(engine) as s:
+        eh = hashlib.sha256(email.encode()).hexdigest()
+        count = (
+            s.query(EmailVerificationCode).filter(EmailVerificationCode.email_hash == eh).count()
+        )
+    assert count == 5
+
+
+def test_a_code_cannot_be_accepted_twice_by_concurrent_confirmations(_pg_engine, held):
+    """The first confirmation (the real service, its transaction held open) marks the code
+    used under FOR UPDATE; a second confirmation of the same code waits for it and is then
+    refused instead of accepting the code again."""
+    engine = _engine_or_skip(_pg_engine)
+    g = _seed_guests(engine, "vc2", "a")
+    email = "fan-vc2@test.com"
+    with Session(engine) as s, patch("app.services.email_verification.send_verification_email"):
+        row = create_verification_code(s, guest_id=g["a"].id, email=email)
+        code, row_id = row.code, row.id
+    first = _holding(engine, held)
+    assert confirm_verification_code(first, guest_id=g["a"].id, email=email, code=code).verified
+
+    def confirm_again():
+        with Session(engine) as s:
+            return confirm_verification_code(s, guest_id=g["a"].id, email=email, code=code).verified
+
+    thread, box = _in_thread(confirm_again)
+    _assert_waiting_on_row_lock(engine, thread)
+    _release(first)
+    thread.join(30)
+    assert not thread.is_alive()
+    assert isinstance(box.get("error"), CodeInvalidError), box
+    with Session(engine) as s:
+        assert s.get(EmailVerificationCode, row_id).used is True

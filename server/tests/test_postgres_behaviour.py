@@ -27,6 +27,7 @@ from app.services.email_verification import (
     CodeInvalidError,
     RateLimitExceededError,
     _email_lock_key,
+    _serialize_per_email,
     confirm_verification_code,
     create_verification_code,
 )
@@ -475,3 +476,34 @@ def test_a_code_cannot_be_accepted_twice_by_concurrent_confirmations(_pg_engine,
     assert isinstance(box.get("error"), CodeInvalidError), box
     with Session(engine) as s:
         assert s.get(EmailVerificationCode, row_id).used is True
+
+
+def test_two_guests_confirming_one_email_are_serialized_and_the_second_merges(_pg_engine, held):
+    """Guest A's confirmation holds the per-email ownership lock after taking the address; B's
+    confirmation of the same address waits for it, then sees A as the owner and merges into
+    A instead of both guests ending up with the email."""
+    engine = _engine_or_skip(_pg_engine)
+    g = _seed_guests(engine, "vc4", "a", "b")
+    email = "fan-vc4@test.com"
+    eh = hashlib.sha256(email.encode()).hexdigest()
+    with Session(engine) as s, patch("app.services.email_verification.send_verification_email"):
+        code_a = create_verification_code(s, guest_id=g["a"].id, email=email).code
+        code_b = create_verification_code(s, guest_id=g["b"].id, email=email).code
+
+    first = _holding(engine, held)
+    assert confirm_verification_code(first, guest_id=g["a"].id, email=email, code=code_a).verified
+    assert first.get(Guest, g["a"].id).email_hash == eh  # A owns it, uncommitted
+    _serialize_per_email(first, eh)  # the lock the real confirm holds until its commit
+
+    def confirm_b():
+        with Session(engine) as s:
+            return confirm_verification_code(s, guest_id=g["b"].id, email=email, code=code_b)
+
+    thread, box = _in_thread(confirm_b)
+    _assert_waiting_on_row_lock(engine, thread)
+    _release(first)
+    result = _finish(thread, box)
+    assert (result.merged, result.guest_id) == (True, g["a"].id)
+    with Session(engine) as s:
+        assert s.get(Guest, g["b"].id).merged_into_guest_id == g["a"].id
+        assert s.get(Guest, g["b"].id).email_hash is None

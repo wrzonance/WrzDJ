@@ -64,8 +64,11 @@ def missing(fake, live, path: str = "") -> list[str]:
                 out.append(f"{path}.{k}" if path else k)
             else:
                 out += missing(v, live[k], f"{path}.{k}" if path else k)
-    elif isinstance(fake, list) and isinstance(live, list) and fake and live:
-        out += missing(fake[0], live[0], f"{path}[0]")
+    elif isinstance(fake, list) and isinstance(live, list) and fake:
+        if live:
+            out += missing(fake[0], live[0], f"{path}[0]")
+        else:
+            out.append(f"{path}[0]")  # no live item to check the fake item's keys against
     return out
 
 
@@ -134,11 +137,14 @@ def beatport_token() -> tuple[str | None, str]:
 def tidal_token(login: bool) -> tuple[str | None, int | None, str, str]:
     """(access token, user id, country, why-not). The device login waits for the approval."""
     if token := os.environ.get("TIDAL_ACCESS_TOKEN"):
-        r = httpx.get(
-            f"{providers.TIDAL_API}/sessions",
-            headers={**UA, "Authorization": f"Bearer {token}"},
-            timeout=20,
-        )
+        try:
+            r = httpx.get(
+                f"{providers.TIDAL_API}/sessions",
+                headers={**UA, "Authorization": f"Bearer {token}"},
+                timeout=20,
+            )
+        except httpx.HTTPError as exc:
+            return None, None, "", f"TIDAL_ACCESS_TOKEN check unreachable: {type(exc).__name__}"
         if r.status_code != 200:
             return None, None, "", f"TIDAL_ACCESS_TOKEN rejected: HTTP {r.status_code}"
         return token, r.json().get("userId"), r.json().get("countryCode", "US"), ""

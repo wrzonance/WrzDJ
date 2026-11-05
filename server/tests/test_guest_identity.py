@@ -442,3 +442,45 @@ def test_fingerprint_reconcile_never_lands_on_a_tombstone(db: Session):
     assert result.guest_id not in (tomb.id, survivor.id)
     db.refresh(tomb)
     assert tomb.token == "w" * 64
+
+
+def test_forwarded_cookie_hit_keeps_the_survivors_device_profile(db: Session):
+    """A merged-away cookie resolves to the survivor (#932), but the hit comes from the merged
+    device: its fingerprint and UA must not overwrite the survivor's own, while the cookie is
+    still re-issued with the survivor's token and the visit still counts."""
+    survivor_ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/125.0 Safari/537.36"
+    survivor = Guest(
+        token="a" * 64,
+        fingerprint_hash="survivor_fp_hash",
+        user_agent=survivor_ua,
+        created_at=utcnow() - timedelta(days=1),
+        last_seen_at=utcnow() - timedelta(hours=1),
+    )
+    db.add(survivor)
+    db.commit()
+    tomb = Guest(
+        token="b" * 64,
+        merged_into_guest_id=survivor.id,
+        merged_at=utcnow(),
+        created_at=utcnow() - timedelta(days=1),
+        last_seen_at=utcnow(),
+    )
+    db.add(tomb)
+    db.commit()
+    seen_before = survivor.last_seen_at
+
+    result = identify_guest(
+        db,
+        token_from_cookie="b" * 64,
+        fingerprint_hash="merged_device_fp_hash",
+        fingerprint_components={"screen": "390x844"},
+        user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/604.1",
+    )
+
+    assert result.action == "cookie_hit"
+    assert result.guest_id == survivor.id
+    assert result.token == "a" * 64
+    db.refresh(survivor)
+    assert survivor.fingerprint_hash == "survivor_fp_hash"
+    assert survivor.user_agent == survivor_ua
+    assert survivor.last_seen_at > seen_before

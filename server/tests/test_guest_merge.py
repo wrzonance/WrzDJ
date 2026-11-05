@@ -1,7 +1,9 @@
 """Unit tests for guest merge service."""
 
+from contextlib import contextmanager
 from datetime import timedelta
 
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app.core.time import utcnow
@@ -249,3 +251,78 @@ def test_merge_returns_correct_counts(db: Session, test_event: Event):
     assert result.votes_deduped == 0
     assert result.profiles_moved == 1
     assert result.profiles_merged == 0
+
+
+@contextmanager
+def _selects_from(db: Session, table: str):
+    """Collect the SELECT statements against ``table`` issued inside the block."""
+    seen: list[str] = []
+
+    def on_execute(_conn, _cursor, statement, _params, _context, _many):
+        if statement.lstrip().upper().startswith("SELECT") and table in statement:
+            seen.append(statement)
+
+    engine = db.get_bind()
+    event.listen(engine, "before_cursor_execute", on_execute)
+    try:
+        yield seen
+    finally:
+        event.remove(engine, "before_cursor_execute", on_execute)
+
+
+def _make_event(db: Session, owner: User, code: str, join_code: str) -> Event:
+    ev = Event(
+        code=code,
+        join_code=join_code,
+        name=f"Event {code}",
+        created_by_user_id=owner.id,
+        expires_at=utcnow() + timedelta(hours=6),
+    )
+    db.add(ev)
+    db.commit()
+    db.refresh(ev)
+    return ev
+
+
+def test_merge_reads_the_targets_votes_and_profiles_once(
+    db: Session, test_event: Event, test_user: User
+):
+    """The target's votes and profiles are each fetched in one query, however many rows the
+    source brings, instead of one lookup per source vote or profile."""
+    source = _make_guest(db, "src_n1")
+    target = _make_guest(db, "tgt_n1")
+    events = [test_event] + [
+        _make_event(db, test_user, f"NPLUS{i}", f"NP{i}XQG{i}") for i in range(1, 4)
+    ]
+    requests = []
+    for i, ev in enumerate(events):
+        req = Request(
+            event_id=ev.id,
+            song_title=f"Song {i}",
+            artist="Artist",
+            source="manual",
+            status=RequestStatus.NEW.value,
+            dedupe_key=f"dk_nplus_{i}",
+            vote_count=2 if i % 2 == 0 else 1,
+        )
+        db.add(req)
+        requests.append(req)
+    db.commit()
+    for i, (ev, req) in enumerate(zip(events, requests, strict=True)):
+        db.add(RequestVote(request_id=req.id, guest_id=source.id))
+        db.add(GuestProfile(event_id=ev.id, guest_id=source.id, submission_count=1))
+        if i % 2 == 0:
+            db.add(RequestVote(request_id=req.id, guest_id=target.id))
+            db.add(GuestProfile(event_id=ev.id, guest_id=target.id, submission_count=1))
+    db.commit()
+
+    with (
+        _selects_from(db, "request_votes") as vote_reads,
+        _selects_from(db, "guest_profiles") as profile_reads,
+    ):
+        result = merge_guests(db, source_guest_id=source.id, target_guest_id=target.id)
+
+    assert (result.votes_moved, result.votes_deduped) == (2, 2)
+    assert (result.profiles_moved, result.profiles_merged) == (2, 2)
+    assert len(vote_reads) == 2, vote_reads  # the source's votes, the target's voted requests
+    assert len(profile_reads) == 2, profile_reads  # the source's profiles, the target's

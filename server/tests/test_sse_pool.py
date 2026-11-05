@@ -127,6 +127,13 @@ def test_event_stream_returns_with_pool_checked_in(pooled_engine):
     assert engine.pool.checkedout() == 0
 
 
+def _primer_outcome(task: asyncio.Task) -> str:
+    if task.cancelled():
+        return "cancelled"
+    exc = task.exception()
+    return "completed" if exc is None else f"raised {type(exc).__name__}: {exc}"
+
+
 def test_n_concurrent_idle_streams_hold_zero_pool_connections(pooled_engine):
     """N concurrent open (idle) SSE streams must hold ~0 pooled connections.
 
@@ -152,13 +159,15 @@ def test_n_concurrent_idle_streams_hold_zero_pool_connections(pooled_engine):
         primer_tasks = [asyncio.ensure_future(g.__anext__()) for g in generators]
         await asyncio.sleep(0.05)
 
-        # Sanity-check that streams are actually suspended (not instantly
-        # exited). If receive() returns http.disconnect immediately, every
-        # primer would already be done here and the pool-connection assertion
-        # below would pass for the wrong reason.
-        assert any(not t.done() for t in primer_tasks), (
-            "streams did not remain open/idle — receive() must suspend, not "
-            "return http.disconnect immediately"
+        # Sanity-check that every stream is actually suspended (not exited or
+        # failed). If receive() returned http.disconnect immediately, or the
+        # generator raised, the pool-connection assertion below would pass for
+        # the wrong reason, so a finished primer fails the test and says why.
+        finished = [t for t in primer_tasks if t.done()]
+        assert not finished, (
+            f"{len(finished)}/{len(primer_tasks)} streams did not remain open/idle — "
+            "receive() must suspend, not return http.disconnect immediately: "
+            + ", ".join(_primer_outcome(t) for t in finished)
         )
 
         checked_out = engine.pool.checkedout()
@@ -188,12 +197,10 @@ def test_event_stream_lookup_runs_off_the_event_loop(pooled_engine):
     """The existence check is blocking DB I/O inside an async handler; it must run on a
     worker thread. Inline, a dry pool blocked the loop for pool_timeout and froze every
     request, /health included (self-host stack, 2026-11-03)."""
-    from app.api.sse import event_stream
+    import app.api.sse as sse
 
     loop_thread = threading.get_ident()
     lookup_threads: list[int] = []
-
-    import app.api.sse as sse
 
     real_lookup = sse._lookup_event_code
 
@@ -202,7 +209,7 @@ def test_event_stream_lookup_runs_off_the_event_loop(pooled_engine):
         return real_lookup(code)
 
     with patch.object(sse, "_lookup_event_code", autospec=True, side_effect=spy):
-        asyncio.run(event_stream(code="POOLJN", request=_make_request("POOLJN")))
+        asyncio.run(sse.event_stream(code="POOLJN", request=_make_request("POOLJN")))
 
     assert lookup_threads, "the existence check did not run"
     assert lookup_threads[0] != loop_thread

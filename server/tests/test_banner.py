@@ -97,6 +97,19 @@ class TestProcessBannerUpload:
         base = banner_fn.split("/")[-1]
         assert (tmp_path / base).exists()
 
+    @patch("app.services.banner.time.time", return_value=1_700_000_000)
+    @patch("app.services.banner._get_banners_dir")
+    def test_uploads_in_the_same_second_get_distinct_files(self, mock_dir, _clock, tmp_path):
+        """Two uploads for one event within a second must not share files: deleting the
+        older banner would otherwise remove the newer one's files as well."""
+        mock_dir.return_value = tmp_path
+        first, _, _ = process_banner_upload(_make_upload_file(_make_rgb_image(200, 100)), "TEST01")
+        second, _, _ = process_banner_upload(_make_upload_file(_make_rgb_image(200, 100)), "TEST01")
+
+        assert first != second
+        assert (tmp_path / first.split("/")[-1]).exists()
+        assert (tmp_path / second.split("/")[-1]).exists()
+
     @patch("app.services.banner._get_banners_dir")
     def test_valid_jpeg_upload(self, mock_dir, tmp_path):
         mock_dir.return_value = tmp_path

@@ -69,6 +69,33 @@ def missing(fake, live, path: str = "") -> list[str]:
     return out
 
 
+def unverified(fake, live, path: str = "") -> list[str]:
+    """List items the fake describes but the live answer gave none of (nothing to compare)."""
+    out = []
+    if isinstance(fake, dict) and isinstance(live, dict):
+        for k, v in fake.items():
+            if k in live:
+                out += unverified(v, live[k], f"{path}.{k}" if path else k)
+    elif isinstance(fake, list) and isinstance(live, list) and fake:
+        if live:
+            out += unverified(fake[0], live[0], f"{path}[0]")
+        else:
+            out.append(f"{path}[0]")
+    return out
+
+
+def verdict(fake_shape, live_shape) -> tuple[str, str]:
+    """(status, detail): DRIFT when a fake key is gone; "empty" when the live answer had no
+    item to check the fake's list items against (not a drift, not a confirmation)."""
+    gaps = missing(fake_shape, live_shape)
+    if gaps:
+        return "DRIFT", f"missing in live: {gaps}"
+    blind = unverified(fake_shape, live_shape)
+    if blind:
+        return "empty", f"no live item to check: {blind}"
+    return "ok", "same keys"
+
+
 def fake_body(register, method: str, url: str, request_body: bytes = b"{}"):
     http = FakeHttp()
     register(http)
@@ -97,8 +124,8 @@ def check(name, method, url, register, *, json_body=None, params=None, headers=N
         return name, "DRIFT", "HTTP 404: the endpoint is gone or moved"
     if r.status_code >= 400:
         return name, "error", f"HTTP {r.status_code}"
-    gaps = missing(shape(fake), shape(r.json()))
-    return name, ("DRIFT" if gaps else "ok"), (f"missing in live: {gaps}" if gaps else "same keys")
+    status, detail = verdict(shape(fake), shape(r.json()))
+    return name, status, detail
 
 
 def tidalapi_release() -> tuple[str, str, str]:
@@ -134,11 +161,14 @@ def beatport_token() -> tuple[str | None, str]:
 def tidal_token(login: bool) -> tuple[str | None, int | None, str, str]:
     """(access token, user id, country, why-not). The device login waits for the approval."""
     if token := os.environ.get("TIDAL_ACCESS_TOKEN"):
-        r = httpx.get(
-            f"{providers.TIDAL_API}/sessions",
-            headers={**UA, "Authorization": f"Bearer {token}"},
-            timeout=20,
-        )
+        try:
+            r = httpx.get(
+                f"{providers.TIDAL_API}/sessions",
+                headers={**UA, "Authorization": f"Bearer {token}"},
+                timeout=20,
+            )
+        except httpx.HTTPError as exc:
+            return None, None, "", f"TIDAL_ACCESS_TOKEN check unreachable: {type(exc).__name__}"
         if r.status_code != 200:
             return None, None, "", f"TIDAL_ACCESS_TOKEN rejected: HTTP {r.status_code}"
         return token, r.json().get("userId"), r.json().get("countryCode", "US"), ""

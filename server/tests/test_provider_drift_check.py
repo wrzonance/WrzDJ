@@ -34,3 +34,40 @@ def test_fake_body_reads_the_registered_fake_response():
         b'{"artist_mbids": ["a74b1b7f-71a5-4011-9441-d0b5e4122711"]}',
     )
     assert isinstance(body, list | dict)
+
+
+def test_an_empty_live_list_is_reported_as_empty_not_as_same_keys():
+    """An empty live list gives no item to check the fake item's keys against: the verdict is
+    "empty" (a legitimate no-results answer is not drift either), never "ok / same keys"."""
+    assert drift.unverified(drift.shape([{"id": 1}]), drift.shape([])) == ["[0]"]
+    fake = drift.shape({"items": [{"id": 1}], "total": 0})
+    assert drift.verdict(fake, drift.shape({"items": [], "total": 0})) == (
+        "empty",
+        "no live item to check: ['items[0]']",
+    )
+    assert drift.verdict(fake, drift.shape({"items": [{"id": 2}], "total": 1})) == (
+        "ok",
+        "same keys",
+    )
+    assert drift.verdict(fake, drift.shape({"items": []})) == (
+        "DRIFT",
+        "missing in live: ['total']",
+    )
+
+
+def test_tidal_token_reports_an_unreachable_session_check(monkeypatch):
+    """A network failure while validating TIDAL_ACCESS_TOKEN is a why-not, not a crash."""
+    import httpx
+
+    def unreachable(*_args, **_kwargs):
+        raise httpx.ConnectError("boom")
+
+    monkeypatch.setenv("TIDAL_ACCESS_TOKEN", "a-token")
+    monkeypatch.setattr(drift.httpx, "get", unreachable)
+
+    assert drift.tidal_token(login=False) == (
+        None,
+        None,
+        "",
+        "TIDAL_ACCESS_TOKEN check unreachable: ConnectError",
+    )

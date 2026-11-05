@@ -4,8 +4,11 @@ from datetime import timedelta
 
 import pytest
 
-import app.services.human_verification  # noqa: F401  (imports utcnow by name)
 from app.core import time as app_time
+
+# Imported at module level on purpose: the module must bind utcnow by name before the
+# clock fixture starts freezing time, which is what the second test checks.
+from app.services import human_verification
 
 
 def test_clock_freezes_app_time(clock):
@@ -14,8 +17,6 @@ def test_clock_freezes_app_time(clock):
 
 
 def test_clock_reaches_modules_that_imported_utcnow_by_name(clock):
-    from app.services import human_verification
-
     assert human_verification.utcnow() == clock.now
 
 

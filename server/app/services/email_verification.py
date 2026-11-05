@@ -10,6 +10,7 @@ import secrets
 from dataclasses import dataclass
 from datetime import timedelta
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.time import utcnow
@@ -53,11 +54,25 @@ def _short_email_hash(eh: str) -> str:
     return eh[:12]
 
 
+def _email_lock_key(email_hash: str) -> int:
+    """A signed 64-bit advisory-lock key derived from the email hash."""
+    return int(email_hash[:15], 16)
+
+
+def _serialize_per_email(db: Session, email_hash: str) -> None:
+    """Hold a transaction-scoped advisory lock for this email (Postgres; no-op elsewhere),
+    so the hourly count and the insert below cannot interleave with another request for the
+    same address and overshoot the cap."""
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _email_lock_key(email_hash)})
+
+
 def create_verification_code(db: Session, *, guest_id: int, email: str) -> EmailVerificationCode:
     """Generate a 6-digit code, store it, and send it via email."""
     email_lower = email.lower()
     eh = _hash_email(email_lower)
     now = utcnow()
+    _serialize_per_email(db, eh)
 
     # The cap is per hour of sends, whatever became of the codes: counting only live
     # codes let an address receive five emails every five minutes, once each batch expired.
@@ -86,10 +101,20 @@ def create_verification_code(db: Session, *, guest_id: int, email: str) -> Email
         created_at=now,
     )
     db.add(row)
+    db.flush()
+    try:
+        send_verification_email(email_lower, code)
+    except Exception:
+        # A code that never reached the address must not count against the hourly cap.
+        db.rollback()
+        _logger.exception(
+            "guest.verify action=code_send_failed guest_id=%s email_hash=%s",
+            guest_id,
+            _short_email_hash(eh),
+        )
+        raise
     db.commit()
     db.refresh(row)
-
-    send_verification_email(email_lower, code)
 
     _logger.info(
         "guest.verify action=code_sent guest_id=%s email_hash=%s",
@@ -118,6 +143,7 @@ def confirm_verification_code(
             EmailVerificationCode.used == False,  # noqa: E712
         )
         .order_by(EmailVerificationCode.created_at.desc())
+        .with_for_update()  # one confirmation at a time per code (Postgres; SQLite ignores)
         .first()
     )
 

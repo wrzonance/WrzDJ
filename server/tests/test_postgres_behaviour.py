@@ -6,6 +6,7 @@ CI runs these against the job's Postgres service; locally they skip unless the U
 import threading
 import time
 from datetime import timedelta
+from unittest.mock import patch
 
 import pytest
 from fastapi import Request as HttpRequest
@@ -15,11 +16,18 @@ from sqlalchemy.orm import Session
 
 from app.core.rate_limit import get_guest_id
 from app.core.time import utcnow
+from app.models.email_verification_code import EmailVerificationCode
 from app.models.event import Event
 from app.models.guest import Guest
 from app.models.guest_profile import GuestProfile
 from app.models.request import Request, RequestStatus
 from app.models.user import User
+from app.services.email_verification import (
+    CodeInvalidError,
+    _email_lock_key,
+    confirm_verification_code,
+    create_verification_code,
+)
 from app.services.guest_identity import identify_guest, resolve_guest_by_token
 from app.services.guest_merge import merge_guests
 
@@ -380,3 +388,59 @@ def test_identify_through_a_tombstone_while_its_survivor_is_merged_does_not_dead
     result = _finish(thread, box)
     assert (result.guest_id, result.action) == (g["c"].id, "cookie_hit")
     assert _load(engine, g["a"].id).merged_into_guest_id == g["c"].id
+
+
+# --- verification codes: one request per email at a time, one confirmation per code ------
+
+
+def test_code_requests_for_one_email_are_serialized(_pg_engine, held):
+    """The hourly count and the insert run under a per-email advisory lock, so a second
+    request for the same address waits for the first instead of both seeing the old count."""
+    engine = _engine_or_skip(_pg_engine)
+    g = _seed_guests(engine, "vc1", "a")
+    key = _email_lock_key(__import__("hashlib").sha256(b"fan-vc1@test.com").hexdigest())
+    holding = _holding(engine, held)
+    holding.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
+
+    def request_code():
+        with Session(engine) as s, patch("app.services.email_verification.send_verification_email"):
+            return create_verification_code(s, guest_id=g["a"].id, email="fan-vc1@test.com").id
+
+    thread, box = _in_thread(request_code)
+    _assert_waiting_on_row_lock(engine, thread)
+    _release(holding)
+    code_id = _finish(thread, box)
+    with Session(engine) as s:
+        assert s.get(EmailVerificationCode, code_id).guest_id == g["a"].id
+
+
+def test_a_code_cannot_be_accepted_twice_by_concurrent_confirmations(_pg_engine, held):
+    """Confirming reads the code row FOR UPDATE: a second confirmation of one code waits for
+    the first to commit and then finds the code used, instead of accepting it again."""
+    engine = _engine_or_skip(_pg_engine)
+    g = _seed_guests(engine, "vc2", "a")
+    with Session(engine) as s, patch("app.services.email_verification.send_verification_email"):
+        row = create_verification_code(s, guest_id=g["a"].id, email="fan-vc2@test.com")
+        code, row_id = row.code, row.id
+    holding = _holding(engine, held)
+    first = (
+        holding.query(EmailVerificationCode)
+        .filter(EmailVerificationCode.id == row_id)
+        .with_for_update()
+        .one()
+    )
+    first.used = True  # the first confirmation, still uncommitted
+    holding.flush()
+
+    def confirm():
+        with Session(engine) as s:
+            return confirm_verification_code(
+                s, guest_id=g["a"].id, email="fan-vc2@test.com", code=code
+            ).verified
+
+    thread, box = _in_thread(confirm)
+    _assert_waiting_on_row_lock(engine, thread)
+    _release(holding)
+    thread.join(10)
+    assert not thread.is_alive()
+    assert isinstance(box.get("error"), CodeInvalidError), box

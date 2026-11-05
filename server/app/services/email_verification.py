@@ -101,7 +101,12 @@ def create_verification_code(db: Session, *, guest_id: int, email: str) -> Email
         created_at=now,
     )
     db.add(row)
-    db.commit()  # durable before the email goes out, and the per-email lock ends here
+    # Durable before the email goes out (a delivered code must always exist), which also ends
+    # the per-email lock. Trade-off, chosen deliberately: until a failed send is deleted below,
+    # a concurrent request for the same address counts that row and may be refused once at
+    # the cap; it can ask again. The alternative (send inside the transaction) risks a
+    # delivered code with no row, which cannot be retried by the recipient.
+    db.commit()
     db.refresh(row)
 
     try:
@@ -187,7 +192,9 @@ def confirm_verification_code(
         )
         return VerifyResult(verified=True, guest_id=guest_id, merged=False)
 
-    # Check if another Guest owns this email
+    # One ownership decision per email at a time: two guests confirming the same address
+    # concurrently must not both claim it (the second must see the first and merge into it).
+    _serialize_per_email(db, eh)
     existing = db.query(Guest).filter(Guest.email_hash == eh, Guest.id != guest_id).first()
 
     if existing:

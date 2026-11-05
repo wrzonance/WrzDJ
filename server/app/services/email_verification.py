@@ -71,8 +71,8 @@ def create_verification_code(db: Session, *, guest_id: int, email: str) -> Email
     """Generate a 6-digit code, store it, and send it via email."""
     email_lower = email.lower()
     eh = _hash_email(email_lower)
-    now = utcnow()
     _serialize_per_email(db, eh)
+    now = utcnow()  # after the lock: time spent waiting must not eat into the code's validity
 
     # The cap is per hour of sends, whatever became of the codes: counting only live
     # codes let an address receive five emails every five minutes, once each batch expired.
@@ -101,20 +101,21 @@ def create_verification_code(db: Session, *, guest_id: int, email: str) -> Email
         created_at=now,
     )
     db.add(row)
-    db.flush()
+    db.commit()  # durable before the email goes out, and the per-email lock ends here
+    db.refresh(row)
+
     try:
         send_verification_email(email_lower, code)
     except Exception:
-        # A code that never reached the address must not count against the hourly cap.
-        db.rollback()
+        # A code that did not reach the address must not count against the hourly cap.
+        db.delete(row)
+        db.commit()
         _logger.exception(
             "guest.verify action=code_send_failed guest_id=%s email_hash=%s",
             guest_id,
             _short_email_hash(eh),
         )
         raise
-    db.commit()
-    db.refresh(row)
 
     _logger.info(
         "guest.verify action=code_sent guest_id=%s email_hash=%s",

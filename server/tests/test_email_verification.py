@@ -47,6 +47,8 @@ def test_verify_correct_code(db: Session, test_guest: Guest):
     assert result.verified is True
     assert result.merged is False
 
+    db.refresh(code_row)
+    assert code_row.used is True  # a one-time code: the second confirmation must find it used
     db.refresh(test_guest)
     assert test_guest.email_hash == _email_hash("fan@test.com")
     assert test_guest.email_verified_at is not None

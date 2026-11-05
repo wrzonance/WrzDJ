@@ -53,7 +53,7 @@ def _extract_dominant_colors(img: Image.Image, num_colors: int = 3) -> list[str]
 
     # Count pixels per color to sort by dominance
     color_counts: dict[int, int] = {}
-    for pixel in quantized.getdata():
+    for pixel in quantized.get_flattened_data():
         color_counts[pixel] = color_counts.get(pixel, 0) + 1
 
     # Sort by frequency (most common first)

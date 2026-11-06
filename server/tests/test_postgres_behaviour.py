@@ -21,8 +21,11 @@ from app.models.email_verification_code import EmailVerificationCode
 from app.models.event import Event
 from app.models.guest import Guest
 from app.models.guest_profile import GuestProfile
+from app.models.now_playing import NowPlaying
+from app.models.play_history import PlayHistory
 from app.models.request import Request, RequestStatus
 from app.models.user import User
+from app.services.bridge_integration import clear_now_playing
 from app.services.email_verification import (
     CodeInvalidError,
     RateLimitExceededError,
@@ -33,6 +36,7 @@ from app.services.email_verification import (
 )
 from app.services.guest_identity import identify_guest, resolve_guest_by_token
 from app.services.guest_merge import merge_guests
+from app.services.now_playing import archive_to_history
 
 pytestmark = pytest.mark.postgres
 
@@ -527,3 +531,74 @@ def test_two_guests_confirming_one_email_are_serialized_and_the_second_merges(_p
     with Session(engine) as s:
         assert s.get(Guest, g["b"].id).merged_into_guest_id == g["a"].id
         assert s.get(Guest, g["b"].id).email_hash is None
+
+
+# --- clear_now_playing: two clears at once archive the song once (#963) ----------------
+
+
+def _seed_now_playing(engine, tag: str) -> tuple[str, int]:
+    """A committed event whose now-playing row holds a song; returns (event code, event id)."""
+    with Session(engine) as s:
+        user = User(username=f"pg_{tag}", password_hash="x", role="dj")
+        s.add(user)
+        s.flush()
+        event = Event(
+            code=f"N{tag[-5:].upper()}",
+            join_code=f"J{tag[-5:].upper()}",
+            name="now playing event",
+            created_by_user_id=user.id,
+            expires_at=utcnow() + timedelta(hours=6),
+        )
+        s.add(event)
+        s.flush()
+        s.add(NowPlaying(event_id=event.id, title="Once", artist="A", source="bridge"))
+        s.commit()
+        return event.code, event.id
+
+
+def _waiting_statement(engine, pid: int) -> str:
+    with engine.connect() as conn:
+        return conn.execute(
+            text("SELECT left(query, 120) FROM pg_stat_activity WHERE pid = :pid"), {"pid": pid}
+        ).scalar_one()
+
+
+def test_two_clears_at_once_archive_the_song_once(_pg_engine):
+    """The bridge used to send two clears at the same instant on shutdown and both archived
+    the song (#963). Both clears here are the real service with real commits. The first is
+    paused right after its locking read and before it writes anything; the second must then
+    block on its own SELECT, so the read itself has to be exclusive: no lock lets the second
+    archive before the first writes, a shared lock deadlocks once both try to write, and a
+    commit between the read and the archive releases the lock early. After the first
+    finishes, the second sees the blank title and adds nothing."""
+    engine = _engine_or_skip(_pg_engine)
+    code, event_id = _seed_now_playing(engine, "clr1")
+    real_archive = archive_to_history
+    at_lock, go = threading.Event(), threading.Event()
+
+    def archive_once_the_contender_is_waiting(db, now_playing):
+        if not at_lock.is_set():
+            at_lock.set()
+            assert go.wait(30), "the test never released the first clear"
+        return real_archive(db, now_playing)
+
+    with patch(
+        "app.services.now_playing.archive_to_history", archive_once_the_contender_is_waiting
+    ):
+        first, first_box = _in_thread(engine, clear_now_playing, event_code=code)
+        try:
+            assert at_lock.wait(30), first_box
+            second, second_box = _in_thread(engine, clear_now_playing, event_code=code)
+            _assert_waiting_on_row_lock(engine, second, second_box)
+            assert (
+                _waiting_statement(engine, second_box["pid"]).lstrip().upper().startswith("SELECT")
+            ), second_box
+        finally:
+            go.set()  # never leave the first clear holding its transaction open
+        assert _finish(first, first_box) is True
+        assert _finish(second, second_box) is True
+
+    with Session(engine) as s:
+        titles = [h.title for h in s.query(PlayHistory).filter_by(event_id=event_id)]
+        assert titles == ["Once"]
+        assert s.query(NowPlaying).filter_by(event_id=event_id).one().title == ""

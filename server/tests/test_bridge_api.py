@@ -339,14 +339,9 @@ class TestDeleteNowPlaying:
         titles = [h.title for h in db.query(PlayHistory).filter_by(event_id=test_event.id)]
         assert titles == ["Once"]
 
-    def test_clear_locks_the_now_playing_row(self, db: Session):
-        """Two clears at once both archived the song; the clear now reads the row FOR UPDATE."""
-        from sqlalchemy.dialects import postgresql
-
-        from app.services.now_playing import now_playing_for_update
-
-        sql = str(now_playing_for_update(db, 1).statement.compile(dialect=postgresql.dialect()))
-        assert "FOR UPDATE" in sql
+    # Two clears at the same moment archiving the song once relies on a row lock that only
+    # Postgres enforces; see test_two_clears_at_once_archive_the_song_once in
+    # test_postgres_behaviour.py (#963, #969).
 
 
 class TestGetPublicNowPlaying:

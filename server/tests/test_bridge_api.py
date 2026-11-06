@@ -333,8 +333,9 @@ class TestDeleteNowPlaying:
             headers=headers,
         )
 
-        assert client.delete("/api/bridge/nowplaying/TEST01", headers=headers).status_code == 200
-        assert client.delete("/api/bridge/nowplaying/TEST01", headers=headers).status_code == 200
+        first = client.delete("/api/bridge/nowplaying/TEST01", headers=headers)
+        second = client.delete("/api/bridge/nowplaying/TEST01", headers=headers)
+        assert (first.status_code, second.status_code) == (200, 200)
 
         titles = [h.title for h in db.query(PlayHistory).filter_by(event_id=test_event.id)]
         assert titles == ["Once"]

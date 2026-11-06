@@ -21,8 +21,11 @@ from app.models.email_verification_code import EmailVerificationCode
 from app.models.event import Event
 from app.models.guest import Guest
 from app.models.guest_profile import GuestProfile
+from app.models.now_playing import NowPlaying
+from app.models.play_history import PlayHistory
 from app.models.request import Request, RequestStatus
 from app.models.user import User
+from app.services.bridge_integration import clear_now_playing
 from app.services.email_verification import (
     CodeInvalidError,
     RateLimitExceededError,
@@ -527,3 +530,46 @@ def test_two_guests_confirming_one_email_are_serialized_and_the_second_merges(_p
     with Session(engine) as s:
         assert s.get(Guest, g["b"].id).merged_into_guest_id == g["a"].id
         assert s.get(Guest, g["b"].id).email_hash is None
+
+
+# --- clear_now_playing: two clears at once archive the song once (#963) ----------------
+
+
+def _seed_now_playing(engine, tag: str) -> tuple[str, int]:
+    """A committed event whose now-playing row holds a song; returns (event code, event id)."""
+    with Session(engine) as s:
+        user = User(username=f"pg_{tag}", password_hash="x", role="dj")
+        s.add(user)
+        s.flush()
+        event = Event(
+            code=f"N{tag[-5:].upper()}",
+            join_code=f"J{tag[-5:].upper()}",
+            name="now playing event",
+            created_by_user_id=user.id,
+            expires_at=utcnow() + timedelta(hours=6),
+        )
+        s.add(event)
+        s.flush()
+        s.add(NowPlaying(event_id=event.id, title="Once", artist="A", source="bridge"))
+        s.commit()
+        return event.code, event.id
+
+
+def test_two_clears_at_once_archive_the_song_once(_pg_engine, held):
+    """The bridge used to send two clears at the same instant on shutdown and both archived
+    the song (#963). The first clear (the real service, its transaction held open) reads the
+    row FOR UPDATE; the second waits on that lock, then sees the blank title and adds nothing."""
+    engine = _engine_or_skip(_pg_engine)
+    code, event_id = _seed_now_playing(engine, "clr1")
+    first = _holding(engine, held)
+    assert clear_now_playing(first, code) is True
+
+    thread, box = _in_thread(engine, clear_now_playing, event_code=code)
+    _assert_waiting_on_row_lock(engine, thread, box)
+    _release(first)
+    assert _finish(thread, box) is True
+
+    with Session(engine) as s:
+        titles = [h.title for h in s.query(PlayHistory).filter_by(event_id=event_id)]
+        assert titles == ["Once"]
+        assert s.query(NowPlaying).filter_by(event_id=event_id).one().title == ""

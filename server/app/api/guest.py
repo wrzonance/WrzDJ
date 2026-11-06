@@ -61,6 +61,9 @@ def identify(
         }
     )
 
+    # A cookie hit re-sets the same token, so the lifetime counts from the last visit
+    # (and cookies issued with an older, longer Max-Age pick up the current one). The value
+    # comes from the stored guest row, never from the request's cookie.
     if result.token:
         is_prod = settings.env == "production"
         response.set_cookie(
@@ -69,7 +72,7 @@ def identify(
             httponly=True,
             secure=is_prod,
             samesite="lax",
-            max_age=31536000,
+            max_age=settings.guest_cookie_max_age_seconds,
             path="/api/",
         )
 

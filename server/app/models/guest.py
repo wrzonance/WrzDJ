@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.encryption import EncryptedText
@@ -28,5 +28,12 @@ class Guest(Base):
     human_verify_count: Mapped[int] = mapped_column(
         Integer, default=0, server_default="0", nullable=False
     )
+    # A merged source row stays as a forwarding tombstone so a stale cookie still
+    # resolves to the survivor (#932),
+    # but only for guest_cookie_max_age_seconds after merged_at.
+    merged_into_guest_id: Mapped[int | None] = mapped_column(
+        ForeignKey("guests.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    merged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)

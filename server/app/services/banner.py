@@ -7,6 +7,7 @@ and dominant color extraction.
 from __future__ import annotations
 
 import json
+import secrets
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -53,7 +54,7 @@ def _extract_dominant_colors(img: Image.Image, num_colors: int = 3) -> list[str]
 
     # Count pixels per color to sort by dominance
     color_counts: dict[int, int] = {}
-    for pixel in quantized.getdata():
+    for pixel in quantized.get_flattened_data():
         color_counts[pixel] = color_counts.get(pixel, 0) + 1
 
     # Sort by frequency (most common first)
@@ -187,9 +188,11 @@ def process_banner_upload(file: UploadFile, event_code: str) -> tuple[str, str, 
     target_h = settings.banner_height
     img = img.resize((target_w, target_h), Image.LANCZOS)
 
-    # Generate filenames
+    # Generate filenames. The timestamp alone is unique only to the second: two uploads
+    # for one event in the same second would share a name, and deleting the older banner
+    # would remove the newer one's files. A random suffix keeps each upload's files apart.
     timestamp = int(time.time())
-    base_name = f"{event_code.lower()}_{timestamp}"
+    base_name = f"{event_code.lower()}_{timestamp}_{secrets.token_hex(4)}"
     banner_filename = f"banners/{base_name}.webp"
     kiosk_filename = f"banners/{base_name}_kiosk.webp"
 

@@ -10,6 +10,7 @@ import secrets
 from dataclasses import dataclass
 from datetime import timedelta
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.time import utcnow
@@ -53,22 +54,37 @@ def _short_email_hash(eh: str) -> str:
     return eh[:12]
 
 
+def _email_lock_key(email_hash: str) -> int:
+    """A signed 64-bit advisory-lock key derived from the email hash."""
+    return int(email_hash[:15], 16)
+
+
+def _serialize_per_email(db: Session, email_hash: str) -> None:
+    """Hold a transaction-scoped advisory lock for this email (Postgres; no-op elsewhere),
+    so the hourly count and the insert below cannot interleave with another request for the
+    same address and overshoot the cap."""
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _email_lock_key(email_hash)})
+
+
 def create_verification_code(db: Session, *, guest_id: int, email: str) -> EmailVerificationCode:
     """Generate a 6-digit code, store it, and send it via email."""
     email_lower = email.lower()
     eh = _hash_email(email_lower)
-    now = utcnow()
+    _serialize_per_email(db, eh)
+    now = utcnow()  # after the lock: time spent waiting must not eat into the code's validity
 
-    active_count = (
+    # The cap is per hour of sends, whatever became of the codes: counting only live
+    # codes let an address receive five emails every five minutes, once each batch expired.
+    sent_last_hour = (
         db.query(EmailVerificationCode)
         .filter(
             EmailVerificationCode.email_hash == eh,
-            EmailVerificationCode.used == False,  # noqa: E712
-            EmailVerificationCode.expires_at > now,
+            EmailVerificationCode.created_at > now - timedelta(hours=1),
         )
         .count()
     )
-    if active_count >= MAX_CODES_PER_EMAIL_PER_HOUR:
+    if sent_last_hour >= MAX_CODES_PER_EMAIL_PER_HOUR:
         _logger.warning(
             "guest.verify action=rate_limited email_hash=%s reason=max_codes_per_hour",
             _short_email_hash(eh),
@@ -85,10 +101,26 @@ def create_verification_code(db: Session, *, guest_id: int, email: str) -> Email
         created_at=now,
     )
     db.add(row)
+    # Durable before the email goes out (a delivered code must always exist), which also ends
+    # the per-email lock. Trade-off, chosen deliberately: until a failed send is deleted below,
+    # a concurrent request for the same address counts that row and may be refused once at
+    # the cap; it can ask again. The alternative (send inside the transaction) risks a
+    # delivered code with no row, which cannot be retried by the recipient.
     db.commit()
     db.refresh(row)
 
-    send_verification_email(email_lower, code)
+    try:
+        send_verification_email(email_lower, code)
+    except Exception:
+        # A code that did not reach the address must not count against the hourly cap.
+        db.delete(row)
+        db.commit()
+        _logger.exception(
+            "guest.verify action=code_send_failed guest_id=%s email_hash=%s",
+            guest_id,
+            _short_email_hash(eh),
+        )
+        raise
 
     _logger.info(
         "guest.verify action=code_sent guest_id=%s email_hash=%s",
@@ -117,6 +149,7 @@ def confirm_verification_code(
             EmailVerificationCode.used == False,  # noqa: E712
         )
         .order_by(EmailVerificationCode.created_at.desc())
+        .with_for_update()  # one confirmation at a time per code (Postgres; SQLite ignores)
         .first()
     )
 
@@ -159,7 +192,9 @@ def confirm_verification_code(
         )
         return VerifyResult(verified=True, guest_id=guest_id, merged=False)
 
-    # Check if another Guest owns this email
+    # One ownership decision per email at a time: two guests confirming the same address
+    # concurrently must not both claim it (the second must see the first and merge into it).
+    _serialize_per_email(db, eh)
     existing = db.query(Guest).filter(Guest.email_hash == eh, Guest.id != guest_id).first()
 
     if existing:
@@ -177,11 +212,12 @@ def confirm_verification_code(
             merge_result.votes_moved,
             merge_result.profiles_moved,
         )
+        survivor = db.query(Guest).filter(Guest.id == merge_result.target_guest_id).one()
         return VerifyResult(
             verified=True,
-            guest_id=existing.id,
+            guest_id=survivor.id,
             merged=True,
-            new_token=existing.token,
+            new_token=survivor.token,
         )
 
     # First verification for this email

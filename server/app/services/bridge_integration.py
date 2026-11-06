@@ -253,14 +253,15 @@ def clear_now_playing(db: Session, event_code: str) -> bool:
     from app.services.now_playing import (
         archive_to_history,
         get_event_by_code_for_bridge,
-        get_now_playing,
+        now_playing_for_update,
     )
 
     event = get_event_by_code_for_bridge(db, event_code)
     if not event:
         return False
 
-    existing = get_now_playing(db, event.id)
+    # Locked, so two clears at once archive the song once, not twice.
+    existing = now_playing_for_update(db, event.id).first()
     if existing and existing.title:
         archive_to_history(db, existing)
 

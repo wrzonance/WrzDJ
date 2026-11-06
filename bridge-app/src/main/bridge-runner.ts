@@ -164,6 +164,8 @@ export class BridgeRunner extends EventEmitter {
     this.running = false;
 
     if (this.pluginBridge) {
+      // stop() emits clearNowPlaying too; clear once, below, and wait for it.
+      this.pluginBridge.removeAllListeners('clearNowPlaying');
       await this.pluginBridge.stop();
       this.pluginBridge = null;
     }

@@ -92,6 +92,15 @@ def get_now_playing(db: Session, event_id: int) -> NowPlaying | None:
     return db.query(NowPlaying).filter(NowPlaying.event_id == event_id).first()
 
 
+def now_playing_for_update(db: Session, event_id: int):
+    """The event's now-playing row, locked until commit (SELECT ... FOR UPDATE).
+
+    Two clears at the same moment each read the title before either saved, so both archived
+    the song. With the lock the second waits, then sees the cleared title and does nothing.
+    """
+    return db.query(NowPlaying).filter(NowPlaying.event_id == event_id).with_for_update()
+
+
 def is_now_playing_hidden(db: Session, event_id: int, auto_hide_minutes: int | None = None) -> bool:
     """
     Check if now playing should be hidden on kiosk.

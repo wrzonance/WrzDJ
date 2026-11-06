@@ -166,6 +166,8 @@ async function main(): Promise<void> {
       commandPoller.stop();
     }
     if (pluginBridge) {
+      // stop() emits clearNowPlaying too; clear once, below, and wait for it.
+      pluginBridge.removeAllListeners("clearNowPlaying");
       await pluginBridge.stop();
     }
     await clearNowPlaying();

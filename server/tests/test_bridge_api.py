@@ -318,6 +318,36 @@ class TestDeleteNowPlaying:
         assert len(history) == 1
         assert history[0].title == "Test Track"
 
+    @patch("app.core.bridge_auth.get_settings")
+    @patch("app.services.now_playing.lookup_spotify_album_art")
+    def test_clearing_twice_archives_once(
+        self, mock_spotify, mock_settings, client: TestClient, test_event: Event, db: Session
+    ):
+        """A second clear finds nothing playing and adds nothing to history."""
+        mock_settings.return_value.bridge_api_key = "test-key"
+        mock_spotify.return_value = None
+        headers = {"X-Bridge-API-Key": "test-key"}
+        client.post(
+            "/api/bridge/nowplaying",
+            json={"event_code": "TEST01", "title": "Once", "artist": "A"},
+            headers=headers,
+        )
+
+        assert client.delete("/api/bridge/nowplaying/TEST01", headers=headers).status_code == 200
+        assert client.delete("/api/bridge/nowplaying/TEST01", headers=headers).status_code == 200
+
+        titles = [h.title for h in db.query(PlayHistory).filter_by(event_id=test_event.id)]
+        assert titles == ["Once"]
+
+    def test_clear_locks_the_now_playing_row(self, db: Session):
+        """Two clears at once both archived the song; the clear now reads the row FOR UPDATE."""
+        from sqlalchemy.dialects import postgresql
+
+        from app.services.now_playing import now_playing_for_update
+
+        sql = str(now_playing_for_update(db, 1).statement.compile(dialect=postgresql.dialect()))
+        assert "FOR UPDATE" in sql
+
 
 class TestGetPublicNowPlaying:
     """Tests for GET /api/public/e/{code}/nowplaying endpoint."""

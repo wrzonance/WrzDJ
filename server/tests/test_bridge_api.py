@@ -430,6 +430,27 @@ class TestGetPublicBridgeStatus:
         response = client.get("/api/public/e/2ZZN6B/bridge-status")
         assert response.status_code == 410
 
+    @patch("app.core.bridge_auth.get_settings")
+    def test_reflects_status_posted_by_the_bridge(
+        self, mock_settings, client: TestClient, test_event: Event
+    ):
+        """A status the bridge posts (by collection code) is what the public endpoint
+        (by join code) returns: the write path and the guest-facing read path agree."""
+        mock_settings.return_value.bridge_api_key = "test-key"
+        posted = client.post(
+            "/api/bridge/status",
+            json={"event_code": "TEST01", "connected": True, "device_name": "SC6000"},
+            headers={"X-Bridge-API-Key": "test-key"},
+        )
+        assert posted.status_code == 200
+
+        response = client.get("/api/public/e/UG4BHD/bridge-status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["connected"] is True
+        assert data["device_name"] == "SC6000"
+        assert data["last_seen"] is not None
+
 
 class TestGetPublicHistory:
     """Tests for GET /api/public/e/{code}/history endpoint."""

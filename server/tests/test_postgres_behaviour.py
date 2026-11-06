@@ -38,6 +38,11 @@ pytestmark = pytest.mark.postgres
 
 
 def _event(pg_db, code: str = "PGEV01") -> Event:
+    """An event in the test's own transaction.
+
+    The fixed default code is safe: every xdist worker has its own schema (see
+    ``_pg_engine``) and every ``pg_db`` test is rolled back, so tests never see each
+    other's rows, and unique constraints cannot collide across concurrent tests."""
     user = User(username=f"pg_{code.lower()}", password_hash="x", role="dj")
     pg_db.add(user)
     pg_db.flush()

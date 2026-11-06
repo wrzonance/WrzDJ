@@ -41,6 +41,17 @@ export class TrackHistoryBuffer {
     return items;
   }
 
+  /**
+   * Put tracks back at the front, in order, ahead of anything pushed since they were drained
+   * (a replay that failed partway, #961). Over capacity, the oldest are dropped, as in push().
+   */
+  requeueFront(items: readonly BufferedTrack[]): void {
+    this.buffer.unshift(...items);
+    while (this.buffer.length > this.capacity) {
+      this.buffer.shift();
+    }
+  }
+
   /** Number of buffered tracks. */
   get size(): number {
     return this.buffer.length;

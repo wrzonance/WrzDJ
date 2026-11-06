@@ -28,6 +28,7 @@ import {
   clearNowPlaying,
   postBridgeStatus,
   getCircuitBreaker,
+  getDetailedStatus,
 } from "../bridge.js";
 
 function createMockResponse(status: number, body = ""): Response {
@@ -399,6 +400,33 @@ describe("bridge.ts", () => {
       const replayBody = JSON.parse(trackAReplay![1].body);
       expect(replayBody.artist).toBe("Artist A");
       expect(replayBody.delayed).toBe(true);
+    });
+  });
+
+  describe("replay that fails partway (#961)", () => {
+    it("keeps the unsent tracks in the buffer", async () => {
+      mockFetch.mockRejectedValue(new Error("Network error"));
+      const before = getDetailedStatus().buffer_size;
+      for (const title of ["R1", "R2", "R3", "R4", "R5"]) {
+        const p = postNowPlaying(title, "Artist");
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(await p).toBe(false);
+      }
+      expect(getCircuitBreaker().getState()).toBe("OPEN");
+      expect(getDetailedStatus().buffer_size).toBe(before + 5);
+
+      // The backend is back, but the replay of R2 fails.
+      vi.advanceTimersByTime(60_000);
+      mockFetch.mockImplementation((_url: string, init: { body?: string }) => {
+        const body = init.body ? JSON.parse(init.body) : {};
+        return body.delayed && body.title === "R2"
+          ? Promise.reject(new Error("Network error"))
+          : Promise.resolve(createMockResponse(200));
+      });
+      expect(await postBridgeStatus(true)).toBe(true);
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      expect(getDetailedStatus().buffer_size).toBe(4); // R2, R3, R4, R5
     });
   });
 

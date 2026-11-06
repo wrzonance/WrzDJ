@@ -88,4 +88,28 @@ describe("TrackHistoryBuffer", () => {
     expect(buf.size).toBe(0);
     expect(items).toHaveLength(1);
   });
+
+  it("requeueFront puts tracks back in order, ahead of later pushes (#961)", () => {
+    const buf = new TrackHistoryBuffer();
+    buf.push(makePayload("A"));
+    buf.push(makePayload("B"));
+    buf.push(makePayload("C"));
+    const drained = buf.drain();
+    buf.push(makePayload("Arrived during replay"));
+    buf.requeueFront(drained.slice(1));
+    expect(buf.drain().map((t) => t.payload.title)).toEqual(["B", "C", "Arrived during replay"]);
+  });
+
+  it("requeueFront keeps timestamps and drops the oldest over capacity", () => {
+    const buf = new TrackHistoryBuffer(3);
+    buf.push(makePayload("A"));
+    buf.push(makePayload("B"));
+    const drained = buf.drain();
+    buf.push(makePayload("C"));
+    buf.push(makePayload("D"));
+    buf.requeueFront(drained);
+    const items = buf.drain();
+    expect(items.map((t) => t.payload.title)).toEqual(["B", "C", "D"]);
+    expect(items[0].timestamp).toBe(drained[1].timestamp);
+  });
 });

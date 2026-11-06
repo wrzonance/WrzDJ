@@ -531,11 +531,12 @@ export class BridgeRunner extends EventEmitter {
 
     // Replay asynchronously — don't block the circuit breaker handler
     (async () => {
-      for (const { payload } of tracks) {
+      for (const [i, { payload }] of tracks.entries()) {
         const replayPayload: NowPlayingPayload = { ...payload, delayed: true };
         const success = await this.postWithRetry('/api/bridge/nowplaying', replayPayload);
         if (!success) {
           this.log(`Replay failed for "${payload.title}" — backend may be down again`, 'warn');
+          this.trackBuffer.requeueFront(tracks.slice(i)); // keep the unsent tracks (#961)
           return;
         }
         this.log(`Replayed: "${payload.title}" by ${payload.artist}`);

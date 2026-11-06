@@ -194,12 +194,13 @@ async function replayBufferedTracks(): Promise<void> {
   if (tracks.length === 0) return;
 
   log.info(`Replaying ${tracks.length} buffered track(s)...`);
-  for (const { payload } of tracks) {
+  for (const [i, { payload }] of tracks.entries()) {
     const replayPayload = { ...payload, delayed: true };
     const success = await postWithRetry("/api/bridge/nowplaying", replayPayload);
     if (!success) {
       log.warn(`Replay failed for "${payload.title}" — backend may be down again`);
-      return; // Stop replaying if backend goes down again
+      trackBuffer.requeueFront(tracks.slice(i)); // keep the unsent tracks for the next replay
+      return;
     }
     log.info(`Replayed: "${payload.title}" by ${payload.artist}`);
   }

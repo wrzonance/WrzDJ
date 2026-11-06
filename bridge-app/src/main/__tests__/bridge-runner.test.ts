@@ -495,6 +495,29 @@ describe('BridgeRunner', () => {
     await expect(runner.start(TEST_CONFIG)).rejects.toThrow('already running');
   });
 
+  it('keeps the unsent tracks when a replay fails partway (#961)', async () => {
+    await runner.start(TEST_CONFIG);
+    const internals = runner as unknown as {
+      trackBuffer: { push(p: object): void; drain(): { payload: { title: string } }[] };
+      replayBufferedTracks(): void;
+    };
+    for (const title of ['R1', 'R2', 'R3', 'R4', 'R5']) {
+      internals.trackBuffer.push({ event_code: 'TEST', title, artist: 'A', album: null, deck: null });
+    }
+    mockFetch.mockImplementation((_url: string, init: { body?: string }) => {
+      const body = init.body ? JSON.parse(init.body) : {};
+      return body.delayed && body.title === 'R2'
+        ? Promise.reject(new Error('Network error'))
+        : Promise.resolve({ ok: true, text: () => Promise.resolve('') });
+    });
+
+    internals.replayBufferedTracks();
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    expect(internals.trackBuffer.drain().map((t) => t.payload.title)).toEqual(['R2', 'R3', 'R4', 'R5']);
+    mockFetch.mockResolvedValue({ ok: true, text: () => Promise.resolve('') });
+  });
+
   it('buffers failed now-playing tracks for replay', async () => {
     await runner.start(TEST_CONFIG);
 

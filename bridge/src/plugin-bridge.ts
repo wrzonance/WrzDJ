@@ -139,7 +139,11 @@ export class PluginBridge extends EventEmitter {
     this.cancelReconnect();
     this.stopHeartbeat();
     this.emit("clearNowPlaying");
-    this.deckManager.destroy();
+    // Not destroy(): that disables the manager for good, and restart() starts this same
+    // bridge again, which would then never report a track. Listeners go first, so the reset's
+    // own log line isn't forwarded on a plain stop.
+    this.deckManager.removeAllListeners();
+    this.deckManager.reset();
     this.plugin.removeAllListeners();
     this.recentLogs.clear();
   }

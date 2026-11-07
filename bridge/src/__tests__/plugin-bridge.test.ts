@@ -72,6 +72,21 @@ describe("PluginBridge", () => {
   });
 
   describe("Lifecycle", () => {
+    it("still reports tracks after a restart (the dashboard's restart command)", async () => {
+      plugin = createMockPlugin(FULL_CAPABILITIES);
+      bridge = new PluginBridge(plugin, DEFAULT_CONFIG);
+      const live: DeckLiveEvent[] = [];
+      bridge.on("deckLive", (e: DeckLiveEvent) => live.push(e));
+      await bridge.start();
+      await bridge.restart();
+
+      plugin.emit("track", { deckId: "1", track: { title: "After", artist: "Restart" } });
+      plugin.emit("playState", { deckId: "1", isPlaying: true });
+      vi.advanceTimersByTime(DEFAULT_CONFIG.liveThresholdSeconds * 1000 + 100);
+
+      expect(live.map((e) => e.track.title)).toEqual(["After"]);
+    });
+
     it("starts and stops the plugin", async () => {
       plugin = createMockPlugin();
       bridge = new PluginBridge(plugin, DEFAULT_CONFIG);

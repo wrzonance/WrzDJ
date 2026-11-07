@@ -19,3 +19,8 @@ os.environ.setdefault("POOL_ENRICH_CONCURRENCY", "1")
 # read that into the test process and open every auth gate. Env vars beat
 # ``.env``, and tests that need the bypass construct ``Settings`` explicitly.
 os.environ.setdefault("DEV_AUTH_BYPASS", "0")
+
+# The fakes in tests/fakes/providers.py describe Beatport's default auth host. A
+# developer ``.env`` carrying the older BEATPORT_AUTH_BASE_URL would send the token
+# revoke to a host the fakes do not know, and the outbound-HTTP guard fails the test.
+os.environ.setdefault("BEATPORT_AUTH_BASE_URL", "https://account.beatport.com")

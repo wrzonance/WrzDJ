@@ -3,9 +3,13 @@
 # NOTE: This container must run with network_mode: host (or --network host)
 # for StageLinQ UDP broadcast discovery to work.
 
-FROM node:26-alpine@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80 AS base
-# Refresh security fixes published after the pinned base image, as in dashboard/.
-# This layer remains cached until the base digest changes.
+FROM node:26-alpine@sha256:7ed4edf2b680417bf06d3f465de09bb113f877ff265b15f72a27a4c6fb76fb04 AS base
+# Pull the Alpine security updates published since the pinned digest was built
+# (Trivy gate). Every later stage inherits the patched packages. Trade-off, chosen
+# deliberately and shared with dashboard/ and server/Dockerfile: Docker keeps this
+# layer cached until the digest pin changes, and Renovate bumps the digest as new
+# base images ship, which is what refreshes it. Do not cache-bust it per build: the
+# layer sits under every stage, so busting it rebuilds the whole image each time.
 RUN apk upgrade --no-cache
 
 FROM base AS builder
@@ -28,9 +32,13 @@ FROM base AS runtime
 WORKDIR /app
 # The bridge starts with node; npm and the compiler belong only in the builder.
 RUN npm uninstall --global npm
-COPY --from=builder /app/package.json /app/package-lock.json ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/dist ./dist
+COPY --from=builder --chown=node:node /app/package.json /app/package-lock.json ./
+COPY --from=builder --chown=node:node /app/node_modules ./node_modules
+COPY --from=builder --chown=node:node /app/dist ./dist
+
+# Run as the image's unprivileged `node` user (uid 1000), as the api and web images do.
+# StageLinQ discovery and the Traktor listener use unprivileged ports only.
+USER node
 
 # Run the bridge
 CMD ["node", "dist/index.js"]

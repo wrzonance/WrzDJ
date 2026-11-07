@@ -1,4 +1,4 @@
-FROM node:26-alpine@sha256:6f08a523443ddedf52941874c203475b0ad503e859ad70cb26ab8be9a517dbd5 AS base
+FROM node:26-alpine@sha256:7ed4edf2b680417bf06d3f465de09bb113f877ff265b15f72a27a4c6fb76fb04 AS base
 # Pull the Alpine security updates published since the pinned digest was built
 # (Trivy gate). Every later stage inherits the patched packages. Same trade-off
 # as server/Dockerfile: the layer is cached until Renovate bumps the digest.

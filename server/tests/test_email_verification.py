@@ -47,6 +47,8 @@ def test_verify_correct_code(db: Session, test_guest: Guest):
     assert result.verified is True
     assert result.merged is False
 
+    db.refresh(code_row)
+    assert code_row.used is True  # a one-time code: the second confirmation must find it used
     db.refresh(test_guest)
     assert test_guest.email_hash == _email_hash("fan@test.com")
     assert test_guest.email_verified_at is not None
@@ -64,7 +66,7 @@ def test_verify_wrong_code_increments_attempts(db: Session, test_guest: Guest):
     assert code_row.attempts == 1
 
 
-def test_verify_three_strikes_invalidates(db: Session, test_guest: Guest):
+def test_verify_max_attempts_invalidates(db: Session, test_guest: Guest):
     """MAX_ATTEMPTS wrong attempts -> code no longer accepted (now 5 per OTP best practice)."""
     from app.services.email_verification import MAX_ATTEMPTS
 
@@ -104,6 +106,35 @@ def test_rate_limit_five_codes_per_hour(db: Session, test_guest: Guest):
 
         with pytest.raises(RateLimitExceededError):
             create_verification_code(db, guest_id=test_guest.id, email="fan@test.com")
+
+
+def test_rate_limit_counts_sends_per_hour_not_live_codes(db: Session, test_guest: Guest, clock):
+    """Expired or used codes still count: five sends, five minutes' wait, the sixth is still
+    refused; an hour after the first send the window has moved on and sending works again."""
+    with patch("app.services.email_verification.send_verification_email"):
+        for _ in range(5):
+            create_verification_code(db, guest_id=test_guest.id, email="fan@test.com")
+        clock.advance(6 * 60)  # every code above has expired
+        with pytest.raises(RateLimitExceededError):
+            create_verification_code(db, guest_id=test_guest.id, email="fan@test.com")
+        clock.advance(55 * 60)  # 61 minutes after the first send
+        create_verification_code(db, guest_id=test_guest.id, email="fan@test.com")
+
+
+def test_failed_send_does_not_store_a_code_or_consume_the_cap(db: Session, test_guest: Guest):
+    """When the email cannot be sent, no code is kept: the cap counts sends, and the guest
+    can ask again at once."""
+    from app.models.email_verification_code import EmailVerificationCode
+
+    with patch(
+        "app.services.email_verification.send_verification_email",
+        side_effect=RuntimeError("smtp down"),
+    ):
+        with pytest.raises(RuntimeError):
+            create_verification_code(db, guest_id=test_guest.id, email="fan@test.com")
+    assert db.query(EmailVerificationCode).filter_by(guest_id=test_guest.id).count() == 0
+    with patch("app.services.email_verification.send_verification_email"):
+        create_verification_code(db, guest_id=test_guest.id, email="fan@test.com")
 
 
 def test_verify_sets_email_on_guest(db: Session, test_guest: Guest):

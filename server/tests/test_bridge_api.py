@@ -318,6 +318,32 @@ class TestDeleteNowPlaying:
         assert len(history) == 1
         assert history[0].title == "Test Track"
 
+    @patch("app.core.bridge_auth.get_settings")
+    @patch("app.services.now_playing.lookup_spotify_album_art")
+    def test_clearing_twice_archives_once(
+        self, mock_spotify, mock_settings, client: TestClient, test_event: Event, db: Session
+    ):
+        """A second clear finds nothing playing and adds nothing to history."""
+        mock_settings.return_value.bridge_api_key = "test-key"
+        mock_spotify.return_value = None
+        headers = {"X-Bridge-API-Key": "test-key"}
+        client.post(
+            "/api/bridge/nowplaying",
+            json={"event_code": "TEST01", "title": "Once", "artist": "A"},
+            headers=headers,
+        )
+
+        first = client.delete("/api/bridge/nowplaying/TEST01", headers=headers)
+        second = client.delete("/api/bridge/nowplaying/TEST01", headers=headers)
+        assert (first.status_code, second.status_code) == (200, 200)
+
+        titles = [h.title for h in db.query(PlayHistory).filter_by(event_id=test_event.id)]
+        assert titles == ["Once"]
+
+    # Two clears at the same moment archiving the song once relies on a row lock that only
+    # Postgres enforces; see test_two_clears_at_once_archive_the_song_once in
+    # test_postgres_behaviour.py (#963, #969).
+
 
 class TestGetPublicNowPlaying:
     """Tests for GET /api/public/e/{code}/nowplaying endpoint."""
@@ -403,6 +429,27 @@ class TestGetPublicBridgeStatus:
         """Returns 410 for an expired event (resolved via join_code)."""
         response = client.get("/api/public/e/2ZZN6B/bridge-status")
         assert response.status_code == 410
+
+    @patch("app.core.bridge_auth.get_settings")
+    def test_reflects_status_posted_by_the_bridge(
+        self, mock_settings, client: TestClient, test_event: Event
+    ):
+        """A status the bridge posts (by collection code) is what the public endpoint
+        (by join code) returns: the write path and the guest-facing read path agree."""
+        mock_settings.return_value.bridge_api_key = "test-key"
+        posted = client.post(
+            "/api/bridge/status",
+            json={"event_code": "TEST01", "connected": True, "device_name": "SC6000"},
+            headers={"X-Bridge-API-Key": "test-key"},
+        )
+        assert posted.status_code == 200
+
+        response = client.get("/api/public/e/UG4BHD/bridge-status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["connected"] is True
+        assert data["device_name"] == "SC6000"
+        assert data["last_seen"] is not None
 
 
 class TestGetPublicHistory:

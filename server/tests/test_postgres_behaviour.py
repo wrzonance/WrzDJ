@@ -1,0 +1,604 @@
+"""Behaviour that only real Postgres enforces (SQLite does not); run with TEST_POSTGRES_URL.
+
+CI runs these against the job's Postgres service; locally they skip unless the URL is set.
+"""
+
+import hashlib
+import threading
+import time
+from datetime import timedelta
+from unittest.mock import patch
+
+import pytest
+from fastapi import Request as HttpRequest
+from sqlalchemy import text
+from sqlalchemy.exc import DataError, IntegrityError
+from sqlalchemy.orm import Session
+
+from app.core.rate_limit import get_guest_id
+from app.core.time import utcnow
+from app.models.email_verification_code import EmailVerificationCode
+from app.models.event import Event
+from app.models.guest import Guest
+from app.models.guest_profile import GuestProfile
+from app.models.now_playing import NowPlaying
+from app.models.play_history import PlayHistory
+from app.models.request import Request, RequestStatus
+from app.models.user import User
+from app.services.bridge_integration import clear_now_playing
+from app.services.email_verification import (
+    CodeInvalidError,
+    RateLimitExceededError,
+    _email_lock_key,
+    _serialize_per_email,
+    confirm_verification_code,
+    create_verification_code,
+)
+from app.services.guest_identity import identify_guest, resolve_guest_by_token
+from app.services.guest_merge import merge_guests
+from app.services.now_playing import archive_to_history
+
+pytestmark = pytest.mark.postgres
+
+
+def _event(pg_db, code: str = "PGEV01") -> Event:
+    """An event in the test's own transaction.
+
+    The fixed default code is safe: every xdist worker has its own schema (see
+    ``_pg_engine``) and every ``pg_db`` test is rolled back, so tests never see each
+    other's rows, and unique constraints cannot collide across concurrent tests."""
+    user = User(username=f"pg_{code.lower()}", password_hash="x", role="dj")
+    pg_db.add(user)
+    pg_db.flush()
+    event = Event(
+        code=code,
+        join_code=f"J{code[-5:]}",
+        name="Postgres event",
+        created_by_user_id=user.id,
+        expires_at=utcnow() + timedelta(hours=6),
+    )
+    pg_db.add(event)
+    pg_db.flush()
+    return event
+
+
+def _guest(pg_db, tag: str) -> Guest:
+    guest = Guest(token=tag * 64, fingerprint_hash=f"fp_pg_{tag}")
+    pg_db.add(guest)
+    pg_db.flush()
+    return guest
+
+
+def test_nickname_is_unique_per_event_ignoring_case(pg_db):
+    """The partial unique index on lower(nickname) (migration 040) is enforced by Postgres."""
+    event = _event(pg_db)
+    pg_db.add(GuestProfile(event_id=event.id, guest_id=_guest(pg_db, "a").id, nickname="Alex"))
+    pg_db.flush()
+    pg_db.add(GuestProfile(event_id=event.id, guest_id=_guest(pg_db, "b").id, nickname="alex"))
+    with pytest.raises(IntegrityError):
+        pg_db.flush()
+
+
+def test_many_guests_may_have_no_nickname(pg_db):
+    """The index is partial (nickname IS NOT NULL), so guests without a nickname never clash."""
+    event = _event(pg_db)
+    for tag in ("c", "d", "e"):
+        pg_db.add(GuestProfile(event_id=event.id, guest_id=_guest(pg_db, tag).id, nickname=None))
+    pg_db.flush()
+    assert pg_db.query(GuestProfile).filter_by(event_id=event.id).count() == 3
+
+
+def test_column_lengths_are_enforced(pg_db):
+    """Postgres rejects text longer than the column (SQLite stores it): validate at the API."""
+    event = _event(pg_db)
+    event.name = "x" * 101  # Event.name is String(100)
+    with pytest.raises(DataError):
+        pg_db.flush()
+
+
+# --- identify / merge / guest writes vs merge: row locks (#951) -----------------------
+# Each test holds one real transaction open (session.commit swapped for flush), starts the
+# other operation on a second connection, proves through pg_stat_activity that it is waiting
+# on a row lock, releases, and checks where the waiting operation landed.
+
+_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/125.0 Safari/537.36"
+
+
+def _engine_or_skip(engine):
+    if engine is None:
+        pytest.skip("TEST_POSTGRES_URL is not set")
+    return engine
+
+
+def _seed_guests(engine, tag: str, *names: str) -> dict[str, Guest]:
+    """Committed guests keyed by name; tokens are ``<tag><name>`` padded to 64."""
+    with Session(engine) as s:
+        guests = {
+            name: Guest(
+                token=f"{tag}{name}".ljust(64, "0"),
+                fingerprint_hash=f"fp_{tag}_{name}",
+                user_agent=_UA,
+                last_seen_at=utcnow() - timedelta(hours=2),
+            )
+            for name in names
+        }
+        s.add_all(guests.values())
+        s.commit()
+        for guest in guests.values():
+            s.refresh(guest)
+            s.expunge(guest)
+    return guests
+
+
+def _seed_request(engine, tag: str, guest_id: int) -> int:
+    with Session(engine) as s:
+        user = User(username=f"pg_{tag}", password_hash="x", role="dj")
+        s.add(user)
+        s.flush()
+        event = Event(
+            code=f"L{tag[-5:].upper()}",
+            join_code=f"J{tag[-5:].upper()}",
+            name="lock event",
+            created_by_user_id=user.id,
+            expires_at=utcnow() + timedelta(hours=6),
+        )
+        s.add(event)
+        s.flush()
+        request = Request(
+            event_id=event.id,
+            guest_id=guest_id,
+            song_title="Held",
+            artist="Artist",
+            source="manual",
+            status=RequestStatus.NEW.value,
+            dedupe_key=f"dk_{tag}",
+        )
+        s.add(request)
+        s.commit()
+        return request.id
+
+
+@pytest.fixture
+def held():
+    """Sessions whose locks a test holds open; rolled back at teardown if the test failed
+    before releasing them, so a failure never leaves the schema drop blocked."""
+    sessions: list[Session] = []
+    yield sessions
+    for session in sessions:
+        if session.is_active:
+            session.rollback()
+        session.close()
+
+
+def _holding(engine, held: list[Session]) -> Session:
+    """A session whose commit only flushes, so its row locks stay held until released."""
+    session = Session(engine)
+    session.commit = session.flush
+    held.append(session)
+    return session
+
+
+def _release(session) -> None:
+    Session.commit(session)
+    session.close()
+
+
+def _in_thread(engine, fn, **kwargs) -> tuple[threading.Thread, dict]:
+    """Run ``fn(session, **kwargs)`` on its own connection in a thread; ``box["pid"]`` is
+    that connection's backend pid, so the lock wait asserted below is this thread's own."""
+    box: dict = {}
+
+    def target():
+        try:
+            with Session(engine) as session:
+                box["pid"] = session.execute(text("SELECT pg_backend_pid()")).scalar_one()
+                box["value"] = fn(session, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - surfaced by the assertions below
+            box["error"] = exc
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    return thread, box
+
+
+def _assert_waiting_on_row_lock(
+    engine, thread: threading.Thread, box: dict, timeout: float = 30.0
+) -> None:
+    """The thread's own backend (``box["pid"]``) must reach a lock wait in pg_stat_activity,
+    not merely be slow; another worker's lock wait in the shared database does not count.
+
+    The window is generous because CI runs four xdist workers under coverage on one runner;
+    a thread that finishes without ever waiting fails immediately regardless, and a timeout
+    reports what that backend was doing."""
+    deadline = time.monotonic() + timeout
+    last = None
+    with engine.connect() as conn:
+        while time.monotonic() < deadline:
+            pid = box.get("pid")
+            if pid is not None:
+                last = conn.execute(
+                    text(
+                        "SELECT state, wait_event_type, wait_event, left(query, 120)"
+                        " FROM pg_stat_activity WHERE pid = :pid"
+                    ),
+                    {"pid": pid},
+                ).first()
+                if last is not None and last[1] == "Lock":
+                    assert thread.is_alive()
+                    return
+            if not thread.is_alive():
+                raise AssertionError(f"the operation finished without waiting on a lock: {box}")
+            time.sleep(0.02)
+    raise AssertionError(
+        f"backend {box.get('pid')} did not reach a lock wait within {timeout}s;"
+        f" last seen {tuple(last) if last is not None else None}; box={box};"
+        f" pool={engine.pool.status()}"
+    )
+
+
+def _finish(thread: threading.Thread, box: dict) -> object:
+    thread.join(30)
+    assert not thread.is_alive() and "error" not in box, box
+    return box["value"]
+
+
+def _load(engine, guest_id: int) -> Guest:
+    with Session(engine) as s:
+        guest = s.get(Guest, guest_id)
+        s.expunge(guest)
+        return guest
+
+
+def _identify(session, **kwargs):
+    return identify_guest(session, **kwargs)
+
+
+def _merge(session, source_id: int, target_id: int):
+    return merge_guests(session, source_guest_id=source_id, target_guest_id=target_id)
+
+
+def test_identify_waits_for_an_in_flight_merge_and_lands_on_the_survivor(_pg_engine, held):
+    """A merge holds the source row; the identify for that cookie waits, then reads the
+    committed tombstone and answers with the survivor, writing nothing back."""
+    engine = _engine_or_skip(_pg_engine)
+    g = _seed_guests(engine, "lk1", "a", "b")
+    merging = _holding(engine, held)
+    merge_guests(merging, source_guest_id=g["a"].id, target_guest_id=g["b"].id)
+
+    thread, box = _in_thread(
+        engine,
+        _identify,
+        token_from_cookie=g["a"].token,
+        fingerprint_hash="fp_lk1_device",
+        fingerprint_components=None,
+        user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/604.1",
+    )
+    _assert_waiting_on_row_lock(engine, thread, box)
+    _release(merging)
+
+    result = _finish(thread, box)
+    assert (result.guest_id, result.action) == (g["b"].id, "cookie_hit")
+    tomb = _load(engine, g["a"].id)
+    assert tomb.merged_into_guest_id == g["b"].id
+    assert tomb.fingerprint_hash is None and tomb.user_agent is None
+
+
+def test_merge_waits_for_an_in_flight_identify_and_still_clears_the_tombstone(_pg_engine, held):
+    """An identify holds the source row while writing it; the merge waits for that commit
+    and then clears the tombstone, so the identify's writes never outlive the merge."""
+    engine = _engine_or_skip(_pg_engine)
+    g = _seed_guests(engine, "lk2", "a", "b")
+    identifying = Session(engine)
+    held.append(identifying)  # released at teardown if an assertion fires before commit
+    guest = resolve_guest_by_token(identifying, g["a"].token, lock=True)
+    guest.fingerprint_hash = "fp_lk2_device"
+    identifying.flush()
+
+    thread, box = _in_thread(engine, _merge, source_id=g["a"].id, target_id=g["b"].id)
+    _assert_waiting_on_row_lock(engine, thread, box)
+    identifying.commit()
+    identifying.close()
+
+    _finish(thread, box)
+    tomb = _load(engine, g["a"].id)
+    assert tomb.merged_into_guest_id == g["b"].id and tomb.fingerprint_hash is None
+
+
+def test_merge_into_a_target_being_merged_away_lands_on_its_survivor(_pg_engine, held):
+    """A→B waits while B→C is in flight, then re-reads B as a tombstone and merges A into C
+    directly: nothing is left on B and A forwards to C in one hop."""
+    engine = _engine_or_skip(_pg_engine)
+    g = _seed_guests(engine, "lk3", "a", "b", "c")
+    request_id = _seed_request(engine, "lk3req", g["a"].id)
+    merging = _holding(engine, held)
+    merge_guests(merging, source_guest_id=g["b"].id, target_guest_id=g["c"].id)
+
+    thread, box = _in_thread(engine, _merge, source_id=g["a"].id, target_id=g["b"].id)
+    _assert_waiting_on_row_lock(engine, thread, box)
+    _release(merging)
+
+    result = _finish(thread, box)
+    assert result.target_guest_id == g["c"].id and result.requests_moved == 1
+    assert _load(engine, g["a"].id).merged_into_guest_id == g["c"].id
+    with Session(engine) as s:
+        assert s.get(Request, request_id).guest_id == g["c"].id
+
+
+def test_merge_refuses_a_source_that_was_merged_away_meanwhile(_pg_engine, held):
+    """A→C waits while A→B is in flight; under the lock A is a tombstone, so the second
+    merge is refused instead of moving B's data back out through A."""
+    engine = _engine_or_skip(_pg_engine)
+    g = _seed_guests(engine, "lk4", "a", "b", "c")
+    merging = _holding(engine, held)
+    merge_guests(merging, source_guest_id=g["a"].id, target_guest_id=g["b"].id)
+
+    thread, box = _in_thread(engine, _merge, source_id=g["a"].id, target_id=g["c"].id)
+    _assert_waiting_on_row_lock(engine, thread, box)
+    _release(merging)
+
+    thread.join(30)
+    assert isinstance(box.get("error"), ValueError), box
+    assert _load(engine, g["a"].id).merged_into_guest_id == g["b"].id
+
+
+def test_fingerprint_reconcile_waits_and_does_not_revive_a_merged_guest(_pg_engine, held):
+    """A cookieless identify picks live A by fingerprint while A→B is in flight; under the
+    lock A is a tombstone, so it creates a new guest rather than rewriting A's token."""
+    engine = _engine_or_skip(_pg_engine)
+    g = _seed_guests(engine, "lk5", "a", "b")
+    merging = _holding(engine, held)
+    merge_guests(merging, source_guest_id=g["a"].id, target_guest_id=g["b"].id)
+
+    thread, box = _in_thread(
+        engine,
+        _identify,
+        token_from_cookie=None,
+        fingerprint_hash=g["a"].fingerprint_hash,
+        fingerprint_components=None,
+        user_agent=_UA,
+    )
+    _assert_waiting_on_row_lock(engine, thread, box)
+    _release(merging)
+
+    result = _finish(thread, box)
+    assert result.action == "create" and result.guest_id not in (g["a"].id, g["b"].id)
+    tomb = _load(engine, g["a"].id)
+    assert tomb.token == g["a"].token and tomb.fingerprint_hash is None
+
+
+def test_a_guest_write_during_a_merge_resolves_to_the_survivor(_pg_engine, held):
+    """The guest-id chokepoint for a writing request waits on the merge and then resolves
+    the cookie to the survivor, so the request it is about to insert cannot land on the
+    tombstone after the merge's sweep."""
+    engine = _engine_or_skip(_pg_engine)
+    g = _seed_guests(engine, "lk6", "a", "b")
+    merging = _holding(engine, held)
+    merge_guests(merging, source_guest_id=g["a"].id, target_guest_id=g["b"].id)
+
+    def resolve_for_write(session):
+        cookie = f"wrzdj_guest={g['a'].token}".encode()
+        request = HttpRequest({"type": "http", "method": "POST", "headers": [(b"cookie", cookie)]})
+        return get_guest_id(request, session)
+
+    thread, box = _in_thread(engine, resolve_for_write)
+    _assert_waiting_on_row_lock(engine, thread, box)
+    _release(merging)
+    assert _finish(thread, box) == g["b"].id
+
+
+def test_identify_through_a_tombstone_while_its_survivor_is_merged_does_not_deadlock(
+    _pg_engine, held
+):
+    """A→B exists; B→C is in flight and holds A, B and C (a merge locks the source's own
+    tombstones with it, in id order, in its first step). An identify with A's cookie waits
+    once and ends on C. Before that single ordered lock step, a merge took A only when it
+    flattened the chain at the end, so an identify holding A and waiting for B deadlocked
+    with it (reproduced mid-merge in review); this pins the end state of the scenario."""
+    engine = _engine_or_skip(_pg_engine)
+    g = _seed_guests(engine, "lk7", "a", "b", "c")
+    with Session(engine) as s:
+        merge_guests(s, source_guest_id=g["a"].id, target_guest_id=g["b"].id)
+    merging = _holding(engine, held)
+    merge_guests(merging, source_guest_id=g["b"].id, target_guest_id=g["c"].id)
+
+    thread, box = _in_thread(
+        engine,
+        _identify,
+        token_from_cookie=g["a"].token,
+        fingerprint_hash="fp_lk7_device",
+        fingerprint_components=None,
+        user_agent=_UA,
+    )
+    _assert_waiting_on_row_lock(engine, thread, box)
+    _release(merging)
+
+    result = _finish(thread, box)
+    assert (result.guest_id, result.action) == (g["c"].id, "cookie_hit")
+    assert _load(engine, g["a"].id).merged_into_guest_id == g["c"].id
+
+
+# --- verification codes: one request per email at a time, one confirmation per code ------
+
+
+def test_code_requests_for_one_email_are_serialized(_pg_engine, held):
+    """The hourly count and the insert run under a per-email advisory lock, so a request for
+    an address waits for whoever holds that lock instead of reading a count that is about to
+    change."""
+    engine = _engine_or_skip(_pg_engine)
+    g = _seed_guests(engine, "vc1", "a")
+    key = _email_lock_key(hashlib.sha256(b"fan-vc1@test.com").hexdigest())
+    holding = _holding(engine, held)
+    holding.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
+
+    def request_code(session):
+        return create_verification_code(session, guest_id=g["a"].id, email="fan-vc1@test.com").id
+
+    # patch() is process-global: it wraps the whole threaded section, never a thread's body
+    with patch("app.services.email_verification.send_verification_email"):
+        thread, box = _in_thread(engine, request_code)
+        _assert_waiting_on_row_lock(engine, thread, box)
+        _release(holding)
+        code_id = _finish(thread, box)
+    with Session(engine) as s:
+        assert s.get(EmailVerificationCode, code_id).guest_id == g["a"].id
+
+
+def test_concurrent_code_requests_cannot_overshoot_the_hourly_cap(_pg_engine):
+    """Four sends in the hour, then two real requests at once: exactly one more is sent and
+    the other is rate-limited, so the address ends the hour at the cap, never above it."""
+    engine = _engine_or_skip(_pg_engine)
+    g = _seed_guests(engine, "vc3", "a")
+    email = "fan-vc3@test.com"
+    with Session(engine) as s, patch("app.services.email_verification.send_verification_email"):
+        for _ in range(4):
+            create_verification_code(s, guest_id=g["a"].id, email=email)
+
+    def request_code(session):
+        return create_verification_code(session, guest_id=g["a"].id, email=email).id
+
+    # patch() is process-global: one patch around both threads, or the first thread to finish
+    # would restore the real sender under the other one (its send then fails and is deleted).
+    with patch("app.services.email_verification.send_verification_email"):
+        threads = [_in_thread(engine, request_code) for _ in range(2)]
+        outcomes = []
+        for thread, box in threads:
+            thread.join(30)
+            assert not thread.is_alive()
+            outcomes.append(box.get("error", box.get("value")))
+    errors = [o for o in outcomes if isinstance(o, RateLimitExceededError)]
+    assert len(errors) == 1, outcomes
+    with Session(engine) as s:
+        eh = hashlib.sha256(email.encode()).hexdigest()
+        count = (
+            s.query(EmailVerificationCode).filter(EmailVerificationCode.email_hash == eh).count()
+        )
+    assert count == 5
+
+
+def test_a_code_cannot_be_accepted_twice_by_concurrent_confirmations(_pg_engine, held):
+    """The first confirmation (the real service, its transaction held open) marks the code
+    used under FOR UPDATE; a second confirmation of the same code waits for it and is then
+    refused instead of accepting the code again."""
+    engine = _engine_or_skip(_pg_engine)
+    g = _seed_guests(engine, "vc2", "a")
+    email = "fan-vc2@test.com"
+    with Session(engine) as s, patch("app.services.email_verification.send_verification_email"):
+        row = create_verification_code(s, guest_id=g["a"].id, email=email)
+        code, row_id = row.code, row.id
+    first = _holding(engine, held)
+    assert confirm_verification_code(first, guest_id=g["a"].id, email=email, code=code).verified
+
+    def confirm_again(session):
+        return confirm_verification_code(
+            session, guest_id=g["a"].id, email=email, code=code
+        ).verified
+
+    thread, box = _in_thread(engine, confirm_again)
+    _assert_waiting_on_row_lock(engine, thread, box)
+    _release(first)
+    thread.join(30)
+    assert not thread.is_alive()
+    assert isinstance(box.get("error"), CodeInvalidError), box
+    with Session(engine) as s:
+        assert s.get(EmailVerificationCode, row_id).used is True
+
+
+def test_two_guests_confirming_one_email_are_serialized_and_the_second_merges(_pg_engine, held):
+    """Guest A's confirmation holds the per-email ownership lock after taking the address; B's
+    confirmation of the same address waits for it, then sees A as the owner and merges into
+    A instead of both guests ending up with the email."""
+    engine = _engine_or_skip(_pg_engine)
+    g = _seed_guests(engine, "vc4", "a", "b")
+    email = "fan-vc4@test.com"
+    eh = hashlib.sha256(email.encode()).hexdigest()
+    with Session(engine) as s, patch("app.services.email_verification.send_verification_email"):
+        code_a = create_verification_code(s, guest_id=g["a"].id, email=email).code
+        code_b = create_verification_code(s, guest_id=g["b"].id, email=email).code
+
+    first = _holding(engine, held)
+    assert confirm_verification_code(first, guest_id=g["a"].id, email=email, code=code_a).verified
+    assert first.get(Guest, g["a"].id).email_hash == eh  # A owns it, uncommitted
+    _serialize_per_email(first, eh)  # the lock the real confirm holds until its commit
+
+    def confirm_b(session):
+        return confirm_verification_code(session, guest_id=g["b"].id, email=email, code=code_b)
+
+    thread, box = _in_thread(engine, confirm_b)
+    _assert_waiting_on_row_lock(engine, thread, box)
+    _release(first)
+    result = _finish(thread, box)
+    assert (result.merged, result.guest_id) == (True, g["a"].id)
+    with Session(engine) as s:
+        assert s.get(Guest, g["b"].id).merged_into_guest_id == g["a"].id
+        assert s.get(Guest, g["b"].id).email_hash is None
+
+
+# --- clear_now_playing: two clears at once archive the song once (#963) ----------------
+
+
+def _seed_now_playing(engine, tag: str) -> tuple[str, int]:
+    """A committed event whose now-playing row holds a song; returns (event code, event id)."""
+    with Session(engine) as s:
+        user = User(username=f"pg_{tag}", password_hash="x", role="dj")
+        s.add(user)
+        s.flush()
+        event = Event(
+            code=f"N{tag[-5:].upper()}",
+            join_code=f"J{tag[-5:].upper()}",
+            name="now playing event",
+            created_by_user_id=user.id,
+            expires_at=utcnow() + timedelta(hours=6),
+        )
+        s.add(event)
+        s.flush()
+        s.add(NowPlaying(event_id=event.id, title="Once", artist="A", source="bridge"))
+        s.commit()
+        return event.code, event.id
+
+
+def _waiting_statement(engine, pid: int) -> str:
+    with engine.connect() as conn:
+        return conn.execute(
+            text("SELECT left(query, 120) FROM pg_stat_activity WHERE pid = :pid"), {"pid": pid}
+        ).scalar_one()
+
+
+def test_two_clears_at_once_archive_the_song_once(_pg_engine):
+    """The bridge used to send two clears at the same instant on shutdown and both archived
+    the song (#963). Both clears here are the real service with real commits. The first is
+    paused right after its locking read and before it writes anything; the second must then
+    block on its own SELECT, so the read itself has to be exclusive: no lock lets the second
+    archive before the first writes, a shared lock deadlocks once both try to write, and a
+    commit between the read and the archive releases the lock early. After the first
+    finishes, the second sees the blank title and adds nothing."""
+    engine = _engine_or_skip(_pg_engine)
+    code, event_id = _seed_now_playing(engine, "clr1")
+    real_archive = archive_to_history
+    at_lock, go = threading.Event(), threading.Event()
+
+    def archive_once_the_contender_is_waiting(db, now_playing):
+        if not at_lock.is_set():
+            at_lock.set()
+            assert go.wait(30), "the test never released the first clear"
+        return real_archive(db, now_playing)
+
+    with patch(
+        "app.services.now_playing.archive_to_history", archive_once_the_contender_is_waiting
+    ):
+        first, first_box = _in_thread(engine, clear_now_playing, event_code=code)
+        try:
+            assert at_lock.wait(30), first_box
+            second, second_box = _in_thread(engine, clear_now_playing, event_code=code)
+            _assert_waiting_on_row_lock(engine, second, second_box)
+            assert (
+                _waiting_statement(engine, second_box["pid"]).lstrip().upper().startswith("SELECT")
+            ), second_box
+        finally:
+            go.set()  # never leave the first clear holding its transaction open
+        assert _finish(first, first_box) is True
+        assert _finish(second, second_box) is True
+
+    with Session(engine) as s:
+        titles = [h.title for h in s.query(PlayHistory).filter_by(event_id=event_id)]
+        assert titles == ["Once"]
+        assert s.query(NowPlaying).filter_by(event_id=event_id).one().title == ""

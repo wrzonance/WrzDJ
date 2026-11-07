@@ -100,6 +100,22 @@ describe('BridgeRunner', () => {
     vi.useRealTimers();
   });
 
+  it('stop sends one clear, not two', async () => {
+    await runner.start(TEST_CONFIG);
+    const plugin = (runner as unknown as { pluginBridge: { emit(e: string): boolean; stop(): Promise<void> } })
+      .pluginBridge;
+    // The real PluginBridge.stop() emits clearNowPlaying from cleanup().
+    plugin.stop = async () => {
+      plugin.emit('clearNowPlaying');
+    };
+    mockFetch.mockClear();
+
+    await runner.stop();
+
+    const deletes = mockFetch.mock.calls.filter((c) => (c[1] as { method?: string })?.method === 'DELETE');
+    expect(deletes).toHaveLength(1);
+  });
+
   it('starts and stops cleanly', async () => {
     await runner.start(TEST_CONFIG);
     expect(runner.isRunning).toBe(true);

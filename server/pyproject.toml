@@ -36,7 +36,7 @@ dependencies = [
     "python-dotenv>=1.2.2",  # CVE-2026-28684 (transitive from pydantic-settings chain)
     "mako>=1.4.2",           # CVE-2026-44307; CVE-2026-102991 / GHSA-5639-2j2p-m4mx (drive-letter path traversal; transitive from alembic)
     "multidict>=6.9.1",      # CVE-2026-104874 / GHSA-54p9-h82j-f925 (items-view reference leak; transitive from aiohttp)
-    "pyasn1>=0.6.4",         # CVE-2026-30922 (transitive from cryptography chain)
+    "pyasn1>=0.6.5",         # CVE-2026-30922, CVE-2026-119194..119197 (transitive from cryptography chain)
     # SECURITY: minimum versions per 2026-05-19 audit.
     "idna>=3.15",            # CVE-2026-45409 (transitive from requests/httpx)
     "urllib3>=2.8.0",        # GHSA-8988/vxq7/gh4c (proxy TLS bypass, streaming memory/CPU DoS)
@@ -97,11 +97,22 @@ ignore = ["UP042", "E711", "E712"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Unknown markers fail collection (a typo would otherwise silently skip a fixture or filter).
+strict_markers = true
 testpaths = ["tests"]
 addopts = "-v --cov=app --cov-report=term-missing --cov-branch --cov-fail-under=85"
 markers = [
     "real_enrichment: run real request-time enrichment (it is a no-op in tests by default)",
     "allow_network: allow real outbound HTTP (blocked in tests by default)",
+    "postgres: runs on real Postgres (TEST_POSTGRES_URL); skipped when it is not set",
+]
+filterwarnings = [
+    # Our own deprecations fail the suite, so they get fixed when they appear.
+    'error::DeprecationWarning:app\.',
+    # Third-party, not ours to fix: slowapi still calls asyncio.iscoroutinefunction.
+    "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning:slowapi",
+    # Third-party: starlette's TestClient notice about the httpx package name.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
 ]
 
 [tool.coverage.run]

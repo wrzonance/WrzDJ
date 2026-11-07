@@ -121,6 +121,9 @@ def delete_guest_admin(db: Session, guest: Guest) -> None:
     db.query(EmailVerificationCode).filter(EmailVerificationCode.guest_id == guest.id).delete(
         synchronize_session=False
     )
+    # Tombstones forward to this guest; without it they would dangle, so they go too
+    # (explicit so SQLite, which does not enforce ON DELETE CASCADE here, matches Postgres).
+    db.query(Guest).filter(Guest.merged_into_guest_id == guest.id).delete(synchronize_session=False)
     db.delete(guest)
     db.commit()
 
@@ -149,7 +152,7 @@ def _collision_subquery():
     """(fingerprint_hash, n) for every non-null hash; n counts guests sharing it."""
     return (
         select(Guest.fingerprint_hash.label("hash"), func.count(Guest.id).label("n"))
-        .where(Guest.fingerprint_hash.is_not(None))
+        .where(Guest.fingerprint_hash.is_not(None), Guest.merged_into_guest_id.is_(None))
         .group_by(Guest.fingerprint_hash)
         .subquery()
     )
@@ -185,6 +188,7 @@ def list_guests(
     query = db.query(Guest, func.coalesce(collisions.c.n, 1)).outerjoin(
         collisions, collisions.c.hash == Guest.fingerprint_hash
     )
+    query = query.filter(Guest.merged_into_guest_id.is_(None))  # hide merge tombstones
     query = _apply_search(_apply_filter(query, collisions, filter), q)
 
     total = query.count()
@@ -211,7 +215,11 @@ def serialize_guest(db: Session, guest: Guest) -> dict:
     if guest.fingerprint_hash:
         shared = (
             db.query(func.count(Guest.id))
-            .filter(Guest.fingerprint_hash == guest.fingerprint_hash, Guest.id != guest.id)
+            .filter(
+                Guest.fingerprint_hash == guest.fingerprint_hash,
+                Guest.id != guest.id,
+                Guest.merged_into_guest_id.is_(None),
+            )
             .scalar()
             or 0
         )

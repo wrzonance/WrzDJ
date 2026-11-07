@@ -208,3 +208,11 @@ class TestValidateSettingsFernetShape:
         with pytest.raises(SystemExit):
             validate_settings(s)
         assert "TOKEN_ENCRYPTION_KEY" in caplog.text
+
+
+@pytest.mark.parametrize("max_age", [0, -1])
+def test_guest_cookie_max_age_must_be_positive(max_age):
+    # Max-Age <= 0 tells the browser to delete the cookie at once, so every guest
+    # would lose their identity on the next request.
+    with pytest.raises(ValueError, match="greater than 0"):
+        _make_settings(guest_cookie_max_age_seconds=max_age)

@@ -25,19 +25,12 @@ from app.services.tracks.store import TrackIdentity, get_track, upsert_track
 
 
 @pytest.fixture
-def dj_user(db: Session) -> User:
-    from app.services.auth import get_password_hash
-
-    user = User(
+def dj_user(make_user) -> User:
+    return make_user(
         username="pool_store_dj",
-        password_hash=get_password_hash("testpassword123"),
         beatport_access_token="fake_bp_token",
         tidal_access_token="fake_tidal_token",
     )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
 
 
 def _seed_trusted_complete(db: Session, *, title: str, artist: str) -> Track:

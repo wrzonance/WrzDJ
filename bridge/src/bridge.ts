@@ -19,7 +19,7 @@ import {
   sleep,
 } from "./http-retry.js";
 import { Logger } from "./logger.js";
-import { TrackHistoryBuffer } from "./track-history-buffer.js";
+import { replayPayloadFor, TrackHistoryBuffer } from "./track-history-buffer.js";
 import type { BridgeStatusPayload, DetailedBridgeStatus, NowPlayingPayload } from "./types.js";
 
 const log = new Logger("Bridge");
@@ -38,6 +38,9 @@ const circuitBreaker = new CircuitBreaker({ failureThreshold: 3, cooldownMs: 60_
 
 /** Buffer for tracks that failed to post (replayed on backend recovery) */
 const trackBuffer = new TrackHistoryBuffer();
+
+/** When the last live now-playing post started (a replay's newest track goes live only if after it). */
+let lastLiveAttemptAt = 0;
 
 circuitBreaker.on("stateChange", ({ from, to }: { from: string; to: string }) => {
   if (to === "OPEN") {
@@ -177,6 +180,7 @@ export async function postNowPlaying(
   };
 
   log.info(`Now Playing: "${title}" by ${artist}`);
+  lastLiveAttemptAt = Date.now();
   const success = await postWithRetry("/api/bridge/nowplaying", payload);
   if (!success) {
     trackBuffer.push(payload);
@@ -194,8 +198,9 @@ async function replayBufferedTracks(): Promise<void> {
   if (tracks.length === 0) return;
 
   log.info(`Replaying ${tracks.length} buffered track(s)...`);
-  for (const [i, { payload }] of tracks.entries()) {
-    const replayPayload = { ...payload, delayed: true };
+  for (const [i, entry] of tracks.entries()) {
+    const { payload } = entry;
+    const replayPayload = replayPayloadFor(entry, i === tracks.length - 1, lastLiveAttemptAt);
     const success = await postWithRetry("/api/bridge/nowplaying", replayPayload);
     if (!success) {
       log.warn(`Replay failed for "${payload.title}" — backend may be down again`);

@@ -24,7 +24,7 @@ import {
 import { CommandPoller } from '@bridge/command-poller.js';
 import type { BridgeCommand } from '@bridge/command-poller.js';
 import { Logger, type LogLevel } from '@bridge/logger.js';
-import { TrackHistoryBuffer } from '@bridge/track-history-buffer.js';
+import { replayPayloadFor, TrackHistoryBuffer } from '@bridge/track-history-buffer.js';
 import type { DeckLiveEvent, DeckState } from '@bridge/deck-state.js';
 import type { NowPlayingPayload, BridgeStatusPayload } from '@bridge/types.js';
 import type { PluginConnectionEvent } from '@bridge/plugin-types.js';
@@ -61,6 +61,8 @@ export class BridgeRunner extends EventEmitter {
   private commandPoller: CommandPoller | null = null;
   private readonly logger = new Logger('Bridge');
   private readonly trackBuffer = new TrackHistoryBuffer();
+  /** When the last live now-playing post started (a replay's newest track goes live only if after it). */
+  private lastLiveAttemptAt = 0;
 
   constructor() {
     super();
@@ -425,6 +427,7 @@ export class BridgeRunner extends EventEmitter {
       source: source ?? null,
     };
 
+    this.lastLiveAttemptAt = Date.now();
     const success = await this.postWithRetry('/api/bridge/nowplaying', payload);
     if (!success) {
       this.trackBuffer.push(payload);
@@ -533,8 +536,9 @@ export class BridgeRunner extends EventEmitter {
 
     // Replay asynchronously — don't block the circuit breaker handler
     (async () => {
-      for (const [i, { payload }] of tracks.entries()) {
-        const replayPayload: NowPlayingPayload = { ...payload, delayed: true };
+      for (const [i, entry] of tracks.entries()) {
+        const { payload } = entry;
+        const replayPayload = replayPayloadFor(entry, i === tracks.length - 1, this.lastLiveAttemptAt);
         const success = await this.postWithRetry('/api/bridge/nowplaying', replayPayload);
         if (!success) {
           this.log(`Replay failed for "${payload.title}" — backend may be down again`, 'warn');

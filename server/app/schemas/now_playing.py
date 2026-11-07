@@ -16,6 +16,12 @@ class NowPlayingBridgePayload(BaseModel):
     album: str | None = Field(default=None, max_length=255)
     deck: str | None = Field(default=None, max_length=10)
     source: str | None = Field(default=None, max_length=20)
+    # A track the Bridge buffered while the server was unreachable and is now sending again:
+    # it goes to play history only (no now-playing change, no live update to screens).
+    delayed: bool = False
+    # How long ago the DJ played it, by the Bridge's clock (relative, so clock skew doesn't
+    # matter). Places it in the history next to the song that was on screen.
+    played_ago_ms: int | None = Field(default=None, ge=0, le=86_400_000)
 
 
 class BridgeStatusPayload(BaseModel):

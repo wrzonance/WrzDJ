@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { TrackHistoryBuffer } from "../track-history-buffer.js";
+import { replayPayloadFor, TrackHistoryBuffer } from "../track-history-buffer.js";
 import type { NowPlayingPayload } from "../types.js";
 
 function makePayload(title: string, artist = "Artist"): NowPlayingPayload {
@@ -111,5 +111,36 @@ describe("TrackHistoryBuffer", () => {
     const items = buf.drain();
     expect(items.map((t) => t.payload.title)).toEqual(["B", "C", "D"]);
     expect(items[0].timestamp).toBe(drained[1].timestamp);
+  });
+});
+
+describe("replayPayloadFor (PR #962 review: a replay must not flood now playing)", () => {
+  const entry = (timestamp: number) => ({
+    payload: { event_code: "E", title: "T", artist: "A" },
+    timestamp,
+  });
+
+  it("sends the newest buffered track live when nothing newer was posted since", () => {
+    expect(replayPayloadFor(entry(5_000), true, 4_000, 9_000)).toEqual({
+      event_code: "E",
+      title: "T",
+      artist: "A",
+    });
+  });
+
+  it("sends older buffered tracks as delayed, with how long ago they were buffered", () => {
+    expect(replayPayloadFor(entry(5_000), false, 4_000, 9_000)).toMatchObject({
+      delayed: true,
+      played_ago_ms: 4_000,
+    });
+  });
+
+  it("sends the newest one as delayed too when a newer track was posted live after it", () => {
+    expect(replayPayloadFor(entry(5_000), true, 6_000, 9_000)).toMatchObject({ delayed: true });
+  });
+
+  it("keeps the age between 0 and one day", () => {
+    expect(replayPayloadFor(entry(9_000), false, 0, 1_000).played_ago_ms).toBe(0);
+    expect(replayPayloadFor(entry(0), false, 0, 2 * 86_400_000).played_ago_ms).toBe(86_400_000);
   });
 });

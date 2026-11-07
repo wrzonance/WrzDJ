@@ -580,3 +580,106 @@ class TestRequestAutoMatch:
         history = db.query(PlayHistory).filter(PlayHistory.title == "Blue Monday").first()
         assert history is not None
         assert history.matched_request_id == request_id
+
+
+class TestDelayedNowPlaying:
+    """POST /api/bridge/nowplaying with delayed=true (a replay after an outage, PR #962 review).
+
+    A replayed track joins play history only: now playing and the live stream are untouched, so a
+    backlog doesn't flash on the dashboard and kiosk, and an old song can't replace the current one.
+    """
+
+    def _post(self, client: TestClient, **body) -> int:
+        return client.post(
+            "/api/bridge/nowplaying",
+            json={"event_code": "TEST01", "artist": "Artist", **body},
+            headers={"X-Bridge-API-Key": "test-key"},
+        ).status_code
+
+    @patch("app.api.bridge.publish_event", autospec=True)
+    @patch("app.core.bridge_auth.get_settings")
+    @patch("app.services.now_playing.lookup_spotify_album_art", autospec=True)
+    def test_a_replay_older_than_the_song_on_screen_only_joins_history(
+        self, mock_spotify, mock_settings, mock_publish, client: TestClient, test_event, db
+    ):
+        mock_settings.return_value.bridge_api_key = "test-key"
+        mock_spotify.return_value = None
+        assert self._post(client, title="Current") == 200
+        mock_publish.reset_mock()
+
+        assert self._post(client, title="Older", delayed=True, played_ago_ms=60_000) == 200
+
+        now_playing = db.query(NowPlaying).filter(NowPlaying.event_id == test_event.id).one()
+        assert now_playing.title == "Current"
+        history = db.query(PlayHistory).filter(PlayHistory.event_id == test_event.id).all()
+        assert [h.title for h in history] == ["Older"]
+        mock_publish.assert_not_called()
+
+    @patch("app.api.bridge.publish_event", autospec=True)
+    @patch("app.core.bridge_auth.get_settings")
+    @patch("app.services.now_playing.lookup_spotify_album_art", autospec=True)
+    def test_a_replay_played_after_the_song_on_screen_archives_that_song_first(
+        self, mock_spotify, mock_settings, mock_publish, client: TestClient, test_event, db
+    ):
+        mock_settings.return_value.bridge_api_key = "test-key"
+        mock_spotify.return_value = None
+        assert self._post(client, title="A") == 200
+        on_screen = db.query(NowPlaying).filter(NowPlaying.event_id == test_event.id).one()
+        on_screen.started_at = on_screen.started_at - timedelta(minutes=10)
+        db.commit()
+        mock_publish.reset_mock()
+
+        assert self._post(client, title="B", delayed=True, played_ago_ms=60_000) == 200
+
+        history = (
+            db.query(PlayHistory)
+            .filter(PlayHistory.event_id == test_event.id)
+            .order_by(PlayHistory.play_order)
+            .all()
+        )
+        assert [h.title for h in history] == ["A", "B"]
+        db.refresh(on_screen)
+        assert on_screen.title == ""
+        mock_publish.assert_not_called()
+
+    @patch("app.api.bridge.publish_event", autospec=True)
+    @patch("app.core.bridge_auth.get_settings")
+    @patch("app.services.now_playing.lookup_spotify_album_art", autospec=True)
+    def test_a_live_post_after_the_replay_becomes_now_playing(
+        self, mock_spotify, mock_settings, mock_publish, client: TestClient, test_event, db
+    ):
+        mock_settings.return_value.bridge_api_key = "test-key"
+        mock_spotify.return_value = None
+        assert self._post(client, title="A") == 200
+        on_screen = db.query(NowPlaying).filter(NowPlaying.event_id == test_event.id).one()
+        on_screen.started_at = on_screen.started_at - timedelta(minutes=10)
+        db.commit()
+        assert self._post(client, title="B", delayed=True, played_ago_ms=60_000) == 200
+
+        assert self._post(client, title="C") == 200
+
+        db.refresh(on_screen)
+        assert on_screen.title == "C"
+        history = (
+            db.query(PlayHistory)
+            .filter(PlayHistory.event_id == test_event.id)
+            .order_by(PlayHistory.play_order)
+            .all()
+        )
+        assert [h.title for h in history] == ["A", "B"]
+        assert mock_publish.call_count == 2  # A and C, never B
+
+    @patch("app.core.bridge_auth.get_settings")
+    def test_a_replay_for_an_unknown_event_is_404(self, mock_settings, client: TestClient):
+        mock_settings.return_value.bridge_api_key = "test-key"
+        response = client.post(
+            "/api/bridge/nowplaying",
+            json={"event_code": "NOPE99", "title": "B", "artist": "X", "delayed": True},
+            headers={"X-Bridge-API-Key": "test-key"},
+        )
+        assert response.status_code == 404
+
+    @patch("app.core.bridge_auth.get_settings")
+    def test_a_negative_age_is_rejected(self, mock_settings, client: TestClient, test_event):
+        mock_settings.return_value.bridge_api_key = "test-key"
+        assert self._post(client, title="B", delayed=True, played_ago_ms=-1) == 422

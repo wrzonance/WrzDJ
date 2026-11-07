@@ -348,58 +348,42 @@ describe("bridge.ts", () => {
   });
 
   describe("track history buffer", () => {
-    it("buffers failed tracks and replays on circuit breaker recovery", async () => {
+    it("replays older buffered tracks as delayed and the newest one live (PR #962 review)", async () => {
       mockFetch.mockRejectedValue(new Error("Network error"));
 
-      // Buffer a track by failing all retries
+      // Two tracks are played while the backend is down (each fails all its retries)
       const p1 = postNowPlaying("Track A", "Artist A");
       await vi.advanceTimersByTimeAsync(20_000);
-      const result = await p1;
-      expect(result).toBe(false);
-
-      // Trip the circuit breaker (need 3 failures total)
-      const p2 = postBridgeStatus(true);
+      expect(await p1).toBe(false);
+      const p2 = postNowPlaying("Track B", "Artist B");
       await vi.advanceTimersByTimeAsync(20_000);
-      await p2;
+      expect(await p2).toBe(false);
 
+      // A third failure trips the circuit breaker
       const p3 = postBridgeStatus(true);
       await vi.advanceTimersByTimeAsync(20_000);
       await p3;
-
       expect(getCircuitBreaker().getState()).toBe("OPEN");
 
-      // Wait for cooldown
+      // Cooldown, then the backend recovers and a probe closes the breaker
       vi.advanceTimersByTime(60_000);
-
-      // Backend recovers
       mockFetch.mockResolvedValue(createMockResponse(200));
       mockFetch.mockClear();
-
-      // Trigger a request to close the circuit breaker (probe succeeds)
-      const probeResult = await postBridgeStatus(true);
-      expect(probeResult).toBe(true);
-
-      // Allow replay to execute
+      expect(await postBridgeStatus(true)).toBe(true);
       await vi.advanceTimersByTimeAsync(100);
 
-      // Should have replayed the buffered track with delayed: true
-      const replayCalls = mockFetch.mock.calls.filter((call) => {
-        if (typeof call[0] !== "string") return false;
-        if (!call[0].includes("/bridge/nowplaying")) return false;
-        const body = JSON.parse(call[1].body);
-        return body.delayed === true;
-      });
-      expect(replayCalls.length).toBeGreaterThanOrEqual(1);
-
-      // Find the replayed "Track A" payload
-      const trackAReplay = replayCalls.find((call) => {
-        const body = JSON.parse(call[1].body);
-        return body.title === "Track A";
-      });
-      expect(trackAReplay).toBeDefined();
-      const replayBody = JSON.parse(trackAReplay![1].body);
-      expect(replayBody.artist).toBe("Artist A");
-      expect(replayBody.delayed).toBe(true);
+      const bodies = mockFetch.mock.calls
+        .filter((call) => typeof call[0] === "string" && call[0].includes("/bridge/nowplaying"))
+        .map((call) => JSON.parse(call[1].body));
+      const a = bodies.find((b) => b.title === "Track A");
+      const b = bodies.find((b) => b.title === "Track B");
+      // A is history only: delayed, with how long ago it was played
+      expect(a).toMatchObject({ artist: "Artist A", delayed: true });
+      expect(a.played_ago_ms).toBeGreaterThan(0);
+      // B is still playing: a normal post, so it shows as now playing
+      expect(b).toBeDefined();
+      expect(b.delayed).toBeUndefined();
+      expect(bodies.indexOf(a)).toBeLessThan(bodies.indexOf(b));
     });
   });
 

@@ -17,7 +17,9 @@ import type {
 
 // --- Mock setup ---
 
-const mockDeviceManager = new EventEmitter();
+const mockDeviceManager = Object.assign(new EventEmitter(), {
+  devices: new Map<number, { name: string; id: number; type: number }>(),
+});
 const mockStatusEmitter = new EventEmitter();
 const mockDb = {
   getMetadata: vi.fn(),
@@ -188,6 +190,20 @@ describe("PioneerProlinkPlugin", () => {
   });
 
   describe("device events", () => {
+    it("reports the player that triggered auto-configure (it connected before the plugin listened)", async () => {
+      // autoconfigFromPeers resolves on the first device's "connected" event, before wireEvents()
+      // subscribes, so that player only shows up in deviceManager.devices.
+      mockDeviceManager.devices.set(2, { name: "CDJ-3000", id: 2, type: 1 });
+      mockDeviceManager.devices.set(33, { name: "DJM-V10", id: 33, type: 3 });
+      const connections: PluginConnectionEvent[] = [];
+      plugin.on("connection", (e: PluginConnectionEvent) => connections.push(e));
+
+      await plugin.start();
+      mockDeviceManager.devices.clear();
+
+      expect(connections).toEqual([{ connected: true, deviceName: "CDJ-3000" }]);
+    });
+
     it("emits connection event when CDJ connects", async () => {
       const connections: PluginConnectionEvent[] = [];
       plugin.on("connection", (e: PluginConnectionEvent) => connections.push(e));

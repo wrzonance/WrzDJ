@@ -77,14 +77,55 @@ describe("PluginBridge", () => {
       bridge = new PluginBridge(plugin, DEFAULT_CONFIG);
       const live: DeckLiveEvent[] = [];
       bridge.on("deckLive", (e: DeckLiveEvent) => live.push(e));
+      const threshold = DEFAULT_CONFIG.liveThresholdSeconds * 1000;
       await bridge.start();
+
+      // A deck is live before the restart, so a restart that kept old deck state would show.
+      plugin.emit("track", { deckId: "1", track: { title: "Before", artist: "Restart" } });
+      plugin.emit("playState", { deckId: "1", isPlaying: true });
+      vi.advanceTimersByTime(threshold + 100);
+      expect(live.map((e) => e.track.title)).toEqual(["Before"]);
+
+      await bridge.restart();
+      expect(bridge.manager.getDeckState("1").track).toBeNull();
+
+      plugin.emit("track", { deckId: "2", track: { title: "After", artist: "Restart" } });
+      plugin.emit("playState", { deckId: "2", isPlaying: true });
+      vi.advanceTimersByTime(threshold - 1);
+      expect(live.map((e) => e.track.title)).toEqual(["Before"]);
+      vi.advanceTimersByTime(101);
+
+      expect(live.map((e) => e.track.title)).toEqual(["Before", "After"]);
+    });
+
+    it("a reconnect still in progress when the bridge restarts doesn't reset the new session", async () => {
+      plugin = createMockPlugin(FULL_CAPABILITIES);
+      bridge = new PluginBridge(plugin, DEFAULT_CONFIG);
+      const live: DeckLiveEvent[] = [];
+      bridge.on("deckLive", (e: DeckLiveEvent) => live.push(e));
+      await bridge.start();
+
+      // The reconnect's plugin.stop() is slow; the dashboard restarts the bridge meanwhile.
+      let releaseStop: () => void = () => {};
+      const realStop = plugin.stop;
+      plugin.stop = () =>
+        new Promise<void>((resolve) => {
+          releaseStop = () => {
+            plugin.stop = realStop;
+            void realStop.call(plugin).then(resolve);
+          };
+        });
+      const reconnecting = bridge.reconnect();
+      plugin.stop = realStop;
       await bridge.restart();
 
-      plugin.emit("track", { deckId: "1", track: { title: "After", artist: "Restart" } });
+      plugin.emit("track", { deckId: "1", track: { title: "New", artist: "Session" } });
       plugin.emit("playState", { deckId: "1", isPlaying: true });
+      releaseStop();
+      await reconnecting;
       vi.advanceTimersByTime(DEFAULT_CONFIG.liveThresholdSeconds * 1000 + 100);
 
-      expect(live.map((e) => e.track.title)).toEqual(["After"]);
+      expect(live.map((e) => e.track.title)).toEqual(["New"]);
     });
 
     it("starts and stops the plugin", async () => {

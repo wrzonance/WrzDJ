@@ -51,6 +51,8 @@ export class PluginBridge extends EventEmitter {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
+  /** Bumped by start() and stop(): a reconnect begun in an older session stops at its next wait. */
+  private generation = 0;
   private wasConnected = false;
   private pluginConfig?: Record<string, unknown>;
 
@@ -86,6 +88,7 @@ export class PluginBridge extends EventEmitter {
       throw new Error("PluginBridge is already running");
     }
 
+    this.generation++;
     this.pluginConfig = pluginConfig;
     this.reconnectAttempt = 0;
     this.wasConnected = false;
@@ -106,6 +109,7 @@ export class PluginBridge extends EventEmitter {
     if (!this.running) return;
 
     this.running = false;
+    this.generation++;
     this.cancelReconnect();
 
     try {
@@ -246,6 +250,7 @@ export class PluginBridge extends EventEmitter {
 
   private async attemptReconnect(): Promise<void> {
     if (!this.running) return;
+    const generation = this.generation;
 
     this.emit("log", `Reconnecting to ${this.plugin.info.name}...`);
 
@@ -256,6 +261,8 @@ export class PluginBridge extends EventEmitter {
       } catch {
         // Best effort
       }
+      // A restart (or stop) happened while we waited: that session owns the plugin now.
+      if (generation !== this.generation) return;
 
       // Clear stale deck state from the old connection
       this.deckManager.reset();

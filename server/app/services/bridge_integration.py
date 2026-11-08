@@ -245,7 +245,7 @@ def record_delayed_play(
         )
     )
     db.commit()
-    logger.info(f"Delayed track added to history only: {title!r} ({event_code})")
+    logger.info("Delayed track added to play history only (event %s)", event.id)
     return True
 
 

@@ -5972,11 +5972,29 @@
             ],
             "title": "Deck"
           },
+          "delayed": {
+            "default": false,
+            "title": "Delayed",
+            "type": "boolean"
+          },
           "event_code": {
             "maxLength": 10,
             "minLength": 1,
             "title": "Event Code",
             "type": "string"
+          },
+          "played_ago_ms": {
+            "anyOf": [
+              {
+                "maximum": 86400000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Played Ago Ms"
           },
           "source": {
             "anyOf": [

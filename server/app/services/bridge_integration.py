@@ -5,13 +5,15 @@ from __future__ import annotations
 import logging
 import threading
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.core.time import utcnow
+from app.models.event import Event
 from app.models.now_playing import NowPlaying
+from app.models.play_history import PlayHistory
 from app.models.request import Request, RequestStatus
 
 # `archive_to_history` is imported lazily inside the handlers below to avoid a
@@ -70,6 +72,33 @@ def clear_all() -> None:
         _commands.clear()
 
 
+def _resolve_album_art(
+    db: Session, event: Event, title: str, artist: str, matched_request: Request | None
+) -> tuple[str | None, str | None, str | None]:
+    """Return (album_art_url, spotify_track_id, spotify_uri) for a track from the bridge."""
+    from app.services.now_playing import lookup_spotify_album_art, lookup_tidal_album_art
+
+    # Album-art precedence: the matched request's already-resolved art (guest
+    # search is Tidal-primary) -> a fresh Tidal lookup via the owner's session ->
+    # Spotify as a last resort. Spotify is no longer primary: its app-level search
+    # 403s when the owner account lacks Premium, which silently blanked now-playing
+    # art while Tidal-backed queue art kept working.
+    album_art_url: str | None = None
+    spotify_track_id: str | None = None
+    spotify_uri: str | None = None
+    if matched_request and matched_request.artwork_url:
+        album_art_url = matched_request.artwork_url
+    else:
+        album_art_url = lookup_tidal_album_art(db, event.created_by, title, artist)
+        if not album_art_url:
+            spotify_data = lookup_spotify_album_art(title, artist)
+            if spotify_data:
+                spotify_track_id = spotify_data["spotify_track_id"]
+                album_art_url = spotify_data["album_art_url"]
+                spotify_uri = spotify_data["spotify_uri"]
+    return album_art_url, spotify_track_id, spotify_uri
+
+
 def handle_now_playing_update(
     db: Session,
     event_code: str,
@@ -93,8 +122,6 @@ def handle_now_playing_update(
         fuzzy_match_pending_request,
         get_event_by_code_for_bridge,
         get_now_playing,
-        lookup_spotify_album_art,
-        lookup_tidal_album_art,
     )
 
     event = get_event_by_code_for_bridge(db, event_code)
@@ -109,24 +136,9 @@ def handle_now_playing_update(
     # mutations, which are committed together at the end.
     matched_request = fuzzy_match_pending_request(db, event.id, title, artist)
 
-    # Album-art precedence: the matched request's already-resolved art (guest
-    # search is Tidal-primary) -> a fresh Tidal lookup via the owner's session ->
-    # Spotify as a last resort. Spotify is no longer primary: its app-level search
-    # 403s when the owner account lacks Premium, which silently blanked now-playing
-    # art while Tidal-backed queue art kept working.
-    album_art_url: str | None = None
-    spotify_track_id: str | None = None
-    spotify_uri: str | None = None
-    if matched_request and matched_request.artwork_url:
-        album_art_url = matched_request.artwork_url
-    else:
-        album_art_url = lookup_tidal_album_art(db, event.created_by, title, artist)
-        if not album_art_url:
-            spotify_data = lookup_spotify_album_art(title, artist)
-            if spotify_data:
-                spotify_track_id = spotify_data["spotify_track_id"]
-                album_art_url = spotify_data["album_art_url"]
-                spotify_uri = spotify_data["spotify_uri"]
+    album_art_url, spotify_track_id, spotify_uri = _resolve_album_art(
+        db, event, title, artist, matched_request
+    )
 
     # Step 1: Archive previous track if exists
     existing = get_now_playing(db, event.id)
@@ -186,6 +198,93 @@ def handle_now_playing_update(
     db.commit()
     db.refresh(now_playing)
     return now_playing
+
+
+def record_delayed_play(
+    db: Session,
+    event_code: str,
+    title: str,
+    artist: str,
+    album: str | None = None,
+    deck: str | None = None,
+    source: str | None = None,
+    *,
+    played_ago_ms: int,
+) -> bool:
+    """Add a replayed (delayed) track to play history without making it now playing.
+
+    The Bridge buffers tracks that failed to post while the server was unreachable and sends
+    them again, marked delayed, when it recovers. Showing each one as now playing would flash
+    the backlog on the dashboard and kiosk (and leave an old song on screen), so a delayed
+    track only joins the history, and no live update is published.
+
+    Order: if the song on screen started before the delayed track was played, it ended first,
+    so it is archived (and cleared, as a clear does) before the delayed track is added. A song
+    on screen that started later (the Bridge already posted a newer track live) stays.
+
+    A pending request the track matches is closed out as played and linked to the history row,
+    as the live path would have done had the server been reachable.
+    """
+    from app.services.now_playing import (
+        fuzzy_match_pending_request,
+        get_event_by_code_for_bridge,
+        get_next_play_order,
+        get_now_playing,
+    )
+
+    event = get_event_by_code_for_bridge(db, event_code)
+    if not event:
+        return False
+
+    # Resolve the match and album art BEFORE staging any writes: the Tidal lookup can commit
+    # the session (see handle_now_playing_update).
+    matched_request = fuzzy_match_pending_request(db, event.id, title, artist)
+    album_art_url, spotify_track_id, spotify_uri = _resolve_album_art(
+        db, event, title, artist, matched_request
+    )
+
+    now = _utcnow()
+    played_at = now - timedelta(milliseconds=played_ago_ms)
+    on_screen = get_now_playing(db, event.id)
+    if (
+        on_screen
+        and on_screen.title
+        and on_screen.started_at is not None
+        and _naive(on_screen.started_at) <= _naive(played_at)
+    ):
+        clear_now_playing(db, event_code)
+
+    db.add(
+        PlayHistory(
+            event_id=event.id,
+            title=title,
+            artist=artist,
+            album=album,
+            deck=deck,
+            source=source or "bridge",
+            spotify_track_id=spotify_track_id,
+            album_art_url=album_art_url,
+            spotify_uri=spotify_uri,
+            matched_request_id=matched_request.id if matched_request else None,
+            started_at=played_at,
+            ended_at=now,
+            play_order=get_next_play_order(db, event.id),
+        )
+    )
+    if matched_request:
+        # It has already been played, so go straight to played: left "playing" nothing would
+        # ever move it on (the live path only closes a playing request when the next track starts).
+        matched_request.status = RequestStatus.PLAYED.value
+        matched_request.updated_at = now
+        logger.info(f"Marked request {matched_request.id} as played (delayed replay)")
+    db.commit()
+    logger.info("Delayed track added to play history only (event %s)", event.id)
+    return True
+
+
+def _naive(t: datetime) -> datetime:
+    """Compare stored (naive UTC) and computed times alike."""
+    return t.replace(tzinfo=None) if t.tzinfo else t
 
 
 def update_bridge_status(

@@ -13,6 +13,8 @@ export interface NowPlayingPayload {
   source?: string | null;
   /** True when this track is being replayed from the buffer after backend recovery */
   delayed?: boolean;
+  /** For a delayed track: how long ago it was buffered (ms), so the server can order the history */
+  played_ago_ms?: number;
 }
 
 /** Payload sent to POST /api/bridge/status */

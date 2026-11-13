@@ -534,6 +534,73 @@ describe('BridgeRunner', () => {
     mockFetch.mockResolvedValue({ ok: true, text: () => Promise.resolve('') });
   });
 
+  describe('buffered tracks are replayed after any successful post', () => {
+    type Internals = {
+      trackBuffer: { push(p: object): void; size: number };
+      replayBufferedTracks(): void;
+      postBridgeStatus(connected: boolean): Promise<void>;
+    };
+    const ok = () => Promise.resolve({ ok: true, text: () => Promise.resolve('') });
+    const queue = (internals: Internals, titles: string[]) => {
+      for (const title of titles) {
+        internals.trackBuffer.push({ event_code: 'TEST', title, artist: 'A', album: null, deck: null });
+      }
+    };
+    const nowPlayingTitles = (): string[] =>
+      mockFetch.mock.calls
+        .filter((call) => String(call[0]).includes('/bridge/nowplaying'))
+        .map((call) => JSON.parse(call[1].body).title);
+
+    afterEach(() => {
+      mockFetch.mockReset();
+      mockFetch.mockResolvedValue({ ok: true, text: () => Promise.resolve('') });
+    });
+
+    it('replays the tracks a failed replay left behind on the next successful post', async () => {
+      await runner.start(TEST_CONFIG);
+      const internals = runner as unknown as Internals;
+      queue(internals, ['S1', 'S2', 'S3', 'S4', 'S5']);
+
+      // The replay of S2 fails; the breaker is still CLOSED, so nothing else retries it.
+      mockFetch.mockImplementation((_url: string, init: { body?: string }) => {
+        const body = init.body ? JSON.parse(init.body) : {};
+        return body.title === 'S2' ? Promise.reject(new Error('Network error')) : ok();
+      });
+      internals.replayBufferedTracks();
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(internals.trackBuffer.size).toBe(4);
+
+      mockFetch.mockReset();
+      mockFetch.mockImplementation(ok);
+      await internals.postBridgeStatus(true);
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(nowPlayingTitles()).toEqual(['S2', 'S3', 'S4', 'S5']);
+      expect(internals.trackBuffer.size).toBe(0);
+    });
+
+    it('does not start a second replay while one is in flight', async () => {
+      await runner.start(TEST_CONFIG);
+      const internals = runner as unknown as Internals;
+      queue(internals, ['S1', 'S2', 'S3']);
+      // Each replayed track takes 5s to be acknowledged.
+      mockFetch.mockImplementation((url: string) =>
+        url.includes('/bridge/nowplaying')
+          ? new Promise((resolve) => setTimeout(() => resolve({ ok: true, text: () => Promise.resolve('') }), 5_000))
+          : ok(),
+      );
+
+      internals.replayBufferedTracks();
+      await vi.advanceTimersByTimeAsync(7_000); // S1 sent, S2 in flight
+      queue(internals, ['L']); // a live track failed meanwhile and was buffered
+      await internals.postBridgeStatus(true); // a successful post lands mid-replay
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      expect(nowPlayingTitles()).toEqual(['S1', 'S2', 'S3']);
+      expect(internals.trackBuffer.size).toBe(1); // L waits for the next successful post
+    });
+  });
+
   it('buffers failed now-playing tracks for replay', async () => {
     await runner.start(TEST_CONFIG);
 

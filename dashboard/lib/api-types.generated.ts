@@ -6264,8 +6264,15 @@ export interface components {
             artist: string;
             /** Deck */
             deck?: string | null;
+            /**
+             * Delayed
+             * @default false
+             */
+            delayed: boolean;
             /** Event Code */
             event_code: string;
+            /** Played Ago Ms */
+            played_ago_ms?: number | null;
             /** Source */
             source?: string | null;
             /** Title */

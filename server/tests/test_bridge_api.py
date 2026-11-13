@@ -683,3 +683,99 @@ class TestDelayedNowPlaying:
     def test_a_negative_age_is_rejected(self, mock_settings, client: TestClient, test_event):
         mock_settings.return_value.bridge_api_key = "test-key"
         assert self._post(client, title="B", delayed=True, played_ago_ms=-1) == 422
+
+
+class TestLegacyDelayedReplay:
+    """An installed (pre-#962) bridge sends delayed=true on every replay and no played_ago_ms.
+
+    Those replays must keep behaving as ordinary now-playing posts, or the newest replayed track
+    (the song actually playing) would become history only and blank the screen.
+    """
+
+    @patch("app.api.bridge.publish_event", autospec=True)
+    @patch("app.core.bridge_auth.get_settings")
+    @patch("app.services.now_playing.lookup_spotify_album_art", autospec=True)
+    def test_delayed_without_an_age_becomes_now_playing(
+        self, mock_spotify, mock_settings, mock_publish, client: TestClient, test_event, db
+    ):
+        mock_settings.return_value.bridge_api_key = "test-key"
+        mock_spotify.return_value = None
+
+        response = client.post(
+            "/api/bridge/nowplaying",
+            json={"event_code": "TEST01", "title": "Legacy", "artist": "A", "delayed": True},
+            headers={"X-Bridge-API-Key": "test-key"},
+        )
+
+        assert response.status_code == 200
+        now_playing = db.query(NowPlaying).filter(NowPlaying.event_id == test_event.id).one()
+        assert now_playing.title == "Legacy"
+        mock_publish.assert_called_once()
+
+
+class TestDelayedPlayMatchesRequests:
+    """A requested song that played during an outage is matched and closed out on replay."""
+
+    def _delayed(self, client: TestClient, title: str, artist: str) -> int:
+        return client.post(
+            "/api/bridge/nowplaying",
+            json={
+                "event_code": "TEST01",
+                "title": title,
+                "artist": artist,
+                "delayed": True,
+                "played_ago_ms": 60_000,
+            },
+            headers={"X-Bridge-API-Key": "test-key"},
+        ).status_code
+
+    @patch("app.api.bridge.publish_event", autospec=True)
+    @patch("app.core.bridge_auth.get_settings")
+    @patch("app.services.now_playing.lookup_tidal_album_art", autospec=True)
+    @patch("app.services.now_playing.lookup_spotify_album_art", autospec=True)
+    def test_a_matching_accepted_request_is_played_and_linked_to_the_history_row(
+        self, mock_spotify, mock_tidal, mock_settings, mock_publish, client, test_event, db
+    ):
+        mock_settings.return_value.bridge_api_key = "test-key"
+        request = Request(
+            event_id=test_event.id,
+            song_title="Blue Monday",
+            artist="New Order",
+            artwork_url="https://img.example/blue-monday.jpg",
+            status=RequestStatus.ACCEPTED.value,
+            dedupe_key="blue_monday_new_order",
+        )
+        db.add(request)
+        db.commit()
+
+        assert self._delayed(client, "Blue Monday", "New Order") == 200
+
+        db.refresh(request)
+        assert request.status == RequestStatus.PLAYED.value
+        history = db.query(PlayHistory).filter(PlayHistory.event_id == test_event.id).one()
+        assert history.matched_request_id == request.id
+        assert history.album_art_url == "https://img.example/blue-monday.jpg"
+        assert db.query(NowPlaying).filter(NowPlaying.event_id == test_event.id).count() == 0
+        mock_publish.assert_not_called()
+
+    @patch("app.core.bridge_auth.get_settings")
+    @patch("app.services.now_playing.lookup_tidal_album_art", autospec=True)
+    @patch("app.services.now_playing.lookup_spotify_album_art", autospec=True)
+    def test_an_unmatched_track_gets_no_request_and_the_looked_up_art(
+        self, mock_spotify, mock_tidal, mock_settings, client, test_event, db
+    ):
+        mock_settings.return_value.bridge_api_key = "test-key"
+        mock_tidal.return_value = None
+        mock_spotify.return_value = {
+            "spotify_track_id": "sp1",
+            "album_art_url": "https://img.example/sandstorm.jpg",
+            "spotify_uri": "spotify:track:sp1",
+        }
+
+        assert self._delayed(client, "Sandstorm", "Darude") == 200
+
+        history = db.query(PlayHistory).filter(PlayHistory.event_id == test_event.id).one()
+        assert history.matched_request_id is None
+        assert history.album_art_url == "https://img.example/sandstorm.jpg"
+        assert history.spotify_track_id == "sp1"
+        assert history.spotify_uri == "spotify:track:sp1"

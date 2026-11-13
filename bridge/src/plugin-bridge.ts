@@ -98,6 +98,15 @@ export class PluginBridge extends EventEmitter {
     this.reconnectAttempt = 0;
     this.wasConnected = false;
     this.running = true;
+
+    // Invariant: no session wires plugin listeners while a plugin stop is still in flight (its
+    // last step removes them all). If the session was stopped meanwhile there is nothing to do.
+    if (this.pluginStop !== null) {
+      const generation = this.generation;
+      await this.pluginStop;
+      if (generation !== this.generation) return;
+    }
+
     this.wireDeckManagerEvents();
     this.wirePluginEvents();
 

@@ -51,7 +51,10 @@ export class PluginBridge extends EventEmitter {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
-  /** Bumped by start() and stop(): a reconnect begun in an older session stops at its next wait. */
+  /**
+   * Bumped by start() and stop(): a reconnect begun in an older session stops acting at each
+   * wait (stop, start) and neither logs success nor schedules a retry once it is stale.
+   */
   private generation = 0;
   private wasConnected = false;
   private pluginConfig?: Record<string, unknown>;
@@ -273,8 +276,22 @@ export class PluginBridge extends EventEmitter {
 
       // Restart
       await this.plugin.start(this.pluginConfig);
+      if (generation !== this.generation) {
+        // The session ended while start() was pending. After a restart the new session owns the
+        // plugin; after a stop nobody does, so shut the late-started plugin down.
+        if (!this.running) {
+          try {
+            await this.plugin.stop();
+          } catch {
+            // Best effort
+          }
+        }
+        return;
+      }
       this.emit("log", `Reconnected to ${this.plugin.info.name} successfully`);
     } catch (err) {
+      // A stale attempt must not log or queue a retry that would reset the newer session.
+      if (generation !== this.generation) return;
       const message = err instanceof Error ? err.message : String(err);
       this.emit("log", `Reconnect failed: ${message}`);
       this.scheduleReconnect();

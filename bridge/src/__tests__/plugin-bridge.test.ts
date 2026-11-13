@@ -128,6 +128,68 @@ describe("PluginBridge", () => {
       expect(live.map((e) => e.track.title)).toEqual(["New"]);
     });
 
+    it("a reconnect that fails after the bridge restarted doesn't retry into the new session", async () => {
+      plugin = createMockPlugin(FULL_CAPABILITIES);
+      bridge = new PluginBridge(plugin, DEFAULT_CONFIG);
+      const live: DeckLiveEvent[] = [];
+      const logs: string[] = [];
+      bridge.on("deckLive", (e: DeckLiveEvent) => live.push(e));
+      bridge.on("log", (m: string) => logs.push(m));
+      await bridge.start();
+
+      // The reconnect parks on a plugin.start() that we reject later.
+      const realStart = plugin.start;
+      let failOldStart: (err: Error) => void = () => {};
+      plugin.start = () =>
+        new Promise<void>((_resolve, reject) => {
+          failOldStart = reject;
+        });
+      const reconnecting = bridge.reconnect();
+      await vi.advanceTimersByTimeAsync(0);
+      plugin.start = realStart;
+      await bridge.restart();
+
+      const stopSpy = vi.spyOn(plugin, "stop");
+      plugin.emit("track", { deckId: "1", track: { title: "New", artist: "Session" } });
+      plugin.emit("playState", { deckId: "1", isPlaying: true });
+      failOldStart(new Error("old session failed"));
+      await reconnecting;
+      // Past the longest reconnect backoff (30s; a wrongly queued retry would fire) and the live threshold.
+      await vi.advanceTimersByTimeAsync(
+        Math.max(30_000, DEFAULT_CONFIG.liveThresholdSeconds * 1000) + 100,
+      );
+
+      expect(live.map((e) => e.track.title)).toEqual(["New"]);
+      expect(stopSpy).not.toHaveBeenCalled();
+      expect(logs.some((m) => m.includes("Reconnect failed"))).toBe(false);
+    });
+
+    it("a reconnect whose start completes after the bridge stopped shuts the plugin down", async () => {
+      plugin = createMockPlugin(FULL_CAPABILITIES);
+      bridge = new PluginBridge(plugin, DEFAULT_CONFIG);
+      const logs: string[] = [];
+      bridge.on("log", (m: string) => logs.push(m));
+      await bridge.start();
+
+      // The reconnect parks on a plugin.start() that finishes only after the bridge stopped.
+      const realStart = plugin.start;
+      let finishLateStart: () => void = () => {};
+      plugin.start = () =>
+        new Promise<void>((resolve) => {
+          finishLateStart = () => void realStart.call(plugin, undefined).then(resolve);
+        });
+      const reconnecting = bridge.reconnect();
+      await vi.advanceTimersByTimeAsync(0);
+      plugin.start = realStart;
+      await bridge.stop();
+
+      finishLateStart();
+      await reconnecting;
+
+      expect(plugin.isRunning).toBe(false);
+      expect(logs.some((m) => m.includes("successfully"))).toBe(false);
+    });
+
     it("starts and stops the plugin", async () => {
       plugin = createMockPlugin();
       bridge = new PluginBridge(plugin, DEFAULT_CONFIG);

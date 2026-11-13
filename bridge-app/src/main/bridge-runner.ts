@@ -118,19 +118,23 @@ export class BridgeRunner extends EventEmitter {
     }
 
     // Create the PluginBridge
-    this.pluginBridge = new PluginBridge(plugin, {
+    const bridge = new PluginBridge(plugin, {
       liveThresholdSeconds: config.settings.liveThresholdSeconds,
       pauseGraceSeconds: config.settings.pauseGraceSeconds,
       nowPlayingPauseSeconds: config.settings.nowPlayingPauseSeconds,
       useFaderDetection: config.settings.useFaderDetection,
       masterDeckPriority: config.settings.masterDeckPriority,
     });
+    this.pluginBridge = bridge;
 
     this.wireEvents();
     this.emitStatus();
 
     try {
-      await this.pluginBridge.start(config.settings.pluginConfig);
+      await bridge.start(config.settings.pluginConfig);
+      // stop() or a restart ran while the plugin was waiting (e.g. for the first CDJ);
+      // the session that superseded this one owns the state and the timers.
+      if (this.isSuperseded(bridge)) return;
       this.log('Plugin started, listening for DJ equipment...');
       this.startHealthCheck();
       this.startCommandPoller();
@@ -139,13 +143,21 @@ export class BridgeRunner extends EventEmitter {
       this.log('Bridge online — sending initial status to backend');
       await this.postBridgeStatus(true);
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (this.isSuperseded(bridge)) {
+        this.log(`Superseded start failed: ${message}`, 'warn');
+        return;
+      }
       this.running = false;
       this.pluginBridge = null;
-      const message = err instanceof Error ? err.message : String(err);
       this.log(`Failed to connect: ${message}`, 'error');
       this.emitStatus();
       throw err;
     }
+  }
+
+  private isSuperseded(bridge: PluginBridge): boolean {
+    return this.pluginBridge !== bridge || !this.running;
   }
 
   async stop(reason?: string): Promise<void> {

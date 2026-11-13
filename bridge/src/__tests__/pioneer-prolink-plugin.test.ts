@@ -591,6 +591,8 @@ describe("PioneerProlinkPlugin", () => {
     });
   });
 
+  // Regression #996 at d4c3bbbb: stop() ignored a pending start (a late CDJ revived the plugin)
+  // and never closed the UDP sockets (disconnect()() throws on the detached close function).
   describe("stop while starting", () => {
     // Before autoconfig completes the real disconnect() throws; teardown must still close the sockets
     beforeEach(() => {
@@ -636,18 +638,25 @@ describe("PioneerProlinkPlugin", () => {
       expect(mockNetwork.connect).not.toHaveBeenCalled();
     });
 
-    it("closes the network when stop runs while bringOnline is pending", async () => {
+    it("stop waits for a pending bringOnline to settle and closes its network", async () => {
       const { bringOnline } = await import("alphatheta-connect");
       const online = deferred<typeof mockNetwork>();
       vi.mocked(bringOnline).mockImplementationOnce(() => online.promise as never);
 
       const starting = plugin.start();
-      await plugin.stop();
+      let stopped = false;
+      const stopping = plugin.stop().then(() => {
+        stopped = true;
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(stopped).toBe(false);
 
       online.resolve(mockNetwork);
+      await stopping;
+      expect(mockNetwork.close).toHaveBeenCalledTimes(1);
       await expect(starting).resolves.toBeUndefined();
 
-      expect(mockNetwork.close).toHaveBeenCalledTimes(1);
       expect(mockNetwork.autoconfigFromPeers).not.toHaveBeenCalled();
       expect(mockNetwork.connect).not.toHaveBeenCalled();
       expect(plugin.isRunning).toBe(false);
@@ -666,13 +675,18 @@ describe("PioneerProlinkPlugin", () => {
       expect(mockNetwork.close).toHaveBeenCalledTimes(1);
     });
 
-    it("lets a new start succeed while the cancelled one is still unwinding", async () => {
+    it("has settled the cancelled start by the time stop returns, so a new start is clean", async () => {
       const staleCdj = deferred();
       mockNetwork.autoconfigFromPeers.mockImplementationOnce(() => staleCdj.promise);
 
-      const stale = plugin.start();
+      let staleSettled = false;
+      const stale = plugin.start().then(() => {
+        staleSettled = true;
+      });
       await vi.waitFor(() => expect(mockNetwork.autoconfigFromPeers).toHaveBeenCalled());
       await plugin.stop();
+      expect(staleSettled).toBe(true);
+      await stale;
 
       const onReady = vi.fn();
       plugin.on("ready", onReady);
@@ -684,7 +698,7 @@ describe("PioneerProlinkPlugin", () => {
       mockNetwork.disconnect.mockClear();
 
       staleCdj.resolve();
-      await expect(stale).resolves.toBeUndefined();
+      await Promise.resolve();
 
       expect(plugin.isRunning).toBe(true);
       expect(mockNetwork.connect).toHaveBeenCalledTimes(1);

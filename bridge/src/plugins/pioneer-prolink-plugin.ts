@@ -30,6 +30,8 @@ interface StartAttempt {
   network: ProlinkNetwork | null;
   cancel: () => void;
   cancelSignal: Promise<void>;
+  /** Settles (never rejects) once the attempt has finished unwinding */
+  settled: Promise<void>;
 }
 
 export class PioneerProlinkPlugin extends EventEmitter implements EquipmentSourcePlugin {
@@ -77,7 +79,12 @@ export class PioneerProlinkPlugin extends EventEmitter implements EquipmentSourc
     const attempt = this.beginStart();
     let network: ProlinkNetwork | null;
     try {
-      network = await this.bringUp(attempt);
+      const bringingUp = this.bringUp(attempt);
+      attempt.settled = bringingUp.then(
+        () => undefined,
+        () => undefined
+      );
+      network = await bringingUp;
     } catch (err) {
       if (this.pendingStart === attempt) this.pendingStart = null;
       if (attempt.cancelled) return;
@@ -124,7 +131,13 @@ export class PioneerProlinkPlugin extends EventEmitter implements EquipmentSourc
     const cancelSignal = new Promise<void>((resolve) => {
       cancel = resolve;
     });
-    const attempt: StartAttempt = { cancelled: false, network: null, cancel, cancelSignal };
+    const attempt: StartAttempt = {
+      cancelled: false,
+      network: null,
+      cancel,
+      cancelSignal,
+      settled: Promise.resolve(),
+    };
     this.pendingStart = attempt;
     return attempt;
   }
@@ -135,6 +148,8 @@ export class PioneerProlinkPlugin extends EventEmitter implements EquipmentSourc
     const network = attempt.network;
     attempt.network = null;
     if (network) await this.teardownQuietly(network);
+    // Wait for in-flight socket binds so a following start() cannot overlap them
+    await attempt.settled;
   }
 
   /** Returns the connected network, or null when the attempt was cancelled along the way */

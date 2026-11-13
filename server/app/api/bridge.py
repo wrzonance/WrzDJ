@@ -27,6 +27,7 @@ from app.services.bridge_integration import (
     handle_now_playing_update,
     poll_commands,
     queue_command,
+    record_delayed_play,
     update_bridge_status,
 )
 from app.services.event import (
@@ -82,6 +83,22 @@ def post_now_playing(
     sys_settings = get_system_settings(db)
     if not sys_settings.bridge_enabled:
         raise HTTPException(status_code=503, detail="Bridge integration is currently unavailable")
+    if payload.delayed and payload.played_ago_ms is not None:
+        # A replay after an outage: history only, no now-playing change, no live update.
+        # Without an age it is a replay from a bridge older than this field: it carries
+        # delayed on every track, including the one still playing, so it posts as usual.
+        if not record_delayed_play(
+            db,
+            payload.event_code,
+            payload.title,
+            payload.artist,
+            payload.album,
+            payload.deck,
+            payload.source,
+            played_ago_ms=payload.played_ago_ms,
+        ):
+            raise HTTPException(status_code=404, detail="Event not found")
+        return StatusResponse(status="ok")
     result = handle_now_playing_update(
         db,
         payload.event_code,

@@ -16,6 +16,15 @@ class NowPlayingBridgePayload(BaseModel):
     album: str | None = Field(default=None, max_length=255)
     deck: str | None = Field(default=None, max_length=10)
     source: str | None = Field(default=None, max_length=20)
+    # A track the Bridge buffered while the server was unreachable and is now sending again.
+    # Older Bridges set this on every replayed track (including the song still playing) and send
+    # no played_ago_ms, so on its own it changes nothing: see played_ago_ms.
+    delayed: bool = False
+    # How long ago the DJ played it, by the Bridge's clock (relative, so clock skew doesn't
+    # matter). Required for the history-only path: delayed WITH this goes to play history only
+    # (no now-playing change, no live update to screens); delayed without it is a legacy replay
+    # and is handled as an ordinary now-playing post.
+    played_ago_ms: int | None = Field(default=None, ge=0, le=86_400_000)
 
 
 class BridgeStatusPayload(BaseModel):

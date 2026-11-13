@@ -24,7 +24,7 @@ import {
 import { CommandPoller } from '@bridge/command-poller.js';
 import type { BridgeCommand } from '@bridge/command-poller.js';
 import { Logger, type LogLevel } from '@bridge/logger.js';
-import { TrackHistoryBuffer } from '@bridge/track-history-buffer.js';
+import { replayPayloadFor, TrackHistoryBuffer } from '@bridge/track-history-buffer.js';
 import type { DeckLiveEvent, DeckState } from '@bridge/deck-state.js';
 import type { NowPlayingPayload, BridgeStatusPayload } from '@bridge/types.js';
 import type { PluginConnectionEvent } from '@bridge/plugin-types.js';
@@ -61,6 +61,10 @@ export class BridgeRunner extends EventEmitter {
   private commandPoller: CommandPoller | null = null;
   private readonly logger = new Logger('Bridge');
   private readonly trackBuffer = new TrackHistoryBuffer();
+  /** When the last live now-playing post started (a replay's newest track goes live only if after it). */
+  private lastLiveAttemptAt = 0;
+  /** True while a replay is sending buffered tracks, so two replays never interleave. */
+  private replayInFlight = false;
 
   constructor() {
     super();
@@ -399,6 +403,11 @@ export class BridgeRunner extends EventEmitter {
         }
         this.circuitBreaker.recordSuccess();
         this.log(`POST ${endpoint} succeeded`);
+        // A replay that failed partway leaves tracks buffered with the breaker still CLOSED, so
+        // the breaker's CLOSED transition never fires again: any successful post retries them.
+        if (this.trackBuffer.size > 0 && !this.replayInFlight) {
+          this.replayBufferedTracks();
+        }
         return true;
       } catch (err) {
         lastError = err as Error;
@@ -437,6 +446,7 @@ export class BridgeRunner extends EventEmitter {
       source: source ?? null,
     };
 
+    this.lastLiveAttemptAt = Date.now();
     const success = await this.postWithRetry('/api/bridge/nowplaying', payload);
     if (!success) {
       this.trackBuffer.push(payload);
@@ -538,21 +548,29 @@ export class BridgeRunner extends EventEmitter {
   // --- Track buffer replay ---
 
   private replayBufferedTracks(): void {
+    if (this.replayInFlight) return;
     const tracks = this.trackBuffer.drain();
     if (tracks.length === 0) return;
 
+    this.replayInFlight = true;
     this.log(`Replaying ${tracks.length} buffered track(s)...`);
 
     // Replay asynchronously — don't block the circuit breaker handler
     (async () => {
-      for (const { payload } of tracks) {
-        const replayPayload: NowPlayingPayload = { ...payload, delayed: true };
-        const success = await this.postWithRetry('/api/bridge/nowplaying', replayPayload);
-        if (!success) {
-          this.log(`Replay failed for "${payload.title}" — backend may be down again`, 'warn');
-          return;
+      try {
+        for (const [i, entry] of tracks.entries()) {
+          const { payload } = entry;
+          const replayPayload = replayPayloadFor(entry, i === tracks.length - 1, this.lastLiveAttemptAt);
+          const success = await this.postWithRetry('/api/bridge/nowplaying', replayPayload);
+          if (!success) {
+            this.log(`Replay failed for "${payload.title}" — backend may be down again`, 'warn');
+            this.trackBuffer.requeueFront(tracks.slice(i)); // keep the unsent tracks (#961)
+            return;
+          }
+          this.log(`Replayed: "${payload.title}" by ${payload.artist}`);
         }
-        this.log(`Replayed: "${payload.title}" by ${payload.artist}`);
+      } finally {
+        this.replayInFlight = false;
       }
     })();
   }

@@ -59,6 +59,7 @@ export class PluginBridge extends EventEmitter {
   private wasConnected = false;
   private pluginConfig?: Record<string, unknown>;
   private pluginStop: Promise<void> | null = null;
+  private bridgeStop: Promise<void> | null = null;
 
   constructor(plugin: EquipmentSourcePlugin, config: DeckStateManagerConfig) {
     super();
@@ -109,9 +110,23 @@ export class PluginBridge extends EventEmitter {
     }
   }
 
+  /**
+   * A stop that arrives while another is tearing down waits for it instead of returning: `running`
+   * is already false then, and a restart that proceeded would wire a new session that the first
+   * stop's cleanup() then strips.
+   */
   async stop(): Promise<void> {
+    if (this.bridgeStop !== null) return this.bridgeStop;
     if (!this.running) return;
 
+    const stopping = this.shutDown().finally(() => {
+      if (this.bridgeStop === stopping) this.bridgeStop = null;
+    });
+    this.bridgeStop = stopping;
+    return stopping;
+  }
+
+  private async shutDown(): Promise<void> {
     this.running = false;
     this.generation++;
     this.cancelReconnect();

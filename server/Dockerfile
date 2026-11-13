@@ -6,9 +6,18 @@ WORKDIR /app
 # updates published since the pinned base-image digest was built (Trivy gate).
 # Trade-off, chosen deliberately: this layer resolves against Debian's mutable
 # repositories, so the build is only as reproducible as the digest pin above,
-# and Docker keeps the cached layer until that pin changes. Renovate bumps the
-# digest as new base images ship, which is what refreshes this layer.
-RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+# and Docker keeps the cached layer until one of its inputs changes. There are
+# two: the base image's layers (Renovate bumps the digest as new base images
+# ship) and APT_SECURITY_REFRESH below.
+#
+# Bump APT_SECURITY_REFRESH to today's date when the Trivy gate reports a
+# fixable Debian package and the digest bump does not rebuild this layer. That
+# happens when Debian publishes the fix before a new base image exists, or
+# when the new index changes other platforms only and linux/amd64 keeps the
+# same layers (#994: zlib1g, CVE-2026-85091 and CVE-2026-76844).
+ARG APT_SECURITY_REFRESH=2026-11-12
+RUN echo "apt security refresh: ${APT_SECURITY_REFRESH}" \
+    && apt-get update && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \

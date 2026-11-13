@@ -127,6 +127,14 @@ export class PioneerProlinkPlugin extends EventEmitter implements EquipmentSourc
     });
 
     // CDJ status updates — statusEmitter is guaranteed non-null after connect()
+    // autoconfigFromPeers() resolved on the first device's "connected" event, which fired before
+    // the listener above existed: report the players already on the link now.
+    for (const device of this.network.deviceManager.devices?.values() ?? []) {
+      if (device.type !== DeviceType.CDJ) continue;
+      this.emit("log", `CDJ connected: ${device.name} (ID ${device.id})`);
+      this.emit("connection", { connected: true, deviceName: device.name });
+    }
+
     const statusEmitter = this.network.statusEmitter;
     if (!statusEmitter) return;
 

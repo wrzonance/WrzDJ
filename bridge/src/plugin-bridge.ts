@@ -51,8 +51,15 @@ export class PluginBridge extends EventEmitter {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
+  /**
+   * Bumped by start() and stop(): a reconnect begun in an older session stops acting at each
+   * wait (stop, start) and neither logs success nor schedules a retry once it is stale.
+   */
+  private generation = 0;
   private wasConnected = false;
   private pluginConfig?: Record<string, unknown>;
+  private pluginStop: Promise<void> | null = null;
+  private bridgeStop: Promise<void> | null = null;
 
   constructor(plugin: EquipmentSourcePlugin, config: DeckStateManagerConfig) {
     super();
@@ -86,10 +93,20 @@ export class PluginBridge extends EventEmitter {
       throw new Error("PluginBridge is already running");
     }
 
+    this.generation++;
     this.pluginConfig = pluginConfig;
     this.reconnectAttempt = 0;
     this.wasConnected = false;
     this.running = true;
+
+    // Invariant: no session wires plugin listeners while a plugin stop is still in flight (its
+    // last step removes them all). If the session was stopped meanwhile there is nothing to do.
+    if (this.pluginStop !== null) {
+      const generation = this.generation;
+      await this.pluginStop;
+      if (generation !== this.generation) return;
+    }
+
     this.wireDeckManagerEvents();
     this.wirePluginEvents();
 
@@ -102,17 +119,28 @@ export class PluginBridge extends EventEmitter {
     }
   }
 
+  /**
+   * A stop that arrives while another is tearing down waits for it instead of returning: `running`
+   * is already false then, and a restart that proceeded would wire a new session that the first
+   * stop's cleanup() then strips.
+   */
   async stop(): Promise<void> {
+    if (this.bridgeStop !== null) return this.bridgeStop;
     if (!this.running) return;
 
+    const stopping = this.shutDown().finally(() => {
+      if (this.bridgeStop === stopping) this.bridgeStop = null;
+    });
+    this.bridgeStop = stopping;
+    return stopping;
+  }
+
+  private async shutDown(): Promise<void> {
     this.running = false;
+    this.generation++;
     this.cancelReconnect();
 
-    try {
-      await this.plugin.stop();
-    } catch {
-      // Best effort on shutdown
-    }
+    await this.stopPlugin();
 
     this.cleanup();
   }
@@ -139,7 +167,11 @@ export class PluginBridge extends EventEmitter {
     this.cancelReconnect();
     this.stopHeartbeat();
     this.emit("clearNowPlaying");
-    this.deckManager.destroy();
+    // Not destroy(): that disables the manager for good, and restart() starts this same
+    // bridge again, which would then never report a track. Listeners go first, so the reset's
+    // own log line isn't forwarded on a plain stop.
+    this.deckManager.removeAllListeners();
+    this.deckManager.reset();
     this.plugin.removeAllListeners();
     this.recentLogs.clear();
   }
@@ -242,16 +274,15 @@ export class PluginBridge extends EventEmitter {
 
   private async attemptReconnect(): Promise<void> {
     if (!this.running) return;
+    const generation = this.generation;
 
     this.emit("log", `Reconnecting to ${this.plugin.info.name}...`);
 
     try {
       // Stop the old plugin instance (clean up stale resources)
-      try {
-        await this.plugin.stop();
-      } catch {
-        // Best effort
-      }
+      await this.stopPlugin();
+      // A restart (or stop) happened while we waited: that session owns the plugin now.
+      if (generation !== this.generation) return;
 
       // Clear stale deck state from the old connection
       this.deckManager.reset();
@@ -262,12 +293,39 @@ export class PluginBridge extends EventEmitter {
 
       // Restart
       await this.plugin.start(this.pluginConfig);
+      if (generation !== this.generation) {
+        // The session ended while start() was pending. After a restart the new session owns the
+        // plugin; after a stop nobody does, so shut the late-started plugin down.
+        if (!this.running) await this.stopPlugin();
+        return;
+      }
       this.emit("log", `Reconnected to ${this.plugin.info.name} successfully`);
     } catch (err) {
+      // A stale attempt must not log or queue a retry that would reset the newer session.
+      if (generation !== this.generation) return;
       const message = err instanceof Error ? err.message : String(err);
       this.emit("log", `Reconnect failed: ${message}`);
       this.scheduleReconnect();
     }
+  }
+
+  /**
+   * Overlapping stops share one promise. A plugin's stop() returns at once when it is already
+   * stopping and removes its listeners as its last step, so a restart that didn't wait for the
+   * first stop would wire its listeners only to have them stripped. start() is not serialized:
+   * a start can wait minutes and must not block a stop.
+   */
+  private stopPlugin(): Promise<void> {
+    if (this.pluginStop === null) {
+      const stopping = this.plugin.stop().catch(() => {
+        // Best effort: a failed stop must not block a shutdown or a reconnect
+      });
+      this.pluginStop = stopping;
+      void stopping.then(() => {
+        if (this.pluginStop === stopping) this.pluginStop = null;
+      });
+    }
+    return this.pluginStop;
   }
 
   private cancelReconnect(): void {

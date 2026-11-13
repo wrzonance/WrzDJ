@@ -58,6 +58,58 @@ function createMockPlugin(
   return emitter;
 }
 
+/**
+ * Make plugin.stop() behave like a real plugin's: it parks until the returned release function
+ * is called, a second stop() while it is tearing down returns at once, and the first one removes
+ * every listener as its last step.
+ */
+function installRealisticSlowStop(plugin: EquipmentSourcePlugin): () => void {
+  const realStop = plugin.stop;
+  let stopping = false;
+  let release: () => void = () => {};
+  plugin.stop = () => {
+    if (stopping) return Promise.resolve();
+    stopping = true;
+    return new Promise<void>((resolve) => {
+      release = () => {
+        plugin.stop = realStop;
+        void realStop.call(plugin).then(() => {
+          plugin.removeAllListeners();
+          resolve();
+        });
+      };
+    });
+  };
+  return () => release();
+}
+
+/**
+ * Start `bridge`, then leave a stale reconnect's plugin teardown in flight: the reconnect parked
+ * on a plugin.start() that finishes only after the bridge stopped, so it now stops the plugin
+ * (slowly, until the returned release function is called) while `bridge.isRunning` is false.
+ */
+async function startWithLateReconnectTeardown(
+  plugin: EquipmentSourcePlugin,
+  bridge: PluginBridge,
+): Promise<{ reconnecting: Promise<void>; releaseStop: () => void }> {
+  await bridge.start();
+  const realStart = plugin.start;
+  let finishLateStart: () => void = () => {};
+  plugin.start = () =>
+    new Promise<void>((resolve) => {
+      finishLateStart = () => void realStart.call(plugin, undefined).then(resolve);
+    });
+  const reconnecting = bridge.reconnect();
+  await vi.advanceTimersByTimeAsync(0);
+  plugin.start = realStart;
+  await bridge.stop();
+
+  const releaseStop = installRealisticSlowStop(plugin);
+  finishLateStart();
+  await vi.advanceTimersByTimeAsync(0);
+  return { reconnecting, releaseStop };
+}
+
 describe("PluginBridge", () => {
   let plugin: EquipmentSourcePlugin;
   let bridge: PluginBridge;
@@ -72,6 +124,263 @@ describe("PluginBridge", () => {
   });
 
   describe("Lifecycle", () => {
+    it("still reports tracks after a restart (the dashboard's restart command)", async () => {
+      plugin = createMockPlugin(FULL_CAPABILITIES);
+      bridge = new PluginBridge(plugin, DEFAULT_CONFIG);
+      const live: DeckLiveEvent[] = [];
+      bridge.on("deckLive", (e: DeckLiveEvent) => live.push(e));
+      const threshold = DEFAULT_CONFIG.liveThresholdSeconds * 1000;
+      await bridge.start();
+
+      // A deck is live before the restart, so a restart that kept old deck state would show.
+      plugin.emit("track", { deckId: "1", track: { title: "Before", artist: "Restart" } });
+      plugin.emit("playState", { deckId: "1", isPlaying: true });
+      vi.advanceTimersByTime(threshold + 100);
+      expect(live.map((e) => e.track.title)).toEqual(["Before"]);
+
+      await bridge.restart();
+      expect(bridge.manager.getDeckState("1").track).toBeNull();
+
+      plugin.emit("track", { deckId: "2", track: { title: "After", artist: "Restart" } });
+      plugin.emit("playState", { deckId: "2", isPlaying: true });
+      vi.advanceTimersByTime(threshold - 1);
+      expect(live.map((e) => e.track.title)).toEqual(["Before"]);
+      vi.advanceTimersByTime(101);
+
+      expect(live.map((e) => e.track.title)).toEqual(["Before", "After"]);
+    });
+
+    // Regression #975 at b3c0b81f: a reconnect, stop or restart that overlaps a restart, or a
+    // start that overlaps a plugin teardown, must not reset, strip or double-start the session
+    // being built (covers every test from here down to "starts and stops the plugin").
+    it("a reconnect still in progress when the bridge restarts doesn't reset the new session", async () => {
+      plugin = createMockPlugin(FULL_CAPABILITIES);
+      bridge = new PluginBridge(plugin, DEFAULT_CONFIG);
+      const live: DeckLiveEvent[] = [];
+      bridge.on("deckLive", (e: DeckLiveEvent) => live.push(e));
+      await bridge.start();
+
+      // The reconnect's plugin.stop() is slow; the dashboard restarts the bridge meanwhile.
+      let releaseStop: () => void = () => {};
+      const realStop = plugin.stop;
+      plugin.stop = () =>
+        new Promise<void>((resolve) => {
+          releaseStop = () => {
+            plugin.stop = realStop;
+            void realStop.call(plugin).then(resolve);
+          };
+        });
+      const reconnecting = bridge.reconnect();
+      plugin.stop = realStop;
+      const startSpy = vi.spyOn(plugin, "start");
+      // The restart waits for the reconnect's in-flight stop, so it can't be awaited first.
+      const restarting = bridge.restart();
+      await vi.advanceTimersByTimeAsync(0);
+      releaseStop();
+      await Promise.all([reconnecting, restarting]);
+
+      plugin.emit("track", { deckId: "1", track: { title: "New", artist: "Session" } });
+      plugin.emit("playState", { deckId: "1", isPlaying: true });
+      vi.advanceTimersByTime(DEFAULT_CONFIG.liveThresholdSeconds * 1000 + 100);
+
+      expect(live.map((e) => e.track.title)).toEqual(["New"]);
+      // Only the restart starts the plugin. A real plugin throws "already running" on a second
+      // start, so a stale reconnect that also started it would fail the restart.
+      expect(startSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("a reconnect's slow plugin stop can't strip the listeners of a restarted bridge", async () => {
+      plugin = createMockPlugin(FULL_CAPABILITIES);
+      bridge = new PluginBridge(plugin, DEFAULT_CONFIG);
+      const live: DeckLiveEvent[] = [];
+      bridge.on("deckLive", (e: DeckLiveEvent) => live.push(e));
+      await bridge.start();
+
+      const releaseStop = installRealisticSlowStop(plugin);
+      const reconnecting = bridge.reconnect();
+      const restarting = bridge.restart();
+      await vi.advanceTimersByTimeAsync(0);
+      releaseStop();
+      await Promise.all([reconnecting, restarting]);
+
+      plugin.emit("track", { deckId: "1", track: { title: "New", artist: "Session" } });
+      plugin.emit("playState", { deckId: "1", isPlaying: true });
+      vi.advanceTimersByTime(DEFAULT_CONFIG.liveThresholdSeconds * 1000 + 100);
+
+      expect(live.map((e) => e.track.title)).toEqual(["New"]);
+    });
+
+    it("two overlapping restarts leave one working session", async () => {
+      plugin = createMockPlugin(FULL_CAPABILITIES);
+      bridge = new PluginBridge(plugin, DEFAULT_CONFIG);
+      const live: DeckLiveEvent[] = [];
+      bridge.on("deckLive", (e: DeckLiveEvent) => live.push(e));
+      await bridge.start();
+
+      const startSpy = vi.spyOn(plugin, "start");
+      const releaseStop = installRealisticSlowStop(plugin);
+      const first = bridge.restart();
+      const second = bridge.restart();
+      await vi.advanceTimersByTimeAsync(0);
+      releaseStop();
+      const results = await Promise.allSettled([first, second]);
+
+      // One restart wins; the other is told the bridge is already running.
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      const rejected = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+      expect(rejected).toHaveLength(1);
+      expect(String(rejected[0].reason)).toMatch(/already running/);
+      expect(startSpy).toHaveBeenCalledTimes(1);
+
+      plugin.emit("track", { deckId: "1", track: { title: "New", artist: "Session" } });
+      plugin.emit("playState", { deckId: "1", isPlaying: true });
+      vi.advanceTimersByTime(DEFAULT_CONFIG.liveThresholdSeconds * 1000 + 100);
+
+      expect(live.map((e) => e.track.title)).toEqual(["New"]);
+    });
+
+    it("a stop still tearing down makes a restart wait", async () => {
+      plugin = createMockPlugin(FULL_CAPABILITIES);
+      bridge = new PluginBridge(plugin, DEFAULT_CONFIG);
+      const live: DeckLiveEvent[] = [];
+      bridge.on("deckLive", (e: DeckLiveEvent) => live.push(e));
+      await bridge.start();
+
+      const releaseStop = installRealisticSlowStop(plugin);
+      const stopping = bridge.stop();
+      const restarting = bridge.restart();
+      await vi.advanceTimersByTimeAsync(0);
+      releaseStop();
+      await Promise.all([stopping, restarting]);
+
+      plugin.emit("track", { deckId: "1", track: { title: "New", artist: "Session" } });
+      plugin.emit("playState", { deckId: "1", isPlaying: true });
+      vi.advanceTimersByTime(DEFAULT_CONFIG.liveThresholdSeconds * 1000 + 100);
+
+      expect(bridge.isRunning).toBe(true);
+      expect(live.map((e) => e.track.title)).toEqual(["New"]);
+    });
+
+    it("a reconnect that fails after the bridge restarted doesn't retry into the new session", async () => {
+      plugin = createMockPlugin(FULL_CAPABILITIES);
+      bridge = new PluginBridge(plugin, DEFAULT_CONFIG);
+      const live: DeckLiveEvent[] = [];
+      const logs: string[] = [];
+      bridge.on("deckLive", (e: DeckLiveEvent) => live.push(e));
+      bridge.on("log", (m: string) => logs.push(m));
+      await bridge.start();
+
+      // The reconnect parks on a plugin.start() that we reject later.
+      const realStart = plugin.start;
+      let failOldStart: (err: Error) => void = () => {};
+      plugin.start = () =>
+        new Promise<void>((_resolve, reject) => {
+          failOldStart = reject;
+        });
+      const reconnecting = bridge.reconnect();
+      await vi.advanceTimersByTimeAsync(0);
+      plugin.start = realStart;
+      await bridge.restart();
+
+      const stopSpy = vi.spyOn(plugin, "stop");
+      plugin.emit("track", { deckId: "1", track: { title: "New", artist: "Session" } });
+      plugin.emit("playState", { deckId: "1", isPlaying: true });
+      failOldStart(new Error("old session failed"));
+      await reconnecting;
+      // Past the longest reconnect backoff (30s; a wrongly queued retry would fire) and the live threshold.
+      await vi.advanceTimersByTimeAsync(
+        Math.max(30_000, DEFAULT_CONFIG.liveThresholdSeconds * 1000) + 100,
+      );
+
+      expect(live.map((e) => e.track.title)).toEqual(["New"]);
+      expect(stopSpy).not.toHaveBeenCalled();
+      expect(logs.some((m) => m.includes("Reconnect failed"))).toBe(false);
+    });
+
+    it("a reconnect whose start completes after the bridge stopped shuts the plugin down", async () => {
+      plugin = createMockPlugin(FULL_CAPABILITIES);
+      bridge = new PluginBridge(plugin, DEFAULT_CONFIG);
+      const logs: string[] = [];
+      bridge.on("log", (m: string) => logs.push(m));
+      await bridge.start();
+
+      // The reconnect parks on a plugin.start() that finishes only after the bridge stopped.
+      const realStart = plugin.start;
+      let finishLateStart: () => void = () => {};
+      plugin.start = () =>
+        new Promise<void>((resolve) => {
+          finishLateStart = () => void realStart.call(plugin, undefined).then(resolve);
+        });
+      const reconnecting = bridge.reconnect();
+      await vi.advanceTimersByTimeAsync(0);
+      plugin.start = realStart;
+      await bridge.stop();
+
+      finishLateStart();
+      await reconnecting;
+
+      expect(plugin.isRunning).toBe(false);
+      expect(logs.some((m) => m.includes("successfully"))).toBe(false);
+    });
+
+    it("a restart during a late reconnect's teardown keeps its listeners", async () => {
+      plugin = createMockPlugin(FULL_CAPABILITIES);
+      bridge = new PluginBridge(plugin, DEFAULT_CONFIG);
+      const live: DeckLiveEvent[] = [];
+      bridge.on("deckLive", (e: DeckLiveEvent) => live.push(e));
+      const { reconnecting, releaseStop } = await startWithLateReconnectTeardown(plugin, bridge);
+      expect(bridge.isRunning).toBe(false);
+
+      const restarting = bridge.restart();
+      await vi.advanceTimersByTimeAsync(0);
+      releaseStop();
+      await Promise.all([restarting, reconnecting]);
+
+      plugin.emit("track", { deckId: "1", track: { title: "New", artist: "Session" } });
+      plugin.emit("playState", { deckId: "1", isPlaying: true });
+      vi.advanceTimersByTime(DEFAULT_CONFIG.liveThresholdSeconds * 1000 + 100);
+
+      expect(bridge.isRunning).toBe(true);
+      expect(live.map((e) => e.track.title)).toEqual(["New"]);
+    });
+
+    it("a start during a plugin teardown waits for it", async () => {
+      plugin = createMockPlugin(FULL_CAPABILITIES);
+      bridge = new PluginBridge(plugin, DEFAULT_CONFIG);
+      const live: DeckLiveEvent[] = [];
+      bridge.on("deckLive", (e: DeckLiveEvent) => live.push(e));
+      const { reconnecting, releaseStop } = await startWithLateReconnectTeardown(plugin, bridge);
+
+      const starting = bridge.start();
+      await vi.advanceTimersByTimeAsync(0);
+      releaseStop();
+      await Promise.all([starting, reconnecting]);
+
+      plugin.emit("track", { deckId: "1", track: { title: "New", artist: "Session" } });
+      plugin.emit("playState", { deckId: "1", isPlaying: true });
+      vi.advanceTimersByTime(DEFAULT_CONFIG.liveThresholdSeconds * 1000 + 100);
+
+      expect(bridge.isRunning).toBe(true);
+      expect(live.map((e) => e.track.title)).toEqual(["New"]);
+    });
+
+    it("a start that is stopped while it waits for a teardown does nothing", async () => {
+      plugin = createMockPlugin(FULL_CAPABILITIES);
+      bridge = new PluginBridge(plugin, DEFAULT_CONFIG);
+      const { reconnecting, releaseStop } = await startWithLateReconnectTeardown(plugin, bridge);
+      const startSpy = vi.spyOn(plugin, "start");
+
+      const starting = bridge.start();
+      await vi.advanceTimersByTimeAsync(0);
+      const stopping = bridge.stop();
+      releaseStop();
+      await Promise.all([starting, stopping, reconnecting]);
+
+      expect(bridge.isRunning).toBe(false);
+      expect(plugin.isRunning).toBe(false);
+      expect(startSpy).not.toHaveBeenCalled();
+    });
+
     it("starts and stops the plugin", async () => {
       plugin = createMockPlugin();
       bridge = new PluginBridge(plugin, DEFAULT_CONFIG);

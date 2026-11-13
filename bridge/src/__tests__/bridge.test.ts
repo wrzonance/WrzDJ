@@ -28,6 +28,7 @@ import {
   clearNowPlaying,
   postBridgeStatus,
   getCircuitBreaker,
+  getDetailedStatus,
 } from "../bridge.js";
 
 function createMockResponse(status: number, body = ""): Response {
@@ -52,11 +53,17 @@ function createMockResponse(status: number, body = ""): Response {
 }
 
 describe("bridge.ts", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers();
     mockFetch.mockReset();
     // Reset circuit breaker between tests
     getCircuitBreaker().reset();
+    // The track buffer is module state, and any successful post now replays what is in it:
+    // send whatever an earlier test left buffered, so every test starts from an empty buffer.
+    mockFetch.mockResolvedValue(createMockResponse(200));
+    await postBridgeStatus(true);
+    await vi.advanceTimersByTimeAsync(100);
+    mockFetch.mockReset();
   });
 
   afterEach(() => {
@@ -347,58 +354,140 @@ describe("bridge.ts", () => {
   });
 
   describe("track history buffer", () => {
-    it("buffers failed tracks and replays on circuit breaker recovery", async () => {
+    it("replays older buffered tracks as delayed and the newest one live (PR #962 review)", async () => {
       mockFetch.mockRejectedValue(new Error("Network error"));
 
-      // Buffer a track by failing all retries
+      // Two tracks are played while the backend is down (each fails all its retries)
       const p1 = postNowPlaying("Track A", "Artist A");
       await vi.advanceTimersByTimeAsync(20_000);
-      const result = await p1;
-      expect(result).toBe(false);
-
-      // Trip the circuit breaker (need 3 failures total)
-      const p2 = postBridgeStatus(true);
+      expect(await p1).toBe(false);
+      const p2 = postNowPlaying("Track B", "Artist B");
       await vi.advanceTimersByTimeAsync(20_000);
-      await p2;
+      expect(await p2).toBe(false);
 
+      // A third failure trips the circuit breaker
       const p3 = postBridgeStatus(true);
       await vi.advanceTimersByTimeAsync(20_000);
       await p3;
-
       expect(getCircuitBreaker().getState()).toBe("OPEN");
 
-      // Wait for cooldown
+      // Cooldown, then the backend recovers and a probe closes the breaker
       vi.advanceTimersByTime(60_000);
-
-      // Backend recovers
       mockFetch.mockResolvedValue(createMockResponse(200));
       mockFetch.mockClear();
-
-      // Trigger a request to close the circuit breaker (probe succeeds)
-      const probeResult = await postBridgeStatus(true);
-      expect(probeResult).toBe(true);
-
-      // Allow replay to execute
+      expect(await postBridgeStatus(true)).toBe(true);
       await vi.advanceTimersByTimeAsync(100);
 
-      // Should have replayed the buffered track with delayed: true
-      const replayCalls = mockFetch.mock.calls.filter((call) => {
-        if (typeof call[0] !== "string") return false;
-        if (!call[0].includes("/bridge/nowplaying")) return false;
-        const body = JSON.parse(call[1].body);
-        return body.delayed === true;
-      });
-      expect(replayCalls.length).toBeGreaterThanOrEqual(1);
+      const bodies = mockFetch.mock.calls
+        .filter((call) => typeof call[0] === "string" && call[0].includes("/bridge/nowplaying"))
+        .map((call) => JSON.parse(call[1].body));
+      const a = bodies.find((b) => b.title === "Track A");
+      const b = bodies.find((b) => b.title === "Track B");
+      // A is history only: delayed, with how long ago it was played
+      expect(a).toMatchObject({ artist: "Artist A", delayed: true });
+      expect(a.played_ago_ms).toBeGreaterThan(0);
+      // B is still playing: a normal post, so it shows as now playing
+      expect(b).toBeDefined();
+      expect(b.delayed).toBeUndefined();
+      expect(bodies.indexOf(a)).toBeLessThan(bodies.indexOf(b));
+    });
+  });
 
-      // Find the replayed "Track A" payload
-      const trackAReplay = replayCalls.find((call) => {
-        const body = JSON.parse(call[1].body);
-        return body.title === "Track A";
+  describe("replay that fails partway (#961)", () => {
+    it("keeps the unsent tracks in the buffer", async () => {
+      mockFetch.mockRejectedValue(new Error("Network error"));
+      const before = getDetailedStatus().buffer_size;
+      for (const title of ["R1", "R2", "R3", "R4", "R5"]) {
+        const p = postNowPlaying(title, "Artist");
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(await p).toBe(false);
+      }
+      expect(getCircuitBreaker().getState()).toBe("OPEN");
+      expect(getDetailedStatus().buffer_size).toBe(before + 5);
+
+      // The backend is back, but the replay of R2 fails.
+      vi.advanceTimersByTime(60_000);
+      mockFetch.mockImplementation((_url: string, init: { body?: string }) => {
+        const body = init.body ? JSON.parse(init.body) : {};
+        return body.delayed && body.title === "R2"
+          ? Promise.reject(new Error("Network error"))
+          : Promise.resolve(createMockResponse(200));
       });
-      expect(trackAReplay).toBeDefined();
-      const replayBody = JSON.parse(trackAReplay![1].body);
-      expect(replayBody.artist).toBe("Artist A");
-      expect(replayBody.delayed).toBe(true);
+      expect(await postBridgeStatus(true)).toBe(true);
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      expect(getDetailedStatus().buffer_size).toBe(4); // R2, R3, R4, R5
+    });
+  });
+
+  describe("buffered tracks are replayed after any successful post", () => {
+    const nowPlayingTitles = (): string[] =>
+      mockFetch.mock.calls
+        .filter((call) => typeof call[0] === "string" && call[0].includes("/bridge/nowplaying"))
+        .map((call) => JSON.parse(call[1].body).title);
+
+    /** Fail every retry of each title, so it lands in the buffer and the breaker opens. */
+    async function bufferWhileDown(titles: string[]): Promise<void> {
+      mockFetch.mockRejectedValue(new Error("Network error"));
+      for (const title of titles) {
+        const p = postNowPlaying(title, "Artist");
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(await p).toBe(false);
+      }
+      expect(getCircuitBreaker().getState()).toBe("OPEN");
+    }
+
+    it("replays the tracks a failed replay left behind on the next successful post", async () => {
+      await bufferWhileDown(["S1", "S2", "S3", "S4", "S5"]);
+
+      // The backend is back, but the replay of S2 fails: the breaker stays CLOSED.
+      vi.advanceTimersByTime(60_000);
+      mockFetch.mockImplementation((_url: string, init: { body?: string }) => {
+        const body = init.body ? JSON.parse(init.body) : {};
+        return body.title === "S2"
+          ? Promise.reject(new Error("Network error"))
+          : Promise.resolve(createMockResponse(200));
+      });
+      expect(await postBridgeStatus(true)).toBe(true);
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(getCircuitBreaker().getState()).toBe("CLOSED");
+      expect(getDetailedStatus().buffer_size).toBe(4);
+
+      // No new outage: the next successful post is enough to send the rest.
+      mockFetch.mockReset();
+      mockFetch.mockResolvedValue(createMockResponse(200));
+      expect(await postBridgeStatus(true)).toBe(true);
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(nowPlayingTitles()).toEqual(["S2", "S3", "S4", "S5"]);
+      expect(getDetailedStatus().buffer_size).toBe(0);
+    });
+
+    it("does not start a second replay while one is in flight", async () => {
+      await bufferWhileDown(["S1", "S2", "S3"]);
+      vi.advanceTimersByTime(60_000);
+      // Each replayed track takes 5s to be acknowledged; the live track L always fails.
+      mockFetch.mockImplementation((url: string, init: { body?: string }) => {
+        const body = init.body ? JSON.parse(init.body) : {};
+        if (!url.includes("/bridge/nowplaying")) return Promise.resolve(createMockResponse(200));
+        if (body.title === "L") return Promise.reject(new Error("Network error"));
+        return new Promise((resolve) => setTimeout(() => resolve(createMockResponse(200)), 5_000));
+      });
+      mockFetch.mockClear();
+
+      expect(await postBridgeStatus(true)).toBe(true); // closes the breaker; the replay starts
+      const live = postNowPlaying("L", "Artist"); // fails, so L is buffered mid-replay
+      await vi.advanceTimersByTimeAsync(14_500);
+      expect(await live).toBe(false);
+
+      // A successful post lands while the replay is still sending S3.
+      expect(await postBridgeStatus(true)).toBe(true);
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      const titles = nowPlayingTitles();
+      expect(titles.filter((t) => t !== "L")).toEqual(["S1", "S2", "S3"]);
+      expect(titles.filter((t) => t === "L")).toHaveLength(4); // only the live attempts
+      expect(getDetailedStatus().buffer_size).toBe(1); // L waits for the next successful post
     });
   });
 

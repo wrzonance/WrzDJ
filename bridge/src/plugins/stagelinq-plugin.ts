@@ -37,6 +37,12 @@ export class StageLinqPlugin extends EventEmitter implements EquipmentSourcePlug
   private running = false;
   private disconnectFailed = false;
   private stopLogging: (() => void) | null = null;
+  // Identifies the current start attempt; stop() and a newer start() bump it.
+  private runToken = 0;
+  // Settles (never rejects) when the library call a start() is awaiting is done.
+  private inFlight: Promise<void> | null = null;
+  // Settles when a stop() has finished tearing the library down.
+  private stopping: Promise<void> | null = null;
 
   get isRunning(): boolean {
     return this.running;
@@ -48,19 +54,80 @@ export class StageLinqPlugin extends EventEmitter implements EquipmentSourcePlug
     }
 
     this.running = true;
+    const token = ++this.runToken;
+    const isStale = () => token !== this.runToken;
+
+    // A previous stop() still owns the library; the options setter would
+    // orphan a connect it has not finished waiting for.
+    await this.stopping;
+    if (isStale()) return;
 
     // A failed shutdown leaves upstream connected and ignores a new logger.
     // Recover that connection before configuring a fresh run.
     if (this.disconnectFailed) {
       try {
-        await StageLinq.disconnect();
+        await this.track(StageLinq.disconnect());
         this.disconnectFailed = false;
       } catch (error) {
+        // A stop() that overtook us retries the disconnect and owns the flag.
+        if (isStale()) return;
         this.running = false;
         throw error;
       }
+      if (isStale()) return;
     }
 
+    this.configureLibrary();
+
+    // Wire event handlers AFTER options are set
+    this.wireEvents();
+
+    this.emit("log", "Connecting to StageLinQ network...");
+
+    try {
+      await this.connectWithTimeout();
+    } catch (error) {
+      // A stopped start is not a failure; stop() owns the cleanup.
+      if (isStale()) return;
+      throw error;
+    }
+    // stop() waited for the connect to settle and then disconnected.
+    if (isStale()) return;
+    this.emit("log", "Listening for DJ equipment...");
+  }
+
+  async stop(): Promise<void> {
+    if (!this.running) return;
+
+    this.running = false;
+    const token = ++this.runToken;
+
+    const done = this.shutdown(token);
+    this.stopping = done;
+    await done;
+  }
+
+  private async shutdown(token: number): Promise<void> {
+    // disconnect() is a no-op until connect() resolves, so wait for the
+    // in-flight library call (bounded by the library's own announce timeout,
+    // not the plugin's 30s timer) before tearing down.
+    await this.inFlight;
+
+    try {
+      await StageLinq.disconnect();
+      this.disconnectFailed = false;
+    } catch {
+      // Keep stop best-effort, but require recovery before the next start.
+      this.disconnectFailed = true;
+    }
+
+    this.stopLogging?.();
+    this.stopLogging = null;
+    // A start() queued behind this stop owns the listeners attached for it.
+    if (token === this.runToken) this.removeAllListeners();
+  }
+
+  private configureLibrary(): void {
     // Each run owns its forwarding callback. Releasing it also silences late
     // messages from an old library instance after this plugin starts again.
     let listener: ((...args: unknown[]) => void) | null = (...args) => {
@@ -84,13 +151,10 @@ export class StageLinqPlugin extends EventEmitter implements EquipmentSourcePlug
         error: (...args) => forward("error", ...args),
       },
     };
+  }
 
-    // Wire event handlers AFTER options are set
-    this.wireEvents();
-
-    this.emit("log", "Connecting to StageLinQ network...");
-
-    const connectPromise = StageLinq.connect();
+  private async connectWithTimeout(): Promise<void> {
+    const connectPromise = this.track(StageLinq.connect());
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<never>((_resolve, reject) => {
       timeoutHandle = setTimeout(
@@ -104,24 +168,19 @@ export class StageLinqPlugin extends EventEmitter implements EquipmentSourcePlug
     } finally {
       clearTimeout(timeoutHandle);
     }
-    this.emit("log", "Listening for DJ equipment...");
   }
 
-  async stop(): Promise<void> {
-    if (!this.running) return;
-
-    this.running = false;
-
-    try {
-      await StageLinq.disconnect();
-    } catch {
-      // Keep stop best-effort, but require recovery before the next start.
-      this.disconnectFailed = true;
-    }
-
-    this.stopLogging?.();
-    this.stopLogging = null;
-    this.removeAllListeners();
+  // Remember the pending library call so stop() can wait for it to settle.
+  private track<T>(op: Promise<T>): Promise<T> {
+    const settled = op.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.inFlight = settled;
+    void settled.then(() => {
+      if (this.inFlight === settled) this.inFlight = null;
+    });
+    return op;
   }
 
   private wireEvents(): void {

@@ -425,4 +425,170 @@ describe("StageLinqPlugin", () => {
       expect(logs).toEqual(["info current run"]);
     });
   });
+
+  // Regression #998 at d4c3bbbb: stop() during a pending start() left the library
+  // connected (its disconnect is a no-op until connect resolves), so the next start
+  // handled every device event twice.
+  describe("stop overlapping a pending start (#998)", () => {
+    interface FakeInstance {
+      connected: boolean;
+      devices: EventEmitter;
+    }
+
+    // Models the library facts that matter: disconnect() is a no-op until
+    // connect() has resolved, the options setter only replaces an instance
+    // that is not connected, and each instance owns its own devices emitter.
+    function modelLibrary() {
+      const instances: FakeInstance[] = [];
+      const gates: Array<() => void> = [];
+      let current: FakeInstance | null = null;
+      let held = false;
+      let options: StageLinqOptions | null = null;
+
+      Object.defineProperty(mockStageLinq, "options", {
+        configurable: true,
+        get: () => options,
+        set: (value: StageLinqOptions | null) => {
+          options = value;
+          if (!current || !current.connected) {
+            current = { connected: false, devices: new EventEmitter() };
+            instances.push(current);
+          }
+        },
+      });
+      Object.defineProperty(mockStageLinq, "devices", {
+        configurable: true,
+        get: () => current?.devices ?? mockDevices,
+      });
+      mockStageLinq.connect.mockImplementation(async () => {
+        const instance = current!;
+        if (instance.connected) return;
+        if (held) await new Promise<void>((resolve) => gates.push(resolve));
+        instance.connected = true;
+      });
+      mockStageLinq.disconnect.mockImplementation(async () => {
+        if (current?.connected) current.connected = false;
+      });
+
+      return {
+        hold: () => {
+          held = true;
+        },
+        release: () => {
+          held = false;
+          gates.splice(0).forEach((open) => open());
+        },
+        connectedCount: () => instances.filter((i) => i.connected).length,
+        currentDevices: () => current?.devices ?? mockDevices,
+      };
+    }
+
+    let library: ReturnType<typeof modelLibrary>;
+
+    beforeEach(() => {
+      library = modelLibrary();
+    });
+
+    afterEach(async () => {
+      await plugin.stop();
+      Object.defineProperty(mockStageLinq, "options", {
+        configurable: true,
+        writable: true,
+        value: null,
+      });
+      Object.defineProperty(mockStageLinq, "devices", {
+        configurable: true,
+        writable: true,
+        value: mockDevices,
+      });
+      mockStageLinq.connect.mockReset().mockResolvedValue(undefined);
+      mockStageLinq.disconnect.mockReset().mockResolvedValue(undefined);
+    });
+
+    it("leaves the library disconnected when stopped during connect", async () => {
+      // Spy on emit: stop() removes listeners, so a late log would vanish silently.
+      const emitted = vi.spyOn(plugin, "emit");
+      library.hold();
+
+      const started = plugin.start();
+      await vi.waitFor(() => expect(mockStageLinq.connect).toHaveBeenCalled());
+      const stopped = plugin.stop();
+      library.release();
+
+      await expect(started).resolves.toBeUndefined();
+      await stopped;
+      expect(library.connectedCount()).toBe(0);
+      expect(plugin.isRunning).toBe(false);
+      expect(emitted).not.toHaveBeenCalledWith("log", "Listening for DJ equipment...");
+    });
+
+    it("starts normally afterwards without doubling device handlers", async () => {
+      library.hold();
+      const started = plugin.start();
+      await vi.waitFor(() => expect(mockStageLinq.connect).toHaveBeenCalled());
+      const firstDevices = library.currentDevices();
+      const stopped = plugin.stop();
+      library.release();
+      await Promise.all([started, stopped]);
+
+      const tracks: PluginTrackEvent[] = [];
+      plugin.on("track", (e: PluginTrackEvent) => tracks.push(e));
+      await plugin.start();
+
+      // The library replaced the disconnected instance, so its handlers went with it.
+      expect(library.currentDevices()).not.toBe(firstDevices);
+
+      library.currentDevices().emit("nowPlaying", { deck: "1", title: "T", artist: "A" });
+      expect(tracks).toHaveLength(1);
+      expect(library.connectedCount()).toBe(1);
+    });
+
+    it("never connects when stopped during the recovery disconnect", async () => {
+      await plugin.start();
+      mockStageLinq.disconnect.mockRejectedValueOnce(new Error("socket error"));
+      await plugin.stop();
+      mockStageLinq.connect.mockClear();
+
+      let release: (() => void) | undefined;
+      mockStageLinq.disconnect.mockImplementationOnce(
+        () => new Promise<void>((resolve) => (release = resolve)),
+      );
+      const started = plugin.start();
+      await vi.waitFor(() => expect(release).toBeDefined());
+      const stopped = plugin.stop();
+      release!();
+
+      await expect(started).resolves.toBeUndefined();
+      await stopped;
+      expect(mockStageLinq.connect).not.toHaveBeenCalled();
+      expect(plugin.isRunning).toBe(false);
+
+      // The stop's successful disconnect cleared the failure: no recovery next time.
+      mockStageLinq.disconnect.mockClear();
+      await plugin.start();
+      expect(mockStageLinq.disconnect).not.toHaveBeenCalled();
+    });
+
+    it("lets a restart win over a stopped start without orphaning a connection", async () => {
+      library.hold();
+      const tracks: PluginTrackEvent[] = [];
+      const first = plugin.start();
+      await vi.waitFor(() => expect(mockStageLinq.connect).toHaveBeenCalled());
+      const stopped = plugin.stop();
+      plugin.on("track", (e: PluginTrackEvent) => tracks.push(e));
+      const second = plugin.start();
+      library.release();
+      await Promise.all([first, stopped, second]);
+
+      library.currentDevices().emit("nowPlaying", { deck: "1", title: "T", artist: "A" });
+      expect(plugin.isRunning).toBe(true);
+      expect(library.connectedCount()).toBe(1);
+      expect(tracks).toHaveLength(1);
+    });
+
+    it("still rejects when connect fails without a stop", async () => {
+      mockStageLinq.connect.mockRejectedValueOnce(new Error("bind failed"));
+      await expect(plugin.start()).rejects.toThrow("bind failed");
+    });
+  });
 });

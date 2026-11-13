@@ -30,6 +30,7 @@ const mockNetwork = {
   autoconfigFromPeers: vi.fn().mockResolvedValue(undefined),
   connect: vi.fn(),
   disconnect: vi.fn().mockReturnValue(() => Promise.resolve(undefined)),
+  close: vi.fn().mockResolvedValue(undefined),
 };
 
 vi.mock("alphatheta-connect", () => ({
@@ -587,6 +588,130 @@ describe("PioneerProlinkPlugin", () => {
 
       expect(logs.some((l) => l.includes("timed out"))).toBe(true);
       vi.useRealTimers();
+    });
+  });
+
+  describe("stop while starting", () => {
+    // Before autoconfig completes the real disconnect() throws; teardown must still close the sockets
+    beforeEach(() => {
+      mockNetwork.disconnect.mockImplementation(() => {
+        throw new Error("Network must be configured");
+      });
+    });
+
+    afterEach(() => {
+      mockNetwork.disconnect.mockReset();
+      mockNetwork.disconnect.mockReturnValue(() => Promise.resolve(undefined));
+    });
+
+    /** A promise the test settles by hand, to hold start() at a chosen await */
+    function deferred<T = void>() {
+      let resolve!: (value: T) => void;
+      const promise = new Promise<T>((res) => {
+        resolve = res;
+      });
+      return { promise, resolve };
+    }
+
+    it("cancels a start that is still waiting for the first CDJ", async () => {
+      const firstCdj = deferred();
+      mockNetwork.autoconfigFromPeers.mockImplementationOnce(() => firstCdj.promise);
+      const onReady = vi.fn();
+      plugin.on("ready", onReady);
+
+      const starting = plugin.start();
+      await vi.waitFor(() => expect(mockNetwork.autoconfigFromPeers).toHaveBeenCalled());
+
+      await plugin.stop();
+      await expect(starting).resolves.toBeUndefined();
+
+      expect(mockNetwork.close).toHaveBeenCalledTimes(1);
+      expect(mockNetwork.connect).not.toHaveBeenCalled();
+      expect(plugin.isRunning).toBe(false);
+      expect(onReady).not.toHaveBeenCalled();
+
+      firstCdj.resolve();
+      await Promise.resolve();
+      expect(plugin.isRunning).toBe(false);
+      expect(mockNetwork.connect).not.toHaveBeenCalled();
+    });
+
+    it("closes the network when stop runs while bringOnline is pending", async () => {
+      const { bringOnline } = await import("alphatheta-connect");
+      const online = deferred<typeof mockNetwork>();
+      vi.mocked(bringOnline).mockImplementationOnce(() => online.promise as never);
+
+      const starting = plugin.start();
+      await plugin.stop();
+
+      online.resolve(mockNetwork);
+      await expect(starting).resolves.toBeUndefined();
+
+      expect(mockNetwork.close).toHaveBeenCalledTimes(1);
+      expect(mockNetwork.autoconfigFromPeers).not.toHaveBeenCalled();
+      expect(mockNetwork.connect).not.toHaveBeenCalled();
+      expect(plugin.isRunning).toBe(false);
+    });
+
+    it("stop closes the network's sockets", async () => {
+      // The real disconnect() returns close() detached from its instance, which throws
+      mockNetwork.disconnect.mockImplementationOnce(() => (() => {
+        throw new TypeError("Cannot read private member from an object whose class did not declare it");
+      }) as never);
+
+      await plugin.start();
+      await plugin.stop();
+
+      expect(mockNetwork.disconnect).toHaveBeenCalledTimes(1);
+      expect(mockNetwork.close).toHaveBeenCalledTimes(1);
+    });
+
+    it("lets a new start succeed while the cancelled one is still unwinding", async () => {
+      const staleCdj = deferred();
+      mockNetwork.autoconfigFromPeers.mockImplementationOnce(() => staleCdj.promise);
+
+      const stale = plugin.start();
+      await vi.waitFor(() => expect(mockNetwork.autoconfigFromPeers).toHaveBeenCalled());
+      await plugin.stop();
+
+      const onReady = vi.fn();
+      plugin.on("ready", onReady);
+      await plugin.start();
+      expect(plugin.isRunning).toBe(true);
+      expect(onReady).toHaveBeenCalledTimes(1);
+      expect(mockNetwork.connect).toHaveBeenCalledTimes(1);
+      mockNetwork.close.mockClear();
+      mockNetwork.disconnect.mockClear();
+
+      staleCdj.resolve();
+      await expect(stale).resolves.toBeUndefined();
+
+      expect(plugin.isRunning).toBe(true);
+      expect(mockNetwork.connect).toHaveBeenCalledTimes(1);
+      expect(mockNetwork.close).not.toHaveBeenCalled();
+      expect(mockNetwork.disconnect).not.toHaveBeenCalled();
+    });
+
+    it("rejects a second start while the first is still pending", async () => {
+      const firstCdj = deferred();
+      mockNetwork.autoconfigFromPeers.mockImplementationOnce(() => firstCdj.promise);
+
+      const starting = plugin.start();
+      await expect(plugin.start()).rejects.toThrow("already running");
+
+      firstCdj.resolve();
+      await starting;
+    });
+
+    it("closes the sockets when start fails before the network is configured", async () => {
+      mockNetwork.autoconfigFromPeers.mockRejectedValueOnce(
+        new Error("Unable to determine network interface")
+      );
+
+      await expect(plugin.start()).rejects.toThrow("Unable to determine network interface");
+
+      expect(mockNetwork.close).toHaveBeenCalledTimes(1);
+      expect(plugin.isRunning).toBe(false);
     });
   });
 });

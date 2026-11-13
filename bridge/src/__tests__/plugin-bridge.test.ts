@@ -117,12 +117,56 @@ describe("PluginBridge", () => {
         });
       const reconnecting = bridge.reconnect();
       plugin.stop = realStop;
-      await bridge.restart();
+      const startSpy = vi.spyOn(plugin, "start");
+      // The restart waits for the reconnect's in-flight stop, so it can't be awaited first.
+      const restarting = bridge.restart();
+      await vi.advanceTimersByTimeAsync(0);
+      releaseStop();
+      await Promise.all([reconnecting, restarting]);
 
       plugin.emit("track", { deckId: "1", track: { title: "New", artist: "Session" } });
       plugin.emit("playState", { deckId: "1", isPlaying: true });
+      vi.advanceTimersByTime(DEFAULT_CONFIG.liveThresholdSeconds * 1000 + 100);
+
+      expect(live.map((e) => e.track.title)).toEqual(["New"]);
+      // Only the restart starts the plugin. A real plugin throws "already running" on a second
+      // start, so a stale reconnect that also started it would fail the restart.
+      expect(startSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("a reconnect's slow plugin stop can't strip the listeners of a restarted bridge", async () => {
+      plugin = createMockPlugin(FULL_CAPABILITIES);
+      bridge = new PluginBridge(plugin, DEFAULT_CONFIG);
+      const live: DeckLiveEvent[] = [];
+      bridge.on("deckLive", (e: DeckLiveEvent) => live.push(e));
+      await bridge.start();
+
+      // Like a real plugin: a second stop() while one is tearing down returns at once, and the
+      // first one removes every listener as its last step.
+      const realStop = plugin.stop;
+      let stopping = false;
+      let releaseStop: () => void = () => {};
+      plugin.stop = () => {
+        if (stopping) return Promise.resolve();
+        stopping = true;
+        return new Promise<void>((resolve) => {
+          releaseStop = () => {
+            plugin.stop = realStop;
+            void realStop.call(plugin).then(() => {
+              plugin.removeAllListeners();
+              resolve();
+            });
+          };
+        });
+      };
+      const reconnecting = bridge.reconnect();
+      const restarting = bridge.restart();
+      await vi.advanceTimersByTimeAsync(0);
       releaseStop();
-      await reconnecting;
+      await Promise.all([reconnecting, restarting]);
+
+      plugin.emit("track", { deckId: "1", track: { title: "New", artist: "Session" } });
+      plugin.emit("playState", { deckId: "1", isPlaying: true });
       vi.advanceTimersByTime(DEFAULT_CONFIG.liveThresholdSeconds * 1000 + 100);
 
       expect(live.map((e) => e.track.title)).toEqual(["New"]);

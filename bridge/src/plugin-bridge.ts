@@ -58,6 +58,7 @@ export class PluginBridge extends EventEmitter {
   private generation = 0;
   private wasConnected = false;
   private pluginConfig?: Record<string, unknown>;
+  private pluginStop: Promise<void> | null = null;
 
   constructor(plugin: EquipmentSourcePlugin, config: DeckStateManagerConfig) {
     super();
@@ -115,11 +116,7 @@ export class PluginBridge extends EventEmitter {
     this.generation++;
     this.cancelReconnect();
 
-    try {
-      await this.plugin.stop();
-    } catch {
-      // Best effort on shutdown
-    }
+    await this.stopPlugin();
 
     this.cleanup();
   }
@@ -259,11 +256,7 @@ export class PluginBridge extends EventEmitter {
 
     try {
       // Stop the old plugin instance (clean up stale resources)
-      try {
-        await this.plugin.stop();
-      } catch {
-        // Best effort
-      }
+      await this.stopPlugin();
       // A restart (or stop) happened while we waited: that session owns the plugin now.
       if (generation !== this.generation) return;
 
@@ -279,13 +272,7 @@ export class PluginBridge extends EventEmitter {
       if (generation !== this.generation) {
         // The session ended while start() was pending. After a restart the new session owns the
         // plugin; after a stop nobody does, so shut the late-started plugin down.
-        if (!this.running) {
-          try {
-            await this.plugin.stop();
-          } catch {
-            // Best effort
-          }
-        }
+        if (!this.running) await this.stopPlugin();
         return;
       }
       this.emit("log", `Reconnected to ${this.plugin.info.name} successfully`);
@@ -296,6 +283,25 @@ export class PluginBridge extends EventEmitter {
       this.emit("log", `Reconnect failed: ${message}`);
       this.scheduleReconnect();
     }
+  }
+
+  /**
+   * Overlapping stops share one promise. A plugin's stop() returns at once when it is already
+   * stopping and removes its listeners as its last step, so a restart that didn't wait for the
+   * first stop would wire its listeners only to have them stripped. start() is not serialized:
+   * a start can wait minutes and must not block a stop.
+   */
+  private stopPlugin(): Promise<void> {
+    if (this.pluginStop === null) {
+      const stopping = this.plugin.stop().catch(() => {
+        // Best effort: a failed stop must not block a shutdown or a reconnect
+      });
+      this.pluginStop = stopping;
+      void stopping.then(() => {
+        if (this.pluginStop === stopping) this.pluginStop = null;
+      });
+    }
+    return this.pluginStop;
   }
 
   private cancelReconnect(): void {

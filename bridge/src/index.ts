@@ -181,6 +181,9 @@ async function main(): Promise<void> {
   // Start the plugin bridge
   await pluginBridge.start();
 
+  // Stopped while starting (e.g. shutdown while waiting for the first CDJ): not online
+  if (!pluginBridge.isRunning) return;
+
   // Immediate handshake — tell the backend we're online and listening
   log.info("Bridge online — sending initial status to backend");
   await postBridgeStatus(true, undefined, buildEnrichedStatus());

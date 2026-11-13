@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+// Lets a test hold the next PluginBridge.start() until it releases the gate
+const startGates = vi.hoisted(() => ({ queue: [] as Promise<void>[] }));
+
 // Mock the plugin system before importing BridgeRunner
 vi.mock('@bridge/plugin-bridge.js', () => {
   const { EventEmitter } = require('events');
@@ -13,7 +16,11 @@ vi.mock('@bridge/plugin-bridge.js', () => {
       this.manager.destroy = vi.fn();
     }
     get isRunning() { return this._running; }
-    async start() { this._running = true; }
+    async start() {
+      const gate = startGates.queue.shift();
+      if (gate) await gate;
+      this._running = true;
+    }
     async stop() { this._running = false; }
   }
   return { PluginBridge: MockPluginBridge };
@@ -729,5 +736,63 @@ describe('BridgeRunner', () => {
         (l) => l.level === 'info' && l.message === 'Setbuilder transport command received: unknown @ 0.0s',
       ),
     ).toBe(true);
+  });
+
+  // Regression #996 at d4c3bbbb: a Stop pressed while the plugin waited for a CDJ was undone
+  // when the cancelled start resumed (health check + command poller restarted, "online" posted).
+  describe('stop while the plugin is still starting', () => {
+    function gatedStart() {
+      let release!: () => void;
+      startGates.queue.push(new Promise<void>((resolve) => { release = resolve; }));
+      return release;
+    }
+    const internals = (r: BridgeRunner) =>
+      r as unknown as {
+        healthCheckTimer: unknown;
+        commandPoller: unknown;
+        pluginBridge: unknown;
+      };
+    const onlinePosts = () =>
+      mockFetch.mock.calls.filter(
+        (c) =>
+          String(c[0]).endsWith('/api/bridge/status') &&
+          JSON.parse(String((c[1] as { body?: string })?.body ?? '{}')).connected === true
+      );
+
+    it('does not restart timers or report online when the start resumes after stop', async () => {
+      const release = gatedStart();
+      const starting = runner.start(TEST_CONFIG);
+      await runner.stop();
+      mockFetch.mockClear();
+
+      release();
+      await expect(starting).resolves.toBeUndefined();
+
+      expect(runner.isRunning).toBe(false);
+      expect(internals(runner).healthCheckTimer).toBeNull();
+      expect(internals(runner).commandPoller).toBeNull();
+      expect(onlinePosts()).toHaveLength(0);
+    });
+
+    it('leaves a newer session intact when the superseded start resumes late', async () => {
+      const releaseFirst = gatedStart();
+      const first = runner.start(TEST_CONFIG);
+      await runner.stop();
+
+      await runner.start(TEST_CONFIG);
+      const secondBridge = internals(runner).pluginBridge;
+      const timer = internals(runner).healthCheckTimer;
+      const poller = internals(runner).commandPoller;
+      mockFetch.mockClear();
+
+      releaseFirst();
+      await first;
+
+      expect(runner.isRunning).toBe(true);
+      expect(internals(runner).pluginBridge).toBe(secondBridge);
+      expect(internals(runner).healthCheckTimer).toBe(timer);
+      expect(internals(runner).commandPoller).toBe(poller);
+      expect(onlinePosts()).toHaveLength(0);
+    });
   });
 });

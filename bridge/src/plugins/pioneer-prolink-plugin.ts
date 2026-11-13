@@ -24,6 +24,16 @@ import type {
   PluginInfo,
 } from "../plugin-types.js";
 
+/** One in-flight start(); stop() cancels it so a late CDJ cannot revive a stopped plugin */
+interface StartAttempt {
+  cancelled: boolean;
+  network: ProlinkNetwork | null;
+  cancel: () => void;
+  cancelSignal: Promise<void>;
+  /** Settles (never rejects) once the attempt has finished unwinding */
+  settled: Promise<void>;
+}
+
 export class PioneerProlinkPlugin extends EventEmitter implements EquipmentSourcePlugin {
   readonly info: PluginInfo = {
     id: "pioneer-prolink",
@@ -43,6 +53,7 @@ export class PioneerProlinkPlugin extends EventEmitter implements EquipmentSourc
 
   private running = false;
   private network: ProlinkNetwork | null = null;
+  private pendingStart: StartAttempt | null = null;
 
   /** Per-deck track ID cache for detecting track changes */
   private deckTrackIds = new Map<string, number>();
@@ -58,31 +69,32 @@ export class PioneerProlinkPlugin extends EventEmitter implements EquipmentSourc
   }
 
   async start(_config?: Record<string, unknown>): Promise<void> {
-    if (this.running) {
+    if (this.running || this.pendingStart) {
       throw new Error("Pioneer PRO DJ LINK plugin is already running");
     }
 
     this.deckTrackIds.clear();
     this.abortAllFetches();
 
-    this.emit("log", "Bringing PRO DJ LINK network online...");
-    const network = await bringOnline();
-
+    const attempt = this.beginStart();
+    let network: ProlinkNetwork | null;
     try {
-      this.emit("log", "Waiting for first CDJ to appear...");
-      await network.autoconfigFromPeers();
-
-      this.emit("log", "Connecting as virtual device...");
-      network.connect();
+      const bringingUp = this.bringUp(attempt);
+      attempt.settled = bringingUp.then(
+        () => undefined,
+        () => undefined
+      );
+      network = await bringingUp;
     } catch (err) {
-      try {
-        await network.disconnect()();
-      } catch {
-        // Best effort cleanup
-      }
+      if (this.pendingStart === attempt) this.pendingStart = null;
+      if (attempt.cancelled) return;
       throw err;
     }
+    // A cancelled start resolves quietly: stop() is not an error, and the
+    // caller's catch would otherwise tear down a newer session.
+    if (!network || attempt.cancelled) return;
 
+    this.pendingStart = null;
     this.network = network;
     this.running = true;
 
@@ -92,6 +104,13 @@ export class PioneerProlinkPlugin extends EventEmitter implements EquipmentSourc
   }
 
   async stop(): Promise<void> {
+    const attempt = this.pendingStart;
+    if (attempt) {
+      this.pendingStart = null;
+      await this.cancelStart(attempt);
+      this.removeAllListeners();
+      return;
+    }
     if (!this.running) return;
 
     this.running = false;
@@ -99,15 +118,81 @@ export class PioneerProlinkPlugin extends EventEmitter implements EquipmentSourc
     this.abortAllFetches();
 
     if (this.network) {
-      try {
-        await this.network.disconnect()();
-      } catch {
-        // Best effort on shutdown
-      }
+      await this.teardownQuietly(this.network);
       this.network = null;
     }
 
     this.removeAllListeners();
+  }
+
+  /** Register a start attempt that stop() can cancel without touching later attempts */
+  private beginStart(): StartAttempt {
+    let cancel!: () => void;
+    const cancelSignal = new Promise<void>((resolve) => {
+      cancel = resolve;
+    });
+    const attempt: StartAttempt = {
+      cancelled: false,
+      network: null,
+      cancel,
+      cancelSignal,
+      settled: Promise.resolve(),
+    };
+    this.pendingStart = attempt;
+    return attempt;
+  }
+
+  private async cancelStart(attempt: StartAttempt): Promise<void> {
+    attempt.cancelled = true;
+    attempt.cancel();
+    const network = attempt.network;
+    attempt.network = null;
+    if (network) await this.teardownQuietly(network);
+    // Wait for in-flight socket binds so a following start() cannot overlap them
+    await attempt.settled;
+  }
+
+  /** Returns the connected network, or null when the attempt was cancelled along the way */
+  private async bringUp(attempt: StartAttempt): Promise<ProlinkNetwork | null> {
+    this.emit("log", "Bringing PRO DJ LINK network online...");
+    const network = await bringOnline();
+    if (attempt.cancelled) {
+      // stop() ran before there was a network to close, so close it here
+      await this.teardownQuietly(network);
+      return null;
+    }
+    attempt.network = network;
+
+    try {
+      this.emit("log", "Waiting for first CDJ to appear...");
+      // autoconfigFromPeers has no timeout and ignores socket closure, so race it
+      await Promise.race([network.autoconfigFromPeers(), attempt.cancelSignal]);
+      if (attempt.cancelled) return null;
+
+      this.emit("log", "Connecting as virtual device...");
+      network.connect();
+      return network;
+    } catch (err) {
+      if (!attempt.cancelled) await this.teardownQuietly(network);
+      throw err;
+    }
+  }
+
+  /** Stop announcing, then close the sockets; each step is best effort and independent */
+  private async teardownQuietly(network: ProlinkNetwork): Promise<void> {
+    try {
+      // Throws on a network that was never configured (still waiting for a CDJ)
+      network.disconnect();
+    } catch {
+      // Nothing was announced, so there is nothing to stop
+    }
+    try {
+      // Not disconnect()(): the function it returns is close() detached from its
+      // instance, and throws, which would leave the UDP sockets open
+      await network.close();
+    } catch {
+      // Best effort: nothing more can be done for a network that won't close
+    }
   }
 
   private wireEvents(): void {

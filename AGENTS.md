@@ -127,6 +127,32 @@ npm test -- --run
   (e.g. `PublicRequestInfo`), update test fixtures too.
 - Pin every bug-fix with a regression test referencing the commit SHA.
 
+## Test and CI efficiency
+
+CI wall time is a budget. Spend it on assertions, not on setup.
+
+- **Never build, migrate or drop a database per test or per file.** There is one schema path:
+  `conftest.py` runs `create_all` once per process (per xdist worker) on SQLite, and once per
+  worker in its own schema on Postgres (`pg_db`). Each test runs in a SAVEPOINT that is rolled
+  back. Factories (`make_user`, `make_event`, …) insert rows only.
+- **Only migration tests run migrations**, and only the revision under test (Alembic
+  `Operations` on a throwaway connection, as in `test_migration_066_*`), never the chain from
+  base. The full chain runs once, in CI's `alembic upgrade head && alembic check` step.
+- **A private engine needs a reason the shared one can't serve** (a real `QueuePool`, a file
+  database for cross-connection locking, `PRAGMA foreign_keys=ON`, a separate declarative
+  `Base`). Give it the widest scope that stays isolated, and `dispose()` it. A new helper
+  that calls `create_all`, `command.upgrade` or raw DDL on its own is a review finding.
+- **Widest safe fixture scope**: the app and engine are session-scoped; read-only data may be
+  module-scoped. Anything a test mutates stays function-scoped.
+- **No production-cost crypto in fixtures.** The suite hashes at bcrypt cost 4
+  (`tests/__init__.py`). Use `make_user` or the precomputed `*_PASSWORD_HASH` constants.
+- **Keep heavy SDKs out of import time.** Every xdist worker, the OpenAPI export and alembic
+  import the app; load vendor SDKs on first use (`tests/test_app_import_cost.py`).
+- **Durations are printed** (`--durations=25` in CI) and must stay truthful: freezegun ignores
+  `_pytest.timing`. Read them before adding a slow test.
+- **Split by measured duration**, never by file count. The suite runs `-n 4 --dist=loadfile`
+  on a 4-vCPU runner; long serial steps (e.g. the PostgreSQL upgrade test) get their own job.
+
 ## Frequent Pitfalls (full list in `ARCHITECTURE.md`)
 
 - **Alembic drift**: CI runs `alembic check`. `op.create_index` needs `index=True` on the model

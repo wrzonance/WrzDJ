@@ -173,11 +173,16 @@ class TestMultiFernetRotation:
 class TestEncryptedTextTypeDecorator:
     @pytest.fixture
     def session(self):
+        # Own engine: FakeSecret lives on this file's declarative Base, not the app's.
+        # Disposed so the SQLite connection doesn't leak into a later test's warnings.
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(engine)
         _session = sessionmaker(bind=engine)()
-        yield _session
-        _session.close()
+        try:
+            yield _session
+        finally:
+            _session.close()
+            engine.dispose()
 
     def test_write_and_read_encrypted(self, session: Session):
         secret = FakeSecret(id=1, token="super-secret")

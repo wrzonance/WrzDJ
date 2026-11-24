@@ -543,7 +543,12 @@ def _patch_fake_anthropic(monkeypatch, events):
         async def __aexit__(self, *exc):
             return False
 
-    monkeypatch.setattr(anthropic_apikey, "AsyncAnthropic", _FakeClient)
+    # The adapter imports the SDK on first use (#1008), so fake the client seam itself.
+    monkeypatch.setattr(
+        anthropic_apikey.AnthropicApiKeyAdapter,
+        "_client",
+        lambda self, *, timeout: _FakeClient(),
+    )
 
 
 def _anthropic_connector():

@@ -4,15 +4,8 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
-
-from anthropic import (
-    APIConnectionError,
-    APIError,
-    APIStatusError,
-    APITimeoutError,
-    AsyncAnthropic,
-)
+from types import ModuleType
+from typing import TYPE_CHECKING, Any
 
 from app.services.llm.adapters._shared import extract_api_key
 from app.services.llm.base import (
@@ -39,12 +32,27 @@ from app.services.llm.tool_translation import (
     to_anthropic_tools,
 )
 
+if TYPE_CHECKING:
+    from anthropic import APIStatusError, AsyncAnthropic
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "claude-opus-4-7"
 DEFAULT_MAX_TOKENS = 1024
 DEFAULT_TIMEOUT_SECONDS = 30.0
 MAX_TIMEOUT_SECONDS = 120.0
+
+
+def _anthropic_sdk() -> ModuleType:
+    """Import the ``anthropic`` SDK on first use.
+
+    It took ~2.5 s of ``import app.main``, paid by every process that imports the app,
+    though only DJs with an Anthropic connector ever call it (#1008). After the first
+    call this is a ``sys.modules`` lookup.
+    """
+    import anthropic
+
+    return anthropic
 
 
 class AnthropicApiKeyAdapter(LlmAdapter):
@@ -54,7 +62,7 @@ class AnthropicApiKeyAdapter(LlmAdapter):
         return extract_api_key(self.connector.credentials or "")
 
     def _client(self, *, timeout: float) -> AsyncAnthropic:
-        return AsyncAnthropic(api_key=self._extract_api_key(), timeout=timeout)
+        return _anthropic_sdk().AsyncAnthropic(api_key=self._extract_api_key(), timeout=timeout)
 
     def _resolve_timeout(self, request: ChatRequest) -> float:
         return min(
@@ -90,17 +98,18 @@ class AnthropicApiKeyAdapter(LlmAdapter):
     async def chat(self, request: ChatRequest) -> ChatResponse:
         timeout = self._resolve_timeout(request)
         kwargs = self._build_kwargs(request)
+        sdk = _anthropic_sdk()
 
         async with self._client(timeout=timeout) as client:
             try:
                 message = await client.messages.create(**kwargs)
-            except APITimeoutError as exc:
+            except sdk.APITimeoutError as exc:
                 raise ProviderUnavailable("Upstream timeout") from exc
-            except APIConnectionError as exc:
+            except sdk.APIConnectionError as exc:
                 raise ProviderUnavailable("Upstream network error") from exc
-            except APIStatusError as exc:
+            except sdk.APIStatusError as exc:
                 self._raise_for_status(exc)
-            except APIError as exc:
+            except sdk.APIError as exc:
                 raise ProviderUnavailable(f"Anthropic API error: {type(exc).__name__}") from exc
 
         return parse_anthropic_response(message)
@@ -114,6 +123,7 @@ class AnthropicApiKeyAdapter(LlmAdapter):
         saw_tool_use = False
         stop_reason: str | None = None
         output_tokens: int | None = None
+        sdk = _anthropic_sdk()
 
         try:
             async with self._client(timeout=timeout) as client:
@@ -127,13 +137,13 @@ class AnthropicApiKeyAdapter(LlmAdapter):
                             output_tokens = ot
                         if chunk is not None:
                             yield chunk
-        except APITimeoutError as exc:
+        except sdk.APITimeoutError as exc:
             raise ProviderUnavailable("Upstream timeout") from exc
-        except APIConnectionError as exc:
+        except sdk.APIConnectionError as exc:
             raise ProviderUnavailable("Upstream network error") from exc
-        except APIStatusError as exc:
+        except sdk.APIStatusError as exc:
             self._raise_for_status(exc)
-        except APIError as exc:
+        except sdk.APIError as exc:
             raise ProviderUnavailable(f"Anthropic API error: {type(exc).__name__}") from exc
 
         # Same canonicalisation as the buffered path (parse_anthropic_response),

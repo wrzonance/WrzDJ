@@ -12,8 +12,57 @@ permissions:
   contents: read
 
 jobs:
+  # Decides which jobs this pull request can affect; the rules, and what each
+  # job reads, are in scripts/ci-path-filter.cjs. Pushes run every job, so a job
+  # skipped on a pull request still runs before a release. If the changed files
+  # cannot be listed, every job runs.
+  changes:
+    name: Detect Changed Areas
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      bridge: ${{ steps.filter.outputs.bridge }}
+      bridge_app: ${{ steps.filter.outputs.bridge_app }}
+      kiosk: ${{ steps.filter.outputs.kiosk }}
+      docker_build: ${{ steps.filter.outputs.docker_build }}
+      postgres_upgrade: ${{ steps.filter.outputs.postgres_upgrade }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Test the path filter
+        run: node --test scripts/ci-path-filter.test.cjs
+
+      - name: Select jobs
+        id: filter
+        # Explicit, for pipefail: a filter that crashed must fail this step, not
+        # leave every output empty and every job skipped.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # The API lists at most 3000 files; a longer list would be truncated.
+          if [ "$EVENT_NAME" = pull_request ] &&
+            files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate \
+              --jq '.[] | .filename, (.previous_filename // empty)') &&
+            [ "$(wc -l <<<"$files")" -lt 3000 ]; then
+            node scripts/ci-path-filter.cjs <<<"$files" | tee -a "$GITHUB_OUTPUT"
+          else
+            CI_FILTER_RUN_ALL=true node scripts/ci-path-filter.cjs </dev/null | tee -a "$GITHUB_OUTPUT"
+          fi
+
   backend:
     name: Backend Tests
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -124,6 +173,8 @@ jobs:
 
   frontend:
     name: Frontend Tests
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -177,6 +228,8 @@ jobs:
 
   bridge:
     name: Bridge Tests
+    needs: changes
+    if: needs.changes.outputs.bridge == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -210,6 +263,8 @@ jobs:
 
   bridge-app:
     name: Bridge App Tests
+    needs: changes
+    if: needs.changes.outputs.bridge_app == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -279,6 +334,8 @@ jobs:
 
   kiosk:
     name: Kiosk WiFi Portal Tests
+    needs: changes
+    if: needs.changes.outputs.kiosk == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -302,6 +359,8 @@ jobs:
 
   docker-build:
     name: Docker Build Smoke Test
+    needs: changes
+    if: needs.changes.outputs.docker_build == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -393,6 +452,8 @@ jobs:
   # from the layer cache docker-build writes, so this job only reads it.
   postgres-upgrade:
     name: PostgreSQL Upgrade Test
+    needs: changes
+    if: needs.changes.outputs.postgres_upgrade == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -419,3 +480,29 @@ jobs:
 
       - name: Test PostgreSQL upgrade signal handling
         run: bash scripts/test-postgres-upgrade-signals.sh
+
+  # The one check that always reports. A job skipped by the path filter is fine;
+  # a failed or cancelled job, or a filter that did not run, is not.
+  gate:
+    name: CI Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [changes, backend, frontend, bridge, bridge-app, kiosk, docker-build, postgres-upgrade]
+    if: always()
+    permissions: {}
+    steps:
+      - name: Require every job that ran to pass
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<<"$RESULTS"
+          if [ "$CHANGES_RESULT" != success ]; then
+            echo "::error::Change detection result: $CHANGES_RESULT"
+            exit 1
+          fi
+          failed=$(jq -r '[to_entries[] | select(.value.result != "success" and .value.result != "skipped") | .key] | join(", ")' <<<"$RESULTS")
+          if [ -n "$failed" ]; then
+            echo "::error::Jobs that did not pass: $failed"
+            exit 1
+          fi

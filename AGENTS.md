@@ -150,6 +150,10 @@ CI wall time is a budget. Spend it on assertions, not on setup.
   import the app; load vendor SDKs on first use (`tests/test_app_import_cost.py`).
 - **Durations are printed** (`--durations=25` in CI) and must stay truthful: freezegun ignores
   `_pytest.timing`. Read them before adding a slow test.
+- **Pull requests run only the jobs they can affect** (#1018). `scripts/ci-path-filter.cjs` maps
+  each `ci.yml` job to the paths it reads; pushes to `main` run everything, and `CI Gate` is the
+  one check that always reports. A new job, or a job that starts reading a new path, needs its
+  rule updated in the same PR (`scripts/ci-path-filter.test.cjs` checks the wiring).
 - **Split by measured duration**, never by file count. The suite runs `-n 4 --dist=loadfile`
   on a 4-vCPU runner; long serial steps (e.g. the PostgreSQL upgrade test) get their own job.
 

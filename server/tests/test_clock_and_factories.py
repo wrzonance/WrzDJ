@@ -127,3 +127,20 @@ def test_frozen_request_reaches_a_router_that_has_a_datetime_parameter():
     with freeze_time("2026-01-01 12:00:00", tick=False), TestClient(fresh) as c:
         # `since: datetime | None` is a query parameter of this route; no auth -> 401, not 500.
         assert c.get("/api/events/NOPE01/requests").status_code == 401
+
+
+def test_pytest_timer_reads_real_time_under_the_frozen_clock(clock):
+    """pytest's own timer must not freeze with the app clock (#1007).
+
+    pytest times every phase with ``_pytest.timing.Instant``. When freezegun patched it,
+    ``--durations`` reported 1.79e9 s setups and a 3660 s call for frozen tests, so the CI
+    durations report could not rank the suite's slow tests.
+    """
+    from _pytest.timing import Instant
+
+    start = Instant()
+    clock.advance(3600)
+    stop = Instant()
+
+    assert stop.perf_count - start.perf_count < 60
+    assert abs((stop.as_utc().replace(tzinfo=None) - clock.now).total_seconds()) > 3000

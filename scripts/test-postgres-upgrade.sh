@@ -400,6 +400,10 @@ YAML
   [ "$(quoted_compose exec -T db psql -U "$quoted_user" -d appdb -At -c 'SHOW server_version_num' | cut -c1-2)" = 18 ] ||
     fail 'quoted-role upgrade did not produce PostgreSQL 18 data'
   quoted_compose down --volumes --remove-orphans >/dev/null
+  # Compose v5 keeps a volume it did not create; left behind, the next role's
+  # PostgreSQL 16 would start on this role's PostgreSQL 18 data. --force also
+  # covers Compose v2, which has already removed it.
+  docker volume rm --force "$quoted_volume" >/dev/null
   docker volume rm "$quoted_backup_volume" >/dev/null
   echo "Application role $quoted_user restores successfully and preserves role-like table data."
 done

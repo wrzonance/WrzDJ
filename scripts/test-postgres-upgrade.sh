@@ -37,6 +37,7 @@ quoted_volume="${quoted_project}_postgres_data"
 quoted_backup_volume="${quoted_volume}_pg16_backup"
 quoted_legacy="${quoted_project}-legacy"
 quoted_override="$scratch/quoted-role.yml"
+fast_health="$scratch/fast-health.yml"
 
 # Dummy values for every required variable in the production Compose files.
 export COMPOSE_PROJECT_NAME="$project"
@@ -46,7 +47,16 @@ export CORS_ORIGINS=http://localhost:3000 PUBLIC_URL=http://localhost:3000
 export NEXT_PUBLIC_API_URL=http://localhost:8000
 unset POSTGRES_VOLUME_NAME
 
-compose() { docker compose -f "$compose_file" "$@"; }
+# `compose up --wait` returns on the first passing health check. Production runs
+# it every 10 s, so each wait here cost a full interval for a database that is up
+# in about a second (#1021). The test polls sooner; the check itself is unchanged.
+cat >"$fast_health" <<'YAML'
+services:
+  db:
+    healthcheck:
+      interval: 1s
+YAML
+compose() { docker compose -f "$compose_file" -f "$fast_health" "$@"; }
 
 cleanup() {
   status=$?
@@ -392,7 +402,7 @@ YAML
   quoted_compose() {
     env COMPOSE_PROJECT_NAME="$quoted_project" POSTGRES_USER="$quoted_user" \
       POSTGRES_PASSWORD=quoted-pass POSTGRES_DB=appdb POSTGRES_VOLUME_NAME="$quoted_volume" \
-      docker compose -f "$compose_file" -f "$quoted_override" "$@"
+      docker compose -f "$compose_file" -f "$quoted_override" -f "$fast_health" "$@"
   }
   quoted_compose up --detach --wait db >/dev/null || fail 'quoted-role PostgreSQL 18 did not start'
   [ "$(quoted_compose exec -T db psql -U "$quoted_user" -d appdb -At -c 'SELECT * FROM role_text')" = \

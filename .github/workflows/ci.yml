@@ -59,37 +59,37 @@ jobs:
       run:
         working-directory: server
 
-    services:
-      postgres:
-        image: postgres:18
-        env:
-          POSTGRES_USER: wrzdj
-          POSTGRES_PASSWORD: wrzdj
-          POSTGRES_DB: wrzdj_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
+      # Started here, not as a service container: a service blocks the job for
+      # ~20 s until its health check passes, before the first step can run
+      # (#1020). This way PostgreSQL boots while the dependencies install, and
+      # the test step waits for it only if it is still starting.
+      - name: Start PostgreSQL
+        run: |
+          docker run --detach --name postgres --publish 5432:5432 \
+            --env POSTGRES_USER=wrzdj --env POSTGRES_PASSWORD=wrzdj --env POSTGRES_DB=wrzdj_test \
+            postgres:18
+
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.15"
-          cache: "pip"
-          cache-dependency-path: server/pyproject.toml
 
+      # No dependency cache: a cold uv install is faster than restoring one.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: false
+
+      # uv resolves from the pyproject.toml floors exactly as pip did (this job
+      # deliberately does not install from uv.lock) and installs in a fraction
+      # of the time. pip is upgraded too because pip-audit audits it.
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+        run: uv pip install --system --compile-bytecode --upgrade-package pip pip -e ".[dev]"
 
       - name: Lint with ruff
         run: ruff check .
@@ -146,7 +146,11 @@ jobs:
           ENV: development
           # @pytest.mark.postgres tests run on this service too (own schemas, dropped after)
           TEST_POSTGRES_URL: postgresql+psycopg://wrzdj:wrzdj@localhost:5432/wrzdj_test
-        run: pytest -n 4 --dist=loadfile --cov=app --cov-report=xml --cov-report=term-missing --durations=25 --durations-min=1.0
+        run: |
+          # TCP, not the socket: the image's first-boot server listens on the
+          # socket only, so this passes once the real server accepts connections.
+          timeout 60 sh -c 'until docker exec postgres pg_isready -h 127.0.0.1 -U wrzdj -d wrzdj_test; do sleep 1; done'
+          pytest -n 4 --dist=loadfile --cov=app --cov-report=xml --cov-report=term-missing --durations=25 --durations-min=1.0
 
       - name: Check Alembic migrations are up to date
         env:

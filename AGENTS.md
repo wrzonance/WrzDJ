@@ -109,10 +109,21 @@ compiler via `@typescript/native`; drop the alias once those tools support TypeS
 `openapi-typescript` override only points its `^5.x` peer at that same API package; it is a no-op
 once the generator accepts it, and the generated-types check fails if its output ever changes.
 
-### Bridge / Bridge App (from `bridge/` and `bridge-app/`)
+### Bridge (from `bridge/`)
 ```bash
 npx tsc --noEmit
-npm test -- --run
+npm test -- --run --coverage
+node ../scripts/npm-audit-gate.cjs
+```
+
+### Bridge App (from `bridge-app/`)
+The bridge-app type-checks `../bridge/src`, so `bridge/` needs its own `npm ci` first.
+```bash
+(cd ../bridge && npm ci)
+npm run lint
+npm run typecheck             # TypeScript 7 via @typescript/native (not npx tsc)
+npm test -- --run --coverage
+node ../scripts/npm-audit-gate.cjs
 ```
 
 ## Testing Notes

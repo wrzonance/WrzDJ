@@ -29,13 +29,14 @@ from app.models.user import User
 from app.services.auth import get_password_hash
 
 
-@pytest.fixture()
-def pooled_engine(monkeypatch):
+@pytest.fixture(scope="module")
+def _pooled_database():
     """A real shared-cache SQLite engine using QueuePool (default), so
     engine.pool.checkedout() reflects actual checked-out connections.
 
-    Patches app.db.session.SessionLocal AND the name already imported into
-    app.api.sse so the endpoint resolves our pooled session factory.
+    The suite's shared engine is a StaticPool, which cannot show pool checkout, so this
+    file keeps its own engine. Every test here only reads, so the schema and seed are
+    built once per module rather than once per test.
     """
     engine = create_engine(
         "sqlite:///file:sse_pool_test?mode=memory&cache=shared&uri=true",
@@ -46,9 +47,6 @@ def pooled_engine(monkeypatch):
     )
     Base.metadata.create_all(bind=engine)
     test_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-    monkeypatch.setattr("app.db.session.SessionLocal", test_session)
-    monkeypatch.setattr("app.api.sse.SessionLocal", test_session, raising=False)
 
     # Seed an active event using a short-lived session.
     with test_session() as s:
@@ -75,6 +73,17 @@ def pooled_engine(monkeypatch):
     finally:
         Base.metadata.drop_all(bind=engine)
         engine.dispose()
+
+
+@pytest.fixture()
+def pooled_engine(_pooled_database, monkeypatch):
+    """Point app.db.session.SessionLocal, and the name app.api.sse already imported,
+    at the pooled engine so the endpoint resolves our session factory."""
+    engine, test_session = _pooled_database
+    monkeypatch.setattr("app.db.session.SessionLocal", test_session)
+    monkeypatch.setattr("app.api.sse.SessionLocal", test_session, raising=False)
+    assert engine.pool.checkedout() == 0, "a previous test leaked a pooled connection"
+    return engine, test_session
 
 
 def _make_request(code: str) -> StarletteRequest:

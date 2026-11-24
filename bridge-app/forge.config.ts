@@ -7,6 +7,7 @@ import { MakerAppImage } from '@reforged/maker-appimage';
 import { MakerZIP } from '@electron-forge/maker-zip';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
+import electronChecksums from 'electron/checksums.json';
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -15,6 +16,11 @@ const config: ForgeConfig = {
     icon: './resources/icon',
     asar: true,
     appBundleId: 'com.wrzdj.bridge',
+    // Verify the Electron download against the checksums that ship in the
+    // `electron` npm package, which package-lock.json pins by integrity hash.
+    // Without this the packager fetches SHASUMS256.txt from the same GitHub
+    // release as the zip on every run, cached zip or not (#1030).
+    download: { checksums: electronChecksums },
   },
   makers: [
     new MakerSquirrel({

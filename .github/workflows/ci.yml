@@ -293,6 +293,20 @@ jobs:
       - name: Run tests with coverage
         run: npm test -- --run --coverage
 
+      # The packager downloads the Electron zip (~110 MB) from GitHub Releases.
+      # Kept between runs, keyed on the locked version, so an outage there
+      # cannot fail CI (#1030). forge.config.ts verifies the zip, cached or
+      # downloaded, against the checksums in the lockfile-pinned npm package.
+      - name: Read the locked Electron version
+        id: electron
+        run: echo "version=$(node -p "require('./package-lock.json').packages['node_modules/electron'].version")" >>"$GITHUB_OUTPUT"
+
+      - name: Cache the Electron download
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/electron
+          key: electron-zip-linux-x64-${{ steps.electron.outputs.version }}
+
       - name: Package and test Electron runtime
         run: |
           npm run package -- --platform=linux --arch=x64

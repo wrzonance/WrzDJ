@@ -9,6 +9,7 @@ os.environ["JWT_SECRET"] = "wrzdj-tests-only-signing-key-" + "0123456789abcdef" 
 from collections.abc import Generator
 from datetime import timedelta
 
+import freezegun
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -401,6 +402,14 @@ def musicbrainz_no_match(fake_http):
 
     register(fake_http)
     return fake_http
+
+
+# pytest times every test phase with ``_pytest.timing``; frozen, that timer reported
+# 1.79e9 s setups and made ``--durations`` useless (#1007). freezegun's own defaults list
+# ``_pytest.runner.``, whose trailing dot never matches the module. Only the timing module
+# is listed: freezegun checks five frames up the stack, and ``_pytest.python`` sits that
+# close to every test body, so ignoring all of ``_pytest`` would unfreeze tests' own calls.
+freezegun.configure(extend_ignore_list=["_pytest.timing"])
 
 
 class FrozenClock:

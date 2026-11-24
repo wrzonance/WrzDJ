@@ -264,10 +264,11 @@ The `kiosk/` directory turns a fresh Pi OS Lite into a locked-down event display
 
 ## CI/CD Layout
 
-- `.github/workflows/ci.yml` — 5 jobs: backend, frontend, bridge, bridge-app, docker-build. Backend:
-  ruff lint + format, bandit, pip-audit, pytest w/ coverage gate, Alembic `upgrade head && check`.
-  Frontend/bridge/bridge-app: ESLint (frontend), `tsc --noEmit`, vitest w/ coverage, npm audit.
-  Docker smoke test builds backend + frontend images.
+- `.github/workflows/ci.yml` — 7 jobs: backend, frontend, bridge, bridge-app, kiosk, docker-build,
+  postgres-upgrade. Backend: ruff lint + format, bandit, pip-audit, pytest w/ coverage gate,
+  Alembic `upgrade head && check`. Frontend/bridge/bridge-app: ESLint (frontend), `tsc --noEmit`,
+  vitest w/ coverage, npm audit. Docker smoke test builds and runs the api, web, bridge and
+  dev-proxy images; the PostgreSQL 16 -> 18 upgrade tests run in their own parallel job.
 - `.github/workflows/codeql.yml` — CodeQL SAST (Python & JS/TS).
 - **Release** (`release.yml`): triggers on tag push (`v*`), not PR merge. Date-based versioning
   `v2026.02.07` (same-day suffix `.2`). Builds bridge-app installers across 3 platforms (matrix,

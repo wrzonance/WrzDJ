@@ -313,10 +313,10 @@ jobs:
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      # amd64-only, no push: verifies both images build on every PR/push without
+      # amd64-only, no push: verifies the images build on every PR/push without
       # paying for the multi-arch (arm64-under-QEMU) publish, which now runs only
-      # on main/tag pushes in docker-publish.yml. The job NAME must stay exactly
-      # "Docker Build Smoke Test" — main's branch protection requires that check.
+      # on main/tag pushes in docker-publish.yml. trivy.yml and docker-publish.yml
+      # refer to this job by its name, "Docker Build Smoke Test"; keep it stable.
       - name: Build backend image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -330,12 +330,6 @@ jobs:
 
       - name: Test locked API runtime
         run: bash scripts/test-api-image.sh wrzdj-api:smoke
-
-      - name: Test PostgreSQL 16 to 18 upgrade path
-        run: bash scripts/test-postgres-upgrade.sh wrzdj-api:smoke
-
-      - name: Test PostgreSQL upgrade signal handling
-        run: bash scripts/test-postgres-upgrade-signals.sh
 
       - name: Build frontend image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -392,3 +386,36 @@ jobs:
           for test in deploy/tests/test_*.sh; do
             bash "$test"
           done
+
+  # The PostgreSQL 16 -> 18 upgrade tests take ~2.5 min, the longest step in CI. They
+  # ran serially inside docker-build and set the whole workflow's wall time (#1006).
+  # Their own job runs them alongside the image smoke tests; the backend image comes
+  # from the layer cache docker-build writes, so this job only reads it.
+  postgres-upgrade:
+    name: PostgreSQL Upgrade Test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build backend image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./server
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: wrzdj-api:smoke
+          cache-from: type=gha,scope=ci-api
+
+      - name: Test PostgreSQL 16 to 18 upgrade path
+        run: bash scripts/test-postgres-upgrade.sh wrzdj-api:smoke
+
+      - name: Test PostgreSQL upgrade signal handling
+        run: bash scripts/test-postgres-upgrade-signals.sh

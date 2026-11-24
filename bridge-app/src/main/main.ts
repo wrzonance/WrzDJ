@@ -1,7 +1,15 @@
-import started from 'electron-squirrel-startup';
-if (started) process.exit();
-
+import { spawn } from 'child_process';
 import { app, BrowserWindow, session } from 'electron';
+import { handleSquirrelEvent } from './squirrel-startup.js';
+
+const isSquirrelEvent = handleSquirrelEvent({
+  platform: process.platform,
+  argv: process.argv,
+  execPath: process.execPath,
+  spawn,
+  quit: () => app.quit(),
+});
+if (isSquirrelEvent) process.exit();
 
 // Squirrel auto-launches the app with --squirrel-firstrun after install completes.
 // Exit immediately so the installer process tree terminates cleanly.

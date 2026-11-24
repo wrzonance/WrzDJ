@@ -41,6 +41,9 @@ jobs:
 
       - name: Select jobs
         id: filter
+        # Explicit, for pipefail: a filter that crashed must fail this step, not
+        # leave every output empty and every job skipped.
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}

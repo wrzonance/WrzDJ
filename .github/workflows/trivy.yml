@@ -4,10 +4,13 @@
 # this is the one gate that looks at the Debian/Alpine layer underneath them.
 #
 # Blocking (#735): a fixable CRITICAL/HIGH finding fails the scan, and the
-# "Trivy Gate" job is the single check main's branch protection requires. It
-# runs on every PR (no path filter) because a required check that never
-# reports leaves the PR unmergeable. A finding that cannot be fixed yet goes
-# in .trivyignore with a justification and an expiry, never a lowered gate.
+# "Trivy Gate" job is the single check main's branch protection requires. The
+# workflow runs on every PR (no `paths:` filter) because a required check that
+# never reports leaves the PR unmergeable; inside it, a PR scans only the images
+# whose build context it changes (#1019). Pushes to main, the weekly schedule
+# and manual runs scan every image, which is also what catches a new CVE in an
+# unchanged base image. A finding that cannot be fixed yet goes in .trivyignore
+# with a justification and an expiry, never a lowered gate.
 name: Trivy Image Scan
 
 on:
@@ -22,8 +25,50 @@ permissions:
   contents: read
 
 jobs:
+  # Picks the images to scan; the path rules are in scripts/ci-path-filter.cjs
+  # (group "trivy"), one per `image` below.
+  changes:
+    name: Select Images
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      images: ${{ steps.select.outputs.images }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Select images
+        id: select
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          ALL_IMAGES: >-
+            [
+            {"image": "api", "context": "./server", "build-args": "", "cache-scope": "ci-api"},
+            {"image": "web", "context": "./dashboard",
+            "build-args": "NEXT_PUBLIC_API_URL=http://localhost:8000", "cache-scope": "ci-web"},
+            {"image": "bridge", "context": "./bridge", "build-args": "", "cache-scope": "ci-bridge"},
+            {"image": "proxy", "context": "./deploy/dev-proxy", "build-args": "", "cache-scope": "ci-proxy"}
+            ]
+        run: |
+          selected=$(bash scripts/ci-select-jobs.sh trivy)
+          echo "$selected"
+          images=$(jq -c --arg selected "$selected" '
+            ($selected | split("\n") | map(select(endswith("=true")) | split("=")[0])) as $on
+            | map(select(.image as $image | $on | index($image)))' <<<"$ALL_IMAGES")
+          echo "images=$images" >>"$GITHUB_OUTPUT"
+
   scan:
     name: Scan ${{ matrix.image }} image
+    needs: changes
+    # An empty matrix is an error, so no selected image skips the job instead.
+    if: needs.changes.outputs.images != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -32,24 +77,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - image: api
-            context: ./server
-            build-args: ""
-            cache-scope: ci-api
-          - image: web
-            context: ./dashboard
-            build-args: |
-              NEXT_PUBLIC_API_URL=http://localhost:8000
-            cache-scope: ci-web
-          - image: bridge
-            context: ./bridge
-            build-args: ""
-            cache-scope: ci-bridge
-          - image: proxy
-            context: ./deploy/dev-proxy
-            build-args: ""
-            cache-scope: ci-proxy
+        include: ${{ fromJSON(needs.changes.outputs.images) }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -107,15 +135,26 @@ jobs:
     name: Trivy Gate
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: scan
+    needs: [changes, scan]
     if: always()
     permissions: {}
     steps:
-      - name: Require every image scan to pass
+      - name: Require every selected image scan to pass
         env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          IMAGES: ${{ needs.changes.outputs.images }}
           SCAN_RESULT: ${{ needs.scan.result }}
         run: |
-          if [ "$SCAN_RESULT" != "success" ]; then
+          echo "Image selection: $CHANGES_RESULT; images: $IMAGES; scan: $SCAN_RESULT"
+          if [ "$CHANGES_RESULT" != success ]; then
+            echo "::error::Image selection result: $CHANGES_RESULT"
+            exit 1
+          fi
+          # A skipped scan passes only when no image was selected.
+          if [ "$SCAN_RESULT" = skipped ] && [ "$IMAGES" = '[]' ]; then
+            exit 0
+          fi
+          if [ "$SCAN_RESULT" != success ]; then
             echo "::error::Trivy image scan result: $SCAN_RESULT"
             exit 1
           fi

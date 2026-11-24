@@ -4,7 +4,12 @@ name: CodSpeed
 on:
   push:
     branches: [main]
+  # Benchmarks only cover server/, so other pull requests skip them (#1019).
+  # Pushes to main always run: each one is the baseline later runs compare to.
   pull_request:
+    paths:
+      - "server/**"
+      - ".github/workflows/codspeed.yml"
   # Allows CodSpeed to trigger backtest performance analysis for initial data.
   workflow_dispatch:
 

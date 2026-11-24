@@ -7,6 +7,22 @@ environment defaults below reach pydantic-settings ahead of the repo ``.env``.
 
 import os
 
+import bcrypt
+
+# Production hashes at bcrypt's default cost 12 (~330 ms per hash). Fixtures hash on
+# every setup, so under test that was a third of the suite's wall time (#1005). Cost 4
+# (~1 ms) keeps hash/verify behaviour identical. This must run before app.services.auth
+# is imported: it computes _DUMMY_HASH at import time. The original stays reachable so
+# tests can pin the production cost (tests/test_password_hash_cost.py).
+PRODUCTION_GENSALT = bcrypt.gensalt
+
+
+def _test_gensalt(rounds: int = 4, prefix: bytes = b"2b") -> bytes:
+    return PRODUCTION_GENSALT(rounds=rounds, prefix=prefix)
+
+
+bcrypt.gensalt = _test_gensalt
+
 # The whole session shares ONE in-memory SQLite connection (StaticPool with
 # check_same_thread=False in conftest). sqlite3 connections are not safe for
 # concurrent use, so the pool-import enrichment BackgroundTask must not fan out

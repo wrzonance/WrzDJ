@@ -32,11 +32,15 @@ jobs:
         with:
           python-version: "3.15"
 
+      # No dependency cache: a cold uv install is faster than restoring one.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: false
+
       # Same install as ci.yml's backend job: uv, from the pyproject.toml floors.
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip uv
-          uv pip install --system --compile-bytecode -e ".[dev]"
+        run: uv pip install --system --compile-bytecode --upgrade-package pip pip -e ".[dev]"
 
       - name: Run benchmarks
         uses: CodSpeedHQ/action@61efe07e57e55bedeab750c434504de272a56e8c # v5.6.1

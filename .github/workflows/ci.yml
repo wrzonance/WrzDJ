@@ -48,16 +48,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          # The API lists at most 3000 files; a longer list would be truncated.
-          if [ "$EVENT_NAME" = pull_request ] &&
-            files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate \
-              --jq '.[] | .filename, (.previous_filename // empty)') &&
-            [ "$(wc -l <<<"$files")" -lt 3000 ]; then
-            node scripts/ci-path-filter.cjs <<<"$files" | tee -a "$GITHUB_OUTPUT"
-          else
-            CI_FILTER_RUN_ALL=true node scripts/ci-path-filter.cjs </dev/null | tee -a "$GITHUB_OUTPUT"
-          fi
+        run: bash scripts/ci-select-jobs.sh ci | tee -a "$GITHUB_OUTPUT"
 
   backend:
     name: Backend Tests

@@ -361,7 +361,7 @@ jobs:
           python-version: "3.15"
 
       - name: Install test dependencies
-        run: pip install pytest
+        run: pip install --require-hashes -r requirements-test.txt
 
       - name: Run tests
         run: python -m pytest test_portal.py -q

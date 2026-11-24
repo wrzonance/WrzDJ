@@ -202,3 +202,5 @@ npm test -- --run         # Vitest
 - TestClient fingerprint is `"testclient"`, not an IP address
 - Backend tests use SQLite, not PostgreSQL — some SQL features may behave differently
 - Events carry two public codes: the collection `code` routes `/collect` (gated pre-event flow), while `join_code` routes `/join`, `/e/{code}/display`, kiosk, OBS overlay, and bridge now-playing — resolve guest requests via the dual-code public resolver and never return the internal `event.id` on public endpoints
+
+<!-- path-filter probe for #1018; never merged -->

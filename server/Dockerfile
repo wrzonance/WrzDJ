@@ -1,4 +1,4 @@
-FROM python:3.15-slim@sha256:e97b88e416c3c01eb427b21fd8cd3ebf006e6ee38afcfcc3cae1c54ee2ab0a75
+FROM python:3.15-slim@sha256:63bb298d2b7b88f176f51b5189f54ce6535c997682ea70885d2132f5d473a8a5
 
 WORKDIR /app
 
@@ -15,7 +15,7 @@ WORKDIR /app
 # happens when Debian publishes the fix before a new base image exists, or
 # when the new index changes other platforms only and linux/amd64 keeps the
 # same layers (#994: zlib1g, CVE-2026-85091 and CVE-2026-76844).
-ARG APT_SECURITY_REFRESH=2026-11-12
+ARG APT_SECURITY_REFRESH=2026-11-24
 RUN echo "apt security refresh: ${APT_SECURITY_REFRESH}" \
     && apt-get update && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends \

@@ -8,6 +8,7 @@ import { MakerZIP } from '@electron-forge/maker-zip';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
 import electronChecksums from 'electron/checksums.json';
+import { appImageLauncherScript } from './src/packaging/appimage-launcher';
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -65,21 +66,18 @@ const config: ForgeConfig = {
           fs.unlinkSync(sandboxPath);
         }
 
-        // Wrap the binary so --no-sandbox is passed as a real CLI argument.
-        // Chromium's sandbox init runs before Node.js, so appendSwitch() is too late.
+        // Wrap the binary: keep the namespace sandbox where user namespaces
+        // work, pass --no-sandbox only where they don't (see the launcher).
         const binName = 'wrzdj-bridge';
         const binPath = path.join(outDir, binName);
-        const realBinPath = path.join(outDir, `${binName}.real`);
-        fs.renameSync(binPath, realBinPath);
-        fs.writeFileSync(
-          binPath,
-          `#!/bin/bash\nexec "$(dirname "$(readlink -f "$0")")/${binName}.real" --no-sandbox "$@"\n`,
-          { mode: 0o755 },
-        );
+        fs.renameSync(binPath, path.join(outDir, `${binName}.real`));
+        fs.writeFileSync(binPath, appImageLauncherScript(binName), { mode: 0o755 });
       }
     },
     postMake: async (_config, makeResults) => {
-      const renameExts = new Set(['.dmg', '.AppImage', '.zip', '.exe', '.nupkg']);
+      // Not .nupkg: Squirrel's RELEASES manifest names the package file, so
+      // renaming it would publish a manifest pointing at a missing file.
+      const renameExts = new Set(['.dmg', '.AppImage', '.zip', '.exe']);
       for (const result of makeResults) {
         for (let i = 0; i < result.artifacts.length; i++) {
           const oldPath = result.artifacts[i];

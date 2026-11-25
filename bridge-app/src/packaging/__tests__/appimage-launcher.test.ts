@@ -15,7 +15,12 @@ function writeExecutable(file: string, body: string): void {
 }
 
 interface LaunchSetup {
-  unshare: 'works' | 'fails' | 'missing';
+  /**
+   * works: every namespace Chromium's sandbox needs is available (the stub
+   *   only succeeds when asked for all of them).
+   * user-only: user namespaces work but PID/network ones are blocked.
+   */
+  unshare: 'works' | 'user-only' | 'fails' | 'missing';
   appArmorRestrict?: '0' | '1';
 }
 
@@ -28,7 +33,13 @@ function runLauncher(setup: LaunchSetup, args: string[] = []): string[] {
     fs.symlinkSync(real, path.join(stubBin, tool));
   }
   if (setup.unshare !== 'missing') {
-    writeExecutable(path.join(stubBin, 'unshare'), setup.unshare === 'works' ? 'exit 0' : 'exit 1');
+    const has = (flag: string) => `[[ " $* " == *" ${flag} "* ]]`;
+    const stubs = {
+      works: `${['--user', '--map-root-user', '--pid', '--net', '--fork'].map(has).join(' && ')}`,
+      'user-only': `! ${has('--pid')} && ! ${has('--net')}`,
+      fails: 'exit 1',
+    };
+    writeExecutable(path.join(stubBin, 'unshare'), stubs[setup.unshare]);
   }
   const sysctl = path.join(dir, 'apparmor_restrict_unprivileged_userns');
   if (setup.appArmorRestrict !== undefined) fs.writeFileSync(sysctl, `${setup.appArmorRestrict}\n`);
@@ -87,6 +98,11 @@ describe('appImageLauncherScript', () => {
       '--no-sandbox',
       '--flag',
     ]);
+  });
+
+  it('falls back to --no-sandbox when user namespaces work but PID/network ones are blocked', () => {
+    // e.g. user.max_pid_namespaces=0: Chromium's namespace sandbox needs all three.
+    expect(runLauncher({ unshare: 'user-only', appArmorRestrict: '0' })).toEqual(['--no-sandbox']);
   });
 
   it('keeps the sandbox when it cannot probe (fails closed; the user can still pass --no-sandbox)', () => {

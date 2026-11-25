@@ -6,23 +6,38 @@ import path from 'path';
 import { appImageLauncherScript } from '../appimage-launcher';
 
 // Runs the generated launcher with bash against a stub binary that prints
-// its arguments, and a stub `unshare` on PATH that succeeds or fails.
+// its arguments as JSON, a stub `unshare` on PATH that succeeds or fails,
+// and a stand-in for Ubuntu's AppArmor user-namespace restriction sysctl.
 let dir: string;
 
 function writeExecutable(file: string, body: string): void {
   fs.writeFileSync(file, `#!/bin/bash\n${body}\n`, { mode: 0o755 });
 }
 
-function runLauncher(options: { unshare: 'works' | 'fails' | 'missing' }, args: string[] = []) {
+interface LaunchSetup {
+  unshare: 'works' | 'fails' | 'missing';
+  appArmorRestrict?: '0' | '1';
+}
+
+function runLauncher(setup: LaunchSetup, args: string[] = []): string[] {
   const stubBin = path.join(dir, 'stub-bin');
-  fs.mkdirSync(stubBin, { recursive: true });
+  fs.rmSync(stubBin, { recursive: true, force: true });
+  fs.mkdirSync(stubBin);
   for (const tool of ['readlink', 'dirname']) {
     const real = execFileSync('bash', ['-c', `command -v ${tool}`], { encoding: 'utf8' }).trim();
     fs.symlinkSync(real, path.join(stubBin, tool));
   }
-  if (options.unshare !== 'missing') {
-    writeExecutable(path.join(stubBin, 'unshare'), options.unshare === 'works' ? 'exit 0' : 'exit 1');
+  if (setup.unshare !== 'missing') {
+    writeExecutable(path.join(stubBin, 'unshare'), setup.unshare === 'works' ? 'exit 0' : 'exit 1');
   }
+  const sysctl = path.join(dir, 'apparmor_restrict_unprivileged_userns');
+  if (setup.appArmorRestrict !== undefined) fs.writeFileSync(sysctl, `${setup.appArmorRestrict}\n`);
+  fs.writeFileSync(
+    path.join(dir, 'wrzdj-bridge'),
+    appImageLauncherScript('wrzdj-bridge', { appArmorRestrictSysctl: sysctl }),
+    { mode: 0o755 },
+  );
+
   const out = execFileSync(path.join(dir, 'wrzdj-bridge'), args, {
     // Only the stub dir (stubs + readlink/dirname), so a real `unshare` on
     // the host can't leak in.
@@ -34,13 +49,13 @@ function runLauncher(options: { unshare: 'works' | 'fails' | 'missing' }, args: 
 
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'appimage-launcher-'));
-  writeExecutable(
+  // The stub binary is Node itself (absolute path, independent of PATH), so
+  // arguments round-trip through a real JSON encoder.
+  fs.writeFileSync(
     path.join(dir, 'wrzdj-bridge.real'),
-    `printf '['; sep=''; for a in "$@"; do printf '%s"%s"' "$sep" "$a"; sep=','; done; printf ']'`,
+    `#!${process.execPath}\nprocess.stdout.write(JSON.stringify(process.argv.slice(2)));\n`,
+    { mode: 0o755 },
   );
-  fs.writeFileSync(path.join(dir, 'wrzdj-bridge'), appImageLauncherScript('wrzdj-bridge'), {
-    mode: 0o755,
-  });
 });
 
 afterEach(() => {
@@ -49,17 +64,38 @@ afterEach(() => {
 
 describe('appImageLauncherScript', () => {
   it('keeps the Chromium sandbox when unprivileged user namespaces work', () => {
-    expect(runLauncher({ unshare: 'works' }, ['--flag', 'two words'])).toEqual([
+    expect(runLauncher({ unshare: 'works', appArmorRestrict: '0' }, ['--flag'])).toEqual([
       '--flag',
-      'two words',
+    ]);
+  });
+
+  it('keeps the sandbox on kernels without the AppArmor restriction sysctl', () => {
+    expect(runLauncher({ unshare: 'works' })).toEqual([]);
+  });
+
+  it('falls back to --no-sandbox when AppArmor restricts user namespaces, even if unshare may use them', () => {
+    // AppArmor is per-executable: a profile can allow `unshare` while the
+    // AppImage's unprofiled Electron binary stays restricted.
+    expect(runLauncher({ unshare: 'works', appArmorRestrict: '1' }, ['--flag'])).toEqual([
+      '--no-sandbox',
+      '--flag',
     ]);
   });
 
   it('falls back to --no-sandbox when user namespaces are blocked', () => {
-    expect(runLauncher({ unshare: 'fails' }, ['--flag'])).toEqual(['--no-sandbox', '--flag']);
+    expect(runLauncher({ unshare: 'fails', appArmorRestrict: '0' }, ['--flag'])).toEqual([
+      '--no-sandbox',
+      '--flag',
+    ]);
   });
 
   it('falls back to --no-sandbox when it cannot probe for user namespaces', () => {
     expect(runLauncher({ unshare: 'missing' })).toEqual(['--no-sandbox']);
+  });
+
+  it('passes quotes, backslashes, newlines and empty arguments through unchanged', () => {
+    const args = ['quote"here', String.raw`back\slash\path`, 'line1\nline2', '', '$HOME *'];
+    expect(runLauncher({ unshare: 'works' }, args)).toEqual(args);
+    expect(runLauncher({ unshare: 'fails' }, args)).toEqual(['--no-sandbox', ...args]);
   });
 });

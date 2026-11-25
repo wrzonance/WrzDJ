@@ -89,8 +89,13 @@ describe('appImageLauncherScript', () => {
     ]);
   });
 
-  it('falls back to --no-sandbox when it cannot probe for user namespaces', () => {
-    expect(runLauncher({ unshare: 'missing' })).toEqual(['--no-sandbox']);
+  it('keeps the sandbox when it cannot probe (fails closed; the user can still pass --no-sandbox)', () => {
+    expect(runLauncher({ unshare: 'missing' })).toEqual([]);
+    expect(runLauncher({ unshare: 'missing' }, ['--no-sandbox'])).toEqual(['--no-sandbox']);
+  });
+
+  it('still honours the AppArmor restriction when it cannot probe', () => {
+    expect(runLauncher({ unshare: 'missing', appArmorRestrict: '1' })).toEqual(['--no-sandbox']);
   });
 
   it('passes quotes, backslashes, newlines and empty arguments through unchanged', () => {

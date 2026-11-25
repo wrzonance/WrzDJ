@@ -98,4 +98,24 @@ describe('appImageLauncherScript', () => {
     expect(runLauncher({ unshare: 'works' }, args)).toEqual(args);
     expect(runLauncher({ unshare: 'fails' }, args)).toEqual(['--no-sandbox', ...args]);
   });
+
+  it('treats the binary name and sysctl path as literal text, not shell code', () => {
+    const binName = `we'ird $(touch pwned) "bin" \`x\``;
+    const sysctl = path.join(dir, `it's $HOME`);
+    fs.writeFileSync(sysctl, '1\n');
+    fs.copyFileSync(path.join(dir, 'wrzdj-bridge.real'), path.join(dir, `${binName}.real`));
+    const launcher = path.join(dir, 'launcher');
+    fs.writeFileSync(
+      launcher,
+      appImageLauncherScript(binName, { appArmorRestrictSysctl: sysctl }),
+      { mode: 0o755 },
+    );
+
+    const out = execFileSync(launcher, ['--flag'], { cwd: dir, encoding: 'utf8' });
+
+    // The restriction file was read (so --no-sandbox), the oddly named
+    // binary was the one executed, and no command substitution ran.
+    expect(JSON.parse(out)).toEqual(['--no-sandbox', '--flag']);
+    expect(fs.existsSync(path.join(dir, 'pwned'))).toBe(false);
+  });
 });

@@ -24,15 +24,20 @@ export interface LauncherOptions {
 
 const APPARMOR_RESTRICT_SYSCTL = '/proc/sys/kernel/apparmor_restrict_unprivileged_userns';
 
+/** Quote a value as one literal bash word: single quotes, with ' written as '\''. */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 export function appImageLauncherScript(binName: string, options: LauncherOptions = {}): string {
   const sysctl = options.appArmorRestrictSysctl ?? APPARMOR_RESTRICT_SYSCTL;
   return [
     '#!/bin/bash',
     'here="$(dirname "$(readlink -f "$0")")"',
-    `real="$here/${binName}.real"`,
+    `real="$here/"${shellQuote(`${binName}.real`)}`,
     'userns_usable() {',
     '  local restrict=""',
-    `  read -r restrict 2>/dev/null <'${sysctl}'`,
+    `  read -r restrict 2>/dev/null <${shellQuote(sysctl)}`,
     '  if [ "$restrict" = "1" ]; then return 1; fi',
     '  command -v unshare >/dev/null 2>&1 && unshare --user --map-root-user true >/dev/null 2>&1',
     '}',

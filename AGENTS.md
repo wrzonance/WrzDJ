@@ -172,8 +172,11 @@ CI wall time is a budget. Spend it on assertions, not on setup.
 
 ## Frequent Pitfalls (full list in `ARCHITECTURE.md`)
 
-- **Alembic drift**: CI runs `alembic check`. `op.create_index` needs `index=True` on the model
-  column; added columns must match the migration exactly. Run upgrade + check locally first.
+- **Alembic drift**: CI runs `alembic check`. Every `op.create_index` needs a matching
+  declaration in model metadata: `index=True` on the column for a plain single-column index, an
+  explicit `Index(...)` in `__table_args__` for composite, unique-named or otherwise specialized
+  ones (e.g. `models/search_cache.py`). Added columns must match the migration exactly. Run
+  upgrade + check locally first.
 - `next-env.d.ts` is auto-modified by builds — `git checkout` it before committing.
 - Admin endpoints need `get_current_admin`; DJ endpoints need `get_current_active_user` (not
   `get_current_user`, which allows pending). Last-admin protection: `count_admins(db) > 1` before

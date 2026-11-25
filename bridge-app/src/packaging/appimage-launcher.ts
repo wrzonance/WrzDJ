@@ -11,8 +11,10 @@
  *   per-executable, and the AppImage's binary never has a profile of its own,
  *   so it is restricted even where a profile lets `unshare` through.
  * - Elsewhere the kernel gates (`unprivileged_userns_clone`,
- *   `max_user_namespaces`) apply to every process alike, so an
- *   `unshare --user` probe answers for this binary too.
+ *   `max_user_namespaces`, `max_pid_namespaces`, `max_net_namespaces`)
+ *   apply to every process alike, so an `unshare` probe answers for this
+ *   binary too. It creates the same user + PID + network namespaces
+ *   Chromium's namespace sandbox needs, not just a user namespace.
  * - Without `unshare` there is nothing to probe with, so it fails closed:
  *   the sandbox stays on and Chromium decides. Users on such a system can
  *   still pass `--no-sandbox` themselves; the launcher forwards arguments.
@@ -44,7 +46,7 @@ export function appImageLauncherScript(binName: string, options: LauncherOptions
     '  if [ "$restrict" = "1" ]; then return 1; fi',
     '  # No unshare to probe with: keep the sandbox and let Chromium decide.',
     '  if ! command -v unshare >/dev/null 2>&1; then return 0; fi',
-    '  unshare --user --map-root-user true >/dev/null 2>&1',
+    '  unshare --user --map-root-user --pid --net --fork true >/dev/null 2>&1',
     '}',
     'if userns_usable; then',
     '  exec "$real" "$@"',

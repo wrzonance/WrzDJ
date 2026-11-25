@@ -128,8 +128,9 @@ node ../scripts/npm-audit-gate.cjs
 
 ## Testing Notes
 
-- **Backend (pytest)**: config in `server/pyproject.toml` `[tool.pytest.ini_options]`. Test DB is
-  SQLite in-memory (not PostgreSQL). Fixtures in `server/tests/conftest.py`: `db`, `client`,
+- **Backend (pytest)**: config in `server/pyproject.toml` `[tool.pytest.ini_options]`. The default
+  `db` fixture is in-memory SQLite; `@pytest.mark.postgres` tests use `pg_db` on real Postgres
+  and skip unless `TEST_POSTGRES_URL` is set (CI sets it). Fixtures in `server/tests/conftest.py`: `db`, `client`,
   `test_user`, `auth_headers`, `admin_user`, `admin_headers`, `pending_user`, `pending_headers`,
   `test_event`, `test_request`. TestClient host is `"testclient"` (visible to slowapi as the
   rate-limit key; not stored elsewhere). Single file: `.venv/bin/pytest tests/test_requests.py -v`.

@@ -1,15 +1,19 @@
 import { spawn } from 'child_process';
+import path from 'path';
 import { app, BrowserWindow, session } from 'electron';
 import { handleSquirrelEvent } from './squirrel-startup.js';
+import { registerIpcHandlers, getBridgeRunner } from './ipc-handlers.js';
 
+// A Squirrel install/update/uninstall launch only runs Update.exe; the
+// handler quits once it finishes, so the app itself must not start.
 const isSquirrelEvent = handleSquirrelEvent({
   platform: process.platform,
   argv: process.argv,
   execPath: process.execPath,
   spawn,
   quit: () => app.quit(),
+  logError: (message, error) => console.error(message, error),
 });
-if (isSquirrelEvent) process.exit();
 
 // Squirrel auto-launches the app with --squirrel-firstrun after install completes.
 // Exit immediately so the installer process tree terminates cleanly.
@@ -17,8 +21,6 @@ if (isSquirrelEvent) process.exit();
 if (process.argv.includes('--squirrel-firstrun')) {
   app.exit(0);
 }
-import path from 'path';
-import { registerIpcHandlers, getBridgeRunner } from './ipc-handlers.js';
 
 // Catch unhandled rejections from third-party libraries (e.g. stagelinq retry failures)
 // so they log a warning instead of crashing the process.
@@ -59,36 +61,42 @@ function createWindow(): BrowserWindow {
   return mainWindow;
 }
 
-app.whenReady().then(() => {
-  // Set Content Security Policy for all renderer pages
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': [
-          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
-        ],
-      },
+function startApp(): void {
+  app.whenReady().then(() => {
+    // Set Content Security Policy for all renderer pages
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+          ],
+        },
+      });
+    });
+
+    createWindow();
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
     });
   });
 
-  createWindow();
+  app.on('window-all-closed', async () => {
+    // Stop bridge on quit
+    const runner = getBridgeRunner();
+    if (runner.isRunning) {
+      await runner.stop();
+    }
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+    if (process.platform !== 'darwin') {
+      app.quit();
     }
   });
-});
+}
 
-app.on('window-all-closed', async () => {
-  // Stop bridge on quit
-  const runner = getBridgeRunner();
-  if (runner.isRunning) {
-    await runner.stop();
-  }
-
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
+if (!isSquirrelEvent) {
+  startApp();
+}

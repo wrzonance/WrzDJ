@@ -1,51 +1,75 @@
 import { describe, it, expect, vi } from 'vitest';
-import path from 'path';
 import { handleSquirrelEvent, type SquirrelDeps } from '../squirrel-startup';
 
 const EXEC_PATH = 'C:\\Users\\dj\\AppData\\Local\\wrzdj_bridge\\app-1.0.0\\WrzDJ Bridge.exe';
+// Literal Windows paths, so the expectations don't depend on the host's path module.
+const UPDATE_EXE = 'C:\\Users\\dj\\AppData\\Local\\wrzdj_bridge\\Update.exe';
+const TARGET = 'WrzDJ Bridge.exe';
 
 function makeDeps(overrides: Partial<SquirrelDeps> = {}) {
-  const onClose = vi.fn();
-  const spawn = vi.fn(() => ({ on: onClose }));
+  const listeners = new Map<string, (arg?: unknown) => void>();
+  const child = {
+    on: vi.fn((event: string, listener: (arg?: unknown) => void) => {
+      listeners.set(event, listener);
+      return child;
+    }),
+  };
+  const spawn = vi.fn(() => child);
   const quit = vi.fn();
+  const logError = vi.fn();
   const deps: SquirrelDeps = {
     platform: 'win32',
     argv: [EXEC_PATH],
     execPath: EXEC_PATH,
     spawn,
     quit,
+    logError,
     ...overrides,
   };
-  return { deps, spawn, quit, onClose };
+  return { deps, spawn, quit, logError, listeners };
 }
-
-const updateExe = path.resolve(path.dirname(EXEC_PATH), '..', 'Update.exe');
-const target = path.basename(EXEC_PATH);
 
 describe('handleSquirrelEvent', () => {
   it.each(['--squirrel-install', '--squirrel-updated'])(
-    'creates the shortcut via Update.exe and quits when it closes on %s',
+    'creates the shortcut via Update.exe on %s and quits only once it closes',
     (flag) => {
-      const { deps, spawn, quit, onClose } = makeDeps({ argv: [EXEC_PATH, flag] });
+      const { deps, spawn, quit, listeners } = makeDeps({ argv: [EXEC_PATH, flag] });
 
       expect(handleSquirrelEvent(deps)).toBe(true);
-      expect(spawn).toHaveBeenCalledWith(updateExe, [`--createShortcut=${target}`], {
+      expect(spawn).toHaveBeenCalledWith(UPDATE_EXE, [`--createShortcut=${TARGET}`], {
         detached: true,
       });
-      expect(onClose).toHaveBeenCalledWith('close', quit);
+      expect(quit).not.toHaveBeenCalled();
+
+      listeners.get('close')?.();
+      expect(quit).toHaveBeenCalledOnce();
     },
   );
 
   it('removes the shortcut via Update.exe on --squirrel-uninstall', () => {
-    const { deps, spawn, onClose, quit } = makeDeps({
+    const { deps, spawn, quit, listeners } = makeDeps({
       argv: [EXEC_PATH, '--squirrel-uninstall'],
     });
 
     expect(handleSquirrelEvent(deps)).toBe(true);
-    expect(spawn).toHaveBeenCalledWith(updateExe, [`--removeShortcut=${target}`], {
+    expect(spawn).toHaveBeenCalledWith(UPDATE_EXE, [`--removeShortcut=${TARGET}`], {
       detached: true,
     });
-    expect(onClose).toHaveBeenCalledWith('close', quit);
+    listeners.get('close')?.();
+    expect(quit).toHaveBeenCalledOnce();
+  });
+
+  it('logs and quits when Update.exe cannot be spawned', () => {
+    const { deps, quit, logError, listeners } = makeDeps({
+      argv: [EXEC_PATH, '--squirrel-install'],
+    });
+
+    expect(handleSquirrelEvent(deps)).toBe(true);
+    const failure = new Error('spawn Update.exe ENOENT');
+    listeners.get('error')?.(failure);
+
+    expect(logError).toHaveBeenCalledWith(expect.stringContaining('Update.exe'), failure);
+    expect(quit).toHaveBeenCalledOnce();
   });
 
   it('quits without spawning on --squirrel-obsolete', () => {
